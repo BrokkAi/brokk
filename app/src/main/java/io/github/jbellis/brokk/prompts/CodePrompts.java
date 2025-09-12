@@ -398,8 +398,8 @@ public abstract class CodePrompts {
 
         // Group failed blocks by filename
         var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().filename() != null) // Only include blocks with filenames
-                .collect(Collectors.groupingBy(fb -> fb.block().filename()));
+                .filter(fb -> fb.block().rawFileName() != null) // Only include blocks with filenames
+                .collect(Collectors.groupingBy(fb -> fb.block().rawFileName()));
 
         int totalFailCount = failedBlocks.size();
         boolean singularFail = (totalFailCount == 1);
@@ -411,7 +411,7 @@ public abstract class CodePrompts {
                       <instructions>
                       # %d SEARCH/REPLACE block%s failed to match in %d files!
 
-                      Take a look at the CURRENT state of the relevant file%s provided below in the `<current_content>` tags.
+                      Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
                       If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
                       Remember that the SEARCH text within a `<block>` must match EXACTLY the lines in the file -- but
                       I can accommodate whitespace differences, so if you think the only problem is whitespace, you need to look closer.
@@ -427,21 +427,6 @@ public abstract class CodePrompts {
                 .map(entry -> {
                     var filename = entry.getKey();
                     var fileFailures = entry.getValue();
-                    var file = cm.toFile(filename);
-                    String currentContentBlock;
-                    try {
-                        var content = file.read();
-                        currentContentBlock =
-                                """
-                                              <current_content>
-                                              %s
-                                              </current_content>
-                                              """
-                                        .formatted(content.isBlank() ? "[File is empty]" : content)
-                                        .stripIndent();
-                    } catch (java.io.IOException e) {
-                        return null;
-                    }
 
                     String failedBlocksXml = fileFailures.stream()
                             .map(f -> {
@@ -468,17 +453,14 @@ public abstract class CodePrompts {
 
                     return """
                            <file name="%s">
-                           %s
-
                            <failed_blocks>
                            %s
                            </failed_blocks>
                            </file>
                            """
-                            .formatted(filename, currentContentBlock, failedBlocksXml)
+                            .formatted(filename, failedBlocksXml)
                             .stripIndent();
                 })
-                .filter(Objects::nonNull)
                 .collect(Collectors.joining("\n\n"));
 
         // Add info about successful blocks, if any
@@ -629,7 +611,7 @@ public abstract class CodePrompts {
                     readOnlyImageFragments.add(ImageContent.from(l4jImage));
                     // Add a placeholder in the text part for reference
                     readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
-                } catch (IOException e) {
+                } catch (IOException | UncheckedIOException e) {
                     logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
                     // Add a placeholder indicating the error, do not call removeBadFragment from here
                     readOnlyTextFragments.append(String.format(
@@ -781,7 +763,7 @@ public abstract class CodePrompts {
 
         // Create the main UserMessage
         var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing the Workspace contents."));
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
     /**

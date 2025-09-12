@@ -16,7 +16,7 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
@@ -26,6 +26,8 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
+import io.github.jbellis.brokk.util.ExecutorValidator;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.*;
@@ -235,7 +237,9 @@ public class ArchitectAgent {
         this.offerUndoToolNext = true;
         var summary =
                 """
-                CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
+                CodeAgent was not able to get to a clean build. Changes were made but can be undone with 'undoLastChanges'
+                if CodeAgent made negative progress; you will have to determine this from the summary here and the
+                current Workspace contents.
                 <summary>
                 %s
                 </summary>
@@ -265,7 +269,7 @@ public class ArchitectAgent {
             }
 
             // --------------------------------------------------------------------
-            var gws = new GitWorkflowService(contextManager);
+            var gws = new GitWorkflow(contextManager);
             var result = gws.commit(List.of(), message == null ? "" : message.trim());
 
             var summary = "Committed %s - \"%s\"".formatted(result.commitId(), result.firstLine());
@@ -321,7 +325,7 @@ public class ArchitectAgent {
                 throw new IllegalStateException("No 'origin' remote configured for this repository.");
             }
 
-            var gws = new GitWorkflowService(contextManager);
+            var gws = new GitWorkflow(contextManager);
 
             // Auto-generate title/body if blank
             if (title.isBlank() || body.isBlank()) {
@@ -383,11 +387,51 @@ public class ArchitectAgent {
     public String runShellCommand(@P("The shell command to execute, for example `./gradlew test`") String command)
             throws InterruptedException {
         var cursor = messageCursor();
+        var project = contextManager.getProject();
+
+        // Show executor information to user
+        var executorConfig = ExecutorConfig.fromProject(project);
+        if (executorConfig != null) {
+            if (executorConfig.isValid()) {
+                io.llmOutput(
+                        "Custom executor configured: " + executorConfig.getDisplayName(),
+                        ChatMessageType.CUSTOM,
+                        true,
+                        false);
+                if (Environment.isSandboxAvailable()) {
+                    if (ExecutorValidator.isApprovedForSandbox(executorConfig)) {
+                        io.llmOutput(
+                                "Sandbox will use custom executor: " + executorConfig.getDisplayName(),
+                                ChatMessageType.CUSTOM,
+                                true,
+                                false);
+                    } else {
+                        io.llmOutput(
+                                "Sandbox will use /bin/sh (custom executor not approved for sandbox)",
+                                ChatMessageType.CUSTOM,
+                                true,
+                                false);
+                    }
+                }
+            } else {
+                io.llmOutput(
+                        "Custom executor configured but invalid: " + executorConfig,
+                        ChatMessageType.CUSTOM,
+                        true,
+                        false);
+            }
+        }
+
         io.llmOutput("Running shell command: " + command, ChatMessageType.CUSTOM, true, false);
         String output = null;
         try {
             output = Environment.instance.runShellCommand(
-                    command, java.nio.file.Path.of("."), true, io::systemOutput, Environment.UNLIMITED_TIMEOUT);
+                    command,
+                    java.nio.file.Path.of("."),
+                    true,
+                    io::systemOutput,
+                    Environment.UNLIMITED_TIMEOUT,
+                    project);
         } catch (Environment.SubprocessException e) {
             throw new RuntimeException(e);
         }

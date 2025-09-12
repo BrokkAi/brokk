@@ -25,6 +25,7 @@ import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
 import dev.langchain4j.model.chat.request.json.JsonNumberSchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -125,7 +126,7 @@ public class Llm {
      * @return The Path object representing the base history directory.
      */
     public static Path getHistoryBaseDir(Path projectRoot) {
-        return projectRoot.resolve(".brokk").resolve(HISTORY_DIR_NAME);
+        return projectRoot.resolve(AbstractProject.BROKK_DIR).resolve(HISTORY_DIR_NAME);
     }
 
     /**
@@ -150,8 +151,10 @@ public class Llm {
             throw new InterruptedException();
         }
 
-        // latch for awaiting the complete response
-        var latch = new CountDownLatch(1);
+        // latch for awaiting any response from llm
+        var llmResponseLatch = new AtomicReference<>(new CountDownLatch(1));
+        var firstToken = new AtomicBoolean(true);
+        var completed = new AtomicBoolean(false);
         var cancelled = new AtomicBoolean(false);
         var lock = new ReentrantLock(); // Used by ifNotCancelled
 
@@ -171,8 +174,12 @@ public class Llm {
                 // litellm is fucking us over again, try to recover
                 logger.error(e);
                 errorRef.set(e);
-                latch.countDown(); // Ensure we release the lock if an exception occurs
+                completed.set(true); // Ensure we release the lock if an exception occurs
             } finally {
+                if (firstToken.get()) {
+                    firstToken.set(false);
+                }
+                requireNonNull(llmResponseLatch.get()).countDown();
                 lock.unlock();
             }
         };
@@ -191,9 +198,13 @@ public class Llm {
             @Override
             public void onReasoningResponse(String reasoningContent) {
                 ifNotCancelled.accept(() -> {
-                    accumulatedReasoningBuilder.append(reasoningContent);
+                    // Gate formatting to GPT-5 only, and only after the first reasoning chunk
+                    boolean isGpt5 = contextManager.getService().nameOf(model).equals(Service.GPT_5);
+                    String out = isGpt5 ? addReasoningNewlinesForGpt5(reasoningContent) : reasoningContent;
+
+                    accumulatedReasoningBuilder.append(out);
                     if (echo) {
-                        io.llmOutput(reasoningContent, ChatMessageType.AI, false, true);
+                        io.llmOutput(out, ChatMessageType.AI, false, true);
                     }
                 });
             }
@@ -219,7 +230,7 @@ public class Llm {
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
-                    latch.countDown();
+                    completed.set(true);
                 });
             }
 
@@ -229,7 +240,7 @@ public class Llm {
                     logger.debug(th);
                     io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
-                    latch.countDown();
+                    completed.set(true);
                 });
             }
         };
@@ -239,14 +250,21 @@ public class Llm {
         model.chat(request, finalHandler);
 
         try {
-            if (!latch.await(Service.LLM_MAX_RESPONSE_TIME, TimeUnit.SECONDS)) {
+            while (!completed.get()) {
+                var llmResponseTimeout = getLlmResponseTimeoutSeconds(firstToken.get());
+                boolean timeout = !requireNonNull(llmResponseLatch.get()).await(llmResponseTimeout, TimeUnit.SECONDS);
                 lock.lock(); // LockNotBeforeTry
                 try {
-                    cancelled.set(true); // Ensure callback stops echoing
+                    if (timeout) {
+                        cancelled.set(true); // Ensure callback stops echoing
+                        errorRef.set(new HttpException(504, "LLM timed out"));
+                        completed.set(true);
+                    } else {
+                        llmResponseLatch.set(new CountDownLatch(1));
+                    }
                 } finally {
                     lock.unlock();
                 }
-                errorRef.set(new HttpException(504, "LLM timed out"));
             }
         } catch (InterruptedException e) {
             lock.lock(); // LockNotBeforeTry
@@ -285,6 +303,25 @@ public class Llm {
             io.llmOutput("\n", ChatMessageType.AI);
         }
         return StreamingResult.fromResponse(response, null);
+    }
+
+    private long getLlmResponseTimeoutSeconds(boolean firstToken) {
+        long firstTokenTimeoutSeconds = Service.getProcessingTier(model) == Service.ProcessingTier.FLEX
+                ? Service.FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
+                : Service.DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
+        return firstToken ? firstTokenTimeoutSeconds : Service.NEXT_TOKEN_TIMEOUT_SECONDS;
+    }
+
+    /**
+     * GPT-5 reasoning formatting workaround: Insert two newlines before an opening "**" when we are mid-message (not
+     * the first chunk). Regex matches "**" not preceded by a newline or word char, followed by a word char, and not
+     * part of "***".
+     */
+    private static String addReasoningNewlinesForGpt5(String text) {
+        if (!text.isEmpty()) {
+            return text.replaceAll("(?<!\\n)(?<!\\w)\\*\\*(?=\\w)(?!\\*)", "\n\n**");
+        }
+        return text;
     }
 
     private static class LitellmException extends LangChain4jException {
@@ -968,7 +1005,10 @@ public class Llm {
             List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
-                    var parametersInfo = tool.parameters().properties().entrySet().stream()
+                    var props = tool.parameters() == null
+                            ? Map.<String, JsonSchemaElement>of()
+                            : tool.parameters().properties();
+                    var parametersInfo = props.entrySet().stream()
                             .map(entry -> {
                                 var schema = entry.getValue();
                                 String description;
@@ -1021,7 +1061,9 @@ public class Llm {
                                         .formatted(
                                                 entry.getKey(),
                                                 type,
-                                                tool.parameters().required().contains(entry.getKey()),
+                                                requireNonNull(tool.parameters())
+                                                        .required()
+                                                        .contains(entry.getKey()),
                                                 description);
                             })
                             .collect(Collectors.joining("\n"));

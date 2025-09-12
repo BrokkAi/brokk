@@ -189,13 +189,20 @@ public class FuzzyMatcher {
         // Calculate base score using the logic from MinusculeMatcherImpl.matchingDegree
         int degree = calculateScore(name, fragments);
 
-        // Add bonus if the match starts at the beginning (PreferStartMatchMatcherWrapper logic)
+        // Reward matches that start at the beginning of the name (prefix matches).
+        // This ensures queries like "arch" prefer "ArchitectOptions" (startIndex == 0)
+        // over "getArchitecture" (startIndex > 0).
         var headFragment = requireNonNull(fragments.getHead());
-        if (headFragment.getStartOffset() == 0) {
-            // The original `matchingDegree` returns higher for better. We'll calculate it that way
-            // and then invert. The START_MATCH_WEIGHT is a large positive bonus.
+        int startIndex = headFragment.getStartOffset();
+        if (startIndex == 0) {
             degree += START_MATCH_WEIGHT;
         }
+
+        // Add a small proximity bonus that favors earlier starts smoothly (tunable).
+        // Smaller startIndex => larger bonus. This helps ordering between startIndex==0 and small offsets.
+        // Tuning constants: base 400, decay 40 per char of offset.
+        int startProximityBonus = Math.max(0, 400 - startIndex * 40);
+        degree += startProximityBonus;
 
         // Invert the score: Higher internal degree means better match, so return a smaller number.
         // Use negative degree for simplicity and clarity that lower is better, matching test expectations.

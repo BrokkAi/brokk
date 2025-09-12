@@ -94,6 +94,7 @@ public class HistoryOutputPanel extends JPanel {
 
         // Build combined Output + Instructions panel (Center)
         this.llmStreamArea = new MarkdownOutputPanel();
+        this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new JButton("Copy");
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
@@ -235,7 +236,7 @@ public class HistoryOutputPanel extends JPanel {
         newSessionButton.addActionListener(e -> {
             contextManager
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> SwingUtilities.invokeLater(this::updateSessionComboBox));
+                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         });
         // Split-arrow menu → session with copied workspace
         newSessionButton.setMenuSupplier(() -> {
@@ -244,7 +245,8 @@ public class HistoryOutputPanel extends JPanel {
             copyWorkspaceItem.addActionListener(ev -> {
                 contextManager
                         .createSessionFromContextAsync(contextManager.topContext(), ContextManager.DEFAULT_SESSION_NAME)
-                        .thenRun(() -> SwingUtilities.invokeLater(this::updateSessionComboBox));
+                        .thenRun(() ->
+                                contextManager.getProject().getMainProject().sessionsListChanged());
             });
             popup.add(copyWorkspaceItem);
             return popup;
@@ -256,19 +258,19 @@ public class HistoryOutputPanel extends JPanel {
             var popup = new JPopupMenu();
 
             var renameItem = new JMenuItem("Rename Current Session");
-            renameItem.addActionListener(ev -> SessionsDialog.renameCurrentSession(
-                    HistoryOutputPanel.this, chrome, contextManager, HistoryOutputPanel.this));
+            renameItem.addActionListener(
+                    ev -> SessionsDialog.renameCurrentSession(HistoryOutputPanel.this, chrome, contextManager));
             popup.add(renameItem);
 
             var deleteItem = new JMenuItem("Delete Current Session");
-            deleteItem.addActionListener(ev -> SessionsDialog.deleteCurrentSession(
-                    HistoryOutputPanel.this, chrome, contextManager, HistoryOutputPanel.this));
+            deleteItem.addActionListener(
+                    ev -> SessionsDialog.deleteCurrentSession(HistoryOutputPanel.this, chrome, contextManager));
             popup.add(deleteItem);
 
             return popup;
         });
         manageSessionsButton.addActionListener(e -> {
-            var dialog = new SessionsDialog(HistoryOutputPanel.this, chrome, contextManager);
+            var dialog = new SessionsDialog(chrome, contextManager);
             dialog.setVisible(true);
         });
 
@@ -580,7 +582,7 @@ public class HistoryOutputPanel extends JPanel {
             }
 
             // Update session combo box after table update
-            updateSessionComboBox();
+            contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
         });
@@ -832,6 +834,7 @@ public class HistoryOutputPanel extends JPanel {
 
             // Create markdown panel with the text
             outputPanel = new MarkdownOutputPanel();
+            outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
             outputPanel.updateTheme(isDark);
             outputPanel.setBlocking(isBlockingMode);
             outputPanel.setText(output);

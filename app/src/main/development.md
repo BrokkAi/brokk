@@ -6,43 +6,31 @@ This is a multi-module Gradle project with Kotlin DSL:
 
 - **`analyzer-api`** - Core analyzer interfaces and types (1% of codebase, compiled with javac)
 - **`app`** - Java 21 main application with TreeSitter analyzers (94% of codebase, compiled with javac)
-- **`joern-analyzers`** - Scala 3.5.2 analyzers using Joern CPG (5% of codebase, compiled with scalac)
 
 ### Module Dependency Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Module Dependencies                      │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    Module Dependencies                    │
+└───────────────────────────────────────────────────────────┘
 
                     ┌──────────────────────┐
                     │        app           │
                     │                      │
                     │ • GUI Application    │
                     │ Compiler: javac      │
-                    │ Size: ~94%           │
                     └──────────────────────┘
                              │
-                             │
-          ┌──────────────────┼──────────────────┐
-          │ implementation                      │ implementation
-          │                                     │
-          ▼                                     ▼
-┌─────────────────┐                 ┌─────────────────┐
-│   analyzer-api  │◄────────────────│ joern-analyzers │
-│                 │  implementation │                 │
-│ • IAnalyzer     │                 │ • JavaAnalyzer  │
-│ • CodeUnit      │                 │ • CppAnalyzer   │
-│ • ProjectFile   │                 │ • JoernAnalyzer │
-│ • BrokkFile     │                 │ • CPG Builder   │
-│                 │                 │                 │
-│ Compiler: javac │                 │ Compiler: scalac│
-│ Size: ~1%       │                 │ Size: ~5%       │
-└─────────────────┘                 └─────────────────┘
+                             │ implementation
+                             ▼
+                    ┌─────────────────┐
+                    │  analyzer-api   │
+                    │                 │
+                    │ Compiler: javac │
+                    └─────────────────┘
 
 Dependencies:
-• app → analyzer-api, joern-analyzers
-• joern-analyzers → analyzer-api
+• app → analyzer-api
 • analyzer-api → (no dependencies)
 ```
 
@@ -88,13 +76,10 @@ npm run preview
 ### Development Workflow - Individual Projects
 - `./gradlew :analyzer-api:compileJava` - Compile API interfaces only
 - `./gradlew :app:compileJava` - Compile Java code only
-- `./gradlew :joern-analyzers:compileScala` - Compile Scala code only
 - `./gradlew :analyzer-api:classes` - Compile analyzer-api (Java)
 - `./gradlew :app:classes` - Compile app (Java)
-- `./gradlew :joern-analyzers:classes` - Compile joern-analyzers (Scala)
 - `./gradlew :analyzer-api:assemble` - Build API module only
 - `./gradlew :app:assemble` - Build app project only
-- `./gradlew :joern-analyzers:assemble` - Build Joern analyzers only
 
 ### Testing
 - `./gradlew test` - Run all tests (includes TreeSitter and regular tests)
@@ -103,7 +88,6 @@ npm run preview
 #### Running Tests by Project
 - `./gradlew :analyzer-api:test` - Run tests only in the API module
 - `./gradlew :app:test` - Run tests only in the app Java project
-- `./gradlew :joern-analyzers:test` - Run tests only in the Joern analyzers project
 
 #### Running Test Subsets
 - `./gradlew test --tests "*AnalyzerTest"` - Run all analyzer tests (includes TreeSitter)
@@ -115,7 +99,6 @@ npm run preview
 #### Project-Specific Test Patterns
 - `./gradlew :analyzer-api:test --tests "*Analyzer*"` - Run API interface tests
 - `./gradlew :app:test --tests "*GitRepo*"` - Run Git-related tests in app project
-- `./gradlew :joern-analyzers:test --tests "*Analyzer*"` - Run analyzer tests in Joern project
 
 #### Test Configuration Notes
 - **Unified test suite**: All tests run together in a single forked JVM
@@ -127,7 +110,6 @@ After running tests, detailed reports are automatically generated:
 - **All Projects**: `build/reports/tests/test/index.html` - Combined test results
 - **analyzer-api**: `analyzer-api/build/reports/tests/test/index.html` - API module tests
 - **app**: `app/build/reports/tests/test/index.html` - Java project tests
-- **joern-analyzers**: `joern-analyzers/build/reports/tests/test/index.html` - Joern project tests
 - **Console Output**: Real-time test progress with pass/fail/skip status
 
 ### Code Formatting
@@ -136,9 +118,6 @@ After running tests, detailed reports are automatically generated:
 - `./gradlew tidy` - Format all Java code. (Alias for `./gradlew spotlessApply`)
 - `./gradlew spotlessCheck` - Check if code formatting is correct (CI-friendly)
 - `./gradlew spotlessInstallGitPrePushHook` - Install pre-push hook for automatic formatting checks
-
-#### Scala Code (joern-analyzers)
-- `./gradlew :joern-analyzers:scalafmt` - Format Scala code
 
 ### Dependency Management
 
@@ -180,7 +159,6 @@ The build system uses aggressive multi-level caching for optimal performance:
 ### Performance Tips
 - Keep Gradle daemon running (`gradle.properties` enables this with 6GB heap)
 - Use `./gradlew :app:classes` for fastest Java-only development
-- Use `./gradlew :joern-analyzers:classes` for Scala-only development
 - Use `./gradlew classes` to compile both projects
 - Use `./gradlew assemble` for development (skips tests, no JARs)
 - Configuration cache automatically optimizes repeated builds
@@ -246,15 +224,45 @@ Configuration is defined in the root `package.json`:
 ### Local jDeploy Usage
 
 ```bash
-# Build JAR first
+# 1. Build the shadow JAR first
 ./gradlew shadowJar
 
-# Package with jDeploy
-npm install -g jdeploy  # If not installed
-jdeploy package         # Creates jdeploy-bundle/
+# 2. Get the current git version (same as CI does)
+VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --always --dirty=-SNAPSHOT)
 
-# Test packaged application
-node jdeploy-bundle/jdeploy.js
+# 3. Update both version and JAR path in package.json
+JAR_FILE=$(find app/build/libs -name "brokk-*.jar" | head -1)
+jq '.version = "'$VERSION'" | .jdeploy.jar = "'$JAR_FILE'"' package.json > package.tmp.json && mv package.tmp.json package.json
+
+# 4. Install jDeploy if not installed
+npm install -g jdeploy
+
+# 5. Package with jDeploy
+jdeploy package
+
+# 6. Test the packaged application
+./jdeploy-bundle/jdeploy.js
+
+# Alternative: Install locally for testing (links to PATH)
+jdeploy install
+# Then run from anywhere: brokk
+
+# Alternative: Test JAR directly without jDeploy
+java --add-modules jdk.incubator.vector -jar app/build/libs/brokk-*.jar
+
+# Optional: Build native installers locally
+# Define your target platforms (customize as needed):
+TARGETS="mac-x64,mac-arm64,win,linux"  # Available: mac-x64, mac-arm64, win, linux
+
+# Add bundles/installers to package.json:
+jq --argjson targets "$(echo $TARGETS | jq -R 'split(",")')" '.jdeploy.bundles = $targets | .jdeploy.installers = $targets' package.json > package.tmp.json && mv package.tmp.json package.json
+
+# Then package with installers
+jdeploy package
+
+# Generated files will be in:
+# - jdeploy/bundles/ - Platform-specific app bundles for selected targets
+# - jdeploy/installers/ - Native installers for selected targets
 ```
 
 ### Release Process Integration
@@ -302,3 +310,47 @@ To explore available Look and Feel icons for UI development:
 - Console list: `./gradlew run --args="io.github.jbellis.brokk.gui.SwingIconUtil"`
 
 Use `SwingUtil.uiIcon("IconName")` to safely load icons with automatic fallbacks.
+
+## Environment Variables
+
+### BRK_NO_LSP
+
+Controls whether the Java Language Server (JDT LSP) is started. When disabled, the app runs in TSA-only mode (TreeSitter
+analyzers only) which improves startup time and reduces memory usage, but advanced Java analysis (call graph, usages, 
+linting via JDT) will not be available.
+
+- Name: BRK_NO_LSP
+- Type: Boolean (case-insensitive)
+- Recognized truthy values: 1, true, t, yes, y, on
+- Recognized falsy values: 0, false, f, no, n, off
+- Empty string: treated as true (disables LSP)
+- Unrecognized values: defaults to true (disables LSP) and logs a warning
+- Unset: treated as false (LSP enabled)
+
+Notes:
+- Parsing is case-insensitive and uses Locale.ROOT.
+- When disabled, a message is logged and the JDT LSP is not started.
+- Methods relying on JDT capabilities degrade gracefully and return empty/no-op results.
+
+Examples:
+```bash
+# Disable LSP (preferred explicit)
+export BRK_NO_LSP=true
+
+# Disable LSP (any of these are equivalent)
+export BRK_NO_LSP=1
+export BRK_NO_LSP=YES
+export BRK_NO_LSP=on
+
+# Enable LSP explicitly
+export BRK_NO_LSP=false
+export BRK_NO_LSP=0
+export BRK_NO_LSP=off
+
+# Unset => LSP enabled (default)
+unset BRK_NO_LSP
+
+# Empty or invalid => LSP disabled (with warning on invalid)
+export BRK_NO_LSP=""
+export BRK_NO_LSP="maybe"  # logs warning, disables LSP
+```

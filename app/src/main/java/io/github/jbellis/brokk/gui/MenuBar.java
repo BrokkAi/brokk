@@ -195,7 +195,7 @@ public class MenuBar {
 
         var summarizeItem = new JMenuItem("Summarize");
         summarizeItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_M, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         summarizeItem.addActionListener(e -> {
             chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.SUMMARIZE, List.of());
         });
@@ -233,8 +233,7 @@ public class MenuBar {
         newSessionItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager()
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> SwingUtilities.invokeLater(
-                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
         }));
         contextMenu.add(newSessionItem);
 
@@ -245,8 +244,7 @@ public class MenuBar {
             chrome.getContextManager()
                     .createSessionFromContextAsync(
                             chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> SwingUtilities.invokeLater(
-                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
         }));
         contextMenu.add(newSessionCopyWorkspaceItem);
 
@@ -288,6 +286,15 @@ public class MenuBar {
                 e -> SwingUtilities.invokeLater(() -> ManageDependenciesDialog.show(chrome)));
         toolsMenu.add(manageDependenciesItem);
 
+        var scanProjectItem = new JMenuItem("Scan Project");
+        scanProjectItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            // Delegate to InstructionsPanel's scan flow which handles model selection, validation,
+            // and submission to ContextManager.
+            chrome.getInstructionsPanel().runScanProjectCommand();
+        }));
+        scanProjectItem.setEnabled(true);
+        toolsMenu.add(scanProjectItem);
+
         var upgradeAgentItem = new JMenuItem("BlitzForge...");
         upgradeAgentItem.addActionListener(e -> {
             SwingUtilities.invokeLater(() -> {
@@ -327,16 +334,16 @@ public class MenuBar {
                 windowMenu.add(projectFilesItem);
 
                 if (chrome.getProject().hasGit()) {
-                    var gitItem = new JMenuItem("Git");
+                    var gitItem = new JMenuItem("Commit");
                     gitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
                     gitItem.addActionListener(actionEvent -> {
-                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitPanel());
+                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
                     });
                     windowMenu.add(gitItem);
                 }
 
-                if (chrome.getProject().isGitHubRepo() && chrome.getGitPanel() != null) {
+                if (chrome.getProject().isGitHubRepo() && chrome.getProject().hasGit()) {
                     var pullRequestsItem = new JMenuItem("Pull Requests");
                     pullRequestsItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
                     pullRequestsItem.addActionListener(actionEvent -> {
@@ -348,7 +355,7 @@ public class MenuBar {
 
                 if (chrome.getProject().getIssuesProvider().type()
                                 != io.github.jbellis.brokk.issues.IssueProviderType.NONE
-                        && chrome.getGitPanel() != null) {
+                        && chrome.getProject().hasGit()) {
                     var issuesItem = new JMenuItem("Issues");
                     issuesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
                     issuesItem.addActionListener(actionEvent -> {

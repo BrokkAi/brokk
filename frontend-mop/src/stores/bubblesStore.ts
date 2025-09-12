@@ -93,14 +93,17 @@ export function onBrokkEvent(evt: BrokkEvent): void {
 }
 
 /* ─── entry from worker ───────────────────────────────── */
-export function reparseAll(): void {
+export function reparseAll(contextId = 'main-context'): void {
     bubblesStore.update(list => {
-        for (const bubble of list) {
+        // Clear HAST trees to force re-rendering when worker sends back results
+        const clearedList = list.map(bubble => ({...bubble, hast: undefined}));
+
+        for (const bubble of clearedList) {
             // Re-parse any bubble that has markdown content and might contain code.
             // skip updating the internal worker buffer, to give the worker the chance to go ahead where it stopped after reparseAll
             parse(bubble.markdown, bubble.seq, false);
         }
-        return list; // The list reference itself does not change
+        return clearedList; // Return new list with cleared HAST to trigger reactivity
     });
 }
 

@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
@@ -23,6 +24,7 @@ import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMod
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -349,8 +351,7 @@ public class WorkspacePanel extends JPanel {
                             var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
                             panel.showFragmentPreview(fragment);
                         }
-                        case VIEW_HISTORY ->
-                            requireNonNull(panel.chrome.getGitPanel()).addFileHistoryTab(file);
+                        case VIEW_HISTORY -> requireNonNull(panel.chrome).addFileHistoryTab(file);
                         default ->
                             throw new UnsupportedOperationException(
                                     "File action not implemented: " + WorkspaceAction.this);
@@ -1128,7 +1129,31 @@ public class WorkspacePanel extends JPanel {
         locSummaryPanel.add(innerLabel);
         locSummaryPanel.add(costLabel);
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
-        contextSummaryPanel.add(locSummaryPanel, BorderLayout.NORTH);
+
+        // Add button to show Add popup (same menu as table's Add)
+        MaterialButton addButton = new MaterialButton();
+        addButton.setIcon(Icons.ATTACH_FILE);
+        addButton.setToolTipText("Add content to workspace");
+        addButton.setFocusable(false);
+        addButton.setOpaque(false);
+        addButton.addActionListener(e -> {
+            JPopupMenu popup = AddMenuFactory.buildAddPopup(WorkspacePanel.this);
+            chrome.themeManager.registerPopupMenu(popup);
+            popup.show(addButton, 0, addButton.getHeight());
+        });
+
+        // Container to hold the summary labels and the add button
+        JPanel summaryWithAdd = new JPanel(new BorderLayout());
+        summaryWithAdd.setOpaque(false);
+        summaryWithAdd.add(locSummaryPanel, BorderLayout.CENTER);
+
+        // Wrap the button so it vertically centers nicely with the labels
+        JPanel buttonWrapper = new JPanel(new GridBagLayout());
+        buttonWrapper.setOpaque(false);
+        buttonWrapper.add(addButton);
+        summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+
+        contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
 
         // Warning panel (for red/yellow context size warnings)
         warningPanel = new JPanel(new BorderLayout()); // Changed to BorderLayout
@@ -1604,9 +1629,11 @@ public class WorkspacePanel extends JPanel {
                     return;
                 }
 
-                String symbol = showSymbolSelectionDialog("Select Symbol", CodeUnitType.ALL);
-                if (symbol != null && !symbol.isBlank()) {
-                    contextManager.usageForIdentifier(symbol);
+                var selection = showSymbolSelectionDialog("Select Symbol", CodeUnitType.ALL);
+                if (selection != null
+                        && selection.symbol() != null
+                        && !selection.symbol().isBlank()) {
+                    contextManager.usageForIdentifier(selection.symbol(), selection.includeTestFiles());
                 } else {
                     chrome.systemOutput("No symbol selected.");
                 }
@@ -1684,7 +1711,8 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Show the symbol selection dialog with a type filter */
-    private @Nullable String showSymbolSelectionDialog(String title, Set<CodeUnitType> typeFilter) {
+    private @Nullable SymbolSelectionDialog.SymbolSelection showSymbolSelectionDialog(
+            String title, Set<CodeUnitType> typeFilter) {
         var analyzer = contextManager.getAnalyzerUninterrupted();
         var dialogRef = new AtomicReference<SymbolSelectionDialog>();
         SwingUtil.runOnEdt(() -> {
@@ -1695,10 +1723,7 @@ public class WorkspacePanel extends JPanel {
             dialogRef.set(dialog);
         });
         var dialog = castNonNull(dialogRef.get());
-        if (dialog.isConfirmed()) {
-            return dialog.getSelectedSymbol();
-        }
-        return null;
+        return dialog.isConfirmed() ? dialog.getSelection() : null;
     }
 
     /** Show the call graph dialog for configuring method and depth */
@@ -1978,13 +2003,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Add as string fragment (possibly converted from HTML)
-            Future<String> summaryFuture = contextManager.submitSummarizePastedText(content);
-            String finalContent = content;
-            contextManager.pushContext(ctx -> {
-                var fragment = new ContextFragment.PasteTextFragment(
-                        contextManager, finalContent, summaryFuture); // Pass contextManager
-                return ctx.addVirtualFragment(fragment);
-            });
+            contextManager.addPastedTextFragment(content);
 
             // Inform the user about what happened
             if (stacktrace == null) {

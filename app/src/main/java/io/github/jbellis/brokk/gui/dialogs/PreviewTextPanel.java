@@ -9,6 +9,7 @@ import com.google.common.collect.Iterables;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IConsoleIO;
@@ -22,6 +23,7 @@ import io.github.jbellis.brokk.gui.VoiceInputButton;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -457,23 +459,23 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                 }
 
                                                 if (codeUnit.isFunction() || codeUnit.isClass()) {
-                                                    var sourceCodeAvailable = capabilities.hasSource();
+                                                    var sourceCodeAvailable =
+                                                            SourceCaptureUtil.isSourceCaptureAvailable(
+                                                                    codeUnit, capabilities.hasSource());
                                                     var sourceItem = new JMenuItem("<html>Capture source of <code>"
                                                             + identifier + "</code></html>");
                                                     dynamicMenuItems.add(sourceItem);
 
                                                     sourceItem.setEnabled(sourceCodeAvailable);
                                                     if (sourceCodeAvailable) {
-                                                        // Use a local variable for the action listener lambda
+                                                        // Use shared utility for consistent behavior
                                                         sourceItem.addActionListener(action -> {
-                                                            contextManager.submitBackgroundTask(
-                                                                    "Capture Source Code",
-                                                                    () -> contextManager.sourceCodeForCodeUnit(
-                                                                            codeUnit));
+                                                            SourceCaptureUtil.captureSourceForCodeUnit(
+                                                                    codeUnit, contextManager);
                                                         });
                                                     } else {
                                                         sourceItem.setToolTipText(
-                                                                "Code intelligence does not support source code capturing for this language.");
+                                                                SourceCaptureUtil.getSourceCaptureUnavailableTooltip());
                                                     }
                                                 }
                                             });
@@ -553,17 +555,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         new Font(Font.DIALOG, Font.BOLD, 12)),
                 new EmptyBorder(5, 5, 5, 5)));
 
-        // Create edit area with the same styling as the command input in Chrome
-        var editArea = new RSyntaxTextArea(3, 40);
-        editArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-        editArea.setHighlightCurrentLine(false);
+        // Create edit area similar to InstructionsPanel
+        var editArea = new JTextArea(3, 40);
         editArea.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Color.GRAY), BorderFactory.createEmptyBorder(2, 5, 2, 5)));
         editArea.setLineWrap(true);
         editArea.setWrapStyleWord(true);
         editArea.setRows(3);
         editArea.setMinimumSize(new Dimension(100, 80));
-        editArea.setAutoIndentEnabled(false);
 
         // Scroll pane for edit area
         var scrollPane = new JScrollPane(editArea);
@@ -879,7 +878,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             throws ExecutionException, InterruptedException {
         var sessionResult = future.get(); // might throw InterruptedException or ExecutionException
         var stopDetails = sessionResult.stopDetails();
-        quickEditMessages = sessionResult.output().messages(); // Capture messages regardless of outcome
+        quickEditMessages = new ArrayList<>(sessionResult
+                .output()
+                .messages()); // Create mutable copy to avoid UnsupportedOperationException on clear()
 
         // If the LLM itself was not successful, return the error
         if (stopDetails.reason() != TaskResult.StopReason.SUCCESS) {
@@ -1020,8 +1021,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                 fileNameForDiff, fileNameForDiff, originalLines, patch, 3);
                         // Create the SessionResult representing the net change
                         var actionDescription = "Edited " + fileNameForDiff;
-                        // Include quick edit messages accumulated since last save + the current diff
-                        var messagesForHistory = new ArrayList<>(quickEditMessages);
+                        // Include filtered quick edit messages (without XML context) + the current diff
+                        var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
                         messagesForHistory.add(
                                 Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
                         var saveResult = new TaskResult(
@@ -1052,5 +1053,48 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 return false; // Save failed
             }
         });
+    }
+
+    /**
+     * Filters quick edit messages for history display, removing verbose XML context while preserving the essential user
+     * request and AI response.
+     */
+    private static List<ChatMessage> filterQuickEditMessagesForHistory(List<ChatMessage> quickEditMessages) {
+        var filteredMessages = new ArrayList<ChatMessage>();
+
+        for (ChatMessage message : quickEditMessages) {
+            if (message instanceof UserMessage userMessage) {
+                // Extract clean user request from QuickEditPrompts format
+                var cleanRequest = extractCleanUserRequest(Messages.getText(userMessage));
+                filteredMessages.add(new UserMessage(cleanRequest));
+            } else if (message instanceof AiMessage aiMessage) {
+                // Keep AI responses as-is (they contain the actual code changes)
+                filteredMessages.add(aiMessage);
+            }
+            // Skip system messages and other XML context
+        }
+
+        return filteredMessages;
+    }
+
+    /**
+     * Extracts a clean, readable user request from QuickEditPrompts.formatInstructions() output, removing XML markup
+     * and keeping only the essential goal and target information.
+     */
+    private static String extractCleanUserRequest(String formattedInstructions) {
+        // Parse the formatted instructions to extract goal and target
+        var goalPattern = Pattern.compile("<goal>\\s*(.*?)\\s*</goal>", Pattern.DOTALL);
+        var targetPattern = Pattern.compile("<target>\\s*```\\s*(.*?)\\s*```\\s*</target>", Pattern.DOTALL);
+
+        var goalMatcher = goalPattern.matcher(formattedInstructions);
+        var targetMatcher = targetPattern.matcher(formattedInstructions);
+
+        var goal = goalMatcher.find() ? goalMatcher.group(1).trim() : "[Goal not found]";
+        var target = targetMatcher.find() ? targetMatcher.group(1).trim() : "[Target code not found]";
+
+        // Create a clean, readable format
+        return "**Quick Edit Request:**\n\n" + "**Goal:** "
+                + goal + "\n\n" + "**Target code:**\n```\n"
+                + target + "\n```";
     }
 }

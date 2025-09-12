@@ -1,11 +1,13 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import java.awt.BorderLayout;
 import java.awt.Frame;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import javax.swing.AbstractAction;
+import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JDialog;
@@ -30,9 +32,11 @@ public final class DropActionDialog extends JDialog {
     }
 
     private void buildUi() {
-        var mainPanel = new JPanel(new BorderLayout(10, 10));
+        var mainPanel = new JPanel(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+        mainPanel.setBorder(
+                BorderFactory.createEmptyBorder(Constants.V_GAP, Constants.H_GAP, Constants.V_GAP, Constants.H_GAP));
 
-        var radiosPanel = new JPanel(new GridLayout(allowSummarize ? 3 : 2, 1, 4, 4));
+        var radiosPanel = new JPanel(new GridLayout(allowSummarize ? 3 : 2, 1, Constants.H_GAP, Constants.V_GAP));
         var edit = new JRadioButton("Edit");
         var read = new JRadioButton("Read");
 
@@ -76,7 +80,9 @@ public final class DropActionDialog extends JDialog {
 
         mainPanel.add(buttons, BorderLayout.SOUTH);
 
-        setContentPane(new JScrollPane(mainPanel));
+        var scroll = new JScrollPane(mainPanel);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        setContentPane(scroll);
     }
 
     /**

@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.cpg.CpgCache;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -41,7 +41,25 @@ public interface Language {
      */
     default Path getCpgPath(IProject project) {
         // Use oldName for CPG path to ensure stable and filesystem-safe names
-        return project.getRoot().resolve(".brokk").resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
+        return project.getRoot()
+                .resolve(AbstractProject.BROKK_DIR)
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
+    }
+
+    default boolean shouldDisableLsp() {
+        var raw = System.getenv("BRK_NO_LSP");
+        if (raw == null) return false;
+        var value = raw.trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) return true;
+        return switch (value) {
+            case "1", "true", "t", "yes", "y", "on" -> true;
+            case "0", "false", "f", "no", "n", "off" -> false;
+            default -> {
+                logger.warn("Environment variable BRK_NO_LSP='" + raw
+                        + "' is not a recognized boolean; defaulting to disabling LSP.");
+                yield true;
+            }
+        };
     }
 
     default List<Path> getDependencyCandidates(IProject project) {
@@ -132,7 +150,12 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return JavaAnalyzer.create(project);
+            if (shouldDisableLsp()) {
+                logger.info("BRK_NO_LSP disables JDT LSP; TSA-only mode.");
+                return new JavaTreeSitterAnalyzer(project);
+            } else {
+                return JavaAnalyzer.create(project);
+            }
         }
 
         @Override
@@ -468,21 +491,17 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return CpgCache.getOrCompute(project, this, () -> {
-                var cpgPath = getCpgPath(project);
-                return new CppAnalyzer(project.getRoot(), project.getExcludedDirectories(), cpgPath);
-            });
+            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            Path cpgPath = getCpgPath(project);
-            return CppAnalyzer$.MODULE$.loadAnalyzer(project.getRoot(), cpgPath);
+            return createAnalyzer(project);
         }
 
         @Override
         public boolean isCpg() {
-            return true;
+            return false;
         }
 
         @Override

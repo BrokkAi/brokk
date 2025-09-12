@@ -147,9 +147,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
+    private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
-    private final List<Runnable> serviceListeners = new CopyOnWriteArrayList<>();
+    private final List<Runnable> modelReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     // balance-notification state
@@ -177,17 +178,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
         contextListeners.remove(listener);
     }
 
+    @Override
+    public void addAnalyzerCallback(AnalyzerCallback callback) {
+        analyzerCallbacks.add(callback);
+    }
+
+    @Override
+    public void removeAnalyzerCallback(AnalyzerCallback callback) {
+        analyzerCallbacks.remove(callback);
+    }
+
     /**
      * Register a Runnable to be invoked when the Service (models / STT) is reinitialized. The Runnable is executed on
      * the EDT to allow UI updates.
      */
-    public void addServiceListener(Runnable listener) {
-        serviceListeners.add(listener);
+    public void addModelReloadListener(Runnable listener) {
+        modelReloadListeners.add(listener);
     }
 
-    /** Remove a previously registered service listener. */
-    public void removeServiceListener(Runnable listener) {
-        serviceListeners.remove(listener);
+    /** Remove a previously registered model reload listener. */
+    public void removeModelReloadListener(Runnable listener) {
+        modelReloadListeners.remove(listener);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -265,7 +276,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // load session contents
         var loadedCH = sessionManager.loadHistory(currentSessionId, this);
         if (loadedCH == null) {
-            contextHistory = new ContextHistory(new Context(this, buildWelcomeMessage()));
+            if (forceNew) {
+                contextHistory = new ContextHistory(new Context(this, buildWelcomeMessage()));
+            } else {
+                initializeCurrentSessionAndHistory(true);
+                return;
+            }
         } else {
             contextHistory = loadedCH;
         }
@@ -287,47 +303,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private void migrateToSessionsV3IfNeeded() {
         if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
-            submitBackgroundTask("Migrate sessions to V3", () -> {
-                var sessionsWithUnreadableHistory = new HashSet<UUID>();
+            submitBackgroundTask("Quarantine unreadable sessions", () -> {
                 var sessionManager = project.getSessionManager();
 
-                sessionManager.listSessions().stream().map(SessionInfo::id).forEach(session -> {
-                    // loading history triggers migration if needed
-                    if (sessionManager.loadHistory(session, this) == null) {
-                        sessionsWithUnreadableHistory.add(session);
-                    }
-                });
+                // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger
+                // migration
+                var report = sessionManager.quarantineUnreadableSessions(this);
 
-                // Avoid moving the currently active session to prevent disrupting the UI/session state
-                boolean skippedActive = sessionsWithUnreadableHistory.remove(currentSessionId);
-
-                int moved = 0;
-                for (var sessionId : sessionsWithUnreadableHistory) {
-                    try {
-                        sessionManager.moveSessionToUnreadable(sessionId);
-                        moved++;
-                    } catch (Exception e) {
-                        logger.warn(
-                                "Failed to move session {} with unreadable history to 'unreadable' folder",
-                                sessionId,
-                                e);
-                    }
-                }
-
+                // Mark migration pass complete to avoid re-running on subsequent startups
                 mainProject.setMigrationsToSessionsV3Complete(true);
 
-                logger.info(
-                        "Migrated sessions to V3; moved {} sessions with unreadable history to 'unreadable': {}",
-                        moved,
-                        sessionsWithUnreadableHistory.stream().sorted().toList());
-                if (skippedActive) {
-                    logger.info(
-                            "Skipped moving currently active session {} due to unreadable history; user may move or delete it manually.",
-                            currentSessionId);
+                // Log and refresh UI if anything was moved
+                logger.info("Quarantine complete; moved {} unreadable session zip(s).", report.movedCount());
+                if (report.movedCount() > 0 && io instanceof Chrome) {
+                    mainProject.sessionsListChanged();
                 }
-                if (moved > 0 && io instanceof Chrome chrome) {
-                    SwingUtilities.invokeLater(
-                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+
+                // If the active session was unreadable, create a new session and notify the user
+                if (report.quarantinedSessionIds().contains(currentSessionId)) {
+                    createOrReuseSession(DEFAULT_SESSION_NAME);
+                    SwingUtilities.invokeLater(() -> io.systemNotify(
+                            "Your previously active session was unreadable and has been moved to the 'unreadable' folder. A new session has been created.",
+                            "Session Quarantined",
+                            JOptionPane.WARNING_MESSAGE));
                 }
             });
         }
@@ -404,11 +402,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.updateCommitPanel();
 
                 // update Workspace
-                var fr = liveContext().freezeAndCleanup();
                 // we can't rely on pushContext's change detection because here we care about the contents and not the
                 // fragment identity
-                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                    processExternalFileChanges(fr);
+                if (processExternalFileChangesIfNeeded()) {
                     // analyzer refresh will call this too, but it will be delayed
                     io.updateWorkspace();
                 }
@@ -444,14 +440,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
 
                 // re-freeze context w/ new analyzer
-                var fr = liveContext().freezeAndCleanup();
-                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                    processExternalFileChanges(fr);
-                }
+                processExternalFileChangesIfNeeded();
                 io.updateWorkspace();
 
                 if (externalRequest && io instanceof Chrome chrome) {
                     chrome.notifyActionComplete("Analyzer rebuild completed");
+                }
+            }
+
+            @Override
+            public void onAnalyzerReady() {
+                logger.debug("Analyzer became ready, triggering symbol lookup refresh");
+                for (var callback : analyzerCallbacks) {
+                    try {
+                        callback.onAnalyzerReady();
+                    } catch (Exception e) {
+                        logger.warn("Analyzer callback failed", e);
+                    }
                 }
             }
         };
@@ -520,11 +525,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public AbstractProject getProject() {
         return project;
-    }
-
-    @Override
-    public ProjectFile toFile(String relName) {
-        return new ProjectFile(project.getRoot(), relName);
     }
 
     @Override
@@ -1047,6 +1047,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Handles capturing text, e.g. from a code block in the MOP. Submits a task to summarize the text and adds a
+     * PasteTextFragment to the context.
+     *
+     * @param text The text to capture.
+     */
+    public void addPastedTextFragment(String text) {
+        Future<String> descriptionFuture = submitSummarizePastedText(text);
+        var fragment = new ContextFragment.PasteTextFragment(this, text, descriptionFuture);
+        addVirtualFragment(fragment);
+    }
+
+    /**
      * Adds a specific PathFragment (like GitHistoryFragment) to the read-only part of the live context.
      *
      * @param fragment The PathFragment to add.
@@ -1074,9 +1086,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** usage for identifier */
     public void usageForIdentifier(String identifier) {
-        var fragment = new ContextFragment.UsageFragment(this, identifier);
+        usageForIdentifier(identifier, false);
+    }
+
+    /** usage for identifier with control over including test files */
+    public void usageForIdentifier(String identifier, boolean includeTestFiles) {
+        var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Added uses of " + identifier);
+        io.systemOutput("Added uses of " + identifier + (includeTestFiles ? " (including tests)" : ""));
     }
 
     public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
@@ -1389,44 +1406,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Processes external file changes by deciding whether to replace the top context or push a new one. If the current
-     * top context's action starts with "Loaded external changes", it updates the count and replaces it. Otherwise, it
-     * pushes a new context entry.
+     * Processes external file changes by checking for workspace content changes and then deciding whether to replace
+     * the top context or push a new one.
      *
-     * @param fr The FreezeResult containing the updated live and frozen contexts reflecting the external changes.
+     * @return true if context has changed, false otherwise
      */
-    private void processExternalFileChanges(Context.FreezeResult fr) {
-        var topCtx = topContext();
-        var previousAction = topCtx.getAction();
-        if (!previousAction.startsWith("Loaded external changes")) {
-            // If the previous action is not about external changes, push a new context
-            pushContext(currentLiveCtx -> fr.liveContext()
-                    .withParsedOutput(null, CompletableFuture.completedFuture("Loaded external changes")));
-            return;
+    private boolean processExternalFileChangesIfNeeded() {
+        var newFrozenContext = contextHistory.processExternalFileChangesIfNeeded();
+        if (newFrozenContext != null) {
+            contextPushed(newFrozenContext);
+            return true;
         }
-
-        // Parse the existing action to extract the count if present
-        var pattern = Pattern.compile("Loaded external changes(?: \\((\\d+)\\))?");
-        var matcher = pattern.matcher(previousAction);
-        int newCount;
-        if (matcher.matches() && matcher.group(1) != null) {
-            var countGroup = matcher.group(1);
-            try {
-                newCount = Integer.parseInt(countGroup) + 1;
-            } catch (NumberFormatException e) {
-                newCount = 2;
-            }
-        } else {
-            newCount = 2;
-        }
-
-        // Form the new action string with the updated count
-        var newAction = newCount > 1 ? "Loaded external changes (%d)".formatted(newCount) : "Loaded external changes";
-        var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
-        var cleaned = newLiveContext.freezeAndCleanup();
-        contextHistory.replaceTop(cleaned.liveContext(), cleaned.frozenContext());
-        SwingUtilities.invokeLater(() -> notifyContextListeners(cleaned.frozenContext()));
-        project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+        return false;
     }
 
     /**
@@ -1445,13 +1436,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return newLiveContext;
         }
 
-        var frozen = contextHistory.topContext();
-        captureGitState(frozen);
-        // Ensure listeners are notified on the EDT
-        SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
-
-        project.getSessionManager()
-                .saveHistory(contextHistory, currentSessionId); // Persist the history of frozen contexts
+        contextPushed(contextHistory.topContext());
 
         // Check conversation history length on the new live context
         if (!newLiveContext.getTaskHistory().isEmpty()) {
@@ -1478,6 +1463,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         return newLiveContext;
+    }
+
+    private void contextPushed(Context frozen) {
+        captureGitState(frozen);
+        // Ensure listeners are notified on the EDT
+        SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+
+        project.getSessionManager()
+                .saveHistory(contextHistory, currentSessionId); // Persist the history of frozen contexts
     }
 
     /**
@@ -1703,11 +1697,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     service.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
                     SwingUtilities.invokeLater(() -> {
-                        for (var l : serviceListeners) {
+                        for (var l : modelReloadListeners) {
                             try {
                                 l.run();
                             } catch (Exception e) {
-                                logger.warn("Service listener threw exception", e);
+                                logger.warn("Model reload listener threw exception", e);
                             }
                         }
                     });
@@ -1968,11 +1962,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (currentSession.isPresent()
                 && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
             renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
-                SwingUtilities.invokeLater(() -> {
-                    if (io instanceof Chrome chrome) {
-                        chrome.getHistoryOutputPanel().updateSessionComboBox();
-                    }
-                });
+                if (io instanceof Chrome) {
+                    project.getMainProject().sessionsListChanged();
+                }
             });
         }
 
@@ -2179,7 +2171,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private void switchToSession(UUID sessionId) {
         var sessionManager = project.getSessionManager();
-        updateActiveSession(sessionId); // Mark as active
 
         String sessionName = sessionManager.listSessions().stream()
                 .filter(s -> s.id().equals(sessionId))
@@ -2188,12 +2179,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .orElse("(Unknown Name)");
         logger.debug("Switched to session: {} ({})", sessionName, sessionId);
 
-        ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
+        ContextHistory loadedCh = sessionManager.loadHistory(sessionId, this);
 
         if (loadedCh == null) {
-            contextHistory = new ContextHistory(new Context(this, "Welcome to session: " + sessionName));
-            sessionManager.saveHistory(contextHistory, currentSessionId);
+            io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
         } else {
+            updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
         }
         notifyContextListeners(topContext());
@@ -2238,7 +2229,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.getSessionManager().deleteSession(sessionIdToDelete);
             logger.info("Deleted session {}", sessionIdToDelete);
             if (sessionIdToDelete.equals(currentSessionId)) {
-                createOrReuseSession(DEFAULT_SESSION_NAME);
+                var sessionToSwitchTo = project.getSessionManager().listSessions().stream()
+                        .max(Comparator.comparingLong(SessionInfo::created))
+                        .map(SessionInfo::id)
+                        .orElse(null);
+
+                if (sessionToSwitchTo != null
+                        && project.getSessionManager().loadHistory(sessionToSwitchTo, this) != null) {
+                    switchToSession(sessionToSwitchTo);
+                } else {
+                    createOrReuseSession(DEFAULT_SESSION_NAME);
+                }
             }
         });
 

@@ -24,6 +24,17 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
     public static final ObjectMapper objectMapper = new ObjectMapper();
 
+    // Brokk directory structure constants
+    public static final String BROKK_DIR = ".brokk";
+    public static final String SESSIONS_DIR = "sessions";
+    public static final String DEPENDENCIES_DIR = "dependencies";
+    public static final String CACHE_DIR = "cache";
+    public static final String PROJECT_PROPERTIES_FILE = "project.properties";
+    public static final String WORKSPACE_PROPERTIES_FILE = "workspace.properties";
+    public static final String STYLE_GUIDE_FILE = "style.md";
+    public static final String REVIEW_GUIDE_FILE = "review.md";
+    public static final String DEBUG_LOG_FILE = "debug.log";
+
     protected final Path root;
     protected final IGitRepo repo;
     protected final Path workspacePropertiesFile;
@@ -35,7 +46,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         this.root = root.toAbsolutePath().normalize();
         this.repo = GitRepo.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
-        this.workspacePropertiesFile = this.root.resolve(".brokk").resolve("workspace.properties");
+        this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
@@ -302,6 +313,27 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    /** Computes a context-aware fallback width for split pane positioning. */
+    public final int computeContextualFallback(int frameWidth, boolean isWorktree) {
+        if (isWorktree) {
+            return Math.max(300, Math.min(600, frameWidth * 2 / 5));
+        } else {
+            return Math.max(250, Math.min(800, frameWidth * 3 / 10));
+        }
+    }
+
+    /** Gets a safe horizontal split position that validates against frame dimensions. */
+    public final int getSafeHorizontalSplitPosition(int frameWidth) {
+        int saved = getHorizontalSplitPosition();
+
+        if (saved > 0 && saved < frameWidth - 200) {
+            return saved;
+        }
+
+        boolean isWorktree = this instanceof WorktreeProject;
+        return computeContextualFallback(frameWidth, isWorktree);
+    }
+
     @Override
     public final void saveRightVerticalSplitPosition(int position) {
         if (position > 0) {
@@ -357,6 +389,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     private static final String PROP_JDK_HOME = "jdk.home";
     private static final String PROP_BUILD_LANGUAGE = "build.language";
+    private static final String PROP_COMMAND_EXECUTOR = "commandExecutor";
+    private static final String PROP_EXECUTOR_ARGS = "commandExecutorArgs";
 
     @Override
     public @Nullable String getJdk() {
@@ -401,6 +435,37 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveWorkspaceProperties();
     }
 
+    @Override
+    public @Nullable String getCommandExecutor() {
+        return workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
+    }
+
+    @Override
+    public void setCommandExecutor(@Nullable String executor) {
+        if (executor == null || executor.isBlank()) {
+            workspaceProps.remove(PROP_COMMAND_EXECUTOR);
+        } else {
+            workspaceProps.setProperty(PROP_COMMAND_EXECUTOR, executor);
+        }
+        saveWorkspaceProperties();
+    }
+
+    @Override
+    public @Nullable String getExecutorArgs() {
+        String args = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);
+        return (args == null || args.isBlank()) ? null : args;
+    }
+
+    @Override
+    public void setExecutorArgs(@Nullable String args) {
+        if (args == null || args.isBlank()) {
+            workspaceProps.remove(PROP_EXECUTOR_ARGS);
+        } else {
+            workspaceProps.setProperty(PROP_EXECUTOR_ARGS, args);
+        }
+        saveWorkspaceProperties();
+    }
+
     private Language computeMostCommonLanguage() {
         try {
             var counts = getAllFiles().stream()
@@ -423,7 +488,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public void close() {
-        SessionRegistry.release(this.root);
         if (repo instanceof AutoCloseable autoCloseableRepo) {
             try {
                 autoCloseableRepo.close();
@@ -434,7 +498,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     public Set<ProjectFile> getAllOnDiskDependencies() {
-        var dependenciesPath = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
+        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return Set.of();
         }
@@ -458,7 +522,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
-        var dependenciesPath = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
+        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return trackedFiles;
         }
@@ -500,7 +564,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var exclusions = new HashSet<String>();
         exclusions.addAll(loadBuildDetails().excludedDirectories());
 
-        var dependenciesDir = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
+        var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
         }

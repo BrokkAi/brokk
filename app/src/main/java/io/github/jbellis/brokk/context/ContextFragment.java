@@ -5,11 +5,11 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;
@@ -385,9 +385,7 @@ public interface ContextFragment {
                     content,
                     FragmentUtils.calculateContentHash(
                             FragmentType.GIT_FILE,
-                            String.format(
-                                    "%s @%s",
-                                    file.getFileName(), GitUiUtil.shortenCommitId(revision)), // description for hash
+                            String.format("%s @%s", file.getFileName(), revision),
                             content, // text content for hash
                             FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
                             GitFileFragment.class.getName() // original class name for hash
@@ -411,13 +409,9 @@ public interface ContextFragment {
             return new GitFileFragment(file, revision, content, existingId);
         }
 
-        private String shortRevision() {
-            return GitUiUtil.shortenCommitId(revision);
-        }
-
         @Override
         public String shortDescription() {
-            return "%s @%s".formatted(file().getFileName(), shortRevision());
+            return "%s @%s".formatted(file().getFileName(), id);
         }
 
         @Override
@@ -477,7 +471,7 @@ public interface ContextFragment {
 
         @Override
         public String toString() {
-            return "GitFileFragment('%s' @%s)".formatted(file, shortRevision());
+            return "GitFileFragment('%s' @%s)".formatted(file, id);
         }
     }
 
@@ -615,9 +609,25 @@ public interface ContextFragment {
         @Override
         public Image image() throws UncheckedIOException {
             try {
-                return javax.imageio.ImageIO.read(file.absPath().toFile());
+                var imageFile = file.absPath().toFile();
+                if (!imageFile.exists()) {
+                    throw new UncheckedIOException(new IOException("Image file does not exist: " + file.absPath()));
+                }
+                if (!imageFile.canRead()) {
+                    throw new UncheckedIOException(
+                            new IOException("Cannot read image file (permission denied): " + file.absPath()));
+                }
+
+                Image result = javax.imageio.ImageIO.read(imageFile);
+                if (result == null) {
+                    // ImageIO.read() returns null if no registered ImageReader can read the file
+                    // This can happen for unsupported formats, corrupted files, or non-image files
+                    throw new UncheckedIOException(new IOException(
+                            "Unable to read image file (unsupported format or corrupted): " + file.absPath()));
+                }
+                return result;
             } catch (IOException e) {
-                throw new UncheckedIOException(e);
+                throw new UncheckedIOException(new IOException("Failed to read image file: " + file.absPath(), e));
             }
         }
 
@@ -970,7 +980,8 @@ public interface ContextFragment {
         private final Image image;
 
         // Helper to get image bytes, might throw UncheckedIOException
-        private static byte[] imageToBytes(Image image) {
+        @Nullable
+        private static byte[] imageToBytes(@Nullable Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
                 return FrozenFragment.imageToBytes(image);
@@ -1024,6 +1035,7 @@ public interface ContextFragment {
             return image;
         }
 
+        @Nullable
         public byte[] imageBytes() {
             return imageToBytes(image);
         }
@@ -1169,18 +1181,30 @@ public interface ContextFragment {
 
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
+        private final boolean includeTestFiles;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
+            this(contextManager, targetIdentifier, false);
+        }
+
+        public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
             super(contextManager); // Assigns dynamic numeric String ID
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
+            this(existingId, contextManager, targetIdentifier, false);
+        }
+
+        public UsageFragment(
+                String existingId, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
         }
 
         @Override
@@ -1194,6 +1218,11 @@ public interface ContextFragment {
             return analyzer.as(UsagesProvider.class)
                     .map(up -> {
                         List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        if (!includeTestFiles) {
+                            uses = uses.stream()
+                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                                    .toList();
+                        }
                         var result = AnalyzerUtil.processUsages(analyzer, uses);
                         return result.code().isEmpty()
                                 ? "No relevant usages found for symbol: " + targetIdentifier
@@ -1213,6 +1242,11 @@ public interface ContextFragment {
             return analyzer.as(UsagesProvider.class)
                     .map(up -> {
                         List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        if (!includeTestFiles) {
+                            uses = uses.stream()
+                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                                    .toList();
+                        }
                         var result = AnalyzerUtil.processUsages(analyzer, uses);
                         return result.sources();
                     })
@@ -1221,7 +1255,14 @@ public interface ContextFragment {
 
         @Override
         public Set<ProjectFile> files() {
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+            final var allSources = sources().stream().map(CodeUnit::source);
+            if (!includeTestFiles) {
+                return allSources
+                        .filter(source -> !ContextManager.isTestFile(source))
+                        .collect(Collectors.toSet());
+            } else {
+                return allSources.collect(Collectors.toSet());
+            }
         }
 
         @Override
@@ -1244,6 +1285,10 @@ public interface ContextFragment {
 
         public String targetIdentifier() {
             return targetIdentifier;
+        }
+
+        public boolean getIncludeTestFiles() {
+            return includeTestFiles;
         }
     }
 

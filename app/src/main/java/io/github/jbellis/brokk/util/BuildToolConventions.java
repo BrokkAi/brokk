@@ -64,7 +64,7 @@ public class BuildToolConventions {
 
     public static List<String> getDefaultExcludes(BuildSystem system) {
         return switch (system) {
-            case MAVEN -> List.of("target/", "**/generated-sources/");
+            case MAVEN -> List.of("target/");
             case GRADLE -> List.of("build/", ".gradle/");
             case SBT -> List.of("target/"); // Scala target directory
             case NPM -> List.of("node_modules/", "dist/");
@@ -72,7 +72,7 @@ public class BuildToolConventions {
             case BAZEL -> List.of("bazel-out/");
             case CMAKE -> List.of("build/", "out/"); // Common for CMake and general Make
             case PYTHON ->
-                List.of("__pycache__/", ".pytest_cache/", ".mypy_cache/", ".tox/", "*.egg-info/", "build/", "dist/");
+                List.of("__pycache__/", ".pytest_cache/", ".mypy_cache/", ".tox/", ".egg-info/", "build/", "dist/");
             default -> List.of(); // UNKNOWN or any other unhandled system
         };
     }

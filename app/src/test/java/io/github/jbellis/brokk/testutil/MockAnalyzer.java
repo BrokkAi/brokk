@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
@@ -27,7 +28,8 @@ public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider
                 CodeUnit.cls(mockFile, "a.b", "Do$Re$Sub"), // nested inside Re
                 CodeUnit.cls(mockFile, "x.y", "Zz"),
                 CodeUnit.cls(mockFile, "w.u", "Zz"),
-                CodeUnit.cls(mockFile, "test", "CamelClass"));
+                CodeUnit.cls(mockFile, "test", "CamelClass"),
+                CodeUnit.cls(mockFile, "a.b", "Architect"));
         this.methodsMap = Map.ofEntries(
                 Map.entry(
                         "a.b.Do",
@@ -64,7 +66,10 @@ public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider
     }
 
     @Override
-    public List<CodeUnit> searchDefinitions(String pattern) {
+    public List<CodeUnit> searchDefinitions(@Nullable String pattern) {
+        if (pattern == null || pattern.isEmpty()) {
+            return List.of();
+        }
         if (".*".equals(pattern)) {
             return Stream.concat(
                             allClasses.stream(), methodsMap.values().stream().flatMap(List::stream))
@@ -83,7 +88,9 @@ public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider
                 .filter(cu -> cu.fqName().matches(regex))
                 .toList();
 
-        return Stream.concat(matchingClasses.stream(), matchingMethods.stream()).toList();
+        return Stream.concat(matchingClasses.stream(), matchingMethods.stream())
+                .distinct()
+                .toList();
     }
 
     @Override

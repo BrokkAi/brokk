@@ -25,7 +25,8 @@ application {
     applicationDefaultJvmArgs = listOf(
         "-ea",  // Enable assertions
         "--add-modules=jdk.incubator.vector",  // Vector API support
-        "-Dbrokk.devmode=true"  // Development mode flag
+        "-Dbrokk.devmode=true",  // Development mode flag
+        "-Dbrokk.servicetiers=true",  // Development mode flag
     )
 }
 
@@ -58,9 +59,6 @@ dependencies {
     // API interfaces and supporting classes
     implementation(project(":analyzer-api"))
 
-    // Direct implementation dependency on Scala analyzers
-    implementation(project(":joern-analyzers"))
-
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
 
@@ -78,6 +76,7 @@ dependencies {
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
     implementation(libs.picocli)
+    implementation(libs.bundles.jediterm)
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
 
@@ -110,7 +109,6 @@ dependencies {
     testImplementation(libs.bundles.junit)
     testImplementation(libs.jupiter.iface)
     testRuntimeOnly(libs.bundles.junit.runtime)
-    testCompileOnly(libs.bundles.joern)
 
     // Error Prone and NullAway for null safety checking
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
@@ -288,7 +286,8 @@ tasks.withType<Test> {
     useJUnitPlatform()
 
     // Use a single forked JVM for all tests (for TreeSitter native library isolation)
-    maxParallelForks = 6
+    // On Windows, use only 1 fork to avoid CI issues; on other platforms use 6
+    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else 6
     forkEvery = 0  // Never fork new JVMs during test execution
 
     jvmArgs = listOf(

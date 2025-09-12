@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.testutil.MockAnalyzer;
@@ -51,12 +52,20 @@ public class CompletionsTest {
         var completions = Completions.completeSymbols("Re", mock);
         var values = toValues(completions);
 
-        assertEquals(Set.of("a.b.Do$Re", "a.b.Do$Re$Sub"), values);
+        assertEquals(2, values.size());
+        assertTrue(values.contains("a.b.Do$Re"));
+        assertTrue(values.contains("a.b.Do$Re$Sub"));
     }
 
     @Test
     public void testCamelCaseCompletion() {
-        var mock = new MockAnalyzer(tempDir);
+        var mock = new MockAnalyzer(tempDir) {
+            @Override
+            public List<CodeUnit> autocompleteDefinitions(String query) {
+                // give all for the sake of testing camel case fuzzy matching
+                return super.autocompleteDefinitions(".*");
+            }
+        };
         // Input "CC" -> should match "test.CamelClass" due to camel case matching
         var completions = Completions.completeSymbols("CC", mock);
         var values = toValues(completions);
@@ -72,6 +81,18 @@ public class CompletionsTest {
         var mock = new MockAnalyzer(tempDir);
 
         var completions = Completions.completeSymbols("Do", mock);
-        assertEquals(Set.of("Do", "Do$Re", "Do$Re$Sub"), toShortValues(completions));
+        assertEquals(3, completions.size());
+        var shortValues = toShortValues(completions);
+        assertTrue(shortValues.contains("Do"));
+        assertTrue(shortValues.contains("Do$Re"));
+        assertTrue(shortValues.contains("Do$Re$Sub"));
+    }
+
+    @Test
+    public void testArchCompletion() {
+        var mock = new MockAnalyzer(tempDir);
+        var completions = Completions.completeSymbols("arch", mock);
+        var values = toValues(completions);
+        assertEquals(Set.of("a.b.Architect"), values);
     }
 }

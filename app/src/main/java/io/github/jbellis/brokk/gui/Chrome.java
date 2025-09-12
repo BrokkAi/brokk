@@ -16,13 +16,17 @@ import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
+import io.github.jbellis.brokk.gui.git.*;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -30,12 +34,12 @@ import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.swing.*;
@@ -105,7 +109,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         lastTabToggleTime = currentTime;
 
         if (leftTabbedPanel.getSelectedIndex() == tabIndex) {
-            // Tab already selected, minimize the panel but keep tabs visible
+            // Tab already selected: capture current expanded width (if not already minimized), then minimize
+            int currentLocation = bottomSplitPane.getDividerLocation();
+            if (currentLocation >= 50) {
+                lastExpandedSidebarLocation = currentLocation;
+            }
             leftTabbedPanel.setSelectedIndex(-1);
             bottomSplitPane.setDividerSize(0);
             bottomSplitPane.setDividerLocation(40);
@@ -114,14 +122,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // Restore panel if it was minimized
             if (bottomSplitPane.getDividerLocation() < 50) {
                 bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                bottomSplitPane.setDividerLocation(preferred);
+                int target = (lastExpandedSidebarLocation > 0)
+                        ? lastExpandedSidebarLocation
+                        : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(target);
             }
         }
     }
 
     // Store original divider size for hiding/showing divider
     private int originalBottomDividerSize;
+
+    // Remember the last non-minimized divider location of the left sidebar
+    // Used to restore the previous width when re-expanding after a minimize
+    private int lastExpandedSidebarLocation = -1;
 
     // Swing components:
     final JFrame frame;
@@ -134,6 +148,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
+    private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
+    private final JTabbedPane historyTabbedPane; // Bottom area for file history
+    private int originalLeftVerticalDividerSize;
     private final HistoryOutputPanel historyOutputPanel;
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
@@ -142,8 +159,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
 
+    // Git
     @Nullable
-    private final GitPanel gitPanel; // Null when no git repo is present
+    private final GitCommitTab gitCommitTab;
+
+    @Nullable
+    private final GitLogTab gitLogTab;
+
+    @Nullable
+    private final GitWorktreeTab gitWorktreeTab;
+
+    // For GitHistoryTab instances opened as top-level tabs
+    private final Map<String, GitHistoryTab> fileHistoryTabs = new HashMap<>();
 
     @Nullable
     private GitPullRequestsTab pullRequestsPanel;
@@ -165,6 +192,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
 
+    // Right-hand drawer (tools) - split and content
+    private InstructionsDrawerSplit instructionsDrawerSplit;
+    private TerminalDrawerPanel terminalDrawer;
+
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
     public Chrome(ContextManager contextManager) {
@@ -174,6 +205,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        // Install centralized application-level QuitHandler so Cmd+Q and platform quit can be intercepted
+        AppQuitHandler.install();
         frame.setSize(800, 1200); // Taller than wide
         frame.setLayout(new BorderLayout());
 
@@ -255,32 +288,64 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Add Git tab if available
+        // Add Git tabs (Changes, Worktrees, Log) if available
         if (getProject().hasGit()) {
-            gitPanel = new GitPanel(this, contextManager);
-            var gitIcon = requireNonNull(Icons.COMMIT);
+            gitCommitTab = new GitCommitTab(this, contextManager);
+            gitWorktreeTab = new GitWorktreeTab(this, contextManager);
+            gitLogTab = new GitLogTab(this, contextManager);
 
-            // Create badged icon for the git tab
-            gitTabBadgedIcon = new BadgedIcon(gitIcon, themeManager);
-            leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitPanel);
-            var gitTabIdx = leftTabbedPanel.indexOfComponent(gitPanel);
-            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Git");
-            leftTabbedPanel.setTabComponentAt(gitTabIdx, gitTabLabel);
+            // Changes tab (with badge)
+            var commitIcon = requireNonNull(Icons.COMMIT);
+            gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
+            leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
+            var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes");
+            leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
             gitTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    handleTabToggle(gitTabIdx);
+                    handleTabToggle(commitTabIdx);
                 }
             });
-            gitPanel.updateRepo();
+
+            // Worktrees tab
+            var worktreeIcon = requireNonNull(Icons.FLOWCHART);
+            leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
+            var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
+            var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees");
+            leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
+            worktreeTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(worktreeTabIdx);
+                }
+            });
+
+            // Log tab
+            var logIcon = requireNonNull(Icons.FLOWSHEET);
+            leftTabbedPanel.addTab(null, logIcon, gitLogTab);
+            var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
+            var logTabLabel = createSquareTabLabel(logIcon, "Log");
+            leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
+            logTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(logTabIdx);
+                }
+            });
+
+            // Initial refreshes
+            updateGitRepo();
             projectFilesPanel.updatePanel();
         } else {
-            gitPanel = null;
+            gitCommitTab = null;
+            gitLogTab = null;
+            gitWorktreeTab = null;
         }
 
         // --- New top-level Pull-Requests panel ---------------------------------
-        if (getProject().isGitHubRepo() && gitPanel != null) {
-            pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitPanel);
+        if (getProject().isGitHubRepo() && gitLogTab != null) {
+            pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitLogTab);
             var prIcon = requireNonNull(Icons.PULL_REQUEST);
             leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
             var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
@@ -295,9 +360,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // --- New top-level Issues panel ----------------------------------------
-        if (getProject().getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE
-                && gitPanel != null) {
-            issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
+        if (getProject().getIssuesProvider().type() != IssueProviderType.NONE) {
+            issuesPanel = new GitIssuesTab(this, contextManager);
             var issIcon = requireNonNull(Icons.ADJUST);
             leftTabbedPanel.addTab(null, issIcon, issuesPanel);
             var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
@@ -326,6 +390,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
+        // Create terminal drawer panel
+        instructionsDrawerSplit = new InstructionsDrawerSplit();
+        terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
+
+        // Attach instructions (left) and drawer (right)
+        instructionsDrawerSplit.setInstructionsComponent(instructionsPanel);
+        instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
+
+        // Attach the combined instructions+drawer split as the bottom component
+        workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
+
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
 
@@ -340,7 +415,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // 3) Final horizontal split: left tabs | right stack
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        bottomSplitPane.setLeftComponent(leftTabbedPanel);
+
+        // Create a vertical split on the left: top = regular tabs, bottom = per-file history tabs
+        historyTabbedPane = new JTabbedPane();
+        historyTabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); // keep single row; scroll horizontally
+        historyTabbedPane.setVisible(false); // hidden until a history tab is added
+
+        leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        leftVerticalSplitPane.setTopComponent(leftTabbedPanel);
+        leftVerticalSplitPane.setBottomComponent(historyTabbedPane);
+        leftVerticalSplitPane.setResizeWeight(0.7); // top gets most space by default
+        originalLeftVerticalDividerSize = leftVerticalSplitPane.getDividerSize();
+        leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
+
+        bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
         bottomSplitPane.setRightComponent(outputStackSplit);
         // Ensure the right stack can shrink enough so the sidebar can grow
         outputStackSplit.setMinimumSize(new Dimension(200, 0));
@@ -348,6 +436,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane.setResizeWeight(0.0);
         int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
         bottomSplitPane.setDividerLocation(initialDividerLocation);
+        // Initialize the remembered expanded location
+        lastExpandedSidebarLocation = initialDividerLocation;
 
         // Store original divider size
         originalBottomDividerSize = bottomSplitPane.getDividerSize();
@@ -408,16 +498,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.validate();
         frame.repaint();
 
-        // After the frame is visible, (re)apply the 30 % divider if no saved position exists yet
-        SwingUtilities.invokeLater(() -> {
-            if (getProject().getHorizontalSplitPosition() == 0) {
-                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                bottomSplitPane.setDividerLocation(preferred);
-            }
-
-            // Add themed title bar asynchronously
-            applyTitleBar(frame, frame.getTitle());
-        });
+        // Title bar will be applied after layout restoration in loadWindowSizeAndPosition()
 
         // Possibly check if .gitignore is set
         if (getProject().hasGit()) {
@@ -431,13 +512,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                 JOptionPane.YES_NO_OPTION,
                                 JOptionPane.QUESTION_MESSAGE);
                         if (result == JOptionPane.YES_OPTION) {
-                            // Ensure gitPanel is not null before calling setupGitIgnore which uses it.
-                            // setupGitIgnore has an internal assert, but this check is for external safety.
-                            if (this.gitPanel != null) {
-                                setupGitIgnore();
-                            } else {
-                                logger.warn("Attempted to setup .gitignore but GitPanel is null (no Git repo).");
-                            }
+                            setupGitIgnore();
                         }
                     });
                 }
@@ -446,6 +521,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
+
+        // Clean up any orphaned clone operations from previous sessions
+        if (getProject() instanceof MainProject) {
+            Path dependenciesRoot =
+                    getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+            CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
+        }
     }
 
     /**
@@ -468,7 +550,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Sets up .gitignore entries and adds .brokk project files to git */
     private void setupGitIgnore() {
-        if (gitPanel == null) {
+        if (getProject().hasGit()) {
             logger.warn("setupGitIgnore called when gitPanel is null. Skipping.");
             return;
         }
@@ -653,8 +735,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
-            if (gitPanel != null) {
-                gitPanel.getCommitTab().disableButtons();
+            if (gitCommitTab != null) {
+                gitCommitTab.disableButtons();
             }
             blitzForgeMenuItem.setEnabled(false);
             blitzForgeMenuItem.setToolTipText("Waiting for current action to complete");
@@ -665,8 +747,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
-            if (gitPanel != null) {
-                gitPanel.getCommitTab().enableButtons();
+            if (gitCommitTab != null) {
+                gitCommitTab.enableButtons();
             }
             blitzForgeMenuItem.setEnabled(true);
             blitzForgeMenuItem.setToolTipText(null);
@@ -675,17 +757,23 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateCommitPanel() {
-        if (gitPanel != null) {
-            gitPanel.updateCommitPanel();
+        if (gitCommitTab != null) {
+            gitCommitTab.updateCommitPanel();
         }
     }
 
     @Override
     public void updateGitRepo() {
-        if (gitPanel != null) {
-            gitPanel.updateRepo();
-            projectFilesPanel.updatePanel();
+        if (gitCommitTab != null) {
+            gitCommitTab.updateCommitPanel();
         }
+        if (gitLogTab != null) {
+            gitLogTab.update();
+        }
+        if (gitWorktreeTab != null) {
+            gitWorktreeTab.refresh();
+        }
+        projectFilesPanel.updatePanel();
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */
@@ -695,8 +783,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
                 if (idx != -1) leftTabbedPanel.remove(idx);
             }
-            if (gitPanel == null) return; // safety
-            issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
+            issuesPanel = new GitIssuesTab(this, contextManager);
             var icon = requireNonNull(Icons.ASSIGNMENT);
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
@@ -750,6 +837,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
+        // Cmd/Ctrl+M => toggle Code/Answer mode
+        var toggleModeKeyStroke =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleModeKeyStroke, "toggleCodeAnswer");
+        rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        instructionsPanel.toggleCodeAnswerMode();
+                        systemOutput("Toggled Code/Answer mode");
+                    } catch (Exception ex) {
+                        logger.warn("Error toggling Code/Answer mode via shortcut", ex);
+                    }
+                });
+            }
+        });
+
         // Register IntelliJ-style shortcuts for switching sidebar panels
         // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
         int modifier =
@@ -767,22 +872,48 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Alt/Cmd+2 for Git panel (if available)
-        if (gitPanel != null) {
-            var switchToGit = KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
-            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToGit, "switchToGit");
-            rootPane.getActionMap().put("switchToGit", new AbstractAction() {
+        // Alt/Cmd+2 for Changes (GitCommitTab)
+        if (gitCommitTab != null) {
+            var switchToChanges = KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToChanges, "switchToChanges");
+            rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitPanel);
+                    var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
                     if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
                 }
             });
         }
 
-        // Alt/Cmd+3 for Pull Requests panel (if available)
+        // Alt/Cmd+3 for Worktrees
+        if (gitWorktreeTab != null) {
+            var switchToWorktrees = KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToWorktrees, "switchToWorktrees");
+            rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
+        // Alt/Cmd+4 for Log
+        if (gitLogTab != null) {
+            var switchToLog = KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToLog, "switchToLog");
+            rootPane.getActionMap().put("switchToLog", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
+        // Alt/Cmd+5 for Pull Requests panel (if available)
         if (pullRequestsPanel != null) {
-            var switchToPR = KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
+            var switchToPR = KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
@@ -793,9 +924,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+4 for Issues panel (if available)
+        // Alt/Cmd+6 for Issues panel (if available)
         if (issuesPanel != null) {
-            var switchToIssues = KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
+            var switchToIssues = KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
@@ -1162,7 +1293,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
-                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                markdownPanel.withContextForLookups(contextManager, this);
                 markdownPanel.setText(combinedMessages);
 
                 // Use shared utility method to create searchable content panel without scroll pane
@@ -1376,17 +1507,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
 
             // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
-            int bottomHorizPos = project.getHorizontalSplitPosition();
-            if (bottomHorizPos > 0) {
-                bottomSplitPane.setDividerLocation(bottomHorizPos);
-                // Check if restored position indicates minimized state
-                if (bottomHorizPos < 50) {
-                    bottomSplitPane.setDividerSize(0);
-                    leftTabbedPanel.setSelectedIndex(-1);
-                }
+            int safePosition = project.getSafeHorizontalSplitPosition(frame.getWidth());
+            bottomSplitPane.setDividerLocation(safePosition);
+
+            if (safePosition < 50) {
+                bottomSplitPane.setDividerSize(0);
+                leftTabbedPanel.setSelectedIndex(-1);
             } else {
-                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                bottomSplitPane.setDividerLocation(preferred);
+                lastExpandedSidebarLocation = safePosition;
             }
 
             bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
@@ -1394,9 +1522,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     var newPos = bottomSplitPane.getDividerLocation();
                     if (newPos > 0) {
                         project.saveHorizontalSplitPosition(newPos);
+                        // Remember expanded locations only (ignore minimized 40px)
+                        if (newPos >= 50) {
+                            lastExpandedSidebarLocation = newPos;
+                        }
                     }
                 }
             });
+
+            // Apply title bar after all layout restoration is complete
+            applyTitleBar(frame, frame.getTitle());
         });
     }
 
@@ -1463,20 +1598,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(instructionsPanel::requestCommandInputFocus);
     }
 
-    public void toggleGitPanel() {
-        if (gitPanel == null) {
-            return;
-        }
-
-        // Switch to Git tab in the left vertical-tabbed pane
-        for (int i = 0; i < leftTabbedPanel.getTabCount(); i++) {
-            if ("Git".equals(leftTabbedPanel.getTitleAt(i))) {
-                leftTabbedPanel.setSelectedIndex(i);
-                break;
-            }
-        }
-    }
-
     @Override
     public void updateWorkspace() {
         workspacePanel.updateContextTable();
@@ -1486,13 +1607,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return contextManager;
     }
 
-    public List<ContextFragment> getSelectedFragments() {
-        return workspacePanel.getSelectedFragments();
+    public ProjectFilesPanel getProjectFilesPanel() {
+        return projectFilesPanel;
     }
 
-    @Nullable
-    public GitPanel getGitPanel() { // Made public for WorkspacePanel access
-        return gitPanel;
+    public List<ContextFragment> getSelectedFragments() {
+        return workspacePanel.getSelectedFragments();
     }
 
     public JTabbedPane getLeftTabbedPanel() {
@@ -1507,6 +1627,132 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     public GitIssuesTab getIssuesPanel() {
         return issuesPanel;
+    }
+
+    // --- New helpers for Git tabs moved into Chrome ---
+
+    public void updateLogTab() {
+        if (gitLogTab != null) {
+            gitLogTab.update();
+        }
+    }
+
+    public void selectCurrentBranchInLogTab() {
+        if (gitLogTab != null) {
+            gitLogTab.selectCurrentBranch();
+        }
+    }
+
+    public void showCommitInLogTab(String commitId) {
+        if (gitLogTab != null) {
+            for (int i = 0; i < leftTabbedPanel.getTabCount(); i++) {
+                if (leftTabbedPanel.getComponentAt(i) == gitLogTab) {
+                    leftTabbedPanel.setSelectedIndex(i);
+                    break;
+                }
+            }
+            gitLogTab.selectCommitById(commitId);
+        }
+    }
+
+    private void selectExistingFileHistoryTab(String filePath) {
+        var existing = fileHistoryTabs.get(filePath);
+        if (existing == null) {
+            return;
+        }
+
+        // Ensure the history pane is visible
+        if (!historyTabbedPane.isVisible()) {
+            historyTabbedPane.setVisible(true);
+            leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
+            leftVerticalSplitPane.setDividerLocation(0.7);
+        }
+
+        int count = historyTabbedPane.getTabCount();
+        for (int i = 0; i < count; i++) {
+            if (historyTabbedPane.getComponentAt(i) == existing) {
+                historyTabbedPane.setSelectedIndex(i);
+                break;
+            }
+        }
+    }
+
+    public void showFileHistory(ProjectFile file) {
+        SwingUtilities.invokeLater(() -> addFileHistoryTab(file));
+    }
+
+    public void addFileHistoryTab(ProjectFile file) {
+        String filePath = file.toString();
+        if (fileHistoryTabs.containsKey(filePath)) {
+            selectExistingFileHistoryTab(filePath);
+            return;
+        }
+
+        var historyTab = new GitHistoryTab(this, contextManager, file);
+
+        var tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        tabHeader.setOpaque(false);
+
+        var titleLabel = new JLabel(file.getFileName());
+        titleLabel.setOpaque(false);
+
+        var closeButton = new JButton("×");
+        closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
+        closeButton.setPreferredSize(new Dimension(24, 24));
+        closeButton.setMargin(new Insets(0, 0, 0, 0));
+        closeButton.setContentAreaFilled(false);
+        closeButton.setBorderPainted(false);
+        closeButton.setFocusPainted(false);
+        closeButton.setToolTipText("Close");
+
+        closeButton.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent e) {
+                closeButton.setForeground(Color.RED);
+                closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            }
+
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent e) {
+                closeButton.setForeground(null);
+                closeButton.setCursor(Cursor.getDefaultCursor());
+            }
+        });
+        closeButton.addActionListener(e -> {
+            int idx = historyTabbedPane.indexOfComponent(historyTab);
+            if (idx >= 0) {
+                historyTabbedPane.remove(idx);
+                fileHistoryTabs.remove(filePath);
+
+                // Hide history pane if now empty and remove divider
+                if (historyTabbedPane.getTabCount() == 0) {
+                    historyTabbedPane.setVisible(false);
+                    leftVerticalSplitPane.setDividerSize(0);
+                }
+            }
+        });
+
+        tabHeader.add(titleLabel);
+        tabHeader.add(closeButton);
+
+        // Ensure history pane is visible and divider shown
+        if (!historyTabbedPane.isVisible()) {
+            historyTabbedPane.setVisible(true);
+            leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
+            leftVerticalSplitPane.setDividerLocation(0.7);
+        }
+
+        historyTabbedPane.addTab(file.getFileName(), historyTab);
+        int newIndex = historyTabbedPane.indexOfComponent(historyTab);
+        historyTabbedPane.setTabComponentAt(newIndex, tabHeader);
+        historyTabbedPane.setSelectedIndex(newIndex);
+
+        fileHistoryTabs.put(filePath, historyTab);
+    }
+
+    @Nullable
+    public GitCommitTab getGitCommitTab() {
+        return gitCommitTab;
     }
 
     /** Called by MenuBar after constructing the BlitzForge menu item. */
@@ -1771,6 +2017,23 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var label = new JLabel(title, SwingConstants.CENTER);
             titleBar.add(label, BorderLayout.CENTER);
             frame.add(titleBar, BorderLayout.NORTH);
+            // Revalidate layout after dynamically adding title bar
+            frame.revalidate();
+            frame.repaint();
+            titleBar.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2) { // Double click
+                        if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                            // un-maximize the window
+                            frame.setExtendedState(JFrame.NORMAL);
+                        } else {
+                            // maximize the window
+                            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        }
+                    }
+                }
+            });
         }
     }
 
@@ -1899,8 +2162,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Update tooltip to show the count
         if (gitTabLabel != null) {
             String tooltip = modifiedCount > 0
-                    ? String.format("Git (%d modified file%s)", modifiedCount, modifiedCount == 1 ? "" : "s")
-                    : "Git";
+                    ? String.format("Commit (%d modified file%s)", modifiedCount, modifiedCount == 1 ? "" : "s")
+                    : "Commit";
             gitTabLabel.setToolTipText(tooltip);
         }
 
@@ -1915,14 +2178,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * changes. This version fetches the count itself and should only be used when the count is not already available.
      */
     public void updateGitTabBadge() {
-        if (gitTabBadgedIcon == null || gitPanel == null) {
+        if (gitTabBadgedIcon == null) {
             return; // No git support
         }
 
         // Fetch the modified count off-EDT to avoid blocking UI
         contextManager.submitBackgroundTask("Updating git badge", () -> {
             try {
-                int modifiedCount = gitPanel.getModifiedFileCount();
+                int modifiedCount = (gitCommitTab == null) ? 0 : gitCommitTab.getThreadSafeCachedModifiedFileCount();
                 SwingUtilities.invokeLater(() -> updateGitTabBadge(modifiedCount));
             } catch (Exception e) {
                 logger.warn("Error getting modified file count for badge: {}", e.getMessage());
@@ -1958,5 +2221,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         int max = (int) (frameWidth * maxFraction);
 
         return Math.max(min, Math.min(ideal, max));
+    }
+
+    /** Updates the terminal font size for all active terminals. */
+    public void updateTerminalFontSize() {
+        SwingUtilities.invokeLater(() -> {
+            terminalDrawer.updateTerminalFontSize();
+        });
     }
 }
