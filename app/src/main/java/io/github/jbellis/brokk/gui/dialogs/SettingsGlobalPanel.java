@@ -33,7 +33,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -1211,6 +1214,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         EnvTableModel envModel = new EnvTableModel(initialEnv);
         JTable envTable = new JTable(envModel);
+        envTable.getColumnModel().getColumn(1).setCellRenderer(new EnvVarCellRenderer());
         envTable.setFillsViewportHeight(true);
         envTable.setRowHeight(envTable.getRowHeight() + 2);
 
@@ -1733,6 +1737,59 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 args.remove(rowIndex);
                 fireTableRowsDeleted(rowIndex, rowIndex);
             }
+        }
+    }
+
+    private static class EnvVarCellRenderer extends DefaultTableCellRenderer {
+        private static final Pattern ENV_VAR_PATTERN = Pattern.compile("^\\$(?:\\{([a-zA-Z_][a-zA-Z0-9_]*)}|([a-zA-Z_][a-zA-Z0-9_]*))");
+        private static final Border SUCCESS_BORDER;
+        private static final Border FAILURE_BORDER;
+
+        static {
+            Color successColor = UIManager.getColor("ProgressBar.foreground");
+            if (successColor == null) {
+                // A green that is visible on both light and dark themes.
+                successColor = new Color(0, 176, 80);
+            }
+            SUCCESS_BORDER = BorderFactory.createMatteBorder(0, 0, 0, 2, successColor);
+
+            Color errorColor = UIManager.getColor("Label.errorForeground");
+            if (errorColor == null) {
+                // A red that is visible on both light and dark themes.
+                errorColor = new Color(219, 49, 49);
+            }
+            FAILURE_BORDER = BorderFactory.createMatteBorder(0, 0, 0, 2, errorColor);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+
+            // Reset per-render state; renderer instances are reused.
+            setToolTipText(null);
+            setBorder(null);
+
+            if (value instanceof String val) {
+                String trimmedVal = val.trim();
+                if (trimmedVal.startsWith("$")) {
+                    Matcher matcher = ENV_VAR_PATTERN.matcher(trimmedVal);
+                    if (matcher.find()) {
+                        String varName = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+                        String envValue = System.getenv(varName);
+
+                        if (envValue != null) {
+                            setToolTipText("Environment variable '" + varName + "' found.");
+                            setBorder(SUCCESS_BORDER);
+                        } else {
+                            setToolTipText("Environment variable '" + varName + "' not set in Brokk's environment. Using the literal text as-is.");
+                            setBorder(FAILURE_BORDER);
+                        }
+                    }
+                }
+            }
+            return this;
         }
     }
 
