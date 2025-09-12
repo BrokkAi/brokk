@@ -90,7 +90,7 @@ export function reparseAll(): void {
         for (const task of tasks) {
             for (const entry of task.entries) {
                 // Re-register the handler to update the correct task entry
-                register(entry.seq, (msg: ResultMsg) => handleParseResult(msg, task.sequence));
+                register(entry.seq, (msg: ResultMsg) => handleParseResult(msg, task.threadId));
                 // Re-parse for syntax highlighting, don't update worker buffer
                 parse(entry.markdown, entry.seq, false, false);
             }
