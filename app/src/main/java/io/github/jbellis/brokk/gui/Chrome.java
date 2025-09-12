@@ -402,7 +402,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceTitleLabel = new JLabel("Workspace");
         workspaceTitleLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
         JLabel dependenciesTitleLabel = new JLabel("Dependencies");
-        dependenciesTitleLabel.setBorder(new EmptyBorder(2, 35, 2, 5));
+        dependenciesTitleLabel.setBorder(new EmptyBorder(2, 40, 2, 43));
         titlesPanel.add(workspaceTitleLabel, BorderLayout.WEST);
         titlesPanel.add(dependenciesTitleLabel, BorderLayout.EAST);
 
