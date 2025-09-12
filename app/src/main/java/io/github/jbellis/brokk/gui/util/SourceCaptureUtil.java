@@ -39,7 +39,26 @@ public class SourceCaptureUtil {
             return false;
         }
 
-        // Use a lightweight check - try the source capture and catch any exceptions
+        // TODO: Long-term fix needed - improve multi-analyzer coordination to avoid timing issues
+        // For now, be more permissive during multi-analyzer initialization to prevent cache timing issues
+
+        // Short-term fix: If this is a standard sourceable type,
+        // assume it's available rather than risking false negatives during analyzer initialization
+        if (codeUnit.isFunction() || codeUnit.isClass()) {
+            // Still try the full check, but fall back to permissive behavior
+            return analyzer.as(SourceCodeProvider.class)
+                    .map(provider -> {
+                        try {
+                            return provider.getSourceForCodeUnit(codeUnit).isPresent();
+                        } catch (Exception e) {
+                            // During multi-analyzer initialization, prefer false positives over false negatives
+                            return true;
+                        }
+                    })
+                    .orElse(true); // Assume available if we have source capability
+        }
+
+        // For non-standard types, use the strict check
         return analyzer.as(SourceCodeProvider.class)
                 .map(provider -> {
                     try {

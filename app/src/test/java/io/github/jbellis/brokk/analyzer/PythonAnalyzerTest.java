@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Set;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -139,11 +139,8 @@ public final class PythonAnalyzerTest {
         TestProject project = createTestProject("testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
-
-        Function<String, String> normalize = s -> s.lines()
-            .map(String::strip)
-            .filter(l -> !l.isEmpty())
-            .collect(Collectors.joining("\n"));
+        Function<String, String> normalize =
+                s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with preceding comment (use correct FQN format)
         Optional<String> classSourceOpt = analyzer.getClassSource("DocumentedClass");
@@ -152,12 +149,10 @@ public final class PythonAnalyzerTest {
         String normalizedSource = normalize.apply(classSourceOpt.get());
 
         // Should include the comment before the class
-        assertTrue(normalizedSource.contains("# Comment before class"),
-            "Class source should include preceding comment");
-        assertTrue(normalizedSource.contains("class DocumentedClass:"),
-            "Class source should include class definition");
-        assertTrue(normalizedSource.contains("\"\"\""),
-            "Class source should include class docstring");
+        assertTrue(
+                normalizedSource.contains("# Comment before class"), "Class source should include preceding comment");
+        assertTrue(normalizedSource.contains("class DocumentedClass:"), "Class source should include class definition");
+        assertTrue(normalizedSource.contains("\"\"\""), "Class source should include class docstring");
 
         // Test nested class with comments (use correct FQN format)
         Optional<String> innerClassSourceOpt = analyzer.getClassSource("OuterClass$InnerClass");
@@ -166,11 +161,13 @@ public final class PythonAnalyzerTest {
         String normalizedInnerSource = normalize.apply(innerClassSourceOpt.get());
 
         // Should include comment before nested class
-        assertTrue(normalizedInnerSource.contains("# Comment before nested class") ||
-                  normalizedInnerSource.contains("Comment before nested class"),
-            "Inner class source should include preceding comment");
-        assertTrue(normalizedInnerSource.contains("class InnerClass:"),
-            "Inner class source should include class definition");
+        assertTrue(
+                normalizedInnerSource.contains("# Comment before nested class")
+                        || normalizedInnerSource.contains("Comment before nested class"),
+                "Inner class source should include preceding comment");
+        assertTrue(
+                normalizedInnerSource.contains("class InnerClass:"),
+                "Inner class source should include class definition");
     }
 
     @Test
@@ -178,59 +175,61 @@ public final class PythonAnalyzerTest {
         TestProject project = createTestProject("testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
-        Function<String, String> normalize = s -> s.lines()
-            .map(String::strip)
-            .filter(l -> !l.isEmpty())
-            .collect(Collectors.joining("\n"));
+        Function<String, String> normalize =
+                s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test standalone function with docstring
         Optional<String> functionSource = analyzer.getMethodSource("documented.standalone_function");
         assertTrue(functionSource.isPresent(), "standalone_function should be found");
 
         String normalizedFunctionSource = normalize.apply(functionSource.get());
-        assertTrue(normalizedFunctionSource.contains("def standalone_function(param):"),
-            "Function source should include function definition");
-        assertTrue(normalizedFunctionSource.contains("\"\"\""),
-            "Function source should include docstring");
+        assertTrue(
+                normalizedFunctionSource.contains("def standalone_function(param):"),
+                "Function source should include function definition");
+        assertTrue(normalizedFunctionSource.contains("\"\"\""), "Function source should include docstring");
 
         // Test method with preceding comment (use correct FQN format)
         Optional<String> methodSource = analyzer.getMethodSource("DocumentedClass.get_value");
         assertTrue(methodSource.isPresent(), "get_value method should be found");
 
         String normalizedMethodSource = normalize.apply(methodSource.get());
-        assertTrue(normalizedMethodSource.contains("# Comment before instance method") ||
-                  normalizedMethodSource.contains("Comment before instance method"),
-            "Method source should include preceding comment");
-        assertTrue(normalizedMethodSource.contains("def get_value(self):"),
-            "Method source should include method definition");
-        assertTrue(normalizedMethodSource.contains("\"\"\""),
-            "Method source should include method docstring");
+        assertTrue(
+                normalizedMethodSource.contains("# Comment before instance method")
+                        || normalizedMethodSource.contains("Comment before instance method"),
+                "Method source should include preceding comment");
+        assertTrue(
+                normalizedMethodSource.contains("def get_value(self):"),
+                "Method source should include method definition");
+        assertTrue(normalizedMethodSource.contains("\"\"\""), "Method source should include method docstring");
 
         // Test static method with comment (use correct FQN format)
         Optional<String> staticMethodSource = analyzer.getMethodSource("DocumentedClass.utility_method");
         assertTrue(staticMethodSource.isPresent(), "utility_method should be found");
 
         String normalizedStaticSource = normalize.apply(staticMethodSource.get());
-        assertTrue(normalizedStaticSource.contains("# Comment before static method") ||
-                  normalizedStaticSource.contains("Comment before static method"),
-            "Static method source should include preceding comment");
-        assertTrue(normalizedStaticSource.contains("@staticmethod"),
-            "Static method source should include decorator");
-        assertTrue(normalizedStaticSource.contains("def utility_method(data):"),
-            "Static method source should include method definition");
+        assertTrue(
+                normalizedStaticSource.contains("# Comment before static method")
+                        || normalizedStaticSource.contains("Comment before static method"),
+                "Static method source should include preceding comment");
+        assertTrue(normalizedStaticSource.contains("@staticmethod"), "Static method source should include decorator");
+        assertTrue(
+                normalizedStaticSource.contains("def utility_method(data):"),
+                "Static method source should include method definition");
 
         // Test class method with comment (use correct FQN format)
         Optional<String> classMethodSource = analyzer.getMethodSource("DocumentedClass.create_default");
         assertTrue(classMethodSource.isPresent(), "create_default should be found");
 
         String normalizedClassMethodSource = normalize.apply(classMethodSource.get());
-        assertTrue(normalizedClassMethodSource.contains("# Comment before class method") ||
-                  normalizedClassMethodSource.contains("Comment before class method"),
-            "Class method source should include preceding comment");
-        assertTrue(normalizedClassMethodSource.contains("@classmethod"),
-            "Class method source should include decorator");
-        assertTrue(normalizedClassMethodSource.contains("def create_default(cls):"),
-            "Class method source should include method definition");
+        assertTrue(
+                normalizedClassMethodSource.contains("# Comment before class method")
+                        || normalizedClassMethodSource.contains("Comment before class method"),
+                "Class method source should include preceding comment");
+        assertTrue(
+                normalizedClassMethodSource.contains("@classmethod"), "Class method source should include decorator");
+        assertTrue(
+                normalizedClassMethodSource.contains("def create_default(cls):"),
+                "Class method source should include method definition");
     }
 
     @Test
@@ -242,29 +241,30 @@ public final class PythonAnalyzerTest {
         Optional<String> constructorSource = analyzer.getMethodSource("DocumentedClass.__init__");
         assertTrue(constructorSource.isPresent(), "__init__ method should be found");
 
-        Function<String, String> normalize = s -> s.lines()
-            .map(String::strip)
-            .filter(l -> !l.isEmpty())
-            .collect(Collectors.joining("\n"));
+        Function<String, String> normalize =
+                s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         String normalizedConstructorSource = normalize.apply(constructorSource.get());
-        assertTrue(normalizedConstructorSource.contains("# Comment before constructor") ||
-                  normalizedConstructorSource.contains("Comment before constructor"),
-            "Constructor source should include preceding comment");
-        assertTrue(normalizedConstructorSource.contains("def __init__(self, value: int):"),
-            "Constructor source should include method definition");
+        assertTrue(
+                normalizedConstructorSource.contains("# Comment before constructor")
+                        || normalizedConstructorSource.contains("Comment before constructor"),
+                "Constructor source should include preceding comment");
+        assertTrue(
+                normalizedConstructorSource.contains("def __init__(self, value: int):"),
+                "Constructor source should include method definition");
 
         // Test nested class method (use correct FQN format)
         Optional<String> innerMethodSource = analyzer.getMethodSource("OuterClass$InnerClass.inner_method");
         assertTrue(innerMethodSource.isPresent(), "inner_method should be found");
 
         String normalizedInnerMethodSource = normalize.apply(innerMethodSource.get());
-        assertTrue(normalizedInnerMethodSource.contains("# Comment before inner method") ||
-                  normalizedInnerMethodSource.contains("Comment before inner method"),
-            "Inner method source should include preceding comment");
-        assertTrue(normalizedInnerMethodSource.contains("def inner_method(self):"),
-            "Inner method source should include method definition");
-        assertTrue(normalizedInnerMethodSource.contains("\"\"\""),
-            "Inner method source should include docstring");
+        assertTrue(
+                normalizedInnerMethodSource.contains("# Comment before inner method")
+                        || normalizedInnerMethodSource.contains("Comment before inner method"),
+                "Inner method source should include preceding comment");
+        assertTrue(
+                normalizedInnerMethodSource.contains("def inner_method(self):"),
+                "Inner method source should include method definition");
+        assertTrue(normalizedInnerMethodSource.contains("\"\"\""), "Inner method source should include docstring");
     }
 }

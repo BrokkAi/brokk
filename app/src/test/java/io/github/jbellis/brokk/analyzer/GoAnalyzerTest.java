@@ -472,7 +472,8 @@ public class GoAnalyzerTest {
         // FQN is now declpkg.MyStruct.GetFieldA
         java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyStruct.GetFieldA");
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyStruct.GetFieldA method should be present.");
-        String expectedSource = "// Add this method for MyStruct\nfunc (s MyStruct) GetFieldA() int {\n\treturn s.FieldA\n}";
+        String expectedSource =
+                "// Add this method for MyStruct\nfunc (s MyStruct) GetFieldA() int {\n\treturn s.FieldA\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(sourceOpt.get()));
     }
 

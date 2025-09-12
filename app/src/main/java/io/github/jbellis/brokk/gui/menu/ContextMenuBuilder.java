@@ -14,9 +14,7 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -35,17 +33,6 @@ public class ContextMenuBuilder {
 
     private final JPopupMenu menu;
     private final MenuContext context;
-
-    // Small LRU cache to avoid repeated expensive availability checks
-    private static final Map<String, Boolean> SOURCE_AVAIL_CACHE =
-            Collections.synchronizedMap(new LinkedHashMap<String, Boolean>(128, 0.75f, true) {
-                private static final long serialVersionUID = 1L;
-
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
-                    return size() > 512;
-                }
-            });
 
     private ContextMenuBuilder(MenuContext context) {
         this.context = context;
@@ -175,8 +162,11 @@ public class ContextMenuBuilder {
 
         // Capture Class Source (only when available, like PreviewTextPanel)
         if (analyzerReady) {
-            var defOpt = findSymbolDefinitionQuiet(context);
-            if (defOpt.isPresent() && isSourceCaptureAvailableCached(context, defOpt.get())) {
+            var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
+            var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
+            if (analyzer != null
+                    && analyzer.isDefinitionAvailable(fqn)
+                    && analyzer.as(SourceCodeProvider.class).isPresent()) {
                 var captureSourceItem = new JMenuItem("Capture Class Source");
                 captureSourceItem.addActionListener(e -> captureClassSource(context));
                 parent.add(captureSourceItem);
@@ -300,62 +290,6 @@ public class ContextMenuBuilder {
         }
 
         return Optional.of(candidates.getFirst());
-    }
-
-    // Quiet variant of symbol lookup: no UI notifications (used during menu building)
-    private Optional<CodeUnit> findSymbolDefinitionQuiet(SymbolMenuContext context) {
-        if (!context.contextManager().getAnalyzerWrapper().isReady()) {
-            return Optional.empty();
-        }
-        try {
-            var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                return Optional.empty();
-            }
-            var symbolName = context.symbolName();
-            var fqn = context.fqn() != null ? context.fqn() : symbolName;
-
-            var definition = analyzer.getDefinition(fqn);
-            if (definition.isPresent()) {
-                return definition;
-            }
-
-            var candidates = analyzer.searchDefinitions(symbolName);
-            if (candidates.isEmpty()) {
-                return Optional.empty();
-            }
-            return Optional.of(candidates.getFirst());
-        } catch (Exception e) {
-            logger.debug("Quiet lookup failed for symbol '{}'", context.symbolName(), e);
-            return Optional.empty();
-        }
-    }
-
-    private static String cacheKeyFor(CodeUnit cu) {
-        return cu.fqName() + "|" + cu.kind();
-    }
-
-    private boolean isSourceCaptureAvailableCached(SymbolMenuContext context, CodeUnit cu) {
-        var key = cacheKeyFor(cu);
-        var cached = SOURCE_AVAIL_CACHE.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        boolean available = false;
-        try {
-            var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
-            if (analyzer != null) {
-                var hasSourceCapability = analyzer.as(SourceCodeProvider.class).isPresent();
-                available = SourceCaptureUtil.isSourceCaptureAvailable(cu, hasSourceCapability, analyzer);
-            } else {
-                available = false;
-            }
-        } catch (Exception e) {
-            logger.debug("Source availability probe failed for {}: {}", cu.fqName(), e.toString());
-            available = false;
-        }
-        SOURCE_AVAIL_CACHE.put(key, available);
-        return available;
     }
 
     private void openInPreview(SymbolMenuContext context) {

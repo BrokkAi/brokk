@@ -63,6 +63,17 @@ public interface IAnalyzer {
     }
 
     /**
+     * Checks if a definition is available for the given fully-qualified name without creating the CodeUnit object. This
+     * is a fast way to test if {@link #getDefinition(String)} would return a non-empty Optional.
+     *
+     * @param fqName The exact, case-sensitive FQ name of the class, method, or field
+     * @return true if a definition is available, false otherwise
+     */
+    default boolean isDefinitionAvailable(String fqName) {
+        return getDefinition(fqName).isPresent();
+    }
+
+    /**
      * Gets the source code for the entire given class. Implementations may return Optional.empty() when the analyzer
      * cannot provide source text for the requested FQCN.
      */

@@ -165,6 +165,11 @@ public class MultiAnalyzer
     }
 
     @Override
+    public boolean isDefinitionAvailable(String fqName) {
+        return delegates.values().stream().anyMatch(analyzer -> analyzer.isDefinitionAvailable(fqName));
+    }
+
+    @Override
     public List<CodeUnit> searchDefinitions(String pattern) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.searchDefinitions(pattern).stream())
