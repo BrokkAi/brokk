@@ -42,6 +42,8 @@ import io.github.jbellis.brokk.util.LoggingExecutorService;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -75,7 +77,7 @@ import org.jetbrains.annotations.Nullable;
  * action buttons. It also includes the system messages and command result areas. All initialization and action code
  * related to these components has been moved here.
  */
-public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
+public class InstructionsPanel extends JPanel implements IContextManager.ContextListener, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
 
     public static final String ACTION_ARCHITECT = "Architect";
@@ -102,16 +104,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Answer");
-    private final JButton actionButton;
+    private JButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
-    private final ModelSelector modelSelector;
+    private ModelSelector modelSelector;
+    private @Nullable Component modelSelectorComponent;
     private String storedAction;
     private final ContextManager contextManager;
+    private @Nullable JComboBox<Object> historyDropdown;
     private JTable referenceFileTable;
     private JLabel failureReasonLabel;
     private JPanel suggestionContentPanel;
     private CardLayout suggestionCardLayout;
-    private final JPanel centerPanel;
+    private JPanel centerPanel;
     private @Nullable JPanel modeIndicatorPanel;
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
@@ -119,7 +123,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable TitledBorder instructionsTitledBorder;
     private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
     private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
-    private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
+    private javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
     private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
     // Worker for autocontext suggestion tasks. we don't use CM.backgroundTasks b/c we want this to be single threaded
     private final ExecutorService suggestionWorker = new LoggingExecutorService(
@@ -169,8 +173,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize Action Selection UI
         modeSwitch = new JCheckBox();
-        KeyStroke toggleKs =
+        KeyStroke defaultToggleKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        KeyStroke toggleKs = MainProject.getShortcut("instructions.toggleMode", defaultToggleKs);
         String tooltipText =
                 """
                 <html>
@@ -191,7 +196,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setIcon(switchIcon);
         modeSwitch.setSelectedIcon(switchIcon);
         modeSwitch.setFocusPainted(false);
-        modeSwitch.setFocusable(false);
+        modeSwitch.setFocusable(true);
         modeSwitch.setBorderPainted(false);
         modeSwitch.setBorder(BorderFactory.createEmptyBorder());
         modeSwitch.setContentAreaFilled(false);
@@ -204,8 +209,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         codeCheckBox = new JCheckBox("Plan First");
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search First".
-        KeyStroke toggleSearchKs =
+        KeyStroke defaultToggleSearchKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
+        KeyStroke toggleSearchKs = MainProject.getShortcut("instructions.togglePlanOrSearch", defaultToggleSearchKs);
 
         codeCheckBox.setToolTipText("<html><b>Plan First:</b><br><ul>"
                 + "<li><b>checked:</b> Plan usage of multiple agents. Useful for large refactorings; will add files to the Workspace.</li>"
@@ -220,6 +226,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 + "<li><b>unchecked:</b> Answers using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
+        // Register toggle mode shortcut
+        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                chrome.getFrame().getRootPane(),
+                toggleKs,
+                "ToggleMode",
+                () -> SwingUtilities.invokeLater(() -> modeSwitch.doClick()));
+
         io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
                 chrome.getFrame().getRootPane(),
                 toggleSearchKs,
@@ -233,30 +246,91 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
-        planOptionsLink = new JButton("Plan Options");
-        // Visual and input configuration
-        KeyStroke planOptionsKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-        planOptionsLink.setToolTipText(
-                "Configure options for the Architect agent (Plan First) (" + formatKeyStroke(planOptionsKs) + ")");
-        planOptionsLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        planOptionsLink.setBorderPainted(false);
-        planOptionsLink.setFocusable(true);
-        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
-        planOptionsLink.putClientProperty("JButton.buttonType", "borderless");
+        planOptionsLink = new JButton("Plan Options") {
+            private static final long serialVersionUID = 1L;
+            // Animation state
+            private float hoverAlpha = 0f;
+            private float targetAlpha = 0f;
+            private final int DURATION_MS = 200; // animation duration
+            private final int INTERVAL_MS = 30; // timer tick
+            private final javax.swing.Timer hoverTimer = new javax.swing.Timer(INTERVAL_MS, ev -> {
+                float step = (float) INTERVAL_MS / (float) DURATION_MS;
+                boolean changed = false;
+                if (hoverAlpha < targetAlpha) {
+                    hoverAlpha = Math.min(targetAlpha, hoverAlpha + step);
+                    changed = true;
+                } else if (hoverAlpha > targetAlpha) {
+                    hoverAlpha = Math.max(targetAlpha, hoverAlpha - step);
+                    changed = true;
+                }
+                if (changed) {
+                    repaint();
+                } else {
+                    javax.swing.Timer t = (javax.swing.Timer) ev.getSource();
+                    t.stop();
+                }
+            });
 
-        // Action listener for click/activation
-        planOptionsLink.addActionListener(e -> {
-            ArchitectOptionsDialog.showDialogAndWait(chrome);
-            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-        });
+            {
+                // Visual and input configuration
+                KeyStroke defaultPlanOptionsKs =
+                        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
+                KeyStroke planOptionsKs = MainProject.getShortcut("instructions.openPlanOptions", defaultPlanOptionsKs);
+                setToolTipText("Configure options for the Architect agent (Plan First) ("
+                        + formatKeyStroke(planOptionsKs) + ")");
+                setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+                setContentAreaFilled(false);
+                setFocusPainted(false); // we will render focus via the hover background
+                setOpaque(false);
+                setFocusable(true);
+                setMargin(new Insets(0, 0, 0, 0));
+                setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        // Register global platform shortcut (e.g., Ctrl+, or Cmd+,) to open Plan Options and restore focus
-        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
-                chrome.getFrame().getRootPane(), planOptionsKs, "PlanOptions", () -> {
-                    ArchitectOptionsDialog.showDialogAndWait(chrome);
-                    javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
+                // Mouse interactions
+                addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mouseClicked(java.awt.event.MouseEvent e) {
+                        ArchitectOptionsDialog.showDialogAndWait(chrome);
+                        javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
+                    }
+
+                    @Override
+                    public void mouseEntered(java.awt.event.MouseEvent e) {
+                        targetAlpha = 1f;
+                        if (!hoverTimer.isRunning()) hoverTimer.start();
+                    }
+
+                    @Override
+                    public void mouseExited(java.awt.event.MouseEvent e) {
+                        targetAlpha = 0f;
+                        if (!hoverTimer.isRunning()) hoverTimer.start();
+                    }
                 });
+
+                // Keyboard activation and focus behavior
+                addFocusListener(new java.awt.event.FocusAdapter() {
+                    @Override
+                    public void focusGained(java.awt.event.FocusEvent e) {
+                        targetAlpha = 1f;
+                        if (!hoverTimer.isRunning()) hoverTimer.start();
+                    }
+
+                    @Override
+                    public void focusLost(java.awt.event.FocusEvent e) {
+                        targetAlpha = 0f;
+                        if (!hoverTimer.isRunning()) hoverTimer.start();
+                    }
+                });
+
+                // Register global platform shortcut (e.g., Ctrl+, or Cmd+,) to open Plan Options and restore focus
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                        chrome.getFrame().getRootPane(), planOptionsKs, "PlanOptions", () -> {
+                            ArchitectOptionsDialog.showDialogAndWait(chrome);
+                            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
+                        });
+            }
+        };
 
         // Try to use a link-like color from UI, fall back to label foreground or blue
         java.awt.Color linkColor = UIManager.getColor("Label.linkForeground");
@@ -363,8 +437,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 try {
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int arc = 12;
-                    Color borderColor = UIManager.getColor("Component.borderColor");
-                    if (borderColor == null) borderColor = Color.GRAY;
+
+                    // Use blue focus border when focused, normal border otherwise
+                    Color borderColor;
+                    if (hasFocus()) {
+                        borderColor = new Color(0x007ACC); // Blue focus color
+                        g2.setStroke(new BasicStroke(2.0f)); // Thicker border for focus
+                    } else {
+                        borderColor = UIManager.getColor("Component.borderColor");
+                        if (borderColor == null) borderColor = Color.GRAY;
+                        g2.setStroke(new BasicStroke(1.0f)); // Normal border thickness
+                    }
+
                     g2.setColor(borderColor);
                     g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
                 } finally {
@@ -372,15 +456,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
         };
-        KeyStroke submitKs = KeyStroke.getKeyStroke(
+        KeyStroke defaultSubmitKs = KeyStroke.getKeyStroke(
                 KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        KeyStroke submitKs = MainProject.getShortcut("instructions.submit", defaultSubmitKs);
         actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
-        actionButton.setFocusPainted(false);
+        actionButton.setFocusPainted(true);
         actionButton.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
         actionButton.setRolloverEnabled(true);
         actionButton.addActionListener(e -> onActionButtonPressed());
+
+        // Add focus listeners to repaint the border when focus changes
+        actionButton.addFocusListener(new FocusListener() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                actionButton.repaint();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                actionButton.repaint();
+            }
+        });
 
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
@@ -474,6 +572,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Add this panel as a listener to context changes
         this.contextManager.addContextListener(this);
 
+        // Register for settings changes to update shortcuts
+        MainProject.addSettingsChangeListener(this);
+
         // --- Autocomplete Setup ---
         instructionCompletionProvider = new InstructionsCompletionProvider();
         instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
@@ -484,6 +585,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
         disableButtons();
+
+        // Enable predictable TAB navigation across main controls
+        setFocusCycleRoot(true);
+        setFocusTraversalPolicy(new InstructionsFocusTraversalPolicy());
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -597,6 +702,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
+        // Enable custom TAB navigation from the input field
+        area.setFocusTraversalKeysEnabled(false);
+        var tabKey = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
+        var shiftTabKey = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        area.getInputMap().put(tabKey, "focusNextFromInput");
+        area.getInputMap().put(shiftTabKey, "focusPrevFromInput");
+        area.getActionMap().put("focusNextFromInput", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                Container root = InstructionsPanel.this;
+                FocusTraversalPolicy ftp = root.getFocusTraversalPolicy();
+                if (ftp != null) {
+                    Component next = ftp.getComponentAfter(root, instructionsArea);
+                    if (next != null) next.requestFocusInWindow();
+                }
+            }
+        });
+        area.getActionMap().put("focusPrevFromInput", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                Container root = InstructionsPanel.this;
+                FocusTraversalPolicy ftp = root.getFocusTraversalPolicy();
+                if (ftp != null) {
+                    Component prev = ftp.getComponentBefore(root, instructionsArea);
+                    if (prev != null) prev.requestFocusInWindow();
+                }
+            }
+        });
+
         return area;
     }
 
@@ -606,6 +740,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         var modelComp = modelSelector.getComponent();
+        this.modelSelectorComponent = modelComp;
 
         // Lock control heights to the larger of mic and model selector so one growing won't shrink the other
         var micPref = micButton.getPreferredSize();
@@ -627,10 +762,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         leftPanel.add(modelComp);
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
-        var historyDropdown = createHistoryDropdown();
-        var historyPanel = new JPanel(new BorderLayout());
-        historyPanel.add(historyDropdown, BorderLayout.CENTER);
-        topBarPanel.add(historyPanel, BorderLayout.CENTER);
+        this.historyDropdown = createHistoryDropdown();
+        topBarPanel.add(this.historyDropdown, BorderLayout.CENTER);
 
         return topBarPanel;
     }
@@ -2443,5 +2576,214 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             return completions;
         }
+    }
+
+    /**
+     * Focus traversal so TAB cycles through: input, send button, mode toggle, plan/search checkbox, optional plan
+     * options, mic, model selector, history dropdown, and back to input.
+     */
+    private final class InstructionsFocusTraversalPolicy extends FocusTraversalPolicy {
+        private List<Component> currentOrder() {
+            List<Component> order = new ArrayList<>();
+
+            if (instructionsArea.isEnabled()) {
+                order.add(instructionsArea);
+            }
+
+            order.add(actionButton);
+
+            order.add(modeSwitch);
+
+            if (!modeSwitch.isSelected()) { // Code mode
+                order.add(codeCheckBox);
+                if (planOptionsLink.isVisible()) order.add(planOptionsLink);
+            } else { // Answer mode
+                order.add(searchProjectCheckBox);
+            }
+
+            order.add(micButton);
+
+            @Nullable Component modelComp = firstFocusable(modelSelectorComponent);
+            if (modelComp != null) order.add(modelComp);
+
+            if (historyDropdown != null) order.add(historyDropdown);
+
+            order.removeIf(c -> !isEffectivelyFocusable(c));
+            return order;
+        }
+
+        private boolean isEffectivelyFocusable(Component c) {
+            return c.isShowing() && c.isEnabled() && c.isFocusable();
+        }
+
+        private @Nullable Component firstFocusable(@Nullable Component c) {
+            if (c == null) return null;
+            if (isEffectivelyFocusable(c)) return c;
+            if (c instanceof Container container) {
+                for (Component child : container.getComponents()) {
+                    Component found = firstFocusable(child);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private Component wrap(List<Component> order, int idx) {
+            int n = order.size();
+            if (n == 0) return InstructionsPanel.this;
+            int wrapped = ((idx % n) + n) % n;
+            return order.get(wrapped);
+        }
+
+        @Override
+        public Component getDefaultComponent(Container aContainer) {
+            List<Component> order = currentOrder();
+            if (!order.isEmpty()) return order.get(0);
+            return instructionsArea;
+        }
+
+        @Override
+        public Component getFirstComponent(Container aContainer) {
+            return getDefaultComponent(aContainer);
+        }
+
+        @Override
+        public Component getLastComponent(Container aContainer) {
+            List<Component> order = currentOrder();
+            if (!order.isEmpty()) return order.get(order.size() - 1);
+            return instructionsArea;
+        }
+
+        @Override
+        public Component getComponentAfter(Container aContainer, Component aComponent) {
+            List<Component> order = currentOrder();
+            if (order.isEmpty()) return instructionsArea;
+
+            int idx = order.indexOf(aComponent);
+            if (idx < 0) return order.get(0);
+            return wrap(order, idx + 1);
+        }
+
+        @Override
+        public Component getComponentBefore(Container aContainer, Component aComponent) {
+            List<Component> order = currentOrder();
+            if (order.isEmpty()) return instructionsArea;
+            int idx = order.indexOf(aComponent);
+            if (idx < 0) return order.get(order.size() - 1);
+            return wrap(order, idx - 1);
+        }
+    }
+
+    @Override
+    public void shortcutsChanged() {
+        SwingUtilities.invokeLater(this::updateShortcuts);
+    }
+
+    private void updateShortcuts() {
+        // Re-register all shortcuts with updated values from settings
+        JRootPane rootPane = chrome.getFrame().getRootPane();
+        if (rootPane == null) return;
+
+        // Clear existing shortcuts by removing them from input/action maps
+        var inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        var actionMap = rootPane.getActionMap();
+
+        // Remove our specific shortcuts
+        inputMap.remove(MainProject.getShortcut(
+                "instructions.toggleMode",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M)));
+        inputMap.remove(MainProject.getShortcut(
+                "instructions.togglePlanOrSearch",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON)));
+        inputMap.remove(MainProject.getShortcut(
+                "instructions.openPlanOptions",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA)));
+
+        actionMap.remove("ToggleMode");
+        actionMap.remove("ToggleSearchFirst");
+        actionMap.remove("PlanOptions");
+
+        // Re-register shortcuts with new values
+        KeyStroke toggleKs = MainProject.getShortcut(
+                "instructions.toggleMode",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+        KeyStroke toggleSearchKs = MainProject.getShortcut(
+                "instructions.togglePlanOrSearch",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON));
+        KeyStroke planOptionsKs = MainProject.getShortcut(
+                "instructions.openPlanOptions",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
+
+        // Toggle mode shortcut
+        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                rootPane, toggleKs, "ToggleMode", () -> SwingUtilities.invokeLater(() -> modeSwitch.doClick()));
+
+        // Toggle plan/search shortcut
+        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                rootPane,
+                toggleSearchKs,
+                "ToggleSearchFirst",
+                () -> SwingUtilities.invokeLater(() -> {
+                    if (modeSwitch.isSelected()) {
+                        searchProjectCheckBox.doClick();
+                    } else {
+                        codeCheckBox.doClick();
+                    }
+                }));
+
+        // Plan options shortcut
+        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                rootPane, planOptionsKs, "PlanOptions", () -> {
+                    ArchitectOptionsDialog.showDialogAndWait(chrome);
+                    javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
+                });
+
+        // Update tooltips to reflect new shortcuts
+        updateTooltips();
+    }
+
+    private void updateTooltips() {
+        KeyStroke toggleKs = MainProject.getShortcut(
+                "instructions.toggleMode",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+        KeyStroke toggleSearchKs = MainProject.getShortcut(
+                "instructions.togglePlanOrSearch",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON));
+        KeyStroke planOptionsKs = MainProject.getShortcut(
+                "instructions.openPlanOptions",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
+        KeyStroke submitKs = MainProject.getShortcut(
+                "instructions.submit",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        String modeTooltipText =
+                """
+                <html>
+                <b>Code Mode:</b> For generating or modifying code based on your instructions.<br>
+                <b>Answer Mode:</b> For answering questions about your project or general programming topics.<br>
+                <br>
+                Click to toggle between Code and Answer modes (%s).
+                </html>
+                """
+                        .formatted(formatKeyStroke(toggleKs));
+        modeSwitch.setToolTipText(modeTooltipText);
+        codeModeLabel.setToolTipText(modeTooltipText);
+        answerModeLabel.setToolTipText(modeTooltipText);
+
+        codeCheckBox.setToolTipText("<html><b>Plan First:</b><br><ul>"
+                + "<li><b>checked:</b> Plan usage of multiple agents. Useful for large refactorings; will add files to the Workspace.</li>"
+                + "<li><b>unchecked:</b> Assumes necessary files are already in Workspace. Useful for small, well-defined code changes.</li>"
+                + "</ul>  (" + formatKeyStroke(toggleSearchKs) + ")</html>");
+
+        searchProjectCheckBox.setToolTipText("<html><b>Search First:</b><br><ul>"
+                + "<li><b>checked:</b> Performs an &quot;agentic&quot; search across your entire project (even files not in the Workspace) to find relevant code</li>"
+                + "<li><b>unchecked:</b> Answers using only the Workspace (faster for follow-ups)</li>"
+                + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
+
+        planOptionsLink.setToolTipText(
+                "Configure options for the Architect agent (Plan First) (" + formatKeyStroke(planOptionsKs) + ")");
+
+        actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
     }
 }
