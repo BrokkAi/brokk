@@ -12,7 +12,6 @@ import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
-import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -86,6 +85,13 @@ public class DependenciesDrawerPanel extends JPanel {
                 }
             }
         });
+
+        // Start with dependencies panel open
+        SwingUtilities.invokeLater(() -> {
+            if (!dependenciesToggle.isSelected()) {
+                dependenciesToggle.doClick();
+            }
+        });
     }
 
     /** Opens the panel in the drawer */
@@ -129,19 +135,19 @@ public class DependenciesDrawerPanel extends JPanel {
                 parentSplitPane.setDividerSize(originalDividerSize);
             }
 
-            // Reset resize weight to default
-            parentSplitPane.setResizeWeight(0.5);
+            // Set resize weight for 67/33 split (workspace gets more space)
+            parentSplitPane.setResizeWeight(0.67);
 
             // Remove minimum size constraint from this drawer panel
             setMinimumSize(null);
-            
+
             // Show the dependencies title
             dependenciesTitleLabel.setVisible(true);
 
-            // Use saved location if reasonable, otherwise default to 50/50 split
+            // Use saved location if reasonable, otherwise default to 67/33 split
             double loc = lastDividerLocation;
             if (loc <= 0.0 || loc >= 1.0) {
-                loc = 0.5;
+                loc = 0.67;
             }
 
             parentSplitPane.setDividerLocation(loc);
@@ -184,7 +190,7 @@ public class DependenciesDrawerPanel extends JPanel {
 
                     // Hide the divider
                     parentSplitPane.setDividerSize(0);
-                    
+
                     // Hide the dependencies title
                     dependenciesTitleLabel.setVisible(false);
 
@@ -201,7 +207,7 @@ public class DependenciesDrawerPanel extends JPanel {
     private void createPanel() {
         var dependenciesPanel = new DependenciesPanel(chrome);
         activeDependenciesPanel = dependenciesPanel;
-        
+
         drawerContentPanel.add(dependenciesPanel, BorderLayout.CENTER);
         drawerContentPanel.revalidate();
         drawerContentPanel.repaint();

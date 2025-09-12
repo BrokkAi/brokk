@@ -402,17 +402,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceTitleLabel = new JLabel("Workspace");
         workspaceTitleLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
         JLabel dependenciesTitleLabel = new JLabel("Dependencies");
-        dependenciesTitleLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
+        dependenciesTitleLabel.setBorder(new EmptyBorder(2, 35, 2, 5));
         titlesPanel.add(workspaceTitleLabel, BorderLayout.WEST);
         titlesPanel.add(dependenciesTitleLabel, BorderLayout.EAST);
 
         // Create a right-hand Dependencies drawer beside the Workspace
         workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit, dependenciesTitleLabel);
+        DependenciesDrawerPanel dependenciesDrawerPanel =
+                new DependenciesDrawerPanel(this, workspaceDependenciesSplit, dependenciesTitleLabel);
         workspaceDependenciesSplit.setResizeWeight(1.0); // Give priority to workspace on resize
         workspaceDependenciesSplit.setLeftComponent(workspacePanel);
         workspaceDependenciesSplit.setRightComponent(dependenciesDrawerPanel);
-        
+
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTopContainer.add(titlesPanel, BorderLayout.NORTH);
         workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);

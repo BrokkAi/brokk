@@ -72,10 +72,6 @@ public final class DependenciesPanel extends JPanel {
         this.chrome = chrome;
         this.initialFiles = chrome.getProject().getAllFiles();
 
-        // var headerLabel = new JLabel("Manage Dependencies", SwingConstants.CENTER);
-        // headerLabel.setBorder(new EmptyBorder(Constants.V_GLUE, Constants.H_GAP, Constants.V_GLUE, Constants.H_GAP));
-        // add(headerLabel, BorderLayout.NORTH);
-
         var contentPanel = new JPanel(new BorderLayout());
 
         Object[] columnNames = {"Enabled", "Name", "Files", "LoC"};
@@ -104,26 +100,25 @@ public final class DependenciesPanel extends JPanel {
         table.setDefaultRenderer(Long.class, new NumberRenderer());
 
         TableColumnModel columnModel = table.getColumnModel();
-        columnModel.getColumn(0).setPreferredWidth(80);
-        columnModel.getColumn(0).setMaxWidth(100);
-        columnModel.getColumn(1).setPreferredWidth(300);
+        columnModel.getColumn(0).setPreferredWidth(120);
+        columnModel.getColumn(0).setMaxWidth(150);
+        columnModel.getColumn(1).setPreferredWidth(200);
         columnModel.getColumn(2).setPreferredWidth(80);
         columnModel.getColumn(3).setPreferredWidth(100);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getTableHeader().setReorderingAllowed(false);
 
         var scrollPane = new JScrollPane(table);
-// Ensure no viewport border/inset so the table content can touch the scroll pane border
-scrollPane.setViewportBorder(null);
-// Use the shared focus-aware border so the dependencies table matches the workspace table.
-BorderUtils.addFocusBorder(scrollPane, table);
+        // Ensure no viewport border/inset so the table content can touch the scroll pane border
+        scrollPane.setViewportBorder(null);
+        // Use the shared focus-aware border so the dependencies table matches the workspace table.
+        BorderUtils.addFocusBorder(scrollPane, table);
 
         // Make the table fill the viewport vertically and remove internal spacing so its edges are flush.
         table.setFillsViewportHeight(true);
         table.setShowGrid(false);
         table.setIntercellSpacing(new Dimension(0, 0));
         table.setBorder(null);
-
 
         contentPanel.add(scrollPane, BorderLayout.CENTER);
 
