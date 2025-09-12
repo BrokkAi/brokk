@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.TableModelEvent;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumnModel;
@@ -156,6 +157,8 @@ public final class DependenciesPanel extends JPanel {
                 @Override
                 public void dependencyImportFinished(String name) {
                     loadDependencies();
+                    // Persist changes after a dependency import completes.
+                    saveChanges();
                 }
             };
             ImportDependencyDialog.show(chrome, listener);
@@ -170,10 +173,18 @@ public final class DependenciesPanel extends JPanel {
             }
         });
 
-        // Re-compute totals whenever data changes or check-boxes toggle
+        // Re-compute totals whenever data changes or check-boxes toggle.
+        // Also persist changes when the enabled checkbox (column 0) is toggled.
         tableModel.addTableModelListener(e -> {
-            if (e.getType() == -1) return; // ignore table structure changes, only care about cell updates
+            // Ignore header/structure change events
+            if (e.getFirstRow() == TableModelEvent.HEADER_ROW) return;
+
             updateTotals();
+
+            // If the change was specifically to the "Enabled" column, persist immediately.
+            if (e.getColumn() == 0) {
+                saveChanges();
+            }
         });
 
         loadDependencies();
@@ -331,6 +342,8 @@ public final class DependenciesPanel extends JPanel {
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependencies();
+                    // Persist changes after successful deletion and reload.
+                    saveChanges();
                 } catch (IOException ex) {
                     JOptionPane.showMessageDialog(
                             this,
