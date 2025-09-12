@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -56,6 +57,14 @@ public class TestProject implements IProject {
     public void setStyleGuide(String styleGuide) {
         this.styleGuide = styleGuide;
     }
+
+    @Override
+    public McpConfig getMcpConfig() {
+        return McpConfig.EMPTY;
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {}
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
     public static TestProject createTestProject(String subDir, Language lang) {

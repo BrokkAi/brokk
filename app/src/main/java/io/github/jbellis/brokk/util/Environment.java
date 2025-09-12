@@ -11,11 +11,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -294,6 +299,52 @@ public class Environment {
     }
 
     private static final String ANSI_ESCAPE_PATTERN = "\\x1B(?:\\[[;\\d]*[ -/]*[@-~]|\\]\\d+;[^\\x07]*\\x07)";
+
+    // Pattern for leading environment variable references like $VAR or ${VAR}
+    private static final Pattern LEADING_ENV_VAR_PATTERN =
+            Pattern.compile("^\\$(?:\\{([a-zA-Z_][a-zA-Z0-9_]*)}|([a-zA-Z_][a-zA-Z0-9_]*))");
+
+    /** Result of detecting an environment variable reference at the start of a string. */
+    public record EnvVarReference(@Nullable String name, boolean defined) {}
+
+    /**
+     * Detects a leading environment variable reference (e.g., $HOME or ${HOME}) in the provided text. Returns null if
+     * no reference is found.
+     */
+    public static @Nullable EnvVarReference detectEnvVarReference(@Nullable String text) {
+        if (text == null) return null;
+        String trimmed = text.trim();
+        Matcher m = LEADING_ENV_VAR_PATTERN.matcher(trimmed);
+        if (!m.find()) return null;
+        String varName = m.group(1) != null ? m.group(1) : m.group(2);
+        boolean defined = varName != null && System.getenv(varName) != null;
+        return new EnvVarReference(varName, defined);
+    }
+
+    /**
+     * Expands a leading environment variable reference in the provided text, if defined; otherwise returns the input
+     * unchanged.
+     */
+    public static @Nullable String expandLeadingEnvVar(@Nullable String text) {
+        if (text == null) return null;
+        Matcher m = LEADING_ENV_VAR_PATTERN.matcher(text);
+        if (!m.find()) return text;
+        String varName = m.group(1) != null ? m.group(1) : m.group(2);
+        String value = System.getenv(varName);
+        if (value == null) return text;
+        return value + text.substring(m.end());
+    }
+
+    /** Returns a copy of the given map with leading env var references expanded in the values, when defined. */
+    public static Map<String, String> expandEnvMap(Map<String, String> env) {
+        if (env.isEmpty()) return env;
+        var result = new HashMap<String, String>(env.size());
+        for (var e : env.entrySet()) {
+            String v = e.getValue();
+            result.put(e.getKey(), Objects.requireNonNullElse(expandLeadingEnvVar(v), v));
+        }
+        return result;
+    }
 
     /**
      * Seatbelt policy that grants read access everywhere and write access only to explicitly whitelisted roots.
