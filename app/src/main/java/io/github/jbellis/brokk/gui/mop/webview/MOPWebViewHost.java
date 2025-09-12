@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
@@ -62,6 +63,10 @@ public final class MOPWebViewHost extends JPanel {
         record HideSpinner() implements HostCommand {}
 
         record Clear() implements HostCommand {}
+
+        record HistoryReset() implements HostCommand {}
+
+        record HistoryTask(TaskEntry entry) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -354,6 +359,14 @@ public final class MOPWebViewHost extends JPanel {
         sendOrQueue(new HostCommand.Clear(), MOPBridge::clear);
     }
 
+    public void historyReset() {
+        sendOrQueue(new HostCommand.HistoryReset(), MOPBridge::sendHistoryReset);
+    }
+
+    public void historyTask(TaskEntry entry) {
+        sendOrQueue(new HostCommand.HistoryTask(entry), bridge -> bridge.sendHistoryTask(entry));
+    }
+
     public void showSpinner(String message) {
         sendOrQueue(new HostCommand.ShowSpinner(message), bridge -> bridge.showSpinner(message));
     }
@@ -484,6 +497,8 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
+                    case HostCommand.HistoryReset ignored -> bridge.sendHistoryReset();
+                    case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(ht.entry());
                 }
             });
             pendingCommands.clear();

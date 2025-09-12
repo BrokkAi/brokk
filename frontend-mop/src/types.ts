@@ -21,9 +21,6 @@ export type BrokkEvent =
   | {
       type: 'history-task';
       epoch: number;
-      sequence: number;
-      title: string;
-      messageCount: number;
       compressed: boolean;
       summary?: string;
       messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM' }[];

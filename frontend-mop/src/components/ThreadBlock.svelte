@@ -42,7 +42,7 @@
             {#if firstBubble.hast}
                 <HastRenderer tree={firstBubble.hast} plugins={rendererPlugins} />
             {:else}
-                {firstBubble.markdown}
+                <span>...</span>
             {/if}
         </div>
         {#if bubbles.length > 1}
