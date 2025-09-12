@@ -516,7 +516,6 @@ public class ArchitectAgent {
         return stringResult;
     }
 
-    @SuppressWarnings("unchecked")
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
     public String callMcpTool(
             @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
