@@ -512,6 +512,10 @@ public class TreeSitterAnalyzerRustTest {
         String colorSource = rsAnalyzer.getClassSource("Color").get();
         String expectedColorSource =
                 """
+                                     // To test package name with subdirectories
+                                     // Create a file like src/test/resources/testcode-rs/sub/mod.rs if needed
+                                     // For now, determinePackageName will return "" for Point.rs directly under testcode-rs/
+                                     // or "sub" if Point.rs was in testcode-rs/sub/Point.rs and project root is testcode-rs.
                                      pub enum Color {
                                          Red,
                                          Green,

@@ -771,12 +771,14 @@ public abstract class TreeSitterAnalyzer
             // For functions, we may have multiple overloads - find the right one by parameter matching
             // For now, just take the first range (this matches the current getMethodSource behavior)
             var range = ranges.getFirst();
-            return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, range.startByte(), range.endByte()));
+            return Optional.of(
+                    ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, range.startByte(), range.endByte()));
         } else if (codeUnit.isClass()) {
             // For classes, expect one primary definition range and expand with comments
             var originalRange = ranges.getFirst();
             var expandedRange = expandRangeWithComments(codeUnit.source(), originalRange);
-            return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, expandedRange.startByte(), expandedRange.endByte()));
+            return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(
+                    fileContent, expandedRange.startByte(), expandedRange.endByte()));
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }
