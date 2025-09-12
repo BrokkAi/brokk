@@ -30,6 +30,6 @@ public final class Icons {
     public static final Icon STOP = SwingUtil.uiIcon("Brokk.stop");
     public static final Icon TERMINAL = SwingUtil.uiIcon("Brokk.terminal");
     public static final Icon ATTACH_FILE = SwingUtil.uiIcon("Brokk.attach-file");
-    public static final Icon MANAGE_DEPENDENCIES_ICON = SwingUtil.uiIcon("Brokk.dependencies");
+    public static final Icon MANAGE_DEPENDENCIES = SwingUtil.uiIcon("Brokk.dependencies");
 
 }

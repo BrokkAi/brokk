@@ -421,8 +421,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Toggle button on the right, outside the workspace split (to feel 'outside the box')
         MaterialButton depsToggle = new MaterialButton();
-        depsToggle.setIcon(Icons.ADJUST);
-        depsToggle.setToolTipText("Manage Dependencies");
+        depsToggle.setIcon(Icons.MANAGE_DEPENDENCIES);
+        depsToggle.setToolTipText("Toggle Manage Dependencies");
         depsToggle.setFocusable(false);
         depsToggle.setOpaque(false);
         depsToggle.addActionListener(e -> toggleDependenciesDrawer());

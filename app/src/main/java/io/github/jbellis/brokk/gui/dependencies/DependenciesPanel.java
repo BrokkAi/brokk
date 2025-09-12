@@ -68,6 +68,10 @@ public final class DependenciesPanel extends JPanel {
         this.chrome = chrome;
         this.initialFiles = chrome.getProject().getAllFiles();
 
+        var headerLabel = new JLabel("Manage Dependencies", SwingConstants.CENTER);
+        headerLabel.setBorder(new EmptyBorder(Constants.V_GAP, Constants.H_GAP, Constants.V_GAP, Constants.H_GAP));
+        add(headerLabel, BorderLayout.NORTH);
+
         var contentPanel = new JPanel(new BorderLayout());
 
         Object[] columnNames = {"Enabled", "Name", "Files", "LoC"};
@@ -96,8 +100,8 @@ public final class DependenciesPanel extends JPanel {
         table.setDefaultRenderer(Long.class, new NumberRenderer());
 
         TableColumnModel columnModel = table.getColumnModel();
-        columnModel.getColumn(0).setPreferredWidth(60);
-        columnModel.getColumn(0).setMaxWidth(80);
+        columnModel.getColumn(0).setPreferredWidth(80);
+        columnModel.getColumn(0).setMaxWidth(100);
         columnModel.getColumn(1).setPreferredWidth(300);
         columnModel.getColumn(2).setPreferredWidth(80);
         columnModel.getColumn(3).setPreferredWidth(100);
