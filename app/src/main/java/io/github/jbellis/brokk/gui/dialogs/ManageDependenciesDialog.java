@@ -245,22 +245,25 @@ public class ManageDependenciesDialog extends JDialog {
                 }
             }
         }
-        chrome.getProject().saveLiveDependencies(newLiveDependencyTopLevelDirs);
 
-        var newFiles = chrome.getProject().getAllFiles();
+        chrome.getContextManager().submitBackgroundTask("Updating dependencies", () -> {
+            chrome.getProject().saveLiveDependencies(newLiveDependencyTopLevelDirs);
 
-        var addedFiles = new HashSet<>(newFiles);
-        addedFiles.removeAll(initialFiles);
+            var newFiles = chrome.getProject().getAllFiles();
 
-        var removedFiles = new HashSet<>(initialFiles);
-        removedFiles.removeAll(newFiles);
+            var addedFiles = new HashSet<>(newFiles);
+            addedFiles.removeAll(initialFiles);
 
-        var changedFiles = new HashSet<>(addedFiles);
-        changedFiles.addAll(removedFiles);
+            var removedFiles = new HashSet<>(initialFiles);
+            removedFiles.removeAll(newFiles);
 
-        if (!changedFiles.isEmpty()) {
-            chrome.getContextManager().getAnalyzerWrapper().updateFiles(changedFiles);
-        }
+            var changedFiles = new HashSet<>(addedFiles);
+            changedFiles.addAll(removedFiles);
+
+            if (!changedFiles.isEmpty()) {
+                chrome.getContextManager().getAnalyzerWrapper().updateFiles(changedFiles);
+            }
+        });
     }
 
     /** Recalculate totals for enabled dependencies and update the total labels. */
