@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Decompiler;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -134,8 +135,10 @@ public final class DependenciesPanel extends JPanel {
 
         // Add/Remove on the right
         var addRemovePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
-        var addButton = new MaterialButton("+");
-        var removeButton = new MaterialButton("-");
+        var addButton = new MaterialButton();
+        addButton.setIcon(Icons.ADD);
+        var removeButton = new MaterialButton();
+        removeButton.setIcon(Icons.REMOVE);
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
 
