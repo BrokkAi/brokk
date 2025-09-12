@@ -923,8 +923,13 @@ public final class MainProject extends AbstractProject {
     public Set<ProjectFile> getLiveDependencies() {
         var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
-        if (liveDepsNames == null || liveDepsNames.isBlank()) {
+        if (liveDepsNames == null) {
+            // Property not set: default to all dependencies enabled
             return allDeps;
+        }
+        if (liveDepsNames.isBlank()) {
+            // Property explicitly set but empty: user disabled all dependencies
+            return Set.of();
         }
 
         var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
