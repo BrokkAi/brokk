@@ -237,7 +237,9 @@ public class ArchitectAgent {
         this.offerUndoToolNext = true;
         var summary =
                 """
-                CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
+                CodeAgent was not able to get to a clean build. Changes were made but can be undone with 'undoLastChanges'
+                if CodeAgent made negative progress; you will have to determine this from the summary here and the
+                current Workspace contents.
                 <summary>
                 %s
                 </summary>

@@ -2080,18 +2080,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 f.cancel(true);
             }
             // Button will flip back to "Go" once the Future completes (see watcher in setActionRunning)
-            return;
+        } else {
+            // Go action
+            switch (storedAction) {
+                case ACTION_ARCHITECT -> runArchitectCommand();
+                case ACTION_CODE -> runCodeCommand();
+                case ACTION_SEARCH -> runSearchCommand();
+                case ACTION_ASK -> runAskCommand(getInstructions());
+                case ACTION_SCAN_PROJECT -> runScanProjectCommand();
+                default -> runArchitectCommand();
+            }
         }
-
-        // Go action
-        switch (storedAction) {
-            case ACTION_ARCHITECT -> runArchitectCommand();
-            case ACTION_CODE -> runCodeCommand();
-            case ACTION_SEARCH -> runSearchCommand();
-            case ACTION_ASK -> runAskCommand(getInstructions());
-            case ACTION_SCAN_PROJECT -> runScanProjectCommand();
-            default -> runArchitectCommand();
-        }
+        // Always return focus to the instructions area to avoid re-triggering with Enter on the button
+        requestCommandInputFocus();
     }
 
     private void setActionRunning(Future<?> f) {

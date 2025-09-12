@@ -609,15 +609,25 @@ public interface ContextFragment {
         @Override
         public Image image() throws UncheckedIOException {
             try {
-                Image result = javax.imageio.ImageIO.read(file.absPath().toFile());
+                var imageFile = file.absPath().toFile();
+                if (!imageFile.exists()) {
+                    throw new UncheckedIOException(new IOException("Image file does not exist: " + file.absPath()));
+                }
+                if (!imageFile.canRead()) {
+                    throw new UncheckedIOException(
+                            new IOException("Cannot read image file (permission denied): " + file.absPath()));
+                }
+
+                Image result = javax.imageio.ImageIO.read(imageFile);
                 if (result == null) {
                     // ImageIO.read() returns null if no registered ImageReader can read the file
                     // This can happen for unsupported formats, corrupted files, or non-image files
-                    throw new UncheckedIOException(new IOException("Unable to read image file: " + file.absPath()));
+                    throw new UncheckedIOException(new IOException(
+                            "Unable to read image file (unsupported format or corrupted): " + file.absPath()));
                 }
                 return result;
             } catch (IOException e) {
-                throw new UncheckedIOException(e);
+                throw new UncheckedIOException(new IOException("Failed to read image file: " + file.absPath(), e));
             }
         }
 
