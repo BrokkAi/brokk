@@ -34,17 +34,20 @@ public class DependenciesDrawerPanel extends JPanel {
     // Dependencies
     private final Chrome chrome;
     private final JSplitPane parentSplitPane;
+    private final JLabel dependenciesTitleLabel;
 
     /**
      * Creates a new terminal drawer panel.
      *
      * @param chrome main ui
      * @param parentSplitPane The split pane this drawer is part of
+     * @param dependenciesTitleLabel The title label to show/hide with drawer state
      */
-    public DependenciesDrawerPanel(Chrome chrome, JSplitPane parentSplitPane) {
+    public DependenciesDrawerPanel(Chrome chrome, JSplitPane parentSplitPane, JLabel dependenciesTitleLabel) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.parentSplitPane = parentSplitPane;
+        this.dependenciesTitleLabel = dependenciesTitleLabel;
         this.originalDividerSize = parentSplitPane.getDividerSize();
 
         setBorder(BorderFactory.createEmptyBorder());
@@ -131,6 +134,9 @@ public class DependenciesDrawerPanel extends JPanel {
 
             // Remove minimum size constraint from this drawer panel
             setMinimumSize(null);
+            
+            // Show the dependencies title
+            dependenciesTitleLabel.setVisible(true);
 
             // Use saved location if reasonable, otherwise default to 50/50 split
             double loc = lastDividerLocation;
@@ -178,6 +184,9 @@ public class DependenciesDrawerPanel extends JPanel {
 
                     // Hide the divider
                     parentSplitPane.setDividerSize(0);
+                    
+                    // Hide the dependencies title
+                    dependenciesTitleLabel.setVisible(false);
 
                     // Force layout update
                     parentSplitPane.revalidate();
@@ -193,11 +202,6 @@ public class DependenciesDrawerPanel extends JPanel {
         var dependenciesPanel = new DependenciesPanel(chrome);
         activeDependenciesPanel = dependenciesPanel;
         
-        // Add title label at the same level as workspace title
-        JLabel titleLabel = new JLabel("Dependencies");
-        titleLabel.setBorder(new EmptyBorder(2, 5, 2, 5)); // Match workspace title border
-        
-        drawerContentPanel.add(titleLabel, BorderLayout.NORTH);
         drawerContentPanel.add(dependenciesPanel, BorderLayout.CENTER);
         drawerContentPanel.revalidate();
         drawerContentPanel.repaint();

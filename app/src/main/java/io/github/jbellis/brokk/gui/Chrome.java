@@ -397,17 +397,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // 1) Nested split for Workspace (top) / Instructions (bottom)
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
+        // Create title panel that spans both workspace and dependencies
+        JPanel titlesPanel = new JPanel(new BorderLayout());
+        workspaceTitleLabel = new JLabel("Workspace");
+        workspaceTitleLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
+        JLabel dependenciesTitleLabel = new JLabel("Dependencies");
+        dependenciesTitleLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
+        titlesPanel.add(workspaceTitleLabel, BorderLayout.WEST);
+        titlesPanel.add(dependenciesTitleLabel, BorderLayout.EAST);
+
         // Create a right-hand Dependencies drawer beside the Workspace
         workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
+        DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit, dependenciesTitleLabel);
         workspaceDependenciesSplit.setResizeWeight(1.0); // Give priority to workspace on resize
         workspaceDependenciesSplit.setLeftComponent(workspacePanel);
         workspaceDependenciesSplit.setRightComponent(dependenciesDrawerPanel);
-
+        
         workspaceTopContainer = new JPanel(new BorderLayout());
-        workspaceTitleLabel = new JLabel("Workspace");
-        workspaceTitleLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
-        workspaceTopContainer.add(workspaceTitleLabel, BorderLayout.NORTH);
+        workspaceTopContainer.add(titlesPanel, BorderLayout.NORTH);
         workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
 
         // Create terminal drawer panel
