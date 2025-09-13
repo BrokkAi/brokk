@@ -1518,6 +1518,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
     }
 
+    @Override
+    public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+        // Word wrap not applicable to settings project panel
+        SwingUtilities.updateComponentTreeUI(this);
+    }
+
     private static class JdkItem {
         final String display;
         final String path;

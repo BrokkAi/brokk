@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.bundles.jediterm)
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
+    implementation(libs.disklrucache)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)

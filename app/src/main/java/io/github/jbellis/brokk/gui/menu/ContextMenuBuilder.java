@@ -5,8 +5,8 @@ import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.RunTestsService;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import java.awt.Component;
 import java.awt.Container;
@@ -160,11 +160,18 @@ public class ContextMenuBuilder {
         summarizeFileItem.addActionListener(e -> summarizeFiles(context));
         parent.add(summarizeFileItem);
 
-        // Capture Class Source
-        var captureSourceItem = new JMenuItem("Capture Class Source");
-        captureSourceItem.setEnabled(analyzerReady);
-        captureSourceItem.addActionListener(e -> captureClassSource(context));
-        parent.add(captureSourceItem);
+        // Capture Class Source (only when available, like PreviewTextPanel)
+        if (analyzerReady) {
+            var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
+            var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
+            if (analyzer != null
+                    && analyzer.isDefinitionAvailable(fqn)
+                    && analyzer.as(SourceCodeProvider.class).isPresent()) {
+                var captureSourceItem = new JMenuItem("Capture Class Source");
+                captureSourceItem.addActionListener(e -> captureClassSource(context));
+                parent.add(captureSourceItem);
+            }
+        }
     }
 
     private void buildFileMenu() {
@@ -370,10 +377,10 @@ public class ContextMenuBuilder {
             var testProjectFiles =
                     context.files().stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
 
-            if (!testProjectFiles.isEmpty()) {
-                RunTestsService.runTests(context.chrome(), context.contextManager(), testProjectFiles);
-            } else {
+            if (testProjectFiles.isEmpty()) {
                 context.chrome().toolError("No test files were selected to run");
+            } else {
+                context.contextManager().runTests(testProjectFiles);
             }
         });
     }

@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Decompiler;
 import io.github.jbellis.brokk.util.FileUtil;
@@ -38,7 +39,7 @@ public class ImportDependencyDialog {
         GIT
     }
 
-    public static void show(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
+    public static void show(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
         assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
         new DialogHelper(chrome, listener).buildAndShow();
     }
@@ -61,7 +62,7 @@ public class ImportDependencyDialog {
         private JRadioButton gitRadioButton;
 
         @Nullable
-        private final ManageDependenciesDialog.DependencyLifecycleListener listener;
+        private final DependenciesPanel.DependencyLifecycleListener listener;
 
         private JPanel contentPanel = new JPanel(new BorderLayout());
         private JButton importButton = new JButton("Import");
@@ -92,7 +93,7 @@ public class ImportDependencyDialog {
         @Nullable
         private GitRepo.RemoteInfo remoteInfo;
 
-        DialogHelper(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
+        DialogHelper(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
             this.chrome = chrome;
             this.dependenciesRoot = chrome.getProject()
                     .getRoot()

@@ -66,6 +66,9 @@ function setupBrokkInterface(): any[] {
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
+        // Debug API
+        toggleWrapStatus: () => typeof window !== 'undefined' && window.toggleWrapStatus ? window.toggleWrapStatus() : undefined,
+
     };
 
     // Signal to Java that the bridge is ready
@@ -99,13 +102,30 @@ function clearChat(): void {
     onHistoryEvent({type: 'history-reset', epoch: 0});
 }
 
-function setAppTheme(dark: boolean, isDevMode?: boolean): void {
-    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode);
+function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean): void {
+    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode);
     themeStore.set(dark);
     const html = document.querySelector('html')!;
+
+    // Handle theme classes
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
+
+    // Handle wrap mode classes - default to wrap mode enabled
+    const shouldWrap = wrapMode !== undefined ? wrapMode : true;
+    if (shouldWrap) {
+        html.classList.add('code-wrap-mode');
+        console.info('Applied code-wrap-mode class');
+    } else {
+        html.classList.remove('code-wrap-mode');
+        console.info('Removed code-wrap-mode class');
+    }
+
+    // Trigger status update for debug display
+    if (typeof window !== 'undefined' && window.updateWrapStatus) {
+        window.updateWrapStatus();
+    }
 
     // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
     mainLog.info(`set theme dark: ${dark} dev mode: ${isDevMode}`);

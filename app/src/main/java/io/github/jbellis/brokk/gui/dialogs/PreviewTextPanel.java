@@ -458,25 +458,21 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                             "Code intelligence does not support usage capturing for this language.");
                                                 }
 
-                                                if (codeUnit.isFunction() || codeUnit.isClass()) {
-                                                    var sourceCodeAvailable =
-                                                            SourceCaptureUtil.isSourceCaptureAvailable(
-                                                                    codeUnit, capabilities.hasSource());
+                                                var analyzer = contextManager.getAnalyzerUninterrupted();
+                                                var sourceCodeAvailable = SourceCaptureUtil.isSourceCaptureAvailable(
+                                                        codeUnit, capabilities.hasSource(), analyzer);
+
+                                                if (sourceCodeAvailable) {
                                                     var sourceItem = new JMenuItem("<html>Capture source of <code>"
                                                             + identifier + "</code></html>");
                                                     dynamicMenuItems.add(sourceItem);
 
                                                     sourceItem.setEnabled(sourceCodeAvailable);
-                                                    if (sourceCodeAvailable) {
-                                                        // Use shared utility for consistent behavior
-                                                        sourceItem.addActionListener(action -> {
-                                                            SourceCaptureUtil.captureSourceForCodeUnit(
-                                                                    codeUnit, contextManager);
-                                                        });
-                                                    } else {
-                                                        sourceItem.setToolTipText(
-                                                                SourceCaptureUtil.getSourceCaptureUnavailableTooltip());
-                                                    }
+                                                    // Use shared utility for consistent behavior
+                                                    sourceItem.addActionListener(action -> {
+                                                        SourceCaptureUtil.captureSourceForCodeUnit(
+                                                                codeUnit, contextManager);
+                                                    });
                                                 }
                                             });
                                 }

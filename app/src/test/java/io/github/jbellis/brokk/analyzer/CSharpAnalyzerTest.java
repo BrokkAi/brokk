@@ -170,6 +170,7 @@ public final class CSharpAnalyzerTest {
         assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.<init> should be present.");
         String expectedConstructorSource =
                 """
+        // Constructor
         public A()
         {
             MyField = 0;
@@ -186,12 +187,14 @@ public final class CSharpAnalyzerTest {
 
         String expectedMethodAOverload1Source =
                 """
+        // Method
         public void MethodA()
         {
             // Method body
         }""";
         String expectedMethodAOverload2Source =
                 """
+        // Overloaded Method
         public void MethodA(int param)
         {
             // Overloaded method body

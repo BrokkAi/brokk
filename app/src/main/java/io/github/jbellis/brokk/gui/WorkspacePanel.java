@@ -666,7 +666,6 @@ public class WorkspacePanel extends JPanel {
 
     private OverlayPanel workspaceOverlay;
     private JLayeredPane workspaceLayeredPane;
-    private TitledBorder workspaceTitledBorder;
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
@@ -678,24 +677,21 @@ public class WorkspacePanel extends JPanel {
     private static final String READ_ONLY_TIP = "Select latest activity to enable";
     private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
     private static final String DROP_ALL_ACTION_CMD = "workspace.dropAll";
-    private static final String WORKSPACE_TITLE = "Workspace";
-    private static final String WORKSPACE_TITLE_NOT_LIVE = "Workspace (read-only)";
 
     /** Primary constructor allowing menu-mode selection */
     public WorkspacePanel(Chrome chrome, ContextManager contextManager, PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
 
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Workspace",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
+
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.popupMenuMode = popupMenuMode;
-
-        workspaceTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                WORKSPACE_TITLE,
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-        setBorder(workspaceTitledBorder);
 
         buildContextPanel();
 
@@ -1151,6 +1147,7 @@ public class WorkspacePanel extends JPanel {
         JPanel buttonWrapper = new JPanel(new GridBagLayout());
         buttonWrapper.setOpaque(false);
         buttonWrapper.add(addButton);
+
         summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
 
         contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
@@ -2048,9 +2045,12 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Run selected tests", () -> {
-            RunTestsService.runTests(chrome, contextManager, testFiles);
-        });
+        if (testFiles.isEmpty()) {
+            chrome.toolError("No test files specified to run.");
+            return;
+        }
+
+        chrome.getContextManager().runTests(testFiles);
     }
 
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {
@@ -2226,10 +2226,8 @@ public class WorkspacePanel extends JPanel {
             // Show/hide overlay based on editable state and update title
             if (editable) {
                 workspaceOverlay.hideOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE);
             } else {
                 workspaceOverlay.showOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE_NOT_LIVE);
             }
 
             // Repaint to show title change

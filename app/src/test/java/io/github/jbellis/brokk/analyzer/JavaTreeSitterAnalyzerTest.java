@@ -256,6 +256,8 @@ public class JavaTreeSitterAnalyzerTest {
                 "A$AInner",
                 "A$AInner$AInnerInner",
                 "A$AInnerStatic",
+                "AnnotatedClass",
+                "AnnotatedClass$InnerHelper",
                 "AnonymousUsage",
                 "AnonymousUsage$NestedClass",
                 "B",
@@ -263,6 +265,7 @@ public class JavaTreeSitterAnalyzerTest {
                 "C",
                 "C$Foo",
                 "CamelClass",
+                "CustomAnnotation",
                 "CyclicMethods",
                 "D",
                 "D$DSub",
@@ -390,5 +393,170 @@ public class JavaTreeSitterAnalyzerTest {
                 .sorted()
                 .toList();
         assertEquals(expected, children);
+    }
+
+    @Test
+    public void debugAnnotatedClassSourceTest() {
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass");
+        assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
+        final var source = sourceOpt.get();
+
+        System.out.println("=== EXTRACTED SOURCE FOR AnnotatedClass ===");
+        System.out.println(source);
+        System.out.println("=== END EXTRACTED SOURCE ===");
+
+        // Basic test just to ensure it works
+        assertTrue(source.contains("AnnotatedClass"), "Should contain class name");
+    }
+
+    @Test
+    public void getClassSourceWithJavadocsTest() {
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass");
+        assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
+        final var source = sourceOpt.get();
+        System.out.println(source);
+
+        // Verify Javadoc comments are captured (now that we've implemented comment expansion)
+        assertTrue(source.contains("/**"), "Should contain Javadoc start marker");
+        assertTrue(
+                source.contains("A comprehensive test class with various annotations"),
+                "Should contain class-level Javadoc description");
+        assertTrue(source.contains("@author Test Author"), "Should contain @author tag");
+        assertTrue(source.contains("@version 1.0"), "Should contain @version tag");
+        assertTrue(source.contains("@since Java 8"), "Should contain @since tag");
+
+        // Verify class declaration is also captured
+        assertTrue(source.contains("public class AnnotatedClass"), "Should contain class declaration");
+
+        // Verify annotations are captured (they are part of the declaration node)
+        assertTrue(
+                source.contains("@Deprecated(since = \"1.2\", forRemoval = true)"),
+                "Should contain @Deprecated annotation");
+        assertTrue(
+                source.contains("@SuppressWarnings({\"unchecked\", \"rawtypes\"})"),
+                "Should contain @SuppressWarnings annotation");
+        assertTrue(
+                source.contains("@CustomAnnotation(value = \"class-level\", priority = 1)"),
+                "Should contain custom annotation");
+    }
+
+    @Test
+    public void getClassSourceWithAnnotationsTest() {
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass");
+        assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
+        final var source = sourceOpt.get();
+
+        // Verify class-level annotations are captured
+        assertTrue(
+                source.contains("@Deprecated(since = \"1.2\", forRemoval = true)"),
+                "Should contain @Deprecated annotation with parameters");
+        assertTrue(
+                source.contains("@SuppressWarnings({\"unchecked\", \"rawtypes\"})"),
+                "Should contain @SuppressWarnings annotation with array");
+        assertTrue(
+                source.contains("@CustomAnnotation(value = \"class-level\", priority = 1)"),
+                "Should contain custom annotation with parameters");
+
+        // Verify field annotations are captured
+        assertTrue(
+                source.contains("@CustomAnnotation(\"field-level\")"), "Should contain field-level custom annotation");
+
+        // Verify constructor annotations are captured
+        assertTrue(source.contains("@CustomAnnotation(\"constructor\")"), "Should contain constructor annotation");
+
+        // Verify method annotations are captured
+        assertTrue(source.contains("@Override"), "Should contain @Override annotation");
+        assertTrue(
+                source.contains("@CustomAnnotation(value = \"method\", priority = 2)"),
+                "Should contain method-level custom annotation");
+        assertTrue(source.contains("@SuppressWarnings(\"unchecked\")"), "Should contain method-level SuppressWarnings");
+    }
+
+    @Test
+    public void getClassSourceWithInnerClassJavadocsTest() {
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass$InnerHelper");
+        assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass$InnerHelper");
+        final var source = sourceOpt.get();
+
+        // Verify inner class Javadocs are captured
+        assertTrue(source.contains("Inner class with its own documentation"), "Should contain inner class Javadoc");
+        assertTrue(
+                source.contains("This demonstrates nested class handling"), "Should contain inner class description");
+
+        // Verify inner class annotations are captured
+        assertTrue(source.contains("@CustomAnnotation(\"inner-class\")"), "Should contain inner class annotation");
+
+        // Verify inner method Javadocs and annotations
+        assertTrue(source.contains("Helper method documentation"), "Should contain inner method Javadoc");
+        assertTrue(source.contains("@param message the message to process"), "Should contain @param tag");
+        assertTrue(source.contains("@return processed message"), "Should contain @return tag");
+        assertTrue(source.contains("@CustomAnnotation(\"inner-method\")"), "Should contain inner method annotation");
+    }
+
+    @Test
+    public void getMethodSourceWithJavadocsTest() {
+        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.toString");
+        assertTrue(sourceOpt.isPresent(), "Should find toString method");
+        final var source = sourceOpt.get();
+
+        // Verify method Javadoc is captured
+        assertTrue(source.contains("Gets the current configuration value"), "Should contain method Javadoc");
+        assertTrue(
+                source.contains("@return the configuration value, never null"), "Should contain @return documentation");
+        assertTrue(source.contains("@see #CONFIG_VALUE"), "Should contain @see reference");
+        assertTrue(source.contains("@deprecated Use"), "Should contain @deprecated tag");
+
+        // Verify method annotations are captured
+        assertTrue(source.contains("@Deprecated(since = \"1.1\")"), "Should contain @Deprecated annotation");
+        assertTrue(
+                source.contains("@CustomAnnotation(value = \"method\", priority = 2)"),
+                "Should contain custom annotation");
+        assertTrue(source.contains("@Override"), "Should contain @Override annotation");
+    }
+
+    @Test
+    public void getMethodSourceWithGenericJavadocsTest() {
+        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.processValue");
+        assertTrue(sourceOpt.isPresent(), "Should find processValue method");
+        final var source = sourceOpt.get();
+
+        // Verify generic method Javadoc is captured
+        assertTrue(source.contains("A generic method with complex documentation"), "Should contain method description");
+        assertTrue(
+                source.contains("@param <T> the type parameter"),
+                "Should contain generic type parameter documentation");
+        assertTrue(source.contains("@param input the input value"), "Should contain parameter documentation");
+        assertTrue(
+                source.contains("@param processor the processing function"),
+                "Should contain second parameter documentation");
+        assertTrue(source.contains("@return the processed result"), "Should contain return documentation");
+        assertTrue(
+                source.contains("@throws RuntimeException if processing fails"), "Should contain throws documentation");
+
+        // Verify generic method annotations
+        assertTrue(source.contains("@SuppressWarnings(\"unchecked\")"), "Should contain method-level annotation");
+    }
+
+    @Test
+    public void getClassSourceCustomAnnotationTest() {
+        final var sourceOpt = analyzer.getClassSource("CustomAnnotation");
+        assertTrue(sourceOpt.isPresent(), "Should find CustomAnnotation");
+        final var source = sourceOpt.get();
+
+        // Verify annotation class Javadocs are captured
+        assertTrue(source.contains("Custom annotation for testing"), "Should contain annotation class description");
+        assertTrue(source.contains("@author Test Framework"), "Should contain @author tag");
+
+        // Verify annotation meta-annotations are captured
+        assertTrue(
+                source.contains(
+                        "@Target({ElementType.TYPE, ElementType.METHOD, ElementType.FIELD, ElementType.CONSTRUCTOR})"),
+                "Should contain @Target annotation");
+        assertTrue(source.contains("@Retention(RetentionPolicy.RUNTIME)"), "Should contain @Retention annotation");
+
+        // Verify annotation method Javadocs
+        assertTrue(source.contains("The annotation value"), "Should contain annotation method description");
+        assertTrue(source.contains("@return the value string"), "Should contain annotation method @return tag");
+        assertTrue(source.contains("Priority level"), "Should contain priority method description");
     }
 }

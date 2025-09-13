@@ -192,6 +192,8 @@
   let isPartialMatch = $derived(cacheEntry?.result?.isPartialMatch || false);
   let highlightRanges = $derived(cacheEntry?.result?.highlightRanges || []);
   let originalText = $derived(cacheEntry?.result?.originalText);
+  let confidence = $derived(cacheEntry?.result?.confidence || 100);
+  let processingTimeMs = $derived(cacheEntry?.result?.processingTimeMs || 0);
 
   // Debug tooltip information
   let showTooltip = $state(false);
@@ -207,6 +209,10 @@
     if (cacheEntry?.result) {
       parts.push(`FQN: ${cacheEntry.result.fqn || 'null'}`);
       parts.push(`Type: ${isPartialMatch ? 'Partial Match' : 'Exact Match'}`);
+      parts.push(`Confidence: ${confidence}%`);
+      if (processingTimeMs > 0) {
+        parts.push(`Processing Time: ${processingTimeMs}ms`);
+      }
       if (highlightRanges.length > 0) {
         parts.push(`Highlight Ranges: [${highlightRanges.map(r => `${r.start}-${r.end}`).join(', ')}]`);
       }
@@ -341,17 +347,29 @@
     }
   }
 
+  // Get CSS class based on confidence level for visual feedback
+  function getConfidenceClass(confidence: number): string {
+    if (confidence >= 90) return 'confidence-high';
+    if (confidence >= 70) return 'confidence-medium';
+    if (confidence >= 40) return 'confidence-low';
+    return 'confidence-very-low';
+  }
+
 
 
 </script>
 
 <code
-  class={symbolExists ? (isPartialMatch ? 'symbol-exists partial-match' : 'symbol-exists') : ''}
+  class={symbolExists ?
+    `symbol-exists ${isPartialMatch ? 'partial-match' : ''} ${getConfidenceClass(confidence)}`.trim()
+    : ''}
   data-symbol={isValidSymbol ? symbolText : undefined}
   data-symbol-exists={symbolExists ? 'true' : 'false'}
   data-symbol-fqn={symbolFqn}
   data-symbol-partial={isPartialMatch ? 'true' : 'false'}
   data-symbol-original={isPartialMatch ? originalText : undefined}
+  data-symbol-confidence={symbolExists ? confidence : undefined}
+  data-symbol-processing-time={processingTimeMs > 0 ? processingTimeMs : undefined}
   data-symbol-component="true"
   data-symbol-id={componentId}
   onmouseenter={handleMouseEnter}

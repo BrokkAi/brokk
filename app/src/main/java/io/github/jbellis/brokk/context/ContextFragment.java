@@ -49,7 +49,8 @@ public interface ContextFragment {
         TASK(false, true, true), // Content-hashed ID
         PASTE_TEXT(false, true, false), // Content-hashed ID
         PASTE_IMAGE(false, true, false), // Content-hashed ID, isText=false for this virtual fragment
-        STACKTRACE(false, true, false); // Content-hashed ID
+        STACKTRACE(false, true, false), // Content-hashed ID
+        BUILD_LOG(false, true, false); // Dynamic; updated by ContextManager with latest build results
 
         private final boolean isPath;
         private final boolean isVirtual;
@@ -175,6 +176,10 @@ public interface ContextFragment {
 
     default ContextFragment unfreeze(IContextManager cm) throws IOException {
         return this;
+    }
+
+    default List<TaskEntry> entries() {
+        return List.of();
     }
 
     /**
@@ -854,7 +859,7 @@ public interface ContextFragment {
         public SearchFragment(
                 IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
             // The ID (hash) is calculated by the TaskFragment constructor based on sessionName and messages.
-            super(contextManager, messages, sessionName);
+            super(contextManager, messages, sessionName, true);
             this.sources = sources;
         }
 
@@ -870,7 +875,8 @@ public interface ContextFragment {
                     contextManager,
                     EditBlockParser.instance,
                     messages,
-                    sessionName); // existingHashId is expected to be a content hash
+                    sessionName,
+                    true); // existingHashId is expected to be a content hash
             this.sources = sources;
         }
 
@@ -1577,9 +1583,59 @@ public interface ContextFragment {
         }
     }
 
+    // Special dynamic fragment that holds the latest build results.
+    // Only ContextManager should update its content.
+    class BuildFragment extends VirtualFragment { // Dynamic, uses nextId
+        private volatile String content = "";
+
+        public BuildFragment(IContextManager contextManager) {
+            super(contextManager);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.BUILD_LOG;
+        }
+
+        @Override
+        public String description() {
+            return "Latest build results";
+        }
+
+        @Override
+        public String text() {
+            return "# CURRENT BUILD STATUS\n\n" + content;
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return true;
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            // Do not seed auto-context from build output
+            return false;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            // Build output may contain Markdown formatting
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        }
+
+        public void setContent(String newContent) {
+            content = newContent;
+        }
+
+        @Override
+        public String toString() {
+            return "BuildFragment('%s')".formatted(description());
+        }
+    }
+
     interface OutputFragment {
         List<TaskEntry> entries();
-
         /** Should raw HTML inside markdown be escaped before rendering? */
         default boolean isEscapeHtml() {
             return true;
@@ -1677,8 +1733,11 @@ public interface ContextFragment {
 
     /** represents a single session's Task History */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
-        private final EditBlockParser parser; // TODO this doesn't belong in TaskFragment anymore
         private final List<ChatMessage> messages; // Content is fixed once created
+
+        @SuppressWarnings({"unused", "UnusedVariable"})
+        private final EditBlockParser parser;
+
         private final String sessionName;
         private final boolean escapeHtml;
 
@@ -1774,11 +1833,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isText() {
-            return true;
-        }
-
-        @Override
         public boolean isDynamic() {
             return false;
         }
@@ -1812,10 +1866,6 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
-        }
-
-        public EditBlockParser parser() {
-            return parser;
         }
     }
 }

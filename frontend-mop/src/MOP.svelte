@@ -74,7 +74,7 @@
   }
 </style>
 
-<!-- Debug cache stats panel -->
+<!-- Debug panels -->
 <CacheStatsDebug />
 
 <div

@@ -69,7 +69,7 @@ class CodeAgentTest {
         // as CodeAgent's constructor doesn't use it directly.
         // Llm instance creation is deferred to runTask/runQuickTask.
         codeAgent = new CodeAgent(contextManager, new Service.UnavailableStreamingModel(), consoleIO);
-        parser = EditBlockParser.getParserFor(""); // Basic parser
+        parser = EditBlockParser.instance; // Basic parser
 
         // Save original shell command runner factory
         originalShellCommandRunnerFactory = Environment.shellCommandRunnerFactory;
