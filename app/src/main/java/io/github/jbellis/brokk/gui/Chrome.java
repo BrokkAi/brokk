@@ -683,7 +683,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 } else {
                     var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
                     var mainTask = taskHistory.getLast();
-                    historyOutputPanel.displayConversation(historyTasks, mainTask);
+                    historyOutputPanel.setLlmAndHistoryOutput(historyTasks, mainTask);
                 }
             }
             updateCaptureButtons();
@@ -949,6 +949,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
+    }
+
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }
 
     @Override

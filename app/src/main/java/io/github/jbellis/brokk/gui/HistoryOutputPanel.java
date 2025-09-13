@@ -724,7 +724,7 @@ public class HistoryOutputPanel extends JPanel {
      * @param history The list of tasks to show in the history section.
      * @param main    The final task to show in the main output section.
      */
-    public void displayConversation(List<TaskEntry> history, TaskEntry main) {
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
         // prioritize rendering live area, then history
         setLlmOutput(main);
         SwingUtilities.invokeLater(() -> {

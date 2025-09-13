@@ -7,6 +7,7 @@
   import Spinner from './components/Spinner.svelte';
   import { historyStore } from './stores/historyStore';
   import ThreadBlock from './components/ThreadBlock.svelte';
+  import EmptyState from './components/EmptyState.svelte';
   import { get } from 'svelte/store';
   import { threadStore } from './stores/threadStore';
 
@@ -80,21 +81,26 @@
   class="chat-container"
   id="chat-container"
 >
-  <!-- History tasks -->
-  {#each $historyStore as task (task.threadId)}
-    {#if task.entries.length > 0}
-      <ThreadBlock threadId={task.threadId} bubbles={task.entries} />
+  {#if $historyStore.some(task => task.entries.length > 0) || $bubblesStore.length > 0}
+    <!-- History tasks -->
+    {#each $historyStore as task (task.threadId)}
+      {#if task.entries.length > 0}
+        <ThreadBlock threadId={task.threadId} bubbles={task.entries} />
+      {/if}
+    {/each}
+
+    <!-- Separator line between history and live bubbles -->
+    {#if $historyStore.some(task => task.entries.length > 0) && $bubblesStore.length > 0}
+      <div class="history-live-separator"></div>
     {/if}
-  {/each}
 
-  <!-- Separator line between history and live bubbles -->
-  {#if $historyStore.some(task => task.entries.length > 0) && $bubblesStore.length > 0}
-    <div class="history-live-separator"></div>
+    <!-- Live bubbles -->
+    {#if $bubblesStore.length > 0}
+      <ThreadBlock threadId={$bubblesStore[0].threadId} bubbles={$bubblesStore} />
+    {/if}
+    <Spinner />
+  {:else}
+    <!-- Empty state when no history or live bubbles -->
+    <EmptyState />
   {/if}
-
-  <!-- Live bubbles -->
-  {#if $bubblesStore.length > 0}
-    <ThreadBlock threadId={$bubblesStore[0].threadId} bubbles={$bubblesStore} />
-  {/if}
-  <Spinner />
 </div>
