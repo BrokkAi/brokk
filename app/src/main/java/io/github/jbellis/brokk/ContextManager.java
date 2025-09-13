@@ -1441,9 +1441,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Set<ProjectFile> getEditableFiles() {
         return topContext()
                 .editableFiles()
-                .filter(ContextFragment.ProjectPathFragment.class::isInstance)
-                .map(ContextFragment.ProjectPathFragment.class::cast)
-                .map(ContextFragment.ProjectPathFragment::file)
+                .filter(cf -> cf.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .flatMap(cf -> cf.files().stream())
                 .collect(Collectors.toSet());
     }
 
