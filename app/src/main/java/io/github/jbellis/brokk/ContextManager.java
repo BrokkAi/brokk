@@ -1364,7 +1364,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void close() {
         // we're not in a hurry when calling close(), this indicates a single window shutting down
-        closeAsync(5_000);
+        closeAsync(5_000).join();
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
