@@ -10,7 +10,7 @@ export const bubblesStore = writable<BubbleState[]>([]);
 /* ─── monotonic IDs & seq  ───────────────────────────── */
 let nextBubbleSeq = 0;   // grows forever (DOM keys never reused)
 let currentThreadId = getNextThreadId();
-threadStore.setThreadCollapsed(currentThreadId, false);
+threadStore.setThreadCollapsed(currentThreadId, false, 'live');
 
 /* ─── main entry from Java bridge ─────────────────────── */
 export function onBrokkEvent(evt: BrokkEvent): void {
@@ -22,9 +22,9 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 nextBubbleSeq++;
                 // clear without flushing (hard clear; no next message)
                 clearState(false);
-                threadStore.clearAll();
+                threadStore.clearThreadsByType('live');
                 currentThreadId = getNextThreadId();
-                threadStore.setThreadCollapsed(currentThreadId, false);
+                threadStore.setThreadCollapsed(currentThreadId, false, 'live');
                 return [];
 
             case 'chunk': {

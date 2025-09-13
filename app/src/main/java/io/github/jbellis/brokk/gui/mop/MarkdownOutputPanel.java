@@ -283,13 +283,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
     }
 
-    /**
-     * Convenience overload to send the history of a frozen context.
-     */
-    public void syncHistory(Context ctx) {
-        syncHistory(ctx.getTaskHistory());
-    }
-
     public void dispose() {
         logger.debug("Disposing WebViewMarkdownOutputPanel.");
 

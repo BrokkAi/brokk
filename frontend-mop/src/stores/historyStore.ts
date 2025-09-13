@@ -33,7 +33,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
         switch (evt.type) {
             case 'history-reset':
                 tasks.forEach(task => task.entries.forEach(entry => unregister(entry.seq)));
-                threadStore.clearAll();
+                threadStore.clearThreadsByType('history');
                 return [];
 
             case 'history-task': {
@@ -65,7 +65,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                     entries: entries,
                 };
 
-                threadStore.setThreadCollapsed(newTask.threadId, true);
+                threadStore.setThreadCollapsed(newTask.threadId, true, 'history');
 
                 // Parse all new entries and register result handlers
                 newTask.entries.forEach(entry => {
