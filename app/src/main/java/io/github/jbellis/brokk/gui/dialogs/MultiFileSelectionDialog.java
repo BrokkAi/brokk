@@ -123,7 +123,10 @@ public class MultiFileSelectionDialog extends JDialog {
 
         // --- Create Classes Tab (if requested) ---
         if (modes.contains(SelectionMode.CLASSES)) {
-            tabbedPane.addTab("Classes", createClassSelectionPanel());
+            var analyzer = analyzerWrapper.getNonBlocking();
+            if (analyzer != null && analyzer.as(SkeletonProvider.class).isPresent()) {
+                tabbedPane.addTab("Classes", createClassSelectionPanel());
+            }
         }
 
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
@@ -346,15 +349,16 @@ public class MultiFileSelectionDialog extends JDialog {
             return List.of();
         }
 
-        Map<String, CodeUnit> knownClasses = Completions.completeSymbols("", activeAnalyzer).stream()
-                .filter(CodeUnit::isClass)
-                .collect(Collectors.toMap(CodeUnit::fqName, cu -> cu, (cu1, cu2) -> cu1));
-
         for (String className : classNames) {
             if (className.isBlank()) continue;
-            CodeUnit found = knownClasses.get(className);
-            if (found != null) {
-                resolvedClasses.add(found);
+            Optional<CodeUnit> matchingCodeUnit = activeAnalyzer
+                    .getDefinition(className)
+                    .filter(CodeUnit::isClass)
+                    .or(() -> activeAnalyzer.searchDefinitions(className).stream()
+                            .filter(CodeUnit::isClass)
+                            .findFirst());
+            if (matchingCodeUnit.isPresent()) {
+                resolvedClasses.add(matchingCodeUnit.get());
             } else {
                 logger.warn("Could not resolve class name: {}", className);
             }
