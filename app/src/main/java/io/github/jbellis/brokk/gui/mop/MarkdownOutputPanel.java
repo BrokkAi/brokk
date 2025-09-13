@@ -102,6 +102,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
         messages.clear();
         webHost.clear();
+        webHost.historyReset();
         textChangeListeners.forEach(Runnable::run);
     }
 

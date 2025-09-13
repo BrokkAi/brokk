@@ -37,7 +37,7 @@
         aria-controls="thread-body-{threadId}"
     >
         <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
-        <span class="tag">{bubbleDisplay.tag}</span>
+        <span class="tag">{bubbleDisplay.tag}: </span>
         <div class="content-preview search-exclude">
             {#if firstBubble.hast}
                 <HastRenderer tree={firstBubble.hast} plugins={rendererPlugins} />

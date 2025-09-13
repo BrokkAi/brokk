@@ -67,9 +67,9 @@
   .chat-container > :global(.thread-block:first-child) {
       margin-top: 0;
   }
-  .chat-container > :global(.thread-block + .thread-block) {
-      border-top: 1px solid var(--border-color-hex);
-      padding-top: 0.8em;
+  .history-live-separator {
+    border-top: 1px solid var(--border-color-hex);
+    margin: 1.5em 0 1em;
   }
 </style>
 
@@ -80,11 +80,19 @@
   class="chat-container"
   id="chat-container"
 >
+  <!-- History tasks -->
   {#each $historyStore as task (task.threadId)}
     {#if task.entries.length > 0}
       <ThreadBlock threadId={task.threadId} bubbles={task.entries} />
     {/if}
   {/each}
+
+  <!-- Separator line between history and live bubbles -->
+  {#if $historyStore.some(task => task.entries.length > 0) && $bubblesStore.length > 0}
+    <div class="history-live-separator"></div>
+  {/if}
+
+  <!-- Live bubbles -->
   {#if $bubblesStore.length > 0}
     <ThreadBlock threadId={$bubblesStore[0].threadId} bubbles={$bubblesStore} />
   {/if}
