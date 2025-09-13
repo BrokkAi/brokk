@@ -717,6 +717,21 @@ public class HistoryOutputPanel extends JPanel {
         llmStreamArea.setText(newOutput);
     }
 
+    /**
+     * Displays a full conversation, splitting it between the history area (for all but the last task) and the main area
+     * (for the last task).
+     *
+     * @param history The list of tasks to show in the history section.
+     * @param main The final task to show in the main output section.
+     */
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
+        // prioritize rendering live area, then history
+        setLlmOutput(main);
+        SwingUtilities.invokeLater(() -> {
+            llmStreamArea.syncHistory(history);
+        });
+    }
+
     /** Appends text to the LLM output area */
     public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         llmStreamArea.append(text, type, isNewMessage, isReasoning);

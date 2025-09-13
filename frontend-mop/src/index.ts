@@ -1,10 +1,11 @@
 import './styles/global.scss';
 import {mount, tick} from 'svelte';
-import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
+import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
+import { threadStore } from './stores/threadStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
@@ -79,7 +80,11 @@ function setupBrokkInterface(): any[] {
 }
 
 async function handleEvent(payload: any): Promise<void> {
-    onBrokkEvent(payload); // updates store & talks to worker
+    if (payload.type === 'history-reset' || payload.type === 'history-task') {
+        onHistoryEvent(payload);
+    } else {
+        onBrokkEvent(payload); // updates store & talks to worker
+    }
 
     // Wait until Svelte updated *and* browser painted
     await tick();
@@ -94,6 +99,7 @@ function getCurrentSelection(): string {
 
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
+    onHistoryEvent({type: 'history-reset', epoch: 0});
 }
 
 function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean): void {
@@ -193,7 +199,7 @@ async function initSearchController(): Promise<void> {
 
 function setupSearchRehighlight(): void {
     let pending = false;
-    bubblesStore.subscribe(() => {
+    const trigger = () => {
         if (!searchCtrl || !searchCtrl.getState().query) return;
         if (pending) return;
         pending = true;
@@ -204,5 +210,7 @@ function setupSearchRehighlight(): void {
                 searchCtrl?.onContentChanged();
             });
         });
-    });
+    };
+    bubblesStore.subscribe(trigger);
+    threadStore.subscribe(trigger);
 }

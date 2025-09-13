@@ -310,7 +310,7 @@ Both approaches:
 
     function streamAsk() {
         let index = 0;
-        // simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true, reasoning: false})
+
         const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
         const interval = setInterval(() => {
             if (index < chunks.length) {
@@ -324,6 +324,8 @@ Both approaches:
     }
 
     function showAskMd() {
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
         simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, reasoning: true})
         simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, reasoning: false})

@@ -112,6 +112,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
         messages.clear();
         webHost.clear();
+        webHost.historyReset();
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -281,6 +282,14 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public void onAnalyzerReady() {
         String contextId = webHost.getContextCacheId();
         webHost.onAnalyzerReadyResponse(contextId);
+    }
+
+    /** Re-sends the entire task history to the WebView. */
+    public void syncHistory(List<TaskEntry> entries) {
+        webHost.historyReset();
+        for (var entry : entries) {
+            webHost.historyTask(entry);
+        }
     }
 
     public void dispose() {

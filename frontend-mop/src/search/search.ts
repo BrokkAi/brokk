@@ -1,4 +1,5 @@
 import Mark from 'mark.js';
+import { threadStore } from '../stores/threadStore';
 
 export type SearchState = {
   total: number;      // number of matches
@@ -51,10 +52,37 @@ export function createSearchController(container: HTMLElement): SearchController
     }
   }
 
-  function scrollToCurrent(): void {
-    if (currentIdx >= 0 && matches[currentIdx]) {
-      matches[currentIdx].scrollIntoView({ block: 'center' });
+  function getThreadContainer(el: HTMLElement | null): { container: HTMLElement | null; threadId: number | null; isCollapsed: boolean } {
+    const container = el?.closest<HTMLElement>('[data-thread-id]');
+    if (!container) return { container: null, threadId: null, isCollapsed: false };
+    const threadId = Number(container.dataset.threadId ?? NaN);
+    const isCollapsed = container.dataset.collapsed === 'true';
+    return { container, threadId: Number.isFinite(threadId) ? threadId : null, isCollapsed };
+  }
+
+  function expandThreadIfNeededFor(el: HTMLElement | null, afterExpand: () => void): void {
+    const { threadId, isCollapsed } = getThreadContainer(el);
+    if (!threadId || !isCollapsed) {
+      afterExpand();
+      return;
     }
+
+    // Expand the thread
+    threadStore.setThreadCollapsed(threadId, false);
+
+    // Wait for layout to apply, then scroll. Two rAFs gives CSS transitions/layout a moment.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(afterExpand);
+    });
+  }
+
+  function scrollToCurrent(): void {
+    const el = currentIdx >= 0 ? matches[currentIdx] : null;
+    if (!el) return;
+
+    expandThreadIfNeededFor(el, () => {
+        el.scrollIntoView({ block: 'center' });
+    });
   }
 
   function unmarkAll(cb?: () => void): void {
@@ -92,7 +120,7 @@ export function createSearchController(container: HTMLElement): SearchController
           diacritics: false,
           element: 'span',
           className: HIGHLIGHT_CLASS,
-          exclude: ['.copy-button']
+          exclude: ['.copy-button', '.search-exclude', '.search-exclude *']
         });
         matches = Array.from(container.querySelectorAll<HTMLElement>(`span.${HIGHLIGHT_CLASS}`));
 

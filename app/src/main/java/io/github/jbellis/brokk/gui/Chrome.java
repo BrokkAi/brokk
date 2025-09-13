@@ -695,10 +695,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
             if (updateOutput) {
-                if (ctx.getParsedOutput() != null) {
-                    historyOutputPanel.setLlmOutput(ctx.getParsedOutput());
-                } else {
+                var taskHistory = ctx.getTaskHistory();
+                if (taskHistory.isEmpty()) {
                     historyOutputPanel.clearLlmOutput();
+                } else {
+                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+                    var mainTask = taskHistory.getLast();
+                    historyOutputPanel.setLlmAndHistoryOutput(historyTasks, mainTask);
                 }
             }
             updateCaptureButtons();
@@ -968,6 +971,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
+    }
+
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }
 
     @Override
