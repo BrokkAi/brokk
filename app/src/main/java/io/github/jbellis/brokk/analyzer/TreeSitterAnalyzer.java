@@ -671,7 +671,10 @@ public abstract class TreeSitterAnalyzer
                 .map(cu -> {
                     var rangesForOverloads = sourceRanges.get(cu);
                     if (rangesForOverloads == null || rangesForOverloads.isEmpty()) {
-                        log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, fqName);
+                        log.warn(
+                                "No source ranges found for CU {} (fqName {}) although definition was found.",
+                                cu,
+                                fqName);
                         return Collections.<String>emptySet();
                     }
 
@@ -693,7 +696,10 @@ public abstract class TreeSitterAnalyzer
                         } else {
                             log.warn(
                                     "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    range.startByte(), range.endByte(), cu, fqName);
+                                    range.startByte(),
+                                    range.endByte(),
+                                    cu,
+                                    fqName);
                         }
                     }
                     return methodSources;

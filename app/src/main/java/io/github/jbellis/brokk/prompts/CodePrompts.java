@@ -829,7 +829,7 @@ public abstract class CodePrompts {
                             new AiMessage(
                                     """
                                     Certainly:
-                                    
+
                                     ```
                                     src/main/java/com/acme/Widget.java
                                     <<<<<<< SEARCH
@@ -837,11 +837,11 @@ public abstract class CodePrompts {
                                     =======
                                     public class Widget {
                                         private final String serial;
-                                    
+
                                     public Widget(String serial) {
                                         this.serial = serial;
                                     }
-                                    
+
                                         public String greet(String name) {
                                             return "Hi, " + name;
                                         }

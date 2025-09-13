@@ -18,9 +18,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 /** Utility for extracting and applying before/after search-replace blocks in content. */
 public class EditBlock {
@@ -296,7 +294,8 @@ public class EditBlock {
      */
     public static void replaceInFile(
             ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
-            throws IOException, NoMatchException, AmbiguousMatchException, org.eclipse.jgit.api.errors.GitAPIException, InterruptedException {
+            throws IOException, NoMatchException, AmbiguousMatchException, org.eclipse.jgit.api.errors.GitAPIException,
+                    InterruptedException {
         String original = file.exists() ? file.read() : "";
         String updated = replaceMostSimilarChunk(contextManager, original, beforeText, afterText);
 
@@ -326,13 +325,11 @@ public class EditBlock {
 
     /**
      * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content.
-     * Also supports special *marker* search targets:
-     *   - BRK_CONFLICT_BEGIN<n>...BRK_CONFLICT_END<n>  (existing behavior)
-     *   - BRK_CLASS <fqcn>                             (new)
-     *   - BRK_FUNCTION <fqMethodName>                  (new; rejects overloads as ambiguous)
+     * Also supports special *marker* search targets: - BRK_CONFLICT_BEGIN<n>...BRK_CONFLICT_END<n> (existing behavior)
+     * - BRK_CLASS <fqcn> (new) - BRK_FUNCTION <fqMethodName> (new; rejects overloads as ambiguous)
      *
-     * For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal
-     * line edit using that snippet as the search block.
+     * <p>For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
+     * edit using that snippet as the search block.
      */
     static String replaceMostSimilarChunk(IContextManager contextManager, String content, String target, String replace)
             throws AmbiguousMatchException, NoMatchException, InterruptedException {
@@ -348,8 +345,8 @@ public class EditBlock {
             // Find occurrences in the whole content. Include an optional trailing newline after the BRK_CONFLICT_END
             // so that replacing a block that is followed by a newline doesn't leave a duplicate blank line.
             var findPattern = java.util.regex.Pattern.compile("BRK_CONFLICT_BEGIN" + java.util.regex.Pattern.quote(num)
-                                                                      + "[\\s\\S]*?BRK_CONFLICT_END" + java.util.regex.Pattern.quote(num)
-                                                                      + "(?:\\r?\\n)?");
+                    + "[\\s\\S]*?BRK_CONFLICT_END" + java.util.regex.Pattern.quote(num)
+                    + "(?:\\r?\\n)?");
             var matcher = findPattern.matcher(content);
             int count = 0;
             while (matcher.find()) {
@@ -370,7 +367,8 @@ public class EditBlock {
         // -----------------------------
         // 1) BRK_CLASS / BRK_FUNCTION special search syntax
         // -----------------------------
-        var markerMatcher = java.util.regex.Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(trimmedTarget);
+        var markerMatcher = java.util.regex.Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$")
+                .matcher(trimmedTarget);
         if (markerMatcher.matches()) {
             var kind = markerMatcher.group(1);
             var fqName = markerMatcher.group(2).trim();
@@ -415,9 +413,8 @@ public class EditBlock {
                     throw new NoMatchException("No method source found for '" + fqName + "'." + extra);
                 }
                 if (sources.size() > 1) {
-                    throw new AmbiguousMatchException(
-                            "Multiple overloads found for '" + fqName + "' (" + sources.size()
-                                    + "). Please provide a non-overloaded, unique name and re-run.");
+                    throw new AmbiguousMatchException("Multiple overloads found for '" + fqName + "' (" + sources.size()
+                            + "). Please provide a non-overloaded, unique name and re-run.");
                 }
                 snippet = sources.iterator().next();
             }

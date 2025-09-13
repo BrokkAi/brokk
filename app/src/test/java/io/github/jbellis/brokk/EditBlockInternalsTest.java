@@ -8,9 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
-import org.junit.jupiter.api.Test;
-
 import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests the individual static methods of {@link EditBlock} to pinpoint where behavior diverges from expectations in
@@ -18,7 +17,8 @@ import java.nio.file.Path;
  */
 class EditBlockInternalsTest {
     /** for replaceMostSimilarChunk that don't need a real analyzer */
-    String replaceMostSimilarChunk(String content, String target, String replace) throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    String replaceMostSimilarChunk(String content, String target, String replace)
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         var tcm = new TestContextManager(Path.of("."), new TestConsoleIO());
         return EditBlock.replaceMostSimilarChunk(tcm, content, target, replace);
     }
@@ -103,7 +103,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceMostSimilarChunk() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testReplaceMostSimilarChunk()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String whole =
                 """
                 line1
@@ -127,7 +128,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testDoReplaceWithBlankLineAndIndent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testDoReplaceWithBlankLineAndIndent()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         // "doReplace" is a higher-level method that calls stripQuotedWrapping + replaceMostSimilarChunk, etc.
         String original =
                 """
@@ -150,7 +152,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceSimpleExact() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testReplaceSimpleExact()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original = "This is a sample text.\nAnother line\nYet another line.\n";
         String search = "Another line\n";
         String replace = "Changed line\n";
@@ -161,7 +164,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceIgnoringWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testReplaceIgnoringWhitespace()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -190,7 +194,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testDeletionIgnoringWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testDeletionIgnoringWhitespace()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original = """
                 One
                   Two
@@ -212,9 +217,7 @@ class EditBlockInternalsTest {
         String search = "line1\n";
         String replace = "new_line\n";
 
-        assertThrows(
-                EditBlock.AmbiguousMatchException.class,
-                () -> replaceMostSimilarChunk(original, search, replace));
+        assertThrows(EditBlock.AmbiguousMatchException.class, () -> replaceMostSimilarChunk(original, search, replace));
     }
 
     @Test
@@ -229,12 +232,12 @@ class EditBlockInternalsTest {
         String search = "line4\n";
         String replace = "new_line\n";
 
-        assertThrows(
-                EditBlock.NoMatchException.class, () -> replaceMostSimilarChunk(original, search, replace));
+        assertThrows(EditBlock.NoMatchException.class, () -> replaceMostSimilarChunk(original, search, replace));
     }
 
     @Test
-    void testEmptySearchReplacesContent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testEmptySearchReplacesContent()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         // If beforeText is empty, replace the entire content
         String original = "one\ntwo\n";
         String search = "";
@@ -323,7 +326,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceIgnoringTrailingWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testReplaceIgnoringTrailingWhitespace()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -351,7 +355,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceIgnoringInternalWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testReplaceIgnoringInternalWhitespace()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -402,7 +407,8 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testEmptySearchOnEmptyFile() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+    void testEmptySearchOnEmptyFile()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original = "";
         String search = ""; // empty
         String replace = "initial content\n";

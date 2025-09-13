@@ -6,11 +6,9 @@ import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.update.UpdateTestUtil;
-import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
-import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
+import io.github.jbellis.brokk.testutil.TestContextManager;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -20,9 +18,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import io.github.jbellis.brokk.testutil.TestContextManager;
-import org.jetbrains.annotations.VisibleForTesting;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -232,8 +227,7 @@ class EditBlockTest {
     }
 
     @Test
-    void testApplyEditsFailsForUnknownFile(@TempDir Path tempDir)
-            throws IOException, InterruptedException {
+    void testApplyEditsFailsForUnknownFile(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
 
         Path existingFile = tempDir.resolve("fileA.txt");
@@ -692,8 +686,7 @@ class EditBlockTest {
     // Tests for BRK_CONFLICT handling
     // ----------------------------------------------------
     @Test
-    void testReplaceBrkConflictBlock(@TempDir Path tempDir)
-            throws IOException, InterruptedException {
+    void testReplaceBrkConflictBlock(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path testFile = tempDir.resolve("conf.txt");
 
@@ -841,7 +834,6 @@ class EditBlockTest {
         assertTrue(content.contains("return 42;"), "Class body should be replaced");
         assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
     }
-
 
     // ----------------------------------------------------
     // Helper methods

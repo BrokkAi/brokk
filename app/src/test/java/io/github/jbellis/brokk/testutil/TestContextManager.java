@@ -4,13 +4,13 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
 
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
@@ -26,10 +26,8 @@ public final class TestContextManager implements IContextManager {
         this(new TestProject(projectRoot, Language.JAVA), consoleIO, new HashSet<>(), new TestAnalyzer(projectRoot));
     }
 
-    public TestContextManager(TestProject project,
-                              IConsoleIO consoleIO,
-                              Set<ProjectFile> editableFiles,
-                              IAnalyzer analyzer) {
+    public TestContextManager(
+            TestProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles, IAnalyzer analyzer) {
         this.project = project;
         this.analyzer = analyzer;
         this.editableFiles = editableFiles;
@@ -42,10 +40,13 @@ public final class TestContextManager implements IContextManager {
     }
 
     public TestContextManager(Path projectRoot, Set<String> editableFiles) {
-        this(new TestProject(projectRoot, Language.JAVA),
-             new TestConsoleIO(),
-             new HashSet<>(editableFiles.stream().map(s -> new ProjectFile(projectRoot, s)).toList()),
-             new TestAnalyzer(projectRoot));
+        this(
+                new TestProject(projectRoot, Language.JAVA),
+                new TestConsoleIO(),
+                new HashSet<>(editableFiles.stream()
+                        .map(s -> new ProjectFile(projectRoot, s))
+                        .toList()),
+                new TestAnalyzer(projectRoot));
     }
 
     @Override
