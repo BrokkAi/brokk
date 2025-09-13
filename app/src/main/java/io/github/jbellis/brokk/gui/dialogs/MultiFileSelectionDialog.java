@@ -126,6 +126,8 @@ public class MultiFileSelectionDialog extends JDialog {
             var analyzer = analyzerWrapper.getNonBlocking();
             if (analyzer != null && analyzer.as(SkeletonProvider.class).isPresent()) {
                 tabbedPane.addTab("Classes", createClassSelectionPanel());
+            } else {
+                logger.warn("Analyzer either not yet ready, or does not support providing summaries.");
             }
         }
 
