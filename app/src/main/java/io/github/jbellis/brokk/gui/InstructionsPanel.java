@@ -1934,7 +1934,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             displayAction = action;
         }
 
-        var currentTaskFragment = new ContextFragment.TaskFragment(cm, List.of(new UserMessage(finalAction, input)), input);
+        var currentTaskFragment =
+                new ContextFragment.TaskFragment(cm, List.of(new UserMessage(finalAction, input)), input);
         var history = cm.topContext().getTaskHistory();
         chrome.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 

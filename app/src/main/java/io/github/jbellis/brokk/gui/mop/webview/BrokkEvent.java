@@ -44,9 +44,7 @@ public sealed interface BrokkEvent {
         }
     }
 
-    /**
-     * Clears the frontend's stored history
-     */
+    /** Clears the frontend's stored history */
     record HistoryReset(int epoch) implements BrokkEvent {
         @Override
         public String getType() {
@@ -59,20 +57,13 @@ public sealed interface BrokkEvent {
         }
     }
 
-    /**
-     * Appends a task (either compressed summary or full messages) to the frontend's history.
-     */
+    /** Appends a task (either compressed summary or full messages) to the frontend's history. */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    record HistoryTask(
-            int epoch,
-            boolean compressed,
-            @Nullable String summary,
-            @Nullable List<Message> messages)
+    record HistoryTask(int epoch, boolean compressed, @Nullable String summary, @Nullable List<Message> messages)
             implements BrokkEvent {
 
         public static record Message(
-                String text,
-                @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType) {}
+                String text, @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType) {}
 
         @Override
         public String getType() {

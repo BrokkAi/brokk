@@ -10,10 +10,10 @@ import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.Desktop;
 import java.awt.desktop.PreferencesHandler;
-import io.github.jbellis.brokk.util.Environment;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
@@ -100,8 +100,8 @@ public class MenuBar {
             var rootPane = chrome.getFrame().getRootPane();
             var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
             var am = rootPane.getActionMap();
-            var ks = KeyStroke.getKeyStroke(KeyEvent.VK_COMMA,
-                    Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+            var ks = KeyStroke.getKeyStroke(
+                    KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
             im.put(ks, "open-settings");
             am.put("open-settings", new AbstractAction() {
                 @Override

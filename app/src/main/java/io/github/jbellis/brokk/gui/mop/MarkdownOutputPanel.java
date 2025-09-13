@@ -10,7 +10,6 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -285,9 +284,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.onAnalyzerReadyResponse(contextId);
     }
 
-    /**
-     * Re-sends the entire task history to the WebView.
-     */
+    /** Re-sends the entire task history to the WebView. */
     public void syncHistory(List<TaskEntry> entries) {
         webHost.historyReset();
         for (var entry : entries) {

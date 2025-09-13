@@ -1,16 +1,17 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
+import static java.util.Objects.requireNonNull;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskEntry;
-import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.gui.Chrome;
-import static java.util.Objects.requireNonNull;
 import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
+import io.github.jbellis.brokk.util.Messages;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -143,28 +144,20 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    /**
-     * Enqueue a history reset event for the WebView to clear its stored history.
-     */
+    /** Enqueue a history reset event for the WebView to clear its stored history. */
     public void sendHistoryReset() {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.HistoryReset(e));
         scheduleSend();
     }
 
-    /**
-     * Enqueue a single task from the conversation history to the WebView.
-     */
+    /** Enqueue a single task from the conversation history to the WebView. */
     public void sendHistoryTask(TaskEntry entry) {
         var e = epoch.incrementAndGet();
 
         // compressed summary
         if (entry.isCompressed()) {
-            var event = new BrokkEvent.HistoryTask(
-                    e,
-                    true,
-                    requireNonNull(entry.summary()),
-                    null);
+            var event = new BrokkEvent.HistoryTask(e, true, requireNonNull(entry.summary()), null);
             eventQueue.add(event);
             scheduleSend();
             return;
@@ -181,11 +174,7 @@ public final class MOPBridge {
                 messages.add(new BrokkEvent.HistoryTask.Message(text, message.type()));
             }
         }
-        var event = new BrokkEvent.HistoryTask(
-                e,
-                false,
-                null,
-                messages);
+        var event = new BrokkEvent.HistoryTask(e, false, null, messages);
         eventQueue.add(event);
         scheduleSend();
     }
