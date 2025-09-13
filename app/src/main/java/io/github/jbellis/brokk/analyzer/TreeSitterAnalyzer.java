@@ -740,12 +740,14 @@ public abstract class TreeSitterAnalyzer
      * @return The 0-based starting line number of the actual definition, or -1 if not found
      */
     public int getStartLineForCodeUnit(CodeUnit codeUnit) {
+
         // For classes with dual-range storage, use the original range (index 0)
         if (codeUnit.isClass()) {
             var ranges = sourceRanges.get(codeUnit);
             if (ranges != null && ranges.size() >= 2) {
                 // Use original range (index 0) for UI positioning
-                return ranges.get(0).startLine();
+                var startLine = ranges.get(0).startLine();
+                return startLine;
             }
             // Fallback to AST parsing if dual-range not available
             return getOriginalStartLine(codeUnit);
@@ -754,7 +756,8 @@ public abstract class TreeSitterAnalyzer
         // For functions and other types, use the stored range as-is
         var ranges = sourceRanges.get(codeUnit);
         if (ranges != null && !ranges.isEmpty()) {
-            return ranges.get(0).startLine();
+            var startLine = ranges.get(0).startLine();
+            return startLine;
         }
         return -1;
     }

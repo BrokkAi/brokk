@@ -396,8 +396,26 @@ public class ContextMenuBuilder {
 
                 if (analyzer != null) {
                     try {
-                        // Get the starting line for positioning (includes comments if pre-expanded)
-                        startLine = analyzer.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class)
+                        // Try direct TreeSitterAnalyzer cast first
+                        var tsAnalyzer = analyzer.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class);
+
+                        // If direct cast fails, try to get the delegate from MultiAnalyzer
+                        if (tsAnalyzer.isEmpty()
+                                && analyzer instanceof io.github.jbellis.brokk.analyzer.MultiAnalyzer multiAnalyzer) {
+                            var delegates = multiAnalyzer.getDelegates();
+
+                            // Get the appropriate delegate based on file extension
+                            var fileExtension = com.google.common.io.Files.getFileExtension(
+                                    symbol.source().absPath().toString());
+                            var language = io.github.jbellis.brokk.analyzer.Language.fromExtension(fileExtension);
+
+                            var delegate = delegates.get(language);
+                            if (delegate != null) {
+                                tsAnalyzer = delegate.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class);
+                            }
+                        }
+
+                        startLine = tsAnalyzer
                                 .map(tsa -> tsa.getStartLineForCodeUnit(symbol))
                                 .orElse(-1);
 

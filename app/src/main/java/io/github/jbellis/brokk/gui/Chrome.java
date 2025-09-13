@@ -1267,7 +1267,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var panel =
                     new PreviewTextPanel(contextManager, pf, content, syntax, themeManager, null); // Pass null fragment
 
-            // 4. Position the caret at the specified line if provided
+            // 4. Show in frame first
+            showPreviewFrame(contextManager, "Preview: " + pf, panel);
+
+            // 5. Position the caret at the specified line if provided, after showing the frame
             if (startLine >= 0) {
                 SwingUtilities.invokeLater(() -> {
                     try {
@@ -1278,17 +1281,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                             for (var i = 0; i < startLine; i++) {
                                 charOffset += lines[i].length() + 1; // +1 for line separator
                             }
-                            panel.setCaretPosition(charOffset);
+                            panel.setCaretPositionAndCenter(charOffset);
+                        } else {
+                            logger.warn(
+                                    "Start line {} exceeds file length {} for {}",
+                                    startLine,
+                                    lines.length,
+                                    pf.absPath());
                         }
                     } catch (Exception e) {
-                        logger.warn("Failed to position caret at line {}: {}", startLine, e.getMessage());
+                        logger.warn(
+                                "Failed to position caret at line {} for {}: {}",
+                                startLine,
+                                pf.absPath(),
+                                e.getMessage());
                         // Fall back to default positioning (beginning of file)
                     }
                 });
             }
-
-            // 5. Show in frame using toString for the title
-            showPreviewFrame(contextManager, "Preview: " + pf, panel);
 
         } catch (IOException ex) {
             toolError("Error reading file for preview: " + ex.getMessage());
