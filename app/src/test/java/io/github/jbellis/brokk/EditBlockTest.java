@@ -247,7 +247,7 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        EditBlock.applyEditBlocks(ctx, io, blocks);
+        EditBlock.apply(ctx, io, blocks);
 
         // existing filename
         String actualA = Files.readString(existingFile);
@@ -285,7 +285,7 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+        var result = EditBlock.apply(ctx, io, blocks);
 
         assertNotEquals(List.of(), result.failedBlocks());
     }
@@ -312,7 +312,7 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+        var result = EditBlock.apply(ctx, io, blocks);
 
         assertEquals(1, result.failedBlocks().size());
         assertEquals(
@@ -403,7 +403,7 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+        var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with the correct reason
         assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
@@ -441,7 +441,7 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+        var result = EditBlock.apply(ctx, io, blocks);
 
         // Verify original content is returned
         var fileA = new ProjectFile(tempDir, Path.of("fileA.txt"));
@@ -480,7 +480,7 @@ class EditBlockTest {
         assertEquals(1, blocks.size());
         assertTrue(blocks.getFirst().beforeText().isEmpty()); // Verify search block is empty
 
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+        var result = EditBlock.apply(ctx, io, blocks);
 
         // Verify the file content is now *only* the replacement text
         String actualContent = Files.readString(testFile);
@@ -569,7 +569,7 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+        var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
         assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
@@ -615,7 +615,7 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+        var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
         assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
@@ -717,6 +717,35 @@ class EditBlockTest {
         assertThrows(
                 EditBlock.SymbolInvalidException.class,
                 () -> EditBlock.resolveProjectFile(ctx, "%ssrc%sfoo.txt".formatted(sep, sep)));
+    }
+
+    // ----------------------------------------------------
+    // Tests for BRK_CONFLICT handling
+    // ----------------------------------------------------
+    @Test
+    void testReplaceBrkConflictBlock(@TempDir Path tempDir)
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+        TestConsoleIO io = new TestConsoleIO();
+        Path testFile = tempDir.resolve("conf.txt");
+
+        String conflictBlock = "BRK_CONFLICT_BEGIN1\n"
+                + "BRK_OUR_VERSION abc\n"
+                + "abc Some conflicting line\n"
+                + "BRK_CONFLICT_END1\n";
+
+        String originalContent = "start\n" + conflictBlock + "end\n";
+        Files.writeString(testFile, originalContent);
+
+        var block = new EditBlock.SearchReplaceBlock("conf.txt", conflictBlock, "Resolved line\n");
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("conf.txt"));
+
+        var result = EditBlock.apply(ctx, io, List.of(block));
+
+        // Should have applied successfully
+        assertTrue(result.failedBlocks().isEmpty(), "No failures expected when replacing unique BRK conflict block");
+
+        String finalContent = Files.readString(testFile);
+        assertEquals("start\nResolved line\nend\n", finalContent);
     }
 
     // ----------------------------------------------------

@@ -646,11 +646,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // and contextManager should be properly set
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
-        // Apply current theme based on project settings
+        // Apply current theme and wrap mode based on global settings
         String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
-        switchTheme(isDark);
+        boolean wrapMode = MainProject.getCodeBlockWrapMode();
+        switchThemeAndWrapMode(isDark, wrapMode);
     }
 
     /**
@@ -692,6 +693,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
+    }
+
+    public void switchThemeAndWrapMode(boolean isDark, boolean wordWrap) {
+        themeManager.applyTheme(isDark, wordWrap);
     }
 
     public GuiTheme getTheme() {

@@ -441,11 +441,11 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 var testProjectFiles =
                         targetFiles.stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
 
-                if (!testProjectFiles.isEmpty()) {
-                    RunTestsService.runTests(chrome, contextManager, testProjectFiles);
-                } else {
+                if (testProjectFiles.isEmpty()) {
                     // This case might occur if selection changes between menu population and action
                     chrome.toolError("No test files were selected to run");
+                } else {
+                    chrome.getContextManager().runTests(testProjectFiles);
                 }
             });
         });

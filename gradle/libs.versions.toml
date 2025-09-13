@@ -119,6 +119,9 @@ maven-resolver-impl = { module = "org.apache.maven.resolver:maven-resolver-impl"
 maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-resolver-connector-basic", version.ref = "maven-resolver" }
 maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
 
+# NEW: DiskLruCache library
+disklrucache = "com.jakewharton:disklrucache:2.0.2"
+
 [bundles]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]

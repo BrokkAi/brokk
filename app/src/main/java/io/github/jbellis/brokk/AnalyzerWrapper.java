@@ -193,8 +193,14 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
+        var projectLangs = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Language.NONE)
+                .map(Language::name)
+                .collect(Collectors.toList());
+        logger.info("Setting up analyzer for languages: {} in directory: {}", projectLangs, project.getRoot());
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
         if (langHandle == Language.NONE) {
+            logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
             return new DisabledAnalyzer();
         }
 
@@ -238,6 +244,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         try {
             logger.debug("Attempting to load existing analyzer");
             analyzer = langHandle.loadAnalyzer(project);
+            logger.info(
+                    "Loaded existing analyzer: {} for directory: {}",
+                    analyzer.getClass().getSimpleName(),
+                    project.getRoot());
             if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
                 communicativeAnalyzer.setIo(io);
             }
@@ -245,6 +255,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             // cache missing or corrupt, rebuild
             logger.warn(th);
             analyzer = langHandle.createAnalyzer(project);
+            logger.info(
+                    "Created new analyzer: {} for directory: {}",
+                    analyzer.getClass().getSimpleName(),
+                    project.getRoot());
             needsRebuild = false;
         }
 

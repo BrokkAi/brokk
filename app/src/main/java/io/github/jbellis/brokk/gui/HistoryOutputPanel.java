@@ -848,10 +848,7 @@ public class HistoryOutputPanel extends JPanel {
                 JButton captureButton = new JButton("Capture");
                 captureButton.setToolTipText("Add the output to context");
                 captureButton.addActionListener(e -> {
-                    parentPanel.contextManager.submitContextTask("Capturing output", () -> {
-                        parentPanel.contextManager.addVirtualFragment(output);
-                        parentPanel.chrome.systemOutput("Content captured from output window");
-                    });
+                    parentPanel.contextManager.captureTextFromContextAsync();
                 });
                 toolbarPanel.add(captureButton);
             }

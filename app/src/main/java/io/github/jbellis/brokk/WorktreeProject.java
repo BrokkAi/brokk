@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk;
 
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
@@ -196,6 +197,11 @@ public final class WorktreeProject extends AbstractProject {
     public void setArchitectOptions(
             io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         parent.setArchitectOptions(options, runInWorktree);
+    }
+
+    @Override
+    public DiskLruCache getDiskCache() {
+        return parent.getDiskCache();
     }
 
     @Override

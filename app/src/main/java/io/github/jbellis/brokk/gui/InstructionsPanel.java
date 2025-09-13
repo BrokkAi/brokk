@@ -84,6 +84,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_ASK = "Answer";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
+    public static final String ACTION_RUN_TESTS = "Run Selected Tests";
     public static final String ACTION_SCAN_PROJECT = "Scan Project";
 
     private static final String PLACEHOLDER_TEXT =
@@ -1530,9 +1531,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             contextManager.addToHistory(result, false);
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error during Architect execution", e);
-            chrome.toolError("Internal error during Architect command: " + e.getMessage());
         }
     }
 
@@ -1564,12 +1562,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Run in Shell" command. This runs inside the Runnable passed to
      * contextManager.submitAction.
      */
-    private void executeRunCommand(String input) {
+    private void executeRunCommand(String action, String input) {
         assert !SwingUtilities.isEventDispatchThread();
 
         var contextManager = chrome.getContextManager();
-        String actionMessage = "Run: " + input;
 
+        String historyTitle;
         try {
             chrome.showOutputSpinner("Executing command...");
             String shellLang = ExecutorConfig.getShellLanguageFromProject(chrome.getProject());
@@ -1588,9 +1586,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     chrome.getProject());
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
             chrome.systemOutput("Run command complete!");
+            historyTitle = action;
         } catch (Environment.SubprocessException e) {
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Ensure markdown block is closed on error
-            actionMessage = "Run: " + input + " (failed: " + e.getMessage() + ")";
+            historyTitle = action + "(failed: " + e.getMessage() + ")";
             chrome.systemOutput("Run command completed with errors -- see Output");
             logger.warn("Run command '{}' failed: {}", input, e.getMessage(), e);
             chrome.llmOutput("\n**Command Failed**", ChatMessageType.CUSTOM);
@@ -1601,11 +1600,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Add to context history with the action message (which includes success/failure)
-        final String finalActionMessage = actionMessage; // Effectively final for lambda
+        String finalHistoryTitle = historyTitle;
         contextManager.pushContext(ctx -> {
             var parsed = new TaskFragment(
-                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalActionMessage);
-            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
+                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalHistoryTitle);
+            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalHistoryTitle));
         });
     }
 
@@ -1909,20 +1908,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         setActionRunning(future);
     }
 
-    public void runRunCommand() {
-        var input = getInstructions();
-        if (input.isBlank()) {
-            chrome.toolError("Please enter a command to run", "Error");
-            return;
-        }
-        chrome.getProject().addToInstructionsHistory(input, 20);
-
-        runRunCommand(input);
-    }
-
-    public void runRunCommand(String input) {
+    public void runRunCommand(String action, String input) {
         clearCommandInput();
-        var future = submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
+        var future = submitAction(action, input, () -> executeRunCommand(action, input));
         setActionRunning(future);
     }
 
@@ -1931,7 +1919,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
-
         // Map some actions to a more user-friendly display string for the spinner.
         // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
         // affecting other subsystems that detect action by name, but present a clearer label
@@ -1947,8 +1934,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             displayAction = action;
         }
 
-        chrome.setLlmOutput(new ContextFragment.TaskFragment(
-                cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
+        chrome.setLlmOutput(new ContextFragment.TaskFragment(cm, List.of(new UserMessage(finalAction, input)), input));
         return cm.submitUserTask(finalAction, true, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + displayAction + " command...");

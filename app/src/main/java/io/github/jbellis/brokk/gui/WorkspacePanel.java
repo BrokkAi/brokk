@@ -2048,9 +2048,12 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Run selected tests", () -> {
-            RunTestsService.runTests(chrome, contextManager, testFiles);
-        });
+        if (testFiles.isEmpty()) {
+            chrome.toolError("No test files specified to run.");
+            return;
+        }
+
+        chrome.getContextManager().runTests(testFiles);
     }
 
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {

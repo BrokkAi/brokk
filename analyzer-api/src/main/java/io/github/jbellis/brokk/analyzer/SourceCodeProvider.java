@@ -16,4 +16,10 @@ public interface SourceCodeProvider extends CapabilityProvider {
      * typically returns the primary definition.
      */
     Optional<String> getClassSource(String fqcn);
+
+    /**
+     * Gets the source code for a given CodeUnit, dispatching to the appropriate method based on the unit type. This
+     * allows analyzers to handle language-specific cases (e.g., TypeScript type aliases) internally.
+     */
+    Optional<String> getSourceForCodeUnit(CodeUnit codeUnit);
 }

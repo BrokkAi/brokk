@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk;
 
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
@@ -15,6 +16,16 @@ import org.jetbrains.annotations.Nullable;
 public interface IProject extends AutoCloseable {
 
     default IGitRepo getRepo() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Provides a DiskLruCache instance scoped to this project.
+     *
+     * <p>Implementations (MainProject) should return a properly initialized DiskLruCache. WorktreeProject will forward
+     * to its MainProject parent.
+     */
+    default DiskLruCache getDiskCache() {
         throw new UnsupportedOperationException();
     }
 

@@ -35,6 +35,7 @@ public final class MOPWebViewHost extends JPanel {
     private volatile boolean darkTheme = true; // Default to dark theme
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
+    private volatile boolean codeBlockWrap = false;
 
     // Bridge readiness tracking
     private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
@@ -55,7 +56,7 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark, boolean isDevMode) implements HostCommand {}
+        record SetTheme(boolean isDark, boolean isDevMode, boolean wrapMode) implements HostCommand {}
 
         record ShowSpinner(String message) implements HostCommand {}
 
@@ -281,7 +282,7 @@ public final class MOPWebViewHost extends JPanel {
             }
             // Initial theme — queue until bridge ready
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            setInitialTheme(darkTheme, isDevMode);
+            setInitialTheme(darkTheme, isDevMode, codeBlockWrap);
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -297,9 +298,12 @@ public final class MOPWebViewHost extends JPanel {
      * Initial theme setup used while the WebView is still boot-strapping. The command is queued until the JS bridge
      * reports it is ready.
      */
-    public void setInitialTheme(boolean isDark, boolean isDevMode) {
+    public void setInitialTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         darkTheme = isDark;
-        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
+        codeBlockWrap = wrapMode;
+        sendOrQueue(
+                new HostCommand.SetTheme(isDark, isDevMode, wrapMode),
+                bridge -> bridge.setTheme(isDark, isDevMode, wrapMode));
         applyTheme(Theme.create(isDark));
     }
 
@@ -307,13 +311,14 @@ public final class MOPWebViewHost extends JPanel {
      * Runtime theme switch triggered from the settings panel. Executes immediately if the bridge exists; otherwise the
      * command is queued so that the frontend is updated once the bridge appears.
      */
-    public void setRuntimeTheme(boolean isDark, boolean isDevMode) {
+    public void setRuntimeTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         darkTheme = isDark;
+        codeBlockWrap = wrapMode;
         var bridge = bridgeRef.get();
         if (bridge != null) {
-            bridge.setTheme(isDark, isDevMode);
+            bridge.setTheme(isDark, isDevMode, wrapMode);
         } else {
-            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode));
+            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode, wrapMode));
         }
         applyTheme(Theme.create(isDark));
     }
@@ -340,7 +345,8 @@ public final class MOPWebViewHost extends JPanel {
                     }
                     html, body {
                         background-color: var(--chat-background) !important;
-                    }"""
+                    }
+                    """
                                 .formatted(theme.cssColor());
                 String encodedCss = java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8)
                         .replace("+", "%20");
@@ -480,7 +486,7 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode());
+                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode(), t.wrapMode());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
