@@ -164,13 +164,100 @@ li > p {
 
 pre > code {
   font-size: 0.9em;
+  white-space: inherit;
 }
 
 pre {
   padding: 15px;
   margin: 0;
   background-color: var(--shiki-background);
+  white-space: pre;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-width: thin; /* Firefox */
+}
+
+/* WebKit scrollbar styling for horizontal scrollbars */
+pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 8px;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+html.code-wrap-mode pre {
+  white-space: pre-wrap;
+  overflow-x: hidden;
   overflow-y: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+html.code-wrap-mode pre > code {
+  white-space: inherit;
+}
+
+/* Edit block specific code block mode handling */
+/* Edit blocks have a nested structure that needs more specific selectors */
+
+/* Default scroll mode for edit blocks */
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre {
+  white-space: pre;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  position: relative;
+}
+
+/* Wrap mode for edit blocks */
+html.code-wrap-mode .edit-block-body .custom-code-block pre {
+  white-space: pre-wrap;
+  overflow-x: hidden;
+  overflow-y: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Ensure edit block containers don't interfere with overflow behavior */
+.edit-block-body .custom-code-block {
+  overflow: visible;
+}
+
+.edit-block-body {
+  overflow: visible;
+}
+
+/* Fix diff line backgrounds to extend full width in scroll mode */
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
+  /* Make code container expand to full content width */
+  display: inline-block;
+  min-width: 100%;
+}
+
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre .diff-line {
+  /* Reset diff line styling */
+  display: block;
+  padding-left: 0.8em;
+  padding-right: 0.8em;
+  position: relative;
+  /* Extend background to full width using negative margins */
+  margin-left: -0.8em;
+  margin-right: -0.8em;
+  padding-left: 1.6em;
+  padding-right: 1.6em;
+  /* Force all lines to be same width as code container */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 table {

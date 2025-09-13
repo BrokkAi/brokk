@@ -49,7 +49,7 @@ import org.treesitter.*;
  * how to map a capture to a {@link CodeUnit}.
  */
 public abstract class TreeSitterAnalyzer
-        implements IAnalyzer, SkeletonProvider, SourceCodeProvider, IncrementalUpdateProvider {
+        implements IAnalyzer, SkeletonProvider, SourceCodeProvider, IncrementalUpdateProvider, TypeAliasProvider {
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
@@ -639,19 +639,24 @@ public abstract class TreeSitterAnalyzer
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
 
         var ranges = sourceRanges.get(cu);
+
         if (ranges == null || ranges.isEmpty()) {
             throw new SymbolNotFoundException("Source range not found for class: " + fqName);
         }
 
         // For classes, expect one primary definition range.
         var range = ranges.getFirst();
+
         String src;
         try {
             src = cu.source().read();
         } catch (IOException e) {
             return Optional.empty();
         }
-        return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte()));
+
+        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
+
+        return Optional.of(extractedSource);
     }
 
     @Override
@@ -702,6 +707,23 @@ public abstract class TreeSitterAnalyzer
                     }
                     return Optional.of(String.join("\n\n", individualMethodSources));
                 });
+    }
+
+    @Override
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit) {
+        if (codeUnit.isFunction()) {
+            return getMethodSource(codeUnit.fqName());
+        } else if (codeUnit.isClass()) {
+            return getClassSource(codeUnit.fqName());
+        } else {
+            return Optional.empty(); // Fields and other types not supported by default
+        }
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        // Default: languages that don't support or expose type aliases return false.
+        return false;
     }
 
     /* ---------- abstract hooks ---------- */
@@ -2149,9 +2171,12 @@ public abstract class TreeSitterAnalyzer
         Set<ProjectFile> currentFiles = project.getAllFiles().stream()
                 .filter(pf -> {
                     Path abs = pf.absPath().toAbsolutePath().normalize();
-                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) return false;
+                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) {
+                        return false;
+                    }
                     String p = abs.toString();
-                    return language.getExtensions().stream().anyMatch(p::endsWith);
+                    boolean matches = language.getExtensions().stream().anyMatch(p::endsWith);
+                    return matches;
                 })
                 .collect(Collectors.toSet());
 

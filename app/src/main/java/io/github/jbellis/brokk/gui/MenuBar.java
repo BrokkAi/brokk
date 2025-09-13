@@ -8,10 +8,12 @@ import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
-import io.github.jbellis.brokk.gui.dialogs.ManageDependenciesDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
+import java.awt.Desktop;
+import java.awt.desktop.PreferencesHandler;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
@@ -71,7 +73,46 @@ public class MenuBar {
         settingsItem.addActionListener(e -> {
             openSettingsDialog(chrome);
         });
-        fileMenu.add(settingsItem);
+
+        // Use platform conventions on macOS: Preferences live in the application menu.
+        // Also ensure Cmd+, opens Settings as a fallback by registering a key binding.
+        boolean isMac = Environment.instance.isMacOs();
+        settingsItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        if (isMac) {
+            try {
+                if (Desktop.isDesktopSupported()) {
+                    Desktop.getDesktop().setPreferencesHandler(new PreferencesHandler() {
+                        @Override
+                        public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
+                            SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
+                        }
+                    });
+                }
+            } catch (Throwable t) {
+                // Best-effort; if registering the Preferences handler fails, fall back to putting the menu
+                // entry into the File menu so Settings remains reachable.
+                fileMenu.add(settingsItem);
+            }
+
+            // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
+            var rootPane = chrome.getFrame().getRootPane();
+            var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+            var am = rootPane.getActionMap();
+            var ks = KeyStroke.getKeyStroke(
+                    KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+            im.put(ks, "open-settings");
+            am.put("open-settings", new AbstractAction() {
+                @Override
+                public void actionPerformed(java.awt.event.ActionEvent e) {
+                    SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
+                }
+            });
+        } else {
+            // Non-macOS: place Settings in File menu as before.
+            fileMenu.add(settingsItem);
+        }
 
         // Exit menu item (Cmd/Ctrl+Q)
         var exitItem = new JMenuItem("Exit");
@@ -280,11 +321,6 @@ public class MenuBar {
         // Tools menu
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
-
-        var manageDependenciesItem = new JMenuItem("Manage Dependencies...");
-        manageDependenciesItem.addActionListener(
-                e -> SwingUtilities.invokeLater(() -> ManageDependenciesDialog.show(chrome)));
-        toolsMenu.add(manageDependenciesItem);
 
         var scanProjectItem = new JMenuItem("Scan Project");
         scanProjectItem.addActionListener(e -> runWithRefocus(chrome, () -> {

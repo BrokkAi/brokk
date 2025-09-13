@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
@@ -49,6 +50,11 @@ public final class MainProject extends AbstractProject {
     private final Path reviewGuidePath;
     private final SessionManager sessionManager;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
+
+    @Nullable
+    private volatile DiskLruCache diskCache = null;
+
+    private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
     private static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
@@ -256,6 +262,23 @@ public final class MainProject extends AbstractProject {
     @Override
     public MainProject getMainProject() {
         return this;
+    }
+
+    @Override
+    public synchronized DiskLruCache getDiskCache() {
+        if (diskCache != null) {
+            return diskCache;
+        }
+        var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
+        try {
+            Files.createDirectories(cacheDir);
+            diskCache = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
+            return diskCache;
+        } catch (IOException e) {
+            logger.error("Unable to open disk cache at {}: {}", cacheDir, e.getMessage());
+            throw new RuntimeException("Unable to open disk cache", e);
+        }
     }
 
     private static synchronized Properties loadGlobalProperties() {
@@ -923,8 +946,13 @@ public final class MainProject extends AbstractProject {
     public Set<ProjectFile> getLiveDependencies() {
         var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
-        if (liveDepsNames == null || liveDepsNames.isBlank()) {
+        if (liveDepsNames == null) {
+            // Property not set: default to all dependencies enabled
             return allDeps;
+        }
+        if (liveDepsNames.isBlank()) {
+            // Property explicitly set but empty: user disabled all dependencies
+            return Set.of();
         }
 
         var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
@@ -995,6 +1023,17 @@ public final class MainProject extends AbstractProject {
     public static void setTheme(String theme) {
         var props = loadGlobalProperties();
         props.setProperty("theme", theme);
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getCodeBlockWrapMode() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty("wordWrap", "true"));
+    }
+
+    public static void setCodeBlockWrapMode(boolean wrap) {
+        var props = loadGlobalProperties();
+        props.setProperty("wordWrap", String.valueOf(wrap));
         saveGlobalProperties(props);
     }
 
@@ -1539,8 +1578,20 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
-        super.close();
+        // Close disk cache if open
+        try {
+            if (diskCache != null) {
+                diskCache.close();
+                diskCache = null;
+                logger.debug("Closed disk cache for project {}", root.getFileName());
+            }
+        } catch (Exception e) {
+            logger.warn("Error closing disk cache for {}: {}", root.getFileName(), e.getMessage());
+        }
+
+        // Close session manager and other resources
         sessionManager.close();
+        super.close();
     }
 
     public Path getWorktreeStoragePath() {
@@ -1603,17 +1654,51 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    /* --------------------------------------------------------
-    Blitz-history (parallel + post-processing instructions)
-    -------------------------------------------------------- */
+    // ------------------------------------------------------------------
+    // Blitz-History (parallel + post-processing instructions)
+    // ------------------------------------------------------------------
+    private static final String BLITZ_HISTORY_KEY = "blitzHistory";
+
+    private void saveBlitzHistory(List<List<String>> historyItems, int maxItems) {
+        try {
+            var limited = historyItems.stream().limit(maxItems).toList();
+            String json = objectMapper.writeValueAsString(limited);
+            workspaceProps.setProperty(BLITZ_HISTORY_KEY, json);
+            saveWorkspaceProperties();
+        } catch (Exception e) {
+            logger.error("Error saving Blitz history: {}", e.getMessage());
+        }
+    }
+
     @Override
     public List<List<String>> loadBlitzHistory() {
-        return super.loadBlitzHistory();
+        try {
+            String json = workspaceProps.getProperty(BLITZ_HISTORY_KEY);
+            if (json != null && !json.isEmpty()) {
+                var tf = objectMapper.getTypeFactory();
+                var type = tf.constructCollectionType(List.class, tf.constructCollectionType(List.class, String.class));
+                return objectMapper.readValue(json, type);
+            }
+        } catch (Exception e) {
+            logger.error("Error loading Blitz history: {}", e.getMessage(), e);
+        }
+        return new ArrayList<>();
     }
 
     @Override
     public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
-        return super.addToBlitzHistory(parallel, post, maxItems);
+        if (parallel.trim().isEmpty() && post.trim().isEmpty()) {
+            return loadBlitzHistory();
+        }
+        var history = new ArrayList<>(loadBlitzHistory());
+        history.removeIf(
+                p -> p.size() >= 2 && p.get(0).equals(parallel) && p.get(1).equals(post));
+        history.add(0, List.of(parallel, post));
+        if (history.size() > maxItems) {
+            history = new ArrayList<>(history.subList(0, maxItems));
+        }
+        saveBlitzHistory(history, maxItems);
+        return history;
     }
 
     @Override

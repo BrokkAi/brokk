@@ -122,8 +122,13 @@ public class MultiFileSelectionDialog extends JDialog {
         }
 
         // --- Create Classes Tab (if requested) ---
-        if (modes.contains(SelectionMode.CLASSES) && analyzerWrapper.isCpg()) {
-            tabbedPane.addTab("Classes", createClassSelectionPanel());
+        if (modes.contains(SelectionMode.CLASSES)) {
+            var analyzer = analyzerWrapper.getNonBlocking();
+            if (analyzer != null && analyzer.as(SkeletonProvider.class).isPresent()) {
+                tabbedPane.addTab("Classes", createClassSelectionPanel());
+            } else {
+                logger.warn("Analyzer either not yet ready, or does not support providing summaries.");
+            }
         }
 
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
@@ -217,7 +222,7 @@ public class MultiFileSelectionDialog extends JDialog {
         classInput.setLineWrap(true);
         classInput.setWrapStyleWord(true);
 
-        var provider = new SymbolCompletionProvider(analyzerWrapper, backgroundExecutor);
+        var provider = new SymbolCompletionProvider(analyzerWrapper);
         classAutoCompletion = new AutoCompletion(provider);
         classAutoCompletion.setAutoActivationEnabled(false);
         classAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
@@ -346,15 +351,16 @@ public class MultiFileSelectionDialog extends JDialog {
             return List.of();
         }
 
-        Map<String, CodeUnit> knownClasses = Completions.completeSymbols("", activeAnalyzer).stream()
-                .filter(CodeUnit::isClass)
-                .collect(Collectors.toMap(CodeUnit::fqName, cu -> cu, (cu1, cu2) -> cu1));
-
         for (String className : classNames) {
             if (className.isBlank()) continue;
-            CodeUnit found = knownClasses.get(className);
-            if (found != null) {
-                resolvedClasses.add(found);
+            Optional<CodeUnit> matchingCodeUnit = activeAnalyzer
+                    .getDefinition(className)
+                    .filter(CodeUnit::isClass)
+                    .or(() -> activeAnalyzer.searchDefinitions(className).stream()
+                            .filter(CodeUnit::isClass)
+                            .findFirst());
+            if (matchingCodeUnit.isPresent()) {
+                resolvedClasses.add(matchingCodeUnit.get());
             } else {
                 logger.warn("Could not resolve class name: {}", className);
             }
@@ -412,24 +418,10 @@ public class MultiFileSelectionDialog extends JDialog {
      */
     public class SymbolCompletionProvider extends DefaultCompletionProvider {
         private final AnalyzerWrapper analyzerWrapperField; // Renamed to avoid conflict
-        private final Future<List<CodeUnit>> completionsFuture;
 
-        public SymbolCompletionProvider(AnalyzerWrapper analyzerWrapperParam, ExecutorService backgroundExecutor) {
+        public SymbolCompletionProvider(AnalyzerWrapper analyzerWrapperParam) {
             super();
             this.analyzerWrapperField = analyzerWrapperParam;
-
-            this.completionsFuture = backgroundExecutor.submit(() -> {
-                try {
-                    return Completions.completeSymbols("", analyzerWrapperField.get()).stream()
-                            .filter(CodeUnit::isClass)
-                            .toList();
-                } catch (Exception e) {
-                    logger.error("Error loading symbol completions in background", e);
-                    if (e instanceof InterruptedException)
-                        Thread.currentThread().interrupt();
-                    return Collections.emptyList();
-                }
-            });
         }
 
         @Override
@@ -484,14 +476,24 @@ public class MultiFileSelectionDialog extends JDialog {
         @Override
         public List<Completion> getCompletions(JTextComponent comp) {
             String pattern = getAlreadyEnteredText(comp).trim();
-            if (pattern.isEmpty()) return List.of();
+            logger.debug("Class autocomplete pattern='{}'", pattern);
+            if (pattern.isEmpty()) {
+                logger.debug("Class autocomplete: empty pattern, returning no completions");
+                return List.of();
+            }
 
             List<CodeUnit> availableCompletions;
             try {
-                availableCompletions = completionsFuture.get();
-            } catch (InterruptedException | ExecutionException e) {
-                logger.debug("Error getting symbol completions", e);
-                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                var analyzer = analyzerWrapperField.getNonBlocking();
+                if (analyzer == null) {
+                    logger.warn("Analyzer not ready for class completion, returning no completions");
+                    return List.of();
+                }
+                availableCompletions = Completions.completeSymbols(pattern, analyzer).stream()
+                        .filter(CodeUnit::isClass)
+                        .toList();
+            } catch (Exception e) {
+                logger.error("Error loading symbol completions", e);
                 return List.of();
             }
 

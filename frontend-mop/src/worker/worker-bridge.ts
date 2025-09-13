@@ -1,5 +1,7 @@
 import type {InboundToWorker, OutboundFromWorker} from './shared';
-import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
+import {reparseAll as reparseAllBubbles} from '../stores/bubblesStore';
+import {reparseAll as reparseAllHistory} from '../stores/historyStore';
+import {onWorkerResult} from './parseRouter';
 import { createLogger } from '../lib/logging';
 
 // Environment detection
@@ -54,7 +56,8 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
 
   switch (msg.type) {
     case 'shiki-langs-ready':
-      reparseAll();
+      reparseAllBubbles();
+      reparseAllHistory();
       break;
     case 'result':
       onWorkerResult(msg);

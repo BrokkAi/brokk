@@ -12,7 +12,8 @@ public class MultiAnalyzer
                 UsagesProvider,
                 SkeletonProvider,
                 SourceCodeProvider,
-                IncrementalUpdateProvider {
+                IncrementalUpdateProvider,
+                TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -103,6 +104,12 @@ public class MultiAnalyzer
             }
         }
         throw new SymbolNotFoundException("Class source not found for " + fqcn + " in any analyzer.");
+    }
+
+    @Override
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit) {
+        return findFirst(
+                analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSourceForCodeUnit(codeUnit)));
     }
 
     @Override
@@ -208,6 +215,26 @@ public class MultiAnalyzer
     public FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
         // TODO -- unused right now
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return findFirst(analyzer -> analyzer.extractClassName(reference));
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        for (var delegate : delegates.values()) {
+            try {
+                var providerOpt = delegate.as(TypeAliasProvider.class);
+                if (providerOpt.isPresent() && providerOpt.get().isTypeAlias(cu)) {
+                    return true;
+                }
+            } catch (UnsupportedOperationException ignored) {
+                // delegate doesn't implement capability
+            }
+        }
+        return false;
     }
 
     /** @return a copy of the delegates of this analyzer. */

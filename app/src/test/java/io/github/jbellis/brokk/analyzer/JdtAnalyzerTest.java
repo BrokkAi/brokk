@@ -341,6 +341,8 @@ public class JdtAnalyzerTest {
                 "Foo",
                 "Interface",
                 "MethodReturner",
+                "ServiceImpl",
+                "ServiceInterface",
                 "UseE",
                 "UsePackaged",
                 "XExtendsY");

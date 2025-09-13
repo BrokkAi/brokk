@@ -53,6 +53,12 @@ public class GuiTheme {
      * @param isDark true for dark theme, false for light theme
      */
     public void applyTheme(boolean isDark) {
+        // Delegate to the new method with current word wrap setting
+        boolean wordWrap = MainProject.getCodeBlockWrapMode();
+        applyTheme(isDark, wordWrap);
+    }
+
+    public void applyTheme(boolean isDark, boolean wordWrap) {
         String themeName = getThemeName(isDark);
 
         try {
@@ -70,7 +76,7 @@ public class GuiTheme {
             registerCustomIcons(isDark);
 
             // Apply theme to RSyntaxTextArea components
-            applyThemeAsync(themeName);
+            applyThemeAsync(themeName, wordWrap);
 
             Brokk.getOpenProjectWindows().values().forEach(chrome -> chrome.getTheme()
                     .applyThemeToChromeComponents());
@@ -102,24 +108,25 @@ public class GuiTheme {
      * Applies the appropriate theme to all RSyntaxTextArea components
      *
      * @param themeName "dark" or "light"
+     * @param wordWrap whether word wrap mode is enabled
      */
-    private void applyThemeAsync(String themeName) {
+    private void applyThemeAsync(String themeName, boolean wordWrap) {
         loadRSyntaxTheme(THEME_DARK.equals(themeName))
                 .ifPresent(theme ->
                         // Apply to all RSyntaxTextArea components in open windows
                         SwingUtilities.invokeLater(() -> {
                             for (Window window : Window.getWindows()) {
                                 if (window instanceof JFrame win) {
-                                    applyThemeToFrame(win, theme);
+                                    applyThemeToFrame(win, theme, wordWrap);
                                 }
                                 if (window instanceof JDialog dialog) {
                                     // Skip dialogs that are not displayable
                                     if (dialog.isDisplayable()) {
                                         // 1. ThemeAware dialogs can theme themselves
                                         if (dialog instanceof ThemeAware aware) {
-                                            aware.applyTheme(this);
+                                            aware.applyTheme(this, wordWrap);
                                         }
-                                        applyThemeToComponent(dialog.getContentPane(), theme);
+                                        applyThemeToComponent(dialog.getContentPane(), theme, wordWrap);
                                     }
                                 }
                             }
@@ -152,16 +159,16 @@ public class GuiTheme {
     }
 
     /** Applies the syntax theme to every relevant component contained in the supplied frame. */
-    private void applyThemeToFrame(JFrame frame, Theme theme) {
+    private void applyThemeToFrame(JFrame frame, Theme theme, boolean wordWrap) {
         assert SwingUtilities.isEventDispatchThread() : "applyThemeToFrame must be called on EDT";
-        applyThemeToComponent(frame.getContentPane(), theme);
+        applyThemeToComponent(frame.getContentPane(), theme, wordWrap);
     }
 
     /**
      * Recursive depth-first traversal of the Swing component hierarchy that honours the
      * {@link io.github.jbellis.brokk.gui.ThemeAware} contract.
      */
-    private void applyThemeToComponent(@Nullable Component component, Theme theme) {
+    private void applyThemeToComponent(@Nullable Component component, Theme theme, boolean wordWrap) {
         assert SwingUtilities.isEventDispatchThread() : "applyThemeToComponent must be called on EDT";
         if (component == null) {
             return;
@@ -169,7 +176,7 @@ public class GuiTheme {
 
         switch (component) {
             // 1. Give ThemeAware components first crack at theming themselves
-            case ThemeAware aware -> aware.applyTheme(this);
+            case ThemeAware aware -> aware.applyTheme(this, wordWrap);
             // 2. Plain RSyntaxTextArea
             case RSyntaxTextArea area -> theme.apply(area);
             // 3. Handle the common case of RSyntaxTextArea wrapped in a JScrollPane
@@ -177,7 +184,7 @@ public class GuiTheme {
                 var viewport = scrollPane.getViewport();
                 if (viewport != null) {
                     @Nullable Component view = viewport.getView();
-                    applyThemeToComponent(view, theme);
+                    applyThemeToComponent(view, theme, wordWrap);
                 }
             }
             default -> {}
@@ -186,7 +193,7 @@ public class GuiTheme {
         // 4. Recurse into child components (if any)
         if (component instanceof Container container) {
             for (Component child : container.getComponents()) {
-                applyThemeToComponent(child, theme);
+                applyThemeToComponent(child, theme, wordWrap);
             }
         }
     }

@@ -58,6 +58,162 @@ public final class ClassNameExtractor {
         return Optional.of(beforeLast);
     }
 
+    /* JS/TS heuristics ---------------------------------------------------- */
+
+    /**
+     * Extract a JS/TS "class-like" token from an expression such as:
+     *
+     * <ul>
+     *   <li>MyClass?.doWork()
+     *   <li>Array.prototype.map
+     *   <li>MyNamespace.MyClass.method
+     *   <li>rxjs.Observable.of
+     *   <li>Map&lt;string, number&gt;.set
+     *   <li>Foo['bar']()
+     * </ul>
+     *
+     * <p>Heuristics:
+     *
+     * <ul>
+     *   <li>Normalize optional chaining (?.), non-null assertions (!), generics (&lt;...&gt;), bracket properties
+     *       (['prop']).
+     *   <li>Only recognize Java-like class tokens (PascalCase: [A-Z][a-zA-Z0-9_$]*).
+     *   <li>Return the rightmost PascalCase token before the final method/property segment.
+     *   <li>Be conservative; return empty when uncertain (e.g., console.log).
+     * </ul>
+     */
+    public static Optional<String> extractForJsTs(String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+        if (trimmed.isEmpty()) return Optional.empty();
+
+        var normalized = normalizeJsTsReference(trimmed);
+
+        // Check for bare PascalCase class name (e.g., "BubbleState")
+        if (!normalized.contains(".")) {
+            if (normalized.matches("[A-Z][a-zA-Z0-9_$]*")) {
+                return Optional.of(normalized);
+            }
+            return Optional.empty();
+        }
+
+        var lastDot = findLastTopLevelDot(normalized);
+        if (lastDot <= 0 || lastDot >= normalized.length() - 1) return Optional.empty();
+
+        var lastPart = normalized.substring(lastDot + 1).trim();
+
+        // Method/property name heuristic: identifier (optionally followed by (...) with nested content)
+        if (!lastPart.matches("[a-zA-Z_$][a-zA-Z0-9_$]*(?:\\(.*\\))?")) return Optional.empty();
+
+        var beforeLast = normalized.substring(0, lastDot);
+        var segments = beforeLast.split("\\.");
+
+        for (int i = segments.length - 1; i >= 0; i--) {
+            var seg = segments[i].trim();
+            if (seg.isEmpty() || "prototype".equals(seg)) continue;
+            // Only accept PascalCase "class-like" tokens
+            if (seg.matches("[A-Z][a-zA-Z0-9_$]*")) {
+                return Optional.of(seg);
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private static String normalizeJsTsReference(String s) {
+        var out = s.trim();
+
+        // Optional chaining: ?. -> .
+        out = out.replace("?.", ".");
+
+        // Remove non-null assertions that are not part of operators like !=, !==
+        out = out.replaceAll("(?<![=<>!])!", "");
+
+        // Remove trailing semicolons
+        out = out.replaceAll(";\\s*$", "");
+
+        // Strip generic/type argument groups like <T>, <K, V>, possibly nested
+        out = stripAngleGroups(out);
+
+        // Normalize bracket properties with quotes: Foo['bar'] -> Foo.bar
+        out = normalizeQuotedBracketProps(out);
+
+        // Normalize whitespace around dots and before call parentheses
+        out = out.replaceAll("\\s*\\.\\s*", ".");
+        out = out.replaceAll("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\(", "$1(");
+
+        // Collapse accidental repeated dots
+        while (out.contains("..")) {
+            out = out.replace("..", ".");
+        }
+
+        // Final trim
+        out = out.trim();
+
+        return out;
+    }
+
+    private static String stripAngleGroups(String s) {
+        var sb = new StringBuilder(s.length());
+        int depth = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '<') {
+                depth++;
+                continue;
+            }
+            if (c == '>') {
+                if (depth > 0) depth--;
+                continue;
+            }
+            if (depth == 0) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String normalizeQuotedBracketProps(String s) {
+        // Replace ["prop"] or ['prop'] with .prop repeatedly until stable
+        String prev;
+        String cur = s;
+        do {
+            prev = cur;
+            cur = cur.replaceAll("\\[['\"]([a-zA-Z_$][a-zA-Z0-9_$]*)['\"]\\]", ".$1");
+        } while (!cur.equals(prev));
+        return cur;
+    }
+
+    private static int findLastTopLevelDot(String s) {
+        int parenDepth = 0;
+        int bracketDepth = 0;
+        for (int i = s.length() - 1; i >= 0; i--) {
+            char c = s.charAt(i);
+            switch (c) {
+                case ')':
+                    parenDepth++;
+                    break;
+                case '(':
+                    parenDepth = Math.max(0, parenDepth - 1);
+                    break;
+                case ']':
+                    bracketDepth++;
+                    break;
+                case '[':
+                    bracketDepth = Math.max(0, bracketDepth - 1);
+                    break;
+                case '.':
+                    if (parenDepth == 0 && bracketDepth == 0) {
+                        return i;
+                    }
+                    break;
+                default:
+                    // ignore
+            }
+        }
+        return -1;
+    }
+
     /* Python heuristics --------------------------------------------------- */
 
     public static Optional<String> extractForPython(String reference) {

@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
@@ -23,6 +24,7 @@ import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMod
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -664,7 +666,6 @@ public class WorkspacePanel extends JPanel {
 
     private OverlayPanel workspaceOverlay;
     private JLayeredPane workspaceLayeredPane;
-    private TitledBorder workspaceTitledBorder;
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
@@ -676,29 +677,38 @@ public class WorkspacePanel extends JPanel {
     private static final String READ_ONLY_TIP = "Select latest activity to enable";
     private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
     private static final String DROP_ALL_ACTION_CMD = "workspace.dropAll";
-    private static final String WORKSPACE_TITLE = "Workspace";
-    private static final String WORKSPACE_TITLE_NOT_LIVE = "Workspace (read-only)";
 
     /** Primary constructor allowing menu-mode selection */
     public WorkspacePanel(Chrome chrome, ContextManager contextManager, PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
 
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Workspace",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
+
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.popupMenuMode = popupMenuMode;
-
-        workspaceTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                WORKSPACE_TITLE,
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-        setBorder(workspaceTitledBorder);
 
         buildContextPanel();
 
         safeGetLabel(0).setText(EMPTY_CONTEXT);
         setWorkspaceEditable(true); // Set initial state
+
+        // Register a listener so WorkspacePanel updates cost estimates / table when the selected model changes.
+        try {
+            var ip = chrome.getInstructionsPanel();
+            ip.addModelSelectionListener(cfg -> SwingUtilities.invokeLater(() -> {
+                // Recompute the table contents and cost estimates for the currently selected context.
+                populateContextTable(contextManager.selectedContext());
+                refreshMenuState();
+            }));
+        } catch (Exception ex) {
+            logger.debug("Could not register model selection listener for WorkspacePanel", ex);
+        }
     }
 
     /** Convenience constructor – defaults to FULL popup menu */
@@ -1127,7 +1137,32 @@ public class WorkspacePanel extends JPanel {
         locSummaryPanel.add(innerLabel);
         locSummaryPanel.add(costLabel);
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
-        contextSummaryPanel.add(locSummaryPanel, BorderLayout.NORTH);
+
+        // Add button to show Add popup (same menu as table's Add)
+        MaterialButton addButton = new MaterialButton();
+        addButton.setIcon(Icons.ATTACH_FILE);
+        addButton.setToolTipText("Add content to workspace");
+        addButton.setFocusable(false);
+        addButton.setOpaque(false);
+        addButton.addActionListener(e -> {
+            JPopupMenu popup = AddMenuFactory.buildAddPopup(WorkspacePanel.this);
+            chrome.themeManager.registerPopupMenu(popup);
+            popup.show(addButton, 0, addButton.getHeight());
+        });
+
+        // Container to hold the summary labels and the add button
+        JPanel summaryWithAdd = new JPanel(new BorderLayout());
+        summaryWithAdd.setOpaque(false);
+        summaryWithAdd.add(locSummaryPanel, BorderLayout.CENTER);
+
+        // Wrap the button so it vertically centers nicely with the labels
+        JPanel buttonWrapper = new JPanel(new GridBagLayout());
+        buttonWrapper.setOpaque(false);
+        buttonWrapper.add(addButton);
+
+        summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+
+        contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
 
         // Warning panel (for red/yellow context size warnings)
         warningPanel = new JPanel(new BorderLayout()); // Changed to BorderLayout
@@ -1359,7 +1394,7 @@ public class WorkspacePanel extends JPanel {
         var costLabel = safeGetLabel(1);
 
         // Check for context size warnings against configured models
-        var models = contextManager.getService();
+        var service = contextManager.getService();
         var project = contextManager.getProject();
 
         Map<String, Integer> redWarningModels = new HashMap<>();
@@ -1376,14 +1411,14 @@ public class WorkspacePanel extends JPanel {
                 continue;
             }
             try {
-                var modelInstance = models.getModel(config);
+                var modelInstance = service.getModel(config);
                 // Skip if model is unavailable or a placeholder
                 if (modelInstance == null || modelInstance instanceof Service.UnavailableStreamingModel) {
                     logger.debug("Skipping unavailable model for context warning: {}", config.name());
                     continue;
                 }
 
-                int maxInputTokens = models.getMaxInputTokens(modelInstance);
+                int maxInputTokens = service.getMaxInputTokens(modelInstance);
                 if (maxInputTokens <= 0) {
                     logger.warn(
                             "Model {} has invalid maxInputTokens: {}. Skipping for context warning.",
@@ -1413,15 +1448,15 @@ public class WorkspacePanel extends JPanel {
 
         // Always set the standard summary text on innerLabel
         innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
-        var costEstimates = calculateCostEstimates(approxTokens, models);
+        String costEstimate = calculateCostEstimate(approxTokens, service);
         innerLabel.setText("Total: %,d LOC, or about %,dk tokens.".formatted(totalLines, approxTokens / 1000));
         innerLabel.setToolTipText(null); // Clear tooltip
 
-        if (costEstimates.isEmpty()) {
+        if (costEstimate.isBlank()) {
             costLabel.setText(" ");
             costLabel.setVisible(false);
         } else {
-            costLabel.setText("Estimated cost/request is " + String.join(", ", costEstimates));
+            costLabel.setText("Estimated cost/request is " + costEstimate);
             costLabel.setVisible(true);
         }
 
@@ -2022,9 +2057,12 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Run selected tests", () -> {
-            RunTestsService.runTests(chrome, contextManager, testFiles);
-        });
+        if (testFiles.isEmpty()) {
+            chrome.toolError("No test files specified to run.");
+            return;
+        }
+
+        chrome.getContextManager().runTests(testFiles);
     }
 
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {
@@ -2138,54 +2176,37 @@ public class WorkspacePanel extends JPanel {
         };
     }
 
-    /** Calculate cost estimates for the configured models. */
-    private List<String> calculateCostEstimates(int inputTokens, Service models) {
-        var costEstimates = new ArrayList<String>();
-        var seenModels = new HashSet<String>();
+    /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
+    private String calculateCostEstimate(int inputTokens, Service service) {
+        var instructionsPanel = chrome.getInstructionsPanel();
+        Service.ModelConfig config = instructionsPanel.getSelectedModel();
 
-        var project = contextManager.getProject();
-
-        // Get the three configured models in order: code, ask, architect
-        List<Service.ModelConfig> configsToCheck = List.of(
-                project.getCodeModelConfig(), project.getSearchModelConfig(), project.getArchitectModelConfig());
-
-        for (var config : configsToCheck) {
-            if (config.name().isBlank() || seenModels.contains(config.name())) {
-                continue; // Skip if model name is empty or already processed
-            }
-
-            try {
-                var model = models.getModel(config);
-                if (model instanceof Service.UnavailableStreamingModel) {
-                    continue; // Skip unavailable models
-                }
-
-                var pricing = models.getModelPricing(config.name());
-                if (pricing.bands().isEmpty()) {
-                    continue; // Skip if no pricing info available
-                }
-
-                // Calculate estimated cost: input tokens * input price + min(4k, input/2) * output price
-                long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
-                if (models.isReasoning(config)) {
-                    estimatedOutputTokens += 1000;
-                }
-                double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
-
-                if (models.isFreeTier(config.name())) {
-                    costEstimates.add(String.format("%s: free", config.name()));
-                } else {
-                    costEstimates.add(String.format("%s: $%.2f", config.name(), estimatedCost));
-                }
-                seenModels.add(config.name());
-
-            } catch (Exception e) {
-                logger.debug("Error calculating cost estimate for model {}: {}", config.name(), e.getMessage());
-                // Continue to next model on error
-            }
+        if (config.name().isBlank()) {
+            return "";
         }
 
-        return costEstimates;
+        var model = service.getModel(config);
+        if (model instanceof Service.UnavailableStreamingModel) {
+            return "";
+        }
+
+        var pricing = service.getModelPricing(config.name());
+        if (pricing.bands().isEmpty()) {
+            return "";
+        }
+
+        // Calculate estimated cost: input tokens * input price + min(4k, input/2) * output price
+        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+        if (service.isReasoning(config)) {
+            estimatedOutputTokens += 1000;
+        }
+        double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
+
+        if (service.isFreeTier(config.name())) {
+            return "$0.00 (Free Tier)";
+        } else {
+            return String.format("$%.2f", estimatedCost);
+        }
     }
 
     /**
@@ -2200,10 +2221,8 @@ public class WorkspacePanel extends JPanel {
             // Show/hide overlay based on editable state and update title
             if (editable) {
                 workspaceOverlay.hideOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE);
             } else {
                 workspaceOverlay.showOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE_NOT_LIVE);
             }
 
             // Repaint to show title change

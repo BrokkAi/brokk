@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.terminal;
 
 import com.jediterm.pty.PtyProcessTtyConnector;
+import com.jediterm.terminal.CursorShape;
 import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
@@ -11,6 +12,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -22,9 +24,11 @@ import java.awt.Insets;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -32,6 +36,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -138,13 +143,21 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         var panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
+        // Create tab-like panel with shell name and close button
+        var tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        tabPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 1, 0, 1, UIManager.getColor("Component.borderColor")),
+                BorderFactory.createEmptyBorder(4, 12, 4, 8)));
+        tabPanel.setOpaque(true);
+        tabPanel.setBackground(UIManager.getColor("Panel.background"));
+
         var shellName = Path.of(shellCommand).getFileName().toString();
         var label = new JLabel(shellName, Icons.TERMINAL, SwingConstants.LEFT);
-        label.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        label.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 
         var closeButton = new JButton("×");
-        closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
-        closeButton.setPreferredSize(new Dimension(24, 24));
+        closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        closeButton.setPreferredSize(new Dimension(18, 18));
         closeButton.setMargin(new Insets(0, 0, 0, 0));
         closeButton.setContentAreaFilled(false);
         closeButton.setBorderPainted(false);
@@ -174,12 +187,68 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             }
         });
 
-        var tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        tabHeader.setOpaque(false);
-        tabHeader.add(label);
-        tabHeader.add(closeButton);
+        tabPanel.add(label);
+        tabPanel.add(closeButton);
 
-        panel.add(tabHeader, BorderLayout.WEST);
+        // Capture button: capture selected text or entire terminal buffer into workspace
+        var captureButton = new MaterialButton();
+        captureButton.setIcon(Icons.CONTENT_CAPTURE);
+        captureButton.setPreferredSize(new Dimension(60, 24));
+        captureButton.setMargin(new Insets(0, 0, 0, 0));
+        captureButton.setToolTipText(
+                "<html><p width='280'>Capture the terminal's current output into a new text fragment in your workspace context. This action appends to your context and does not replace or update any previous terminal captures.</p></html>");
+        captureButton.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            try {
+                var w = widget;
+                if (w == null) {
+                    console.systemNotify(
+                            "No terminal available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                // Get the terminal content from the buffer
+                var buffer = w.getTerminalTextBuffer();
+                if (buffer == null) {
+                    console.systemNotify(
+                            "No terminal buffer available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                var lines = new ArrayList<String>();
+                for (int i = 0; i < buffer.getHeight(); i++) {
+                    var line = buffer.getLine(i);
+                    if (line != null) {
+                        lines.add(line.getText());
+                    }
+                }
+
+                String content =
+                        lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
+
+                if (content.isBlank()) {
+                    console.systemNotify(
+                            "No terminal content available to capture",
+                            "Terminal Capture",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                // Add to workspace
+                if (console instanceof Chrome c) {
+                    c.getContextManager().addPastedTextFragment(content);
+                }
+            } catch (Exception ex) {
+                logger.debug("Error capturing terminal output", ex);
+                try {
+                    console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture");
+                } catch (Exception ignore) {
+                    logger.debug("Error reporting capture failure", ignore);
+                }
+            }
+        }));
+
+        panel.add(tabPanel, BorderLayout.WEST);
+        panel.add(captureButton, BorderLayout.EAST);
         return panel;
     }
 
@@ -278,6 +347,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         // Trigger repaint to apply the changes
         var w = widget;
         if (w != null) {
+            // needed to force the color update
+            w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
             w.repaint();
         }
     }

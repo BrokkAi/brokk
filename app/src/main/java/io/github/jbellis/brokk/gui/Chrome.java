@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -155,6 +156,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
 
+    // Workspace | Dependencies (right drawer)
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JSplitPane workspaceDependenciesSplit;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel workspaceTopContainer;
+
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
@@ -193,7 +201,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final InstructionsPanel instructionsPanel;
 
     // Right-hand drawer (tools) - split and content
-    private InstructionsDrawerSplit instructionsDrawerSplit;
+    private DrawerSplitPanel instructionsDrawerSplit;
     private TerminalDrawerPanel terminalDrawer;
 
     /** Default constructor sets up the UI. */
@@ -386,20 +394,29 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // 1) Nested split for Workspace (top) / Instructions (bottom)
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        workspaceInstructionsSplit.setTopComponent(workspacePanel);
-        workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
-        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
+
+        // Create a right-hand Dependencies drawer beside the Workspace
+        workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
+        workspaceDependenciesSplit.setResizeWeight(1.0); // Give priority to workspace on resize
+        workspaceDependenciesSplit.setLeftComponent(workspacePanel);
+        workspaceDependenciesSplit.setRightComponent(dependenciesDrawerPanel);
+
+        workspaceTopContainer = new JPanel(new BorderLayout());
+        workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
 
         // Create terminal drawer panel
-        instructionsDrawerSplit = new InstructionsDrawerSplit();
+        instructionsDrawerSplit = new DrawerSplitPanel();
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
         // Attach instructions (left) and drawer (right)
-        instructionsDrawerSplit.setInstructionsComponent(instructionsPanel);
+        instructionsDrawerSplit.setParentComponent(instructionsPanel);
         instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
 
         // Attach the combined instructions+drawer split as the bottom component
+        workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
         workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
+        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
@@ -646,11 +663,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // and contextManager should be properly set
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
-        // Apply current theme based on project settings
+        // Apply current theme and wrap mode based on global settings
         String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
-        switchTheme(isDark);
+        boolean wrapMode = MainProject.getCodeBlockWrapMode();
+        switchThemeAndWrapMode(isDark, wrapMode);
     }
 
     /**
@@ -677,10 +695,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
             if (updateOutput) {
-                if (ctx.getParsedOutput() != null) {
-                    historyOutputPanel.setLlmOutput(ctx.getParsedOutput());
-                } else {
+                var taskHistory = ctx.getTaskHistory();
+                if (taskHistory.isEmpty()) {
                     historyOutputPanel.clearLlmOutput();
+                } else {
+                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+                    var mainTask = taskHistory.getLast();
+                    historyOutputPanel.setLlmAndHistoryOutput(historyTasks, mainTask);
                 }
             }
             updateCaptureButtons();
@@ -692,6 +713,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
+    }
+
+    public void switchThemeAndWrapMode(boolean isDark, boolean wordWrap) {
+        themeManager.applyTheme(isDark, wordWrap);
     }
 
     public GuiTheme getTheme() {
@@ -982,6 +1007,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
+    }
+
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }
 
     @Override
