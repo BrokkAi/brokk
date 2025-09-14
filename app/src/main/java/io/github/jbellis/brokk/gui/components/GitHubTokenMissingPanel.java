@@ -23,13 +23,12 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
 
             GitHubAuthDialog authDialog = new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this));
 
-            @SuppressWarnings({"RedundantNullCheck", "NullAway"})
             GitHubAuthDialog.AuthCallback callback = (success, token, errorMessage) -> {
                 SwingUtilities.invokeLater(() -> {
                     connectButton.setEnabled(true);
                     connectButton.setText("Connect GitHub");
 
-                    if (success && token != null && !token.isEmpty()) {
+                    if (success && !token.isEmpty()) {
                         MainProject.setGitHubToken(token);
                         GitHubAuth.invalidateInstance();
                     }

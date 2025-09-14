@@ -40,7 +40,7 @@ public class GitHubAuthDialog extends JDialog {
 
     @FunctionalInterface
     public interface AuthCallback {
-        void onComplete(boolean success, @Nullable String token, String errorMessage);
+        void onComplete(boolean success, String token, String errorMessage);
     }
 
     private final JLabel statusLabel;
