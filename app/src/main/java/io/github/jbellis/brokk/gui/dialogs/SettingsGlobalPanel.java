@@ -52,9 +52,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JButton gitHubDisconnectButton; // Null if GitHub tab not shown
 
     @Nullable
-    private JButton gitHubRefreshStatusButton; // Null if GitHub tab not shown
-
-    @Nullable
     private JLabel gitHubStatusLabel; // Null if GitHub tab not shown
 
     @Nullable
@@ -245,10 +242,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         });
         actionsPanel.add(gitHubDisconnectButton);
 
-        gitHubRefreshStatusButton = new JButton("Refresh");
-        gitHubRefreshStatusButton.addActionListener(e -> updateGitHubPanelUi());
-        actionsPanel.add(gitHubRefreshStatusButton);
-
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
@@ -299,9 +292,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
         if (gitHubDisconnectButton != null) {
             gitHubDisconnectButton.setEnabled(connected);
-        }
-        if (gitHubRefreshStatusButton != null) {
-            gitHubRefreshStatusButton.setEnabled(true);
         }
     }
 
