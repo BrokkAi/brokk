@@ -85,7 +85,6 @@ public class GitHubAuthDialog extends JDialog {
         updateStatus(AuthStatus.STARTING);
     }
 
-
     private void buildUI() {
         var mainPanel = new JPanel(new BorderLayout());
         mainPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
@@ -225,23 +224,30 @@ public class GitHubAuthDialog extends JDialog {
     }
 
     private void showDeviceCode(DeviceFlowModels.DeviceCodeResponse response) {
-        // Automatically copy code to clipboard
-        try {
-            var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            var stringSelection = new StringSelection(response.userCode());
-            clipboard.setContents(stringSelection, null);
-            logger.info("Device code automatically copied to clipboard");
-        } catch (Exception ex) {
-            logger.error("Failed to copy code to clipboard", ex);
+        if (response.hasCompleteUri()) {
+            // With complete URI, no code entry needed
+            userCodeLabel.setVisible(false);
+            instructionsLabel.setText("<html>Click 'Continue in Browser' to open GitHub.<br>"
+                    + "Authorization will be handled automatically.</html>");
+            copyAndOpenButton.setText("Continue in Browser");
+        } else {
+            // Without complete URI, need to copy code for manual entry
+            try {
+                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                var stringSelection = new StringSelection(response.userCode());
+                clipboard.setContents(stringSelection, null);
+                logger.info("Device code automatically copied to clipboard");
+            } catch (Exception ex) {
+                logger.error("Failed to copy code to clipboard", ex);
+            }
+
+            userCodeLabel.setText("Code: " + response.userCode() + " (copied to clipboard)");
+            userCodeLabel.setVisible(true);
+            instructionsLabel.setText("<html>Your device code has been copied to your clipboard.<br>"
+                    + "Click 'Continue in Browser' to open GitHub and paste the code.</html>");
+            copyAndOpenButton.setText("Continue in Browser");
         }
 
-        userCodeLabel.setText("Code: " + response.userCode() + " (copied to clipboard)");
-        userCodeLabel.setVisible(true);
-
-        instructionsLabel.setText("<html>Your device code has been copied to your clipboard.<br>"
-                + "Click 'Continue in Browser' to open GitHub and paste the code.</html>");
-
-        copyAndOpenButton.setText("Continue in Browser");
         copyAndOpenButton.setVisible(true);
         copyAndOpenButton.setEnabled(true);
 
@@ -259,7 +265,7 @@ public class GitHubAuthDialog extends JDialog {
         if (deviceCodeResponse != null) {
             try {
                 // Open the browser (code already copied)
-                Environment.openInBrowser(deviceCodeResponse.verificationUri(), this);
+                Environment.openInBrowser(deviceCodeResponse.getPreferredVerificationUri(), this);
                 logger.info("Opened browser to GitHub verification page");
 
                 // Start background authentication

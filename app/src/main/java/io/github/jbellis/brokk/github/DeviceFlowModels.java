@@ -10,7 +10,18 @@ public class DeviceFlowModels {
             @JsonProperty("verification_uri") String verificationUri,
             @JsonProperty("verification_uri_complete") String verificationUriComplete,
             @JsonProperty("expires_in") int expiresIn,
-            @JsonProperty("interval") int interval) {}
+            @JsonProperty("interval") int interval) {
+
+        public String getPreferredVerificationUri() {
+            return (verificationUriComplete != null && !verificationUriComplete.isEmpty())
+                    ? verificationUriComplete
+                    : verificationUri;
+        }
+
+        public boolean hasCompleteUri() {
+            return verificationUriComplete != null && !verificationUriComplete.isEmpty();
+        }
+    }
 
     public record TokenResponse(
             @JsonProperty("access_token") String accessToken,

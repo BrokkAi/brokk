@@ -253,13 +253,17 @@ public class GitHubDeviceFlowService {
                     try {
                         var deviceCodeResponse = requestDeviceCode();
 
-                        logger.info(
-                                "Please visit: {} and enter code: {}",
-                                deviceCodeResponse.verificationUri(),
-                                deviceCodeResponse.userCode());
+                        if (deviceCodeResponse.hasCompleteUri()) {
+                            logger.info("Please visit: {}", deviceCodeResponse.getPreferredVerificationUri());
+                        } else {
+                            logger.info(
+                                    "Please visit: {} and enter code: {}",
+                                    deviceCodeResponse.getPreferredVerificationUri(),
+                                    deviceCodeResponse.userCode());
+                        }
 
                         if (openBrowser) {
-                            openVerificationUrl(deviceCodeResponse.verificationUri());
+                            openVerificationUrl(deviceCodeResponse.getPreferredVerificationUri());
                         }
 
                         var tokenResponse = pollForToken(

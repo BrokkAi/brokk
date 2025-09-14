@@ -469,23 +469,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         });
     }
 
-
     private void showDeviceCode(DeviceFlowModels.DeviceCodeResponse response) {
         currentDeviceCodeResponse = response;
         browserOpenedForCurrentCode = false; // Reset flag for new device code
 
-        // Automatically copy code to clipboard
-        try {
-            var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            var stringSelection = new StringSelection(response.userCode());
-            clipboard.setContents(stringSelection, null);
-            logger.info("Device code automatically copied to clipboard: {}", response.userCode());
-        } catch (Exception ex) {
-            logger.error("Failed to copy code to clipboard", ex);
-        }
+        if (response.hasCompleteUri()) {
+            // With complete URI, no code entry needed
+            if (gitHubDeviceCodeLabel != null) {
+                gitHubDeviceCodeLabel.setText("Ready to authenticate with GitHub");
+            }
+        } else {
+            // Without complete URI, need to copy code for manual entry
+            try {
+                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                var stringSelection = new StringSelection(response.userCode());
+                clipboard.setContents(stringSelection, null);
+                logger.info("Device code automatically copied to clipboard");
+            } catch (Exception ex) {
+                logger.error("Failed to copy code to clipboard", ex);
+            }
 
-        if (gitHubDeviceCodeLabel != null) {
-            gitHubDeviceCodeLabel.setText("CODE: " + response.userCode() + " (copied to clipboard)");
+            if (gitHubDeviceCodeLabel != null) {
+                gitHubDeviceCodeLabel.setText("CODE: " + response.userCode() + " (copied to clipboard)");
+            }
         }
 
         // Start background authentication immediately when device code is shown
@@ -499,7 +505,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             try {
                 // Open the browser (authentication already started when device code was shown)
                 Environment.openInBrowser(
-                        currentDeviceCodeResponse.verificationUri(), SwingUtilities.getWindowAncestor(this));
+                        currentDeviceCodeResponse.getPreferredVerificationUri(),
+                        SwingUtilities.getWindowAncestor(this));
                 logger.info("Opened browser to GitHub verification page");
 
                 // Mark browser as opened and hide only the browser button
