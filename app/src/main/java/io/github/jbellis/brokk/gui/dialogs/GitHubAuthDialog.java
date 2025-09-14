@@ -239,7 +239,7 @@ public class GitHubAuthDialog extends JDialog {
             var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
             var stringSelection = new StringSelection(response.userCode());
             clipboard.setContents(stringSelection, null);
-            logger.info("Device code automatically copied to clipboard: {}", response.userCode());
+            logger.info("Device code automatically copied to clipboard");
         } catch (Exception ex) {
             logger.error("Failed to copy code to clipboard", ex);
         }

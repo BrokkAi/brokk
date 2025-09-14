@@ -39,8 +39,7 @@ public class GitHubDeviceFlowService {
     }
 
     public DeviceFlowModels.DeviceCodeResponse requestDeviceCode(String scope) throws DeviceFlowException {
-        logger.info("Requesting device code from GitHub for client_id: {} with scope: {}", clientId, scope);
-        logger.debug("Making POST request to: {}", DEVICE_CODE_URL);
+        logger.debug("Requesting device code from GitHub with scope: {}", scope);
 
         var formBody = new FormBody.Builder()
                 .add("client_id", clientId)
@@ -53,11 +52,8 @@ public class GitHubDeviceFlowService {
                 .header("Accept", "application/json")
                 .build();
 
-        logger.debug("Request headers: {}", request.headers());
-        logger.debug("Form data: client_id={}, scope={}", clientId, scope);
-
         try (var response = httpClient.newCall(request).execute()) {
-            logger.info("GitHub device code response: status={}, message={}", response.code(), response.message());
+            logger.debug("GitHub device code response: status={}, message={}", response.code(), response.message());
             logger.debug("Response headers: {}", response.headers());
 
             var responseBody = response.body();
@@ -68,19 +64,20 @@ public class GitHubDeviceFlowService {
             }
 
             var responseText = responseBody.string();
-            logger.info("GitHub response body: {}", responseText);
+            logger.debug("GitHub device code response received (length: {} chars)", responseText.length());
 
             if (!response.isSuccessful()) {
-                logger.error("GitHub device code request failed with status {}: {}", response.code(), responseText);
+                logger.error(
+                        "GitHub device code request failed with status {}: <response body redacted>", response.code());
                 handleHttpError(response.code(), responseText);
             }
 
             try {
                 var deviceCodeResponse = Json.fromJson(responseText, DeviceFlowModels.DeviceCodeResponse.class);
-                logger.info("Successfully obtained device code, user code: {}", deviceCodeResponse.userCode());
+                logger.info("Successfully obtained device code, expires in {} seconds", deviceCodeResponse.expiresIn());
                 return deviceCodeResponse;
             } catch (Exception e) {
-                logger.error("Failed to parse device code response: {}", responseText, e);
+                logger.error("Failed to parse device code response: <response body redacted>", e);
                 throw new DeviceFlowException(
                         DeviceFlowException.ErrorType.INVALID_RESPONSE,
                         "Failed to parse device code response: " + e.getMessage(),
@@ -131,7 +128,8 @@ public class GitHubDeviceFlowService {
                         }
                         case SLOW_DOWN -> {
                             currentInterval += 5;
-                            logger.warn("Rate limited by GitHub, increasing poll interval to {} seconds", currentInterval);
+                            logger.warn(
+                                    "Rate limited by GitHub, increasing poll interval to {} seconds", currentInterval);
                             executor.schedule(this, currentInterval, TimeUnit.SECONDS);
                         }
                     }
@@ -172,7 +170,7 @@ public class GitHubDeviceFlowService {
             }
 
             var responseText = responseBody.string();
-            logger.debug("Response body: {}", responseText);
+            logger.debug("Token poll response received (length: {} chars)", responseText.length());
 
             // First, check if the response contains error information (regardless of status code)
             try {
@@ -211,7 +209,7 @@ public class GitHubDeviceFlowService {
                     return result;
                 }
             } catch (Exception e) {
-                logger.warn("Could not parse response as JSON for error checking: {}", responseText);
+                logger.warn("Could not parse response as JSON for error checking: <response body redacted>");
                 // Fall through to try parsing as successful response
             }
 
@@ -220,7 +218,7 @@ public class GitHubDeviceFlowService {
             }
 
             try {
-                logger.debug("Attempting to parse successful token response: {}", responseText);
+                logger.debug("Attempting to parse successful token response");
                 var tokenResponse = Json.fromJson(responseText, DeviceFlowModels.TokenResponse.class);
                 logger.info(
                         "Successfully parsed token response, access_token present: {}",
@@ -228,7 +226,7 @@ public class GitHubDeviceFlowService {
                 return new DeviceFlowModels.TokenPollResponse(
                         DeviceFlowModels.TokenPollResult.SUCCESS, tokenResponse, "Success");
             } catch (Exception e) {
-                logger.error("Failed to parse token response: {}", responseText, e);
+                logger.error("Failed to parse token response: <response body redacted>", e);
                 throw new DeviceFlowException(
                         DeviceFlowException.ErrorType.INVALID_RESPONSE,
                         "Failed to parse token response: " + e.getMessage(),
