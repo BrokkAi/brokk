@@ -274,8 +274,6 @@ public class GitHubAuthDialog extends JDialog {
         updateStatus(AuthStatus.POLLING);
 
         copyAndOpenButton.setEnabled(false);
-        progressBar.setIndeterminate(true);
-        progressBar.setVisible(true);
 
         deviceFlowService
                 .pollForToken(response.deviceCode(), response.interval())
@@ -347,7 +345,9 @@ public class GitHubAuthDialog extends JDialog {
                 progressBar.setVisible(true);
             }
             case CODE_RECEIVED -> {
-                progressBar.setVisible(false);
+                // Keep progress bar visible during user action phase
+                progressBar.setIndeterminate(true);
+                progressBar.setVisible(true);
             }
             case POLLING -> {
                 progressBar.setIndeterminate(true);
