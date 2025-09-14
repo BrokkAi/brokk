@@ -282,7 +282,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Row: Explanation
         var explanationLabel = new JLabel(
-                "<html>Connect your GitHub account using Brokk's GitHub App. The dialog will guide you through copying a code and authorizing in your browser. Authentication will complete automatically.</html>");
+                "<html>Connect your GitHub account using Brokk's GitHub App. After clicking 'Continue in Browser', you can close this settings window and authentication will continue in the background.</html>");
         explanationLabel.setFont(explanationLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
@@ -325,7 +325,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Row: Progress Bar (initially hidden)
         gitHubProgressBar = new JProgressBar();
         gitHubProgressBar.setIndeterminate(true);
-        gitHubProgressBar.setString("Waiting for GitHub authorization...");
+        gitHubProgressBar.setString("Waiting for GitHub authorization... (you can close this window)");
         gitHubProgressBar.setStringPainted(true);
         gitHubProgressBar.setVisible(false);
         gbc.gridx = 1;
