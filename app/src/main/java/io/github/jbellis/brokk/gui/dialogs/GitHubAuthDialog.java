@@ -364,8 +364,9 @@ public class GitHubAuthDialog extends JDialog {
     }
 
     private void completeAuthentication(boolean success, String token, String errorMessage) {
-        if (authCallback != null) {
-            authCallback.onComplete(success, token, errorMessage);
+        var callback = authCallback;
+        if (callback != null) {
+            SwingUtilities.invokeLater(() -> callback.onComplete(success, token, errorMessage));
         }
 
         cleanup();

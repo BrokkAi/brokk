@@ -233,12 +233,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             // Clear token and invalidate client
             MainProject.setGitHubToken("");
             GitHubAuth.invalidateInstance();
-            updateGitHubPanelUi();
-            JOptionPane.showMessageDialog(
-                    gitHubPanel,
-                    "Disconnected from GitHub. You can reconnect any time.",
-                    "GitHub",
-                    JOptionPane.INFORMATION_MESSAGE);
+            SwingUtilities.invokeLater(() -> {
+                updateGitHubPanelUi();
+                JOptionPane.showMessageDialog(
+                        gitHubPanel,
+                        "Disconnected from GitHub. You can reconnect any time.",
+                        "GitHub",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
         });
         actionsPanel.add(gitHubDisconnectButton);
 
