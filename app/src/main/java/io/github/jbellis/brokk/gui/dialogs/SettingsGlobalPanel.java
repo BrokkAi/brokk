@@ -282,7 +282,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Row: Explanation
         var explanationLabel = new JLabel(
-                "<html>Connect your GitHub account using Brokk's GitHub App. After clicking 'Continue in Browser', you can close this settings window and authentication will continue in the background.</html>");
+                "<html>Connect your GitHub account using Brokk's GitHub App.</html>");
         explanationLabel.setFont(explanationLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
@@ -325,7 +325,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Row: Progress Bar (initially hidden)
         gitHubProgressBar = new JProgressBar();
         gitHubProgressBar.setIndeterminate(true);
-        gitHubProgressBar.setString("Waiting for GitHub authorization... (you can close this window)");
+        gitHubProgressBar.setString("Waiting for GitHub authorization...");
         gitHubProgressBar.setStringPainted(true);
         gitHubProgressBar.setVisible(false);
         gbc.gridx = 1;
@@ -393,7 +393,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
 
-        boolean showingDeviceCode = currentDeviceCodeResponse != null && !authInProgress && !connected;
+        boolean showingDeviceCode = currentDeviceCodeResponse != null && !connected;
 
         if (gitHubDeviceCodeLabel != null) {
             gitHubDeviceCodeLabel.setVisible(showingDeviceCode);
@@ -477,19 +477,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             gitHubDeviceCodeLabel.setText("Code: " + response.userCode() + " (copied to clipboard)");
         }
 
+        // Start background authentication immediately when device code is shown
+        BackgroundGitHubAuth.startBackgroundAuth(response);
+
         updateGitHubPanelUi();
     }
 
     private void onContinueInBrowser() {
         if (currentDeviceCodeResponse != null) {
             try {
-                // Open the browser
+                // Open the browser (authentication already started when device code was shown)
                 Environment.openInBrowser(
                         currentDeviceCodeResponse.verificationUri(), SwingUtilities.getWindowAncestor(this));
                 logger.info("Opened browser to GitHub verification page");
-
-                // Start background authentication
-                BackgroundGitHubAuth.startBackgroundAuth(currentDeviceCodeResponse);
 
                 // Clear device code response to hide the UI elements
                 currentDeviceCodeResponse = null;
