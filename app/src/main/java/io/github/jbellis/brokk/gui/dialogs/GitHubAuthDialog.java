@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.github.DeviceFlowModels;
 import io.github.jbellis.brokk.github.GitHubAuthConfig;
@@ -10,6 +12,7 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
@@ -55,17 +58,19 @@ public class GitHubAuthDialog extends JDialog {
     private GitHubDeviceFlowService deviceFlowService;
     private @Nullable CompletableFuture<Void> authenticationFuture;
     private @Nullable DeviceFlowModels.DeviceCodeResponse currentDeviceCodeResponse;
+    private final IContextManager contextManager;
 
-    public GitHubAuthDialog(Window parent) {
-        this(parent, GitHubAuthConfig.getClientId());
+    public GitHubAuthDialog(Window parent, IContextManager contextManager) {
+        this(parent, contextManager, GitHubAuthConfig.getClientId());
     }
 
-    public GitHubAuthDialog(Window parent, String clientId) {
+    public GitHubAuthDialog(Window parent, IContextManager contextManager, String clientId) {
         super(parent, "Connect to GitHub", ModalityType.APPLICATION_MODAL);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
 
         logger.info("Initializing GitHub Auth Dialog with client_id: {}", clientId);
 
+        this.contextManager = contextManager;
         this.statusLabel = new JLabel();
         this.userCodeLabel = new JLabel();
         this.instructionsLabel = new JLabel();
@@ -81,7 +86,8 @@ public class GitHubAuthDialog extends JDialog {
         setLocationRelativeTo(parent);
         setResizable(false);
 
-        this.deviceFlowService = new GitHubDeviceFlowService(clientId);
+        var executor = (ScheduledExecutorService) contextManager.getBackgroundTasks();
+        this.deviceFlowService = new GitHubDeviceFlowService(clientId, executor);
         updateStatus(AuthStatus.STARTING);
     }
 
@@ -177,26 +183,27 @@ public class GitHubAuthDialog extends JDialog {
         logger.info("Starting GitHub device flow authentication");
         updateStatus(AuthStatus.STARTING);
 
-        authenticationFuture = CompletableFuture.runAsync(() -> {
-            try {
-                var deviceCodeResponse = deviceFlowService.requestDeviceCode();
+        authenticationFuture = ((ContextManager) contextManager)
+                .submitBackgroundTask("GitHub device flow authentication", () -> {
+                    try {
+                        var deviceCodeResponse = deviceFlowService.requestDeviceCode();
 
-                SwingUtilities.invokeLater(() -> {
-                    currentDeviceCodeResponse = deviceCodeResponse;
-                    showDeviceCode(deviceCodeResponse);
-                    updateStatus(AuthStatus.CODE_RECEIVED);
-                });
+                        SwingUtilities.invokeLater(() -> {
+                            currentDeviceCodeResponse = deviceCodeResponse;
+                            showDeviceCode(deviceCodeResponse);
+                            updateStatus(AuthStatus.CODE_RECEIVED);
+                        });
 
-            } catch (Exception e) {
-                logger.error("Failed to start device flow", e);
-                SwingUtilities.invokeLater(() -> {
-                    updateStatus(AuthStatus.ERROR);
-                    String errorMessage = buildDetailedErrorMessage(e);
-                    showError(errorMessage);
-                    completeDialog(true);
+                    } catch (Exception e) {
+                        logger.error("Failed to start device flow", e);
+                        SwingUtilities.invokeLater(() -> {
+                            updateStatus(AuthStatus.ERROR);
+                            String errorMessage = buildDetailedErrorMessage(e);
+                            showError(errorMessage);
+                            completeDialog(true);
+                        });
+                    }
                 });
-            }
-        });
     }
 
     private String buildDetailedErrorMessage(Exception e) {
@@ -270,7 +277,7 @@ public class GitHubAuthDialog extends JDialog {
                 logger.info("Opened browser to GitHub verification page");
 
                 // Start background authentication
-                BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse);
+                BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse, contextManager);
 
                 // Close dialog immediately - auth continues in background
                 completeDialog(false);
@@ -293,7 +300,7 @@ public class GitHubAuthDialog extends JDialog {
             logger.info("Continuing GitHub authentication in background");
 
             // Cancel any existing background auth and start new one
-            BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse);
+            BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse, contextManager);
 
             // Close dialog immediately - auth continues in background
             completeDialog(false);
@@ -352,15 +359,9 @@ public class GitHubAuthDialog extends JDialog {
         }
     }
 
-
-    @SuppressWarnings("RedundantNullCheck")
     private void cleanup() {
         if (authenticationFuture != null && !authenticationFuture.isDone()) {
             authenticationFuture.cancel(true);
-        }
-
-        if (deviceFlowService != null) {
-            deviceFlowService.shutdown();
         }
     }
 

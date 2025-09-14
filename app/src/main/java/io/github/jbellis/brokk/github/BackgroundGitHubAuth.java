@@ -1,8 +1,10 @@
 package io.github.jbellis.brokk.github;
 
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -16,21 +18,26 @@ public class BackgroundGitHubAuth {
 
     static {
         // Register shutdown hook to clean up background auth on app exit
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            logger.debug("Shutdown hook: Cancelling background GitHub authentication");
-            cancelCurrentAuth();
-        }, "GitHubAuth-Shutdown"));
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            logger.debug("Shutdown hook: Cancelling background GitHub authentication");
+                            cancelCurrentAuth();
+                        },
+                        "GitHubAuth-Shutdown"));
     }
 
-    public static void startBackgroundAuth(DeviceFlowModels.DeviceCodeResponse deviceCodeResponse) {
+    public static void startBackgroundAuth(
+            DeviceFlowModels.DeviceCodeResponse deviceCodeResponse, IContextManager contextManager) {
         logger.info("Starting background GitHub authentication");
 
         synchronized (authLock) {
             // Cancel any existing background authentication
             cancelCurrentAuthUnsafe();
 
-            // Create new service for this authentication
-            currentService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId());
+            // Create new service for this authentication using Brokk's executor
+            var executor = (ScheduledExecutorService) contextManager.getBackgroundTasks();
+            currentService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId(), executor);
 
             // Start polling in background
             currentAuthFuture = currentService
@@ -58,15 +65,7 @@ public class BackgroundGitHubAuth {
             currentAuthFuture.cancel(true);
         }
 
-        var service = currentService;
-        if (service != null) {
-            try {
-                service.shutdown();
-            } catch (Exception e) {
-                logger.warn("Error shutting down GitHub service", e);
-            }
-            currentService = null;
-        }
+        currentService = null;
 
         currentAuthFuture = null;
     }
@@ -121,15 +120,7 @@ public class BackgroundGitHubAuth {
         // Clean up after completion
         synchronized (authLock) {
             currentAuthFuture = null;
-            var service = currentService;
-            if (service != null) {
-                try {
-                    service.shutdown();
-                } catch (Exception e) {
-                    logger.warn("Error shutting down GitHub service after completion", e);
-                }
-                currentService = null;
-            }
+            currentService = null;
         }
     }
 }

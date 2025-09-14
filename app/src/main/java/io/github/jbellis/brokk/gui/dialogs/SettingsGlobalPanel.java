@@ -444,7 +444,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         logger.info("Starting inline GitHub integration");
 
         // Initialize device flow service
-        deviceFlowService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId());
+        var executor = (java.util.concurrent.ScheduledExecutorService)
+                chrome.getContextManager().getBackgroundTasks();
+        deviceFlowService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId(), executor);
 
         // Start device code request in background
         CompletableFuture.runAsync(() -> {
@@ -495,7 +497,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Start background authentication immediately when device code is shown
-        BackgroundGitHubAuth.startBackgroundAuth(response);
+        BackgroundGitHubAuth.startBackgroundAuth(response, chrome.getContextManager());
 
         updateGitHubPanelUi();
     }

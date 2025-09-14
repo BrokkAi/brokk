@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui.components;
 
-import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -21,7 +20,8 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
             connectButton.setEnabled(false);
             connectButton.setText("Connecting...");
 
-            GitHubAuthDialog authDialog = new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this));
+            GitHubAuthDialog authDialog =
+                    new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this), chrome.getContextManager());
 
             GitHubAuthDialog.DialogCompletionCallback callback = (cancelled) -> {
                 SwingUtilities.invokeLater(() -> {
