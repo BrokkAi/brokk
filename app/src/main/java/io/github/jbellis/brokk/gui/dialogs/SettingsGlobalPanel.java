@@ -70,6 +70,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JButton gitHubContinueBrowserButton; // Null if GitHub tab not shown
 
     @Nullable
+    private JPanel deviceCodePanel; // Null if GitHub tab not shown
+
+    @Nullable
+    private JPanel browserButtonPanel; // Null if GitHub tab not shown
+
+    @Nullable
     private JLabel gitHubSuccessMessageLabel; // Null if GitHub tab not shown
 
     @Nullable
@@ -91,6 +97,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     @Nullable
     private DeviceFlowModels.DeviceCodeResponse currentDeviceCodeResponse; // Current auth session
+
+    private boolean browserOpenedForCurrentCode = false; // Track if browser was opened for current code
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
         this.chrome = chrome;
@@ -302,25 +310,32 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gitHubPanel.add(gitHubStatusLabel, gbc);
 
         // Row: Device Code (initially hidden)
+        deviceCodePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         gitHubDeviceCodeLabel = new JLabel("");
         gitHubDeviceCodeLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 16));
-        gitHubDeviceCodeLabel.setVisible(false);
+        deviceCodePanel.add(gitHubDeviceCodeLabel);
+        deviceCodePanel.setVisible(false);
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gitHubPanel.add(gitHubDeviceCodeLabel, gbc);
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gitHubPanel.add(deviceCodePanel, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5); // Reset insets
 
-        // Row: Continue Browser Button (initially hidden)
+        // Row: Continue Browser Button (initially hidden, centered)
+        browserButtonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
         gitHubContinueBrowserButton = new JButton("Continue in Browser");
-        gitHubContinueBrowserButton.setVisible(false);
         gitHubContinueBrowserButton.addActionListener(e -> onContinueInBrowser());
+        browserButtonPanel.add(gitHubContinueBrowserButton);
+        browserButtonPanel.setVisible(false);
         gbc.gridx = 1;
         gbc.gridy = row++;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.WEST;
-        gitHubPanel.add(gitHubContinueBrowserButton, gbc);
-        gbc.fill = GridBagConstraints.HORIZONTAL; // Reset for next components
-        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.CENTER;
+        gbc.insets = new Insets(10, 5, 10, 5);
+        gitHubPanel.add(browserButtonPanel, gbc);
+        gbc.anchor = GridBagConstraints.WEST; // Reset anchor
+        gbc.insets = new Insets(2, 5, 2, 5); // Reset insets
 
         // Row: Progress Bar (initially hidden)
         gitHubProgressBar = new JProgressBar();
@@ -394,13 +409,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         boolean showingDeviceCode = currentDeviceCodeResponse != null && !connected;
+        boolean showingBrowserButton = showingDeviceCode && !browserOpenedForCurrentCode;
 
-        if (gitHubDeviceCodeLabel != null) {
-            gitHubDeviceCodeLabel.setVisible(showingDeviceCode);
+        if (deviceCodePanel != null) {
+            deviceCodePanel.setVisible(showingDeviceCode);
         }
 
-        if (gitHubContinueBrowserButton != null) {
-            gitHubContinueBrowserButton.setVisible(showingDeviceCode);
+        if (browserButtonPanel != null) {
+            browserButtonPanel.setVisible(showingBrowserButton);
         }
 
         if (gitHubConnectButton != null) {
@@ -420,6 +436,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             authProgressTimer.stop();
             authProgressTimer = null;
             currentDeviceCodeResponse = null; // Clear device code
+            browserOpenedForCurrentCode = false; // Reset flag
         }
     }
 
@@ -462,6 +479,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void showDeviceCode(DeviceFlowModels.DeviceCodeResponse response) {
         currentDeviceCodeResponse = response;
+        browserOpenedForCurrentCode = false; // Reset flag for new device code
 
         // Automatically copy code to clipboard
         try {
@@ -474,7 +492,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         if (gitHubDeviceCodeLabel != null) {
-            gitHubDeviceCodeLabel.setText("Code: " + response.userCode() + " (copied to clipboard)");
+            gitHubDeviceCodeLabel.setText("CODE: " + response.userCode() + " (copied to clipboard)");
         }
 
         // Start background authentication immediately when device code is shown
@@ -491,9 +509,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         currentDeviceCodeResponse.verificationUri(), SwingUtilities.getWindowAncestor(this));
                 logger.info("Opened browser to GitHub verification page");
 
-                // Clear device code response to hide the UI elements
-                currentDeviceCodeResponse = null;
-                updateGitHubPanelUi();
+                // Mark browser as opened and hide only the browser button
+                browserOpenedForCurrentCode = true;
+                if (browserButtonPanel != null) {
+                    browserButtonPanel.setVisible(false);
+                }
 
             } catch (Exception ex) {
                 logger.error("Failed to open browser", ex);
