@@ -12,30 +12,39 @@ public class BackgroundGitHubAuth {
 
     private static @Nullable CompletableFuture<Void> currentAuthFuture;
     private static @Nullable GitHubDeviceFlowService currentService;
+    private static final Object authLock = new Object();
 
     public static void startBackgroundAuth(DeviceFlowModels.DeviceCodeResponse deviceCodeResponse) {
         logger.info("Starting background GitHub authentication");
 
-        // Cancel any existing background authentication
-        cancelCurrentAuth();
+        synchronized (authLock) {
+            // Cancel any existing background authentication
+            cancelCurrentAuthUnsafe();
 
-        // Create new service for this authentication
-        currentService = new GitHubDeviceFlowService(getClientId());
+            // Create new service for this authentication
+            currentService = new GitHubDeviceFlowService(getClientId());
 
-        // Start polling in background
-        currentAuthFuture = currentService
-                .pollForToken(deviceCodeResponse.deviceCode(), deviceCodeResponse.interval())
-                .thenAccept(tokenResponse -> {
-                    handleAuthResult(tokenResponse);
-                })
-                .exceptionally(throwable -> {
-                    logger.error("Background GitHub authentication failed", throwable);
-                    // Silent failure - no user notification
-                    return null;
-                });
+            // Start polling in background
+            currentAuthFuture = currentService
+                    .pollForToken(deviceCodeResponse.deviceCode(), deviceCodeResponse.interval())
+                    .thenAccept(tokenResponse -> {
+                        handleAuthResult(tokenResponse);
+                    })
+                    .exceptionally(throwable -> {
+                        logger.error("Background GitHub authentication failed", throwable);
+                        // Silent failure - no user notification
+                        return null;
+                    });
+        }
     }
 
     public static void cancelCurrentAuth() {
+        synchronized (authLock) {
+            cancelCurrentAuthUnsafe();
+        }
+    }
+
+    private static void cancelCurrentAuthUnsafe() {
         if (currentAuthFuture != null && !currentAuthFuture.isDone()) {
             logger.info("Cancelling existing background GitHub authentication");
             currentAuthFuture.cancel(true);
@@ -43,7 +52,11 @@ public class BackgroundGitHubAuth {
 
         var service = currentService;
         if (service != null) {
-            CompletableFuture.runAsync(() -> service.shutdown());
+            try {
+                service.shutdown();
+            } catch (Exception e) {
+                logger.warn("Error shutting down GitHub service", e);
+            }
             currentService = null;
         }
 
@@ -51,7 +64,9 @@ public class BackgroundGitHubAuth {
     }
 
     public static boolean isAuthInProgress() {
-        return currentAuthFuture != null && !currentAuthFuture.isDone();
+        synchronized (authLock) {
+            return currentAuthFuture != null && !currentAuthFuture.isDone();
+        }
     }
 
     private static void handleAuthResult(DeviceFlowModels.TokenPollResponse tokenResponse) {
@@ -84,11 +99,17 @@ public class BackgroundGitHubAuth {
         }
 
         // Clean up after completion
-        currentAuthFuture = null;
-        var service = currentService;
-        if (service != null) {
-            CompletableFuture.runAsync(() -> service.shutdown());
-            currentService = null;
+        synchronized (authLock) {
+            currentAuthFuture = null;
+            var service = currentService;
+            if (service != null) {
+                try {
+                    service.shutdown();
+                } catch (Exception e) {
+                    logger.warn("Error shutting down GitHub service after completion", e);
+                }
+                currentService = null;
+            }
         }
     }
 
