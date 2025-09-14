@@ -14,6 +14,14 @@ public class BackgroundGitHubAuth {
     private static @Nullable GitHubDeviceFlowService currentService;
     private static final Object authLock = new Object();
 
+    static {
+        // Register shutdown hook to clean up background auth on app exit
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            logger.debug("Shutdown hook: Cancelling background GitHub authentication");
+            cancelCurrentAuth();
+        }, "GitHubAuth-Shutdown"));
+    }
+
     public static void startBackgroundAuth(DeviceFlowModels.DeviceCodeResponse deviceCodeResponse) {
         logger.info("Starting background GitHub authentication");
 
@@ -76,7 +84,15 @@ public class BackgroundGitHubAuth {
                 if (token != null && token.accessToken() != null) {
                     logger.info("Background GitHub authentication successful");
                     MainProject.setGitHubToken(token.accessToken());
-                    GitHubAuth.invalidateInstance();
+
+                    // Validate the token immediately to ensure it works
+                    if (GitHubAuth.validateStoredToken()) {
+                        logger.info("GitHub token validated successfully");
+                        GitHubAuth.invalidateInstance();
+                    } else {
+                        logger.error("GitHub token validation failed, clearing token");
+                        MainProject.setGitHubToken("");
+                    }
                 } else {
                     logger.error("Background GitHub authentication returned null token");
                 }

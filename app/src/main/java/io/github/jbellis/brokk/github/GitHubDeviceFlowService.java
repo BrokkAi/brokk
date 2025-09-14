@@ -7,7 +7,9 @@ import java.net.URI;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -31,7 +33,7 @@ public class GitHubDeviceFlowService {
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build();
-        this.executor = Executors.newScheduledThreadPool(2);
+        this.executor = Executors.newScheduledThreadPool(2, new DaemonThreadFactory("GitHubDeviceFlow"));
     }
 
     public DeviceFlowModels.DeviceCodeResponse requestDeviceCode() throws DeviceFlowException {
@@ -323,6 +325,22 @@ public class GitHubDeviceFlowService {
         } catch (InterruptedException e) {
             executor.shutdownNow();
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static class DaemonThreadFactory implements ThreadFactory {
+        private final AtomicInteger threadNumber = new AtomicInteger(1);
+        private final String namePrefix;
+
+        DaemonThreadFactory(String namePrefix) {
+            this.namePrefix = namePrefix + "-thread-";
+        }
+
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = new Thread(r, namePrefix + threadNumber.getAndIncrement());
+            t.setDaemon(true);
+            return t;
         }
     }
 }

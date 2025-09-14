@@ -360,8 +360,7 @@ public class GitHubAuthDialog extends JDialog {
         }
 
         if (deviceFlowService != null) {
-            // Run shutdown on background thread to avoid blocking EDT
-            CompletableFuture.runAsync(() -> deviceFlowService.shutdown());
+            deviceFlowService.shutdown();
         }
     }
 
