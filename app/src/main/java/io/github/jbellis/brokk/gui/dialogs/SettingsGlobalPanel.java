@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.github.DeviceFlowModels;
+import io.github.jbellis.brokk.github.GitHubAuthConfig;
 import io.github.jbellis.brokk.github.GitHubDeviceFlowService;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -443,7 +444,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         logger.info("Starting inline GitHub integration");
 
         // Initialize device flow service
-        deviceFlowService = new GitHubDeviceFlowService(getGitHubClientId());
+        deviceFlowService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId());
 
         // Start device code request in background
         CompletableFuture.runAsync(() -> {
@@ -468,13 +469,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         });
     }
 
-    private String getGitHubClientId() {
-        var clientId = System.getenv("BROKK_GITHUB_CLIENT_ID");
-        if (clientId != null && !clientId.isBlank()) {
-            return clientId;
-        }
-        return "Iv23liZ3oStCdzu0xkHI";
-    }
 
     private void showDeviceCode(DeviceFlowModels.DeviceCodeResponse response) {
         currentDeviceCodeResponse = response;

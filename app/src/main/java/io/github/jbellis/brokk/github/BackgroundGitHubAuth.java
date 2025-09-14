@@ -22,7 +22,7 @@ public class BackgroundGitHubAuth {
             cancelCurrentAuthUnsafe();
 
             // Create new service for this authentication
-            currentService = new GitHubDeviceFlowService(getClientId());
+            currentService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId());
 
             // Start polling in background
             currentAuthFuture = currentService
@@ -117,12 +117,4 @@ public class BackgroundGitHubAuth {
         }
     }
 
-    private static String getClientId() {
-        // Use same client ID logic as GitHubAuthDialog
-        var clientId = System.getenv("BROKK_GITHUB_CLIENT_ID");
-        if (clientId != null && !clientId.isBlank()) {
-            return clientId;
-        }
-        return "Iv23liZ3oStCdzu0xkHI";
-    }
 }

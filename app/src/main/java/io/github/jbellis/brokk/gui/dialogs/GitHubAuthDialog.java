@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.github.DeviceFlowModels;
+import io.github.jbellis.brokk.github.GitHubAuthConfig;
 import io.github.jbellis.brokk.github.GitHubDeviceFlowService;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
@@ -56,7 +57,7 @@ public class GitHubAuthDialog extends JDialog {
     private @Nullable DeviceFlowModels.DeviceCodeResponse currentDeviceCodeResponse;
 
     public GitHubAuthDialog(Window parent) {
-        this(parent, getDefaultClientId());
+        this(parent, GitHubAuthConfig.getClientId());
     }
 
     public GitHubAuthDialog(Window parent, String clientId) {
@@ -84,16 +85,6 @@ public class GitHubAuthDialog extends JDialog {
         updateStatus(AuthStatus.STARTING);
     }
 
-    private static String getDefaultClientId() {
-        // TODO: Replace with environment variable when moving to production
-        var clientId = System.getenv("BROKK_GITHUB_CLIENT_ID");
-        if (clientId != null && !clientId.isBlank()) {
-            return clientId;
-        }
-
-        // Hardcoded client ID for Brokk GitHub App
-        return "Iv23liZ3oStCdzu0xkHI";
-    }
 
     private void buildUI() {
         var mainPanel = new JPanel(new BorderLayout());
