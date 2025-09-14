@@ -39,8 +39,8 @@ public class GitHubAuthDialog extends JDialog {
     }
 
     @FunctionalInterface
-    public interface AuthCallback {
-        void onComplete(boolean success, String token, String errorMessage);
+    public interface DialogCompletionCallback {
+        void onDialogComplete(boolean cancelled);
     }
 
     private final JLabel statusLabel;
@@ -51,7 +51,7 @@ public class GitHubAuthDialog extends JDialog {
     private final JButton cancelButton;
     private final JProgressBar progressBar;
 
-    private @Nullable AuthCallback authCallback;
+    private @Nullable DialogCompletionCallback completionCallback;
     private GitHubDeviceFlowService deviceFlowService;
     private @Nullable CompletableFuture<Void> authenticationFuture;
     private @Nullable DeviceFlowModels.DeviceCodeResponse currentDeviceCodeResponse;
@@ -161,8 +161,8 @@ public class GitHubAuthDialog extends JDialog {
                         JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
-    public void setAuthCallback(AuthCallback callback) {
-        this.authCallback = callback;
+    public void setCompletionCallback(DialogCompletionCallback callback) {
+        this.completionCallback = callback;
     }
 
     @Override
@@ -193,6 +193,7 @@ public class GitHubAuthDialog extends JDialog {
                     updateStatus(AuthStatus.ERROR);
                     String errorMessage = buildDetailedErrorMessage(e);
                     showError(errorMessage);
+                    completeDialog(true);
                 });
             }
         });
@@ -272,12 +273,12 @@ public class GitHubAuthDialog extends JDialog {
                 BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse);
 
                 // Close dialog immediately - auth continues in background
-                cleanup();
-                dispose();
+                completeDialog(false);
 
             } catch (Exception ex) {
                 logger.error("Failed to open browser", ex);
                 showError("Failed to open browser: " + ex.getMessage());
+                completeDialog(true);
             }
         }
     }
@@ -294,9 +295,8 @@ public class GitHubAuthDialog extends JDialog {
             // Cancel any existing background auth and start new one
             BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse);
 
-            // Close dialog immediately without triggering error callback
-            cleanup();
-            dispose();
+            // Close dialog immediately - auth continues in background
+            completeDialog(false);
         }
     }
 
@@ -308,7 +308,7 @@ public class GitHubAuthDialog extends JDialog {
             authenticationFuture.cancel(true);
         }
 
-        completeAuthentication(false, "", "Cancelled by user");
+        completeDialog(true);
     }
 
     private void updateStatus(AuthStatus status) {
@@ -338,15 +338,20 @@ public class GitHubAuthDialog extends JDialog {
         JOptionPane.showMessageDialog(this, message, "GitHub Authentication Error", JOptionPane.ERROR_MESSAGE);
     }
 
-    private void completeAuthentication(boolean success, String token, String errorMessage) {
-        var callback = authCallback;
-        if (callback != null) {
-            SwingUtilities.invokeLater(() -> callback.onComplete(success, token, errorMessage));
-        }
-
+    private void completeDialog(boolean cancelled) {
+        notifyCompletion(cancelled);
         cleanup();
         dispose();
     }
+
+    private void notifyCompletion(boolean cancelled) {
+        var callback = completionCallback;
+        if (callback != null) {
+            SwingUtilities.invokeLater(() -> callback.onDialogComplete(cancelled));
+            completionCallback = null; // Prevent duplicate notifications
+        }
+    }
+
 
     @SuppressWarnings("RedundantNullCheck")
     private void cleanup() {
@@ -362,6 +367,7 @@ public class GitHubAuthDialog extends JDialog {
 
     @Override
     public void dispose() {
+        notifyCompletion(true); // Assume cancelled if directly disposed
         cleanup();
         super.dispose();
     }

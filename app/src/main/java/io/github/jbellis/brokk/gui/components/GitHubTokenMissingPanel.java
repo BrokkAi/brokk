@@ -23,18 +23,13 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
 
             GitHubAuthDialog authDialog = new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this));
 
-            GitHubAuthDialog.AuthCallback callback = (success, token, errorMessage) -> {
+            GitHubAuthDialog.DialogCompletionCallback callback = (cancelled) -> {
                 SwingUtilities.invokeLater(() -> {
                     connectButton.setEnabled(true);
                     connectButton.setText("Connect GitHub");
-
-                    if (success && !token.isEmpty()) {
-                        MainProject.setGitHubToken(token);
-                        GitHubAuth.invalidateInstance();
-                    }
                 });
             };
-            authDialog.setAuthCallback(callback);
+            authDialog.setCompletionCallback(callback);
 
             authDialog.setVisible(true);
         });
