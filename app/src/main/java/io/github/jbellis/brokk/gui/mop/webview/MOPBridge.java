@@ -152,7 +152,8 @@ public final class MOPBridge {
     public void setTheme(boolean isDark, boolean isDevMode, boolean wrapMode, double zoom) {
         double clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
         var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
-                + ", " + wrapMode + ", " + clamped + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
+                + ", " + wrapMode + ", " + clamped
+                + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 

@@ -1080,6 +1080,7 @@ public final class MainProject extends AbstractProject {
         double clamped = Math.max(0.5, Math.min(2.0, zoom));
         var props = loadGlobalProperties();
         props.setProperty(MOP_ZOOM_KEY, Double.toString(clamped));
+        saveGlobalProperties(props);
     }
 
     public static float getTerminalFontSize() {

@@ -1,5 +1,6 @@
 import './styles/global.scss';
 import {mount, tick} from 'svelte';
+import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {onHistoryEvent} from './stores/historyStore';

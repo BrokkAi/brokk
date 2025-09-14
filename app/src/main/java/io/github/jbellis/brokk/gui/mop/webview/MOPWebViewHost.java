@@ -37,7 +37,6 @@ public final class MOPWebViewHost extends JPanel {
     private volatile boolean darkTheme = true; // Default to dark theme
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
-    private volatile boolean codeBlockWrap = false;
 
     // Bridge readiness tracking
     private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
@@ -290,7 +289,7 @@ public final class MOPWebViewHost extends JPanel {
             }
             // Initial theme — queue until bridge ready
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            setInitialTheme(darkTheme, isDevMode, codeBlockWrap);
+            setInitialTheme(darkTheme, isDevMode, MainProject.getCodeBlockWrapMode());
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -310,7 +309,8 @@ public final class MOPWebViewHost extends JPanel {
         darkTheme = isDark;
         double zoom = MainProject.getMopZoom();
         sendOrQueue(
-                new HostCommand.SetTheme(isDark, isDevMode, wrapMode, zoom), bridge -> bridge.setTheme(isDark, isDevMode, wrapMode, zoom));
+                new HostCommand.SetTheme(isDark, isDevMode, wrapMode, zoom),
+                bridge -> bridge.setTheme(isDark, isDevMode, wrapMode, zoom));
         applyTheme(Theme.create(isDark));
     }
 
