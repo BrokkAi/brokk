@@ -129,7 +129,7 @@ public class GitHubAuthDialog extends JDialog {
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         copyAndOpenButton.setVisible(false);
-        copyAndOpenButton.setPreferredSize(new Dimension(150, 30));
+        copyAndOpenButton.setPreferredSize(new Dimension(180, 30));
         buttonPanel.add(copyAndOpenButton);
 
         cancelButton.setPreferredSize(new Dimension(80, 30));
@@ -375,12 +375,13 @@ public class GitHubAuthDialog extends JDialog {
 
     @SuppressWarnings("RedundantNullCheck")
     private void cleanup() {
-        if (deviceFlowService != null) {
-            deviceFlowService.shutdown();
-        }
-
         if (authenticationFuture != null && !authenticationFuture.isDone()) {
             authenticationFuture.cancel(true);
+        }
+
+        if (deviceFlowService != null) {
+            // Run shutdown on background thread to avoid blocking EDT
+            CompletableFuture.runAsync(() -> deviceFlowService.shutdown());
         }
     }
 
