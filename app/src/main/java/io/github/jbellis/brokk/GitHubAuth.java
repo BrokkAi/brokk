@@ -204,12 +204,6 @@ public class GitHubAuth {
         return !token.isBlank();
     }
 
-    /**
-     * Validates the stored GitHub token by making a lightweight API call. If the token is invalid, it will be cleared
-     * from storage.
-     *
-     * @return true if the token is valid, false if invalid or not present
-     */
     public static boolean validateStoredToken() {
         String token = MainProject.getGitHubToken();
         if (token.isEmpty()) {

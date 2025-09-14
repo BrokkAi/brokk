@@ -289,8 +289,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gitHubPanel.add(actionsPanel, gbc);
 
         // Row: Explanation
-        var explanationLabel = new JLabel(
-                "<html>Connect your GitHub account using Brokk's GitHub App.</html>");
+        var explanationLabel = new JLabel("<html>Connect your GitHub account using Brokk's GitHub App.</html>");
         explanationLabel.setFont(explanationLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));

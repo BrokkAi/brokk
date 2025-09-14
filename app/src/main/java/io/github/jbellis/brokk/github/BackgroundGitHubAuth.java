@@ -7,20 +7,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Singleton service for managing GitHub authentication in the background. Allows authentication to continue after
- * dialog is closed.
- */
 public class BackgroundGitHubAuth {
     private static final Logger logger = LogManager.getLogger(BackgroundGitHubAuth.class);
 
     private static @Nullable CompletableFuture<Void> currentAuthFuture;
     private static @Nullable GitHubDeviceFlowService currentService;
 
-    /**
-     * Start background authentication with the given device code response. Cancels any existing background
-     * authentication.
-     */
     public static void startBackgroundAuth(DeviceFlowModels.DeviceCodeResponse deviceCodeResponse) {
         logger.info("Starting background GitHub authentication");
 
@@ -43,7 +35,6 @@ public class BackgroundGitHubAuth {
                 });
     }
 
-    /** Cancel any currently running background authentication. */
     public static void cancelCurrentAuth() {
         if (currentAuthFuture != null && !currentAuthFuture.isDone()) {
             logger.info("Cancelling existing background GitHub authentication");
@@ -59,7 +50,6 @@ public class BackgroundGitHubAuth {
         currentAuthFuture = null;
     }
 
-    /** Check if background authentication is currently running. */
     public static boolean isAuthInProgress() {
         return currentAuthFuture != null && !currentAuthFuture.isDone();
     }
