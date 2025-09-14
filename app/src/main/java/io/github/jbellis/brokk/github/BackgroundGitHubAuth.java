@@ -93,6 +93,10 @@ public class BackgroundGitHubAuth {
                 logger.error("Background GitHub authentication error: {}", tokenResponse.errorMessage());
                 // Silent failure - no user notification
             }
+            case SLOW_DOWN -> {
+                logger.warn("Background GitHub authentication received SLOW_DOWN in final result (unexpected)");
+                // This shouldn't happen as SLOW_DOWN is handled in polling loop
+            }
             default -> {
                 logger.error("Background GitHub authentication unexpected result: {}", tokenResponse.result());
             }

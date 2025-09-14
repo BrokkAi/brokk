@@ -20,6 +20,7 @@ public class DeviceFlowModels {
     public enum TokenPollResult {
         SUCCESS,
         PENDING,
+        SLOW_DOWN,
         DENIED,
         EXPIRED,
         ERROR

@@ -101,11 +101,12 @@ public class GitHubDeviceFlowService {
         var future = new CompletableFuture<DeviceFlowModels.TokenPollResponse>();
         var pollTask = new Runnable() {
             private int attempts = 0;
+            private int currentInterval = pollInterval;
 
             @Override
             public void run() {
                 attempts++;
-                logger.debug("Token poll attempt {}", attempts);
+                logger.debug("Token poll attempt {} with interval {}", attempts, currentInterval);
 
                 try {
                     var pollResponse = pollOnce(deviceCode);
@@ -126,7 +127,12 @@ public class GitHubDeviceFlowService {
                         }
                         case PENDING -> {
                             logger.debug("Authentication still pending, continuing to poll");
-                            executor.schedule(this, pollInterval, TimeUnit.SECONDS);
+                            executor.schedule(this, currentInterval, TimeUnit.SECONDS);
+                        }
+                        case SLOW_DOWN -> {
+                            currentInterval += 5;
+                            logger.warn("Rate limited by GitHub, increasing poll interval to {} seconds", currentInterval);
+                            executor.schedule(this, currentInterval, TimeUnit.SECONDS);
                         }
                     }
                 } catch (DeviceFlowException e) {
@@ -192,7 +198,7 @@ public class GitHubDeviceFlowService {
                                 case "slow_down" -> {
                                     logger.warn("GitHub API requests are being made too frequently, slowing down");
                                     yield new DeviceFlowModels.TokenPollResponse(
-                                            DeviceFlowModels.TokenPollResult.PENDING,
+                                            DeviceFlowModels.TokenPollResult.SLOW_DOWN,
                                             null,
                                             "Rate limited, slowing down");
                                 }
