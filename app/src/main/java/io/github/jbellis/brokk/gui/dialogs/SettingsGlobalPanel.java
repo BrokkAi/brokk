@@ -3,16 +3,22 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.SettingsChangeListener;
+import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
+import io.github.jbellis.brokk.github.DeviceFlowModels;
+import io.github.jbellis.brokk.github.GitHubDeviceFlowService;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -22,7 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class SettingsGlobalPanel extends JPanel implements ThemeAware {
+public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
     public static final String MODELS_TAB_TITLE = "Favorite Models"; // Used for targeting this tab
 
@@ -55,6 +61,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JLabel gitHubStatusLabel; // Null if GitHub tab not shown
 
     @Nullable
+    private JProgressBar gitHubProgressBar; // Null if GitHub tab not shown
+
+    @Nullable
+    private JLabel gitHubDeviceCodeLabel; // Null if GitHub tab not shown
+
+    @Nullable
+    private JButton gitHubContinueBrowserButton; // Null if GitHub tab not shown
+
+    @Nullable
+    private JLabel gitHubSuccessMessageLabel; // Null if GitHub tab not shown
+
+    @Nullable
     private JRadioButton uiScaleAutoRadio; // Hidden on macOS
 
     @Nullable
@@ -65,12 +83,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
+    @Nullable
+    private Timer authProgressTimer; // Timer to update progress UI
+
+    @Nullable
+    private GitHubDeviceFlowService deviceFlowService; // Service for GitHub authentication
+
+    @Nullable
+    private DeviceFlowModels.DeviceCodeResponse currentDeviceCodeResponse; // Current auth session
+
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
         loadSettings();
+
+        // Register for settings change notifications
+        MainProject.addSettingsChangeListener(this);
     }
 
     private void initComponents() {
@@ -271,6 +301,48 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gitHubPanel.add(gitHubStatusLabel, gbc);
 
+        // Row: Device Code (initially hidden)
+        gitHubDeviceCodeLabel = new JLabel("");
+        gitHubDeviceCodeLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, 16));
+        gitHubDeviceCodeLabel.setVisible(false);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gitHubPanel.add(gitHubDeviceCodeLabel, gbc);
+
+        // Row: Continue Browser Button (initially hidden)
+        gitHubContinueBrowserButton = new JButton("Continue in Browser");
+        gitHubContinueBrowserButton.setVisible(false);
+        gitHubContinueBrowserButton.addActionListener(e -> onContinueInBrowser());
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.WEST;
+        gitHubPanel.add(gitHubContinueBrowserButton, gbc);
+        gbc.fill = GridBagConstraints.HORIZONTAL; // Reset for next components
+        gbc.anchor = GridBagConstraints.WEST;
+
+        // Row: Progress Bar (initially hidden)
+        gitHubProgressBar = new JProgressBar();
+        gitHubProgressBar.setIndeterminate(true);
+        gitHubProgressBar.setString("Waiting for GitHub authorization...");
+        gitHubProgressBar.setStringPainted(true);
+        gitHubProgressBar.setVisible(false);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gitHubPanel.add(gitHubProgressBar, gbc);
+
+        // Row: Success Message (initially hidden)
+        gitHubSuccessMessageLabel = new JLabel();
+        gitHubSuccessMessageLabel.setFont(gitHubSuccessMessageLabel.getFont().deriveFont(Font.BOLD));
+        gitHubSuccessMessageLabel.setForeground(new Color(0, 128, 0)); // Green color
+        gitHubSuccessMessageLabel.setVisible(false);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gitHubPanel.add(gitHubSuccessMessageLabel, gbc);
+
         // Filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
@@ -285,40 +357,153 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     private void updateGitHubPanelUi() {
         boolean connected = !MainProject.getGitHubToken().trim().isEmpty();
+        boolean authInProgress = BackgroundGitHubAuth.isAuthInProgress();
+        boolean wasAuthenticating = authProgressTimer != null;
+        boolean justCompleted = wasAuthenticating && !authInProgress && connected;
+
         if (gitHubStatusLabel != null) {
-            gitHubStatusLabel.setText(connected ? "Status: Connected" : "Status: Not connected");
+            if (authInProgress) {
+                gitHubStatusLabel.setText("Status: Authenticating...");
+            } else if (currentDeviceCodeResponse != null && !connected) {
+                gitHubStatusLabel.setText("Status: Waiting for you to authorize in browser");
+            } else {
+                gitHubStatusLabel.setText(connected ? "Status: Connected" : "Status: Not connected");
+            }
             gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.ITALIC));
         }
+
+        if (gitHubProgressBar != null) {
+            gitHubProgressBar.setVisible(authInProgress);
+        }
+
+        // Show success message when authentication just completed
+        if (gitHubSuccessMessageLabel != null) {
+            if (justCompleted) {
+                gitHubSuccessMessageLabel.setText("✓ Successfully connected to GitHub!");
+                gitHubSuccessMessageLabel.setVisible(true);
+                // Hide the success message after 5 seconds
+                var successLabel = gitHubSuccessMessageLabel;
+                Timer hideMessageTimer = new Timer(5000, e -> {
+                    successLabel.setVisible(false);
+                });
+                hideMessageTimer.setRepeats(false);
+                hideMessageTimer.start();
+            } else if (!connected) {
+                gitHubSuccessMessageLabel.setVisible(false);
+            }
+        }
+
+        boolean showingDeviceCode = currentDeviceCodeResponse != null && !authInProgress && !connected;
+
+        if (gitHubDeviceCodeLabel != null) {
+            gitHubDeviceCodeLabel.setVisible(showingDeviceCode);
+        }
+
+        if (gitHubContinueBrowserButton != null) {
+            gitHubContinueBrowserButton.setVisible(showingDeviceCode);
+        }
+
         if (gitHubConnectButton != null) {
-            gitHubConnectButton.setEnabled(!connected);
+            gitHubConnectButton.setEnabled(!connected && !authInProgress && !showingDeviceCode);
         }
         if (gitHubDisconnectButton != null) {
-            gitHubDisconnectButton.setEnabled(connected);
+            gitHubDisconnectButton.setEnabled(connected && !authInProgress);
+        }
+
+        // Manage progress monitoring timer
+        if ((authInProgress || showingDeviceCode) && authProgressTimer == null) {
+            // Start timer to periodically update UI while auth is in progress
+            authProgressTimer = new Timer(1000, e -> updateGitHubPanelUi());
+            authProgressTimer.start();
+        } else if (!authInProgress && !showingDeviceCode && authProgressTimer != null) {
+            // Stop timer when auth is complete
+            authProgressTimer.stop();
+            authProgressTimer = null;
+            currentDeviceCodeResponse = null; // Clear device code
         }
     }
 
     private void startGitHubIntegration() {
-        GitHubAuthDialog authDialog = new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this));
+        logger.info("Starting inline GitHub integration");
 
-        @SuppressWarnings({"RedundantNullCheck", "NullAway"})
-        GitHubAuthDialog.AuthCallback callback = (success, token, errorMessage) -> {
-            if (success && token != null && !token.isEmpty()) {
-                MainProject.setGitHubToken(token);
-                GitHubAuth.invalidateInstance();
+        // Initialize device flow service
+        deviceFlowService = new GitHubDeviceFlowService(getGitHubClientId());
+
+        // Start device code request in background
+        CompletableFuture.runAsync(() -> {
+            try {
+                var service = deviceFlowService;
+                if (service == null) {
+                    throw new IllegalStateException("Device flow service not initialized");
+                }
+                var deviceCodeResponse = service.requestDeviceCode();
+                SwingUtilities.invokeLater(() -> showDeviceCode(deviceCodeResponse));
+            } catch (Exception e) {
+                logger.error("Failed to request device code", e);
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Failed to start GitHub authentication: " + e.getMessage(),
+                            "GitHub Authentication Error",
+                            JOptionPane.ERROR_MESSAGE);
+                    updateGitHubPanelUi();
+                });
+            }
+        });
+    }
+
+    private String getGitHubClientId() {
+        var clientId = System.getenv("BROKK_GITHUB_CLIENT_ID");
+        if (clientId != null && !clientId.isBlank()) {
+            return clientId;
+        }
+        return "Iv23liZ3oStCdzu0xkHI";
+    }
+
+    private void showDeviceCode(DeviceFlowModels.DeviceCodeResponse response) {
+        currentDeviceCodeResponse = response;
+
+        // Automatically copy code to clipboard
+        try {
+            var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            var stringSelection = new StringSelection(response.userCode());
+            clipboard.setContents(stringSelection, null);
+            logger.info("Device code automatically copied to clipboard: {}", response.userCode());
+        } catch (Exception ex) {
+            logger.error("Failed to copy code to clipboard", ex);
+        }
+
+        if (gitHubDeviceCodeLabel != null) {
+            gitHubDeviceCodeLabel.setText("Code: " + response.userCode() + " (copied to clipboard)");
+        }
+
+        updateGitHubPanelUi();
+    }
+
+    private void onContinueInBrowser() {
+        if (currentDeviceCodeResponse != null) {
+            try {
+                // Open the browser
+                Environment.openInBrowser(
+                        currentDeviceCodeResponse.verificationUri(), SwingUtilities.getWindowAncestor(this));
+                logger.info("Opened browser to GitHub verification page");
+
+                // Start background authentication
+                BackgroundGitHubAuth.startBackgroundAuth(currentDeviceCodeResponse);
+
+                // Clear device code response to hide the UI elements
+                currentDeviceCodeResponse = null;
                 updateGitHubPanelUi();
-                JOptionPane.showMessageDialog(
-                        this, "Successfully connected to GitHub!", "GitHub Connected", JOptionPane.INFORMATION_MESSAGE);
-            } else {
+
+            } catch (Exception ex) {
+                logger.error("Failed to open browser", ex);
                 JOptionPane.showMessageDialog(
                         this,
-                        "Failed to connect to GitHub: " + errorMessage,
-                        "Authentication Failed",
+                        "Failed to open browser: " + ex.getMessage(),
+                        "GitHub Authentication Error",
                         JOptionPane.ERROR_MESSAGE);
             }
-        };
-        authDialog.setAuthCallback(callback);
-
-        authDialog.setVisible(true);
+        }
     }
 
     private void updateSignupLabelVisibility() {
@@ -1038,6 +1223,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         @Override
         public Object getCellEditorValue() {
             return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ProcessingTier.DEFAULT;
+        }
+    }
+
+    // SettingsChangeListener implementation
+    @Override
+    public void gitHubTokenChanged() {
+        SwingUtilities.invokeLater(this::updateGitHubPanelUi);
+    }
+
+    @Override
+    public void removeNotify() {
+        super.removeNotify();
+        MainProject.removeSettingsChangeListener(this);
+
+        // Stop progress timer if running
+        if (authProgressTimer != null) {
+            authProgressTimer.stop();
+            authProgressTimer = null;
         }
     }
 }

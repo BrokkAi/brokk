@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.github.DeviceFlowModels;
 import io.github.jbellis.brokk.github.GitHubDeviceFlowService;
 import io.github.jbellis.brokk.util.Environment;
@@ -45,6 +46,7 @@ public class GitHubAuthDialog extends JDialog {
     private final JLabel userCodeLabel;
     private final JLabel instructionsLabel;
     private final JButton copyAndOpenButton;
+    private final JButton continueBackgroundButton;
     private final JButton cancelButton;
     private final JProgressBar progressBar;
 
@@ -67,6 +69,7 @@ public class GitHubAuthDialog extends JDialog {
         this.userCodeLabel = new JLabel();
         this.instructionsLabel = new JLabel();
         this.copyAndOpenButton = new JButton("Copy & Open Browser");
+        this.continueBackgroundButton = new JButton("Continue in Background");
         this.cancelButton = new JButton("Cancel");
         this.progressBar = new JProgressBar();
 
@@ -132,6 +135,10 @@ public class GitHubAuthDialog extends JDialog {
         copyAndOpenButton.setPreferredSize(new Dimension(180, 30));
         buttonPanel.add(copyAndOpenButton);
 
+        continueBackgroundButton.setVisible(false);
+        continueBackgroundButton.setPreferredSize(new Dimension(150, 30));
+        buttonPanel.add(continueBackgroundButton);
+
         cancelButton.setPreferredSize(new Dimension(80, 30));
         buttonPanel.add(cancelButton);
 
@@ -141,6 +148,7 @@ public class GitHubAuthDialog extends JDialog {
 
     private void setupEventHandlers() {
         copyAndOpenButton.addActionListener(this::onCopyAndOpenBrowser);
+        continueBackgroundButton.addActionListener(this::onContinueInBackground);
         cancelButton.addActionListener(this::onCancel);
 
         addWindowListener(new java.awt.event.WindowAdapter() {
@@ -226,15 +234,29 @@ public class GitHubAuthDialog extends JDialog {
     }
 
     private void showDeviceCode(DeviceFlowModels.DeviceCodeResponse response) {
-        userCodeLabel.setText("Code: " + response.userCode());
+        // Automatically copy code to clipboard
+        try {
+            var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            var stringSelection = new StringSelection(response.userCode());
+            clipboard.setContents(stringSelection, null);
+            logger.info("Device code automatically copied to clipboard: {}", response.userCode());
+        } catch (Exception ex) {
+            logger.error("Failed to copy code to clipboard", ex);
+        }
+
+        userCodeLabel.setText("Code: " + response.userCode() + " (copied to clipboard)");
         userCodeLabel.setVisible(true);
 
-        instructionsLabel.setText("<html>1. Click 'Copy & Open Browser' below<br>"
-                + "2. Paste the code when prompted on GitHub<br>"
-                + "3. Authorize Brokk to access your account</html>");
+        instructionsLabel.setText("<html>Your device code has been copied to your clipboard.<br>"
+                + "Click 'Continue in Browser' to open GitHub and paste the code.</html>");
 
+        copyAndOpenButton.setText("Continue in Browser");
         copyAndOpenButton.setVisible(true);
         copyAndOpenButton.setEnabled(true);
+
+        // Hide the continue in background button for now
+        continueBackgroundButton.setVisible(false);
+
         getRootPane().setDefaultButton(copyAndOpenButton);
 
         // Store the response for the combined action
@@ -245,21 +267,20 @@ public class GitHubAuthDialog extends JDialog {
         var deviceCodeResponse = getCurrentDeviceCodeResponse();
         if (deviceCodeResponse != null) {
             try {
-                // First, copy the code to clipboard
-                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                var stringSelection = new StringSelection(deviceCodeResponse.userCode());
-                clipboard.setContents(stringSelection, null);
-                logger.info("Device code copied to clipboard: {}", deviceCodeResponse.userCode());
-
-                // Then open the browser
+                // Open the browser (code already copied)
                 Environment.openInBrowser(deviceCodeResponse.verificationUri(), this);
+                logger.info("Opened browser to GitHub verification page");
 
-                // Start polling for token
-                startPolling(deviceCodeResponse);
+                // Start background authentication
+                BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse);
+
+                // Close dialog immediately - auth continues in background
+                cleanup();
+                dispose();
 
             } catch (Exception ex) {
-                logger.error("Failed to copy code or open browser", ex);
-                showError("Failed to copy code or open browser: " + ex.getMessage());
+                logger.error("Failed to open browser", ex);
+                showError("Failed to open browser: " + ex.getMessage());
             }
         }
     }
@@ -268,61 +289,18 @@ public class GitHubAuthDialog extends JDialog {
         return currentDeviceCodeResponse;
     }
 
-    @SuppressWarnings("RedundantNullCheck")
-    private void startPolling(DeviceFlowModels.DeviceCodeResponse response) {
-        logger.info("Starting token polling for device code");
-        updateStatus(AuthStatus.POLLING);
+    private void onContinueInBackground(ActionEvent e) {
+        var deviceCodeResponse = getCurrentDeviceCodeResponse();
+        if (deviceCodeResponse != null) {
+            logger.info("Continuing GitHub authentication in background");
 
-        copyAndOpenButton.setEnabled(false);
+            // Cancel any existing background auth and start new one
+            BackgroundGitHubAuth.startBackgroundAuth(deviceCodeResponse);
 
-        deviceFlowService
-                .pollForToken(response.deviceCode(), response.interval())
-                .whenComplete((tokenResponse, throwable) -> {
-                    SwingUtilities.invokeLater(() -> {
-                        if (throwable != null) {
-                            logger.error("Token polling failed", throwable);
-                            updateStatus(AuthStatus.ERROR);
-                            showError("Authentication failed: " + throwable.getMessage());
-                            return;
-                        }
-
-                        switch (tokenResponse.result()) {
-                            case SUCCESS -> {
-                                updateStatus(AuthStatus.SUCCESS);
-                                var token = tokenResponse.token();
-                                if (token != null && token.accessToken() != null) {
-                                    completeAuthentication(true, token.accessToken(), "Success");
-                                } else {
-                                    logger.error(
-                                            "Token or accessToken was null: token={}, accessToken={}",
-                                            token,
-                                            token != null ? token.accessToken() : "N/A");
-                                    completeAuthentication(false, "", "Token was null or invalid");
-                                }
-                            }
-                            case DENIED -> {
-                                updateStatus(AuthStatus.ERROR);
-                                showError("Authentication denied by user");
-                                completeAuthentication(false, "", "User denied access");
-                            }
-                            case EXPIRED -> {
-                                updateStatus(AuthStatus.ERROR);
-                                showError("Authentication code expired. Please try again.");
-                                completeAuthentication(false, "", "Code expired");
-                            }
-                            case ERROR -> {
-                                updateStatus(AuthStatus.ERROR);
-                                showError("Authentication error: " + tokenResponse.errorMessage());
-                                completeAuthentication(false, "", tokenResponse.errorMessage());
-                            }
-                            default -> {
-                                updateStatus(AuthStatus.ERROR);
-                                showError("Unexpected result: " + tokenResponse.result());
-                                completeAuthentication(false, "", "Unexpected result");
-                            }
-                        }
-                    });
-                });
+            // Close dialog immediately without triggering error callback
+            cleanup();
+            dispose();
+        }
     }
 
     private void onCancel(ActionEvent e) {
