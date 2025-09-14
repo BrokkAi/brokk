@@ -1,9 +1,10 @@
 package io.github.jbellis.brokk.gui.components;
 
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.dialogs.GitHubAuthDialog;
 import java.awt.*;
 import javax.swing.*;
 
@@ -11,13 +12,34 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
 
     public GitHubTokenMissingPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT));
-        var tokenMissingLabel = new JLabel("GitHub access token not configured.");
+        var tokenMissingLabel = new JLabel("GitHub account not connected.");
         tokenMissingLabel.setFont(tokenMissingLabel.getFont().deriveFont(Font.ITALIC));
         add(tokenMissingLabel);
-        JButton settingsButton = new JButton("Settings");
-        settingsButton.addActionListener(
-                e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME));
-        add(settingsButton);
+
+        JButton connectButton = new JButton("Connect GitHub");
+        connectButton.addActionListener(e -> {
+            connectButton.setEnabled(false);
+            connectButton.setText("Connecting...");
+
+            GitHubAuthDialog authDialog = new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this));
+
+            @SuppressWarnings({"RedundantNullCheck", "NullAway"})
+            GitHubAuthDialog.AuthCallback callback = (success, token, errorMessage) -> {
+                SwingUtilities.invokeLater(() -> {
+                    connectButton.setEnabled(true);
+                    connectButton.setText("Connect GitHub");
+
+                    if (success && token != null && !token.isEmpty()) {
+                        MainProject.setGitHubToken(token);
+                        GitHubAuth.invalidateInstance();
+                    }
+                });
+            };
+            authDialog.setAuthCallback(callback);
+
+            authDialog.setVisible(true);
+        });
+        add(connectButton);
         MainProject.addSettingsChangeListener(this);
         updateVisibility();
     }

@@ -46,7 +46,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
 
     @Nullable
-    private JTextField gitHubTokenField; // Null if GitHub tab not shown
+    private JButton gitHubConnectButton; // Null if GitHub tab not shown
+
+    @Nullable
+    private JButton gitHubDisconnectButton; // Null if GitHub tab not shown
+
+    @Nullable
+    private JButton gitHubRefreshStatusButton; // Null if GitHub tab not shown
+
+    @Nullable
+    private JLabel gitHubStatusLabel; // Null if GitHub tab not shown
 
     @Nullable
     private JRadioButton uiScaleAutoRadio; // Hidden on macOS
@@ -211,20 +220,44 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.anchor = GridBagConstraints.WEST;
         int row = 0;
 
+        // Row: Label + Buttons
         gbc.gridx = 0;
         gbc.gridy = row;
         gbc.weightx = 0.0;
-        gitHubPanel.add(new JLabel("GitHub Token:"), gbc);
+        gitHubPanel.add(new JLabel("GitHub Account:"), gbc);
 
-        gitHubTokenField = new JTextField(20);
+        var actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        gitHubConnectButton = new JButton("Connect GitHub Account...");
+        gitHubConnectButton.addActionListener(e -> startGitHubIntegration());
+        actionsPanel.add(gitHubConnectButton);
+
+        gitHubDisconnectButton = new JButton("Disconnect");
+        gitHubDisconnectButton.addActionListener(e -> {
+            // Clear token and invalidate client
+            MainProject.setGitHubToken("");
+            GitHubAuth.invalidateInstance();
+            updateGitHubPanelUi();
+            JOptionPane.showMessageDialog(
+                    gitHubPanel,
+                    "Disconnected from GitHub. You can reconnect any time.",
+                    "GitHub",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
+        actionsPanel.add(gitHubDisconnectButton);
+
+        gitHubRefreshStatusButton = new JButton("Refresh");
+        gitHubRefreshStatusButton.addActionListener(e -> updateGitHubPanelUi());
+        actionsPanel.add(gitHubRefreshStatusButton);
+
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gitHubPanel.add(gitHubTokenField, gbc);
+        gitHubPanel.add(actionsPanel, gbc);
 
+        // Row: Explanation
         var explanationLabel = new JLabel(
-                "<html>This token is used to access GitHub APIs. It should have read and write access to Pull Requests and Issues.</html>");
+                "<html>Connect your GitHub account using Brokk's GitHub App. The dialog will guide you through copying a code and authorizing in your browser. Authentication will complete automatically.</html>");
         explanationLabel.setFont(explanationLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
@@ -236,12 +269,64 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gitHubPanel.add(explanationLabel, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
+        // Row: Status
+        gitHubStatusLabel = new JLabel("");
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gitHubPanel.add(gitHubStatusLabel, gbc);
+
+        // Filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
         gitHubPanel.add(Box.createVerticalGlue(), gbc);
 
+        // Initialize UI state based on current token
+        updateGitHubPanelUi();
+
         return gitHubPanel;
+    }
+
+    private void updateGitHubPanelUi() {
+        boolean connected = !MainProject.getGitHubToken().trim().isEmpty();
+        if (gitHubStatusLabel != null) {
+            gitHubStatusLabel.setText(connected ? "Status: Connected" : "Status: Not connected");
+            gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.ITALIC));
+        }
+        if (gitHubConnectButton != null) {
+            gitHubConnectButton.setEnabled(!connected);
+        }
+        if (gitHubDisconnectButton != null) {
+            gitHubDisconnectButton.setEnabled(connected);
+        }
+        if (gitHubRefreshStatusButton != null) {
+            gitHubRefreshStatusButton.setEnabled(true);
+        }
+    }
+
+    private void startGitHubIntegration() {
+        GitHubAuthDialog authDialog = new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this));
+
+        @SuppressWarnings({"RedundantNullCheck", "NullAway"})
+        GitHubAuthDialog.AuthCallback callback = (success, token, errorMessage) -> {
+            if (success && token != null && !token.isEmpty()) {
+                MainProject.setGitHubToken(token);
+                GitHubAuth.invalidateInstance();
+                updateGitHubPanelUi();
+                JOptionPane.showMessageDialog(
+                        this, "Successfully connected to GitHub!", "GitHub Connected", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Failed to connect to GitHub: " + errorMessage,
+                        "Authentication Failed",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        };
+        authDialog.setAuthCallback(callback);
+
+        authDialog.setVisible(true);
     }
 
     private void updateSignupLabelVisibility() {
@@ -510,8 +595,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
         // GitHub Tab
-        if (gitHubTokenField != null) { // Only if panel was created
-            gitHubTokenField.setText(MainProject.getGitHubToken());
+        if (gitHubStatusLabel != null) { // Only if panel was created
+            updateGitHubPanelUi();
         }
     }
 
@@ -606,14 +691,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
-        // GitHub Tab
-        if (gitHubTokenField != null) {
-            String newToken = gitHubTokenField.getText().trim();
-            if (!newToken.equals(MainProject.getGitHubToken())) {
-                MainProject.setGitHubToken(newToken);
-                GitHubAuth.invalidateInstance();
-                logger.debug("Applied GitHub Token");
-            }
+        // GitHub Tab - managed via Connect/Disconnect flow
+        if (gitHubStatusLabel != null) {
+            updateGitHubPanelUi();
         }
 
         return true;
