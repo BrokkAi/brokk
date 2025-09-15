@@ -469,8 +469,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        var addButton = new JButton("Add");
-        var removeButton = new JButton("Remove");
+        var addButton = new JButton();
+        addButton.setIcon(Icons.ADD);
+        var removeButton = new JButton();
+        removeButton.setIcon(Icons.REMOVE);
         buttonPanel.add(addButton);
         buttonPanel.add(removeButton);
 
