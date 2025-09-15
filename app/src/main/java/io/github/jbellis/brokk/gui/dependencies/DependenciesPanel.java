@@ -3,8 +3,8 @@ package io.github.jbellis.brokk.gui.dependencies;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.NodeJsDependencyHelper;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.BorderUtils;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.Constants;

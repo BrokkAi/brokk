@@ -291,8 +291,8 @@ public final class NodeJsDependencyHelper {
     }
 
     /**
-     * Builds a human-friendly display name ("name version") from NodePackage metadata.
-     * If version is empty, returns just the name. Returns empty string if name is empty.
+     * Builds a human-friendly display name ("name version") from NodePackage metadata. If version is empty, returns
+     * just the name. Returns empty string if name is empty.
      */
     public static String displayNameFrom(NodePackage pkg) {
         var name = pkg.name;
