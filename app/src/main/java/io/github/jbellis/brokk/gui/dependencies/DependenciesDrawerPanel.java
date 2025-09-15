@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dependencies;
 
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -9,7 +10,6 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
-import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -22,7 +22,7 @@ public class DependenciesDrawerPanel extends JPanel {
     // Core components
     private final JPanel drawerContentPanel;
     private final JPanel drawerToolBar;
-    private final JToggleButton dependenciesToggle;
+    private final MaterialToggleButton dependenciesToggle;
     private @Nullable DependenciesPanel activeDependenciesPanel;
 
     // Drawer state management
@@ -53,12 +53,15 @@ public class DependenciesDrawerPanel extends JPanel {
         drawerToolBar.setOpaque(false);
         drawerToolBar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        dependenciesToggle = new JToggleButton(Icons.MANAGE_DEPENDENCIES);
+        dependenciesToggle = new MaterialToggleButton(Icons.MANAGE_DEPENDENCIES);
         dependenciesToggle.setToolTipText("Toggle Manage Dependencies");
-        dependenciesToggle.setContentAreaFilled(false);
+        dependenciesToggle.setBorderHighlightOnly(true);
         dependenciesToggle.setFocusPainted(false);
         dependenciesToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         dependenciesToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // Edge selection highlight is applied by MaterialToggleButton; LAF handles hover background.
+
         drawerToolBar.add(dependenciesToggle);
 
         add(drawerToolBar, BorderLayout.EAST);

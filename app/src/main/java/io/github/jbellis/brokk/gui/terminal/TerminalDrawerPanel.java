@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -13,7 +14,6 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
-import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,7 +29,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     // Core components
     private final JPanel drawerContentPanel;
     private final JPanel drawerToolBar;
-    private final JToggleButton terminalToggle;
+    private final MaterialToggleButton terminalToggle;
     private @Nullable TerminalPanel activeTerminal;
 
     // Drawer state management
@@ -60,12 +60,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         drawerToolBar.setOpaque(false);
         drawerToolBar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        terminalToggle = new JToggleButton(Icons.TERMINAL);
+        terminalToggle = new MaterialToggleButton(Icons.TERMINAL);
         terminalToggle.setToolTipText("Toggle Terminal");
-        terminalToggle.setContentAreaFilled(false);
+        terminalToggle.setBorderHighlightOnly(true);
         terminalToggle.setFocusPainted(false);
         terminalToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         terminalToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // Edge selection highlight is applied by MaterialToggleButton; LAF handles hover background.
+
         drawerToolBar.add(terminalToggle);
 
         add(drawerToolBar, BorderLayout.EAST);
