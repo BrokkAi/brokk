@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitWorkflow;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
@@ -18,8 +19,8 @@ public class CommitDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CommitDialog.class);
 
     private final JTextArea commitMessageArea;
-    private final JButton commitButton;
-    private final JButton cancelButton;
+    private final MaterialButton commitButton;
+    private final MaterialButton cancelButton;
     private final transient ContextManager contextManager;
     private final transient GitWorkflow workflowService;
     private final transient List<ProjectFile> filesToCommit;
@@ -54,11 +55,15 @@ public class CommitDialog extends JDialog {
 
         JScrollPane scrollPane = new JScrollPane(commitMessageArea);
 
-        commitButton = new JButton("Commit");
+        // Use MaterialButton so styling matches other dialogs; commit is primary (blue background + white text)
+        commitButton = new MaterialButton("Commit");
         commitButton.setEnabled(false); // Initially disabled until message is ready or user types
         commitButton.addActionListener(e -> performCommit());
+        // Style commit as primary: bright blue background + white text
+        commitButton.setBackground(new Color(0x1F6FEB));
+        commitButton.setForeground(Color.WHITE);
 
-        cancelButton = new JButton("Cancel");
+        cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
