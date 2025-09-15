@@ -30,6 +30,12 @@
         Test Spinner
     </button>
     <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
+    <button id="toggle-wrap-btn" onclick="toggleCodeWrap()">Toggle Code Wrap</button>
+    <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
+    <br>
+    <button onclick="window.brokk.setTheme(false, false, true)">Test Java SetTheme (Light + Wrap)</button>
+    <button onclick="window.brokk.setTheme(true, false, false)">Test Java SetTheme (Dark + Scroll)</button>
+    <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
     <label><input type="checkbox" id="search-case-sensitive"> Case Sensitive</label>
@@ -304,7 +310,7 @@ Both approaches:
 
     function streamAsk() {
         let index = 0;
-        // simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true, reasoning: false})
+
         const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
         const interval = setInterval(() => {
             if (index < chunks.length) {
@@ -318,6 +324,8 @@ Both approaches:
     }
 
     function showAskMd() {
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
         simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, reasoning: true})
         simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, reasoning: false})
@@ -1180,6 +1188,150 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
         getSearchStateAndDisplay();
         updateSymbolCount();
     })();
+
+// ----- Code wrap helpers and demo ---------------------------------------------------------
+
+function getWrapMode() {
+    return document.documentElement.classList.contains('code-wrap-mode') ? 'wrap' : 'scroll';
+}
+
+function updateWrapModeStatus() {
+    var el = document.getElementById('wrap-mode-status');
+    if (el) {
+        el.textContent = '(' + getWrapMode() + ')';
+    }
+}
+
+function setWrapMode(mode) {
+    if (mode !== 'wrap' && mode !== 'scroll') return;
+    document.documentElement.classList.toggle('code-wrap-mode', mode === 'wrap');
+    document.documentElement.classList.toggle('code-scroll-mode', mode === 'scroll');
+    updateWrapModeStatus();
+}
+
+function toggleCodeWrap() {
+    setWrapMode(getWrapMode() === 'wrap' ? 'scroll' : 'wrap');
+    updateModeIndicators();
+}
+
+// Update all mode indicators in the rendered content
+function updateModeIndicators() {
+    // Check if we have the demo content currently displayed
+    const mopRoot = document.getElementById('mop-root');
+    if (mopRoot && mopRoot.textContent.includes('Code Block Modes Demo')) {
+        // Automatically regenerate the demo content with updated indicators
+        showAllCodeblockCases();
+    }
+}
+
+// Initialize default mode if missing and update status
+(function () {
+    if (!document.documentElement.classList.contains('code-wrap-mode') && !document.documentElement.classList.contains('code-scroll-mode')) {
+        document.documentElement.classList.add('code-scroll-mode');
+    }
+    updateWrapModeStatus();
+})();
+
+// Show a comprehensive sample covering all code block cases
+function showAllCodeblockCases() {
+    const mode = getWrapMode();
+    const content = `# Code Block Modes Demo
+
+Current mode: \`${mode}\`
+
+## 1. Fenced (language tag: java) [${mode}]
+\`\`\`java
+public class Hello {
+    public static void main(String[] args) {
+        System.out.println("Hello from fenced java block!");
+    }
+}
+\`\`\`
+
+## 2. Fenced (language tag: diff) [${mode}]
+\`\`\`diff
+- System.out.println("old");
++ System.out.println("new");
+\`\`\`
+
+## 3. Fenced (no language) [${mode}]
+\`\`\`
+SELECT * FROM users WHERE id = 42;
+-- No language tag on this code fence
+\`\`\`
+
+## 4. Indented code block (4 spaces) [${mode}]
+    # Indented code starts with 4 spaces
+    def add(a, b):
+        return a + b
+
+    print(add(2, 3))
+
+## 5. Raw HTML pre/code (language: python) [${mode}]
+<pre><code class="language-python">def greet(name):
+    print("Hello, " + name + "!")
+greet("World")</code></pre>
+
+## 6. Very long single line to test wrap vs. scroll [${mode}]
+\`\`\`text
+ThisIsAReallyReallyReallyReallyReallyReallyReallyReallyReallyReallyReallyReallyLongTokenThatShouldForceHorizontalScrollingOrWrappingDependingOnTheCurrentModeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+\`\`\`
+
+## 7. Another fenced block (language: javascript) [${mode}]
+\`\`\`javascript
+const nums = [1,2,3,4];
+const doubled = nums.map(n => n * 2);
+console.log("Doubled:", doubled);
+\`\`\`
+
+## 8. Custom Edit Block - Unfenced (with filename) [${mode}]
+<<<<<<< SEARCH Example.java
+public void oldMethod() {
+    System.out.println("This is the old implementation with a very long line that should demonstrate wrapping behavior when code block mode is set to wrap instead of scroll mode");
+}
+=======
+public void newMethod() {
+    System.out.println("This is the new implementation");
+    System.out.println("With multiple lines");
+    System.out.println("And another extremely long line to test how the word wrapping works in edit blocks when the mode is toggled between wrap and scroll modes");
+}
+>>>>>>> REPLACE
+
+## 9. Custom Edit Block - Fenced (with filename) [${mode}]
+\`\`\`
+Calculator.java
+<<<<<<< SEARCH
+int calculate(int a, int b) {
+    return a + b; // Simple addition with a really long comment that goes on and on to test horizontal scrolling versus word wrapping in custom edit blocks
+}
+=======
+int calculate(int a, int b) {
+    // Enhanced calculation with validation
+    if (a < 0 || b < 0) {
+        throw new IllegalArgumentException("Negative numbers not allowed in this context and this message is intentionally long");
+    }
+    return a + b;
+}
+>>>>>>> REPLACE
+\`\`\`
+
+## 10. Custom Edit Block - No filename [${mode}]
+<<<<<<< SEARCH
+const oldFunction = () => {
+    console.log("Old implementation with extremely long variable names and method calls that should test the horizontal scrolling versus word wrapping functionality");
+}
+=======
+const newFunction = () => {
+    console.log("New implementation");
+    console.log("With better structure");
+    console.log("And this very long log message to demonstrate how word wrapping affects custom edit blocks");
+}
+>>>>>>> REPLACE
+`;
+
+    window.brokk.clear();
+    simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+}
 
 </script>
 <div id="mop-root"></div>

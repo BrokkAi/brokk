@@ -7,7 +7,6 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.io.File;
 import java.util.Collection;
@@ -22,10 +21,6 @@ public interface IContextManager {
     interface AnalyzerCallback {
         /** Called when the analyzer transitions from not-ready to ready state. */
         default void onAnalyzerReady() {}
-    }
-
-    default EditBlockParser getParserForWorkspace() {
-        throw new UnsupportedOperationException();
     }
 
     default ExecutorService getBackgroundTasks() {

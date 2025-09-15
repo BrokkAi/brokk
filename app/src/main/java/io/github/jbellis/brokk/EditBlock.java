@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk;
 
+import static io.github.jbellis.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
+
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
@@ -102,8 +104,8 @@ public class EditBlock {
      * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
      * blocks corresponding to new files.
      */
-    public static EditResult applyEditBlocks(
-            IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks) throws IOException {
+    public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
+            throws IOException {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
@@ -140,7 +142,7 @@ public class EditBlock {
             try {
                 // Save original content before attempting change
                 if (!changedFiles.containsKey(file)) {
-                    changedFiles.put(file, file.exists() ? file.read() : "");
+                    changedFiles.put(file, file.exists() ? file.read().orElse("") : "");
                 }
 
                 // Perform the replacement
@@ -219,7 +221,30 @@ public class EditBlock {
      * Simple record storing the parts of a search-replace block. If {@code rawFileName} is non-null, then this block
      * corresponds to a rawFileName’s search/replace. Note, {@code rawFileName} has not been checked for validity.
      */
-    public record SearchReplaceBlock(@Nullable String rawFileName, String beforeText, String afterText) {}
+    public record SearchReplaceBlock(@Nullable String rawFileName, String beforeText, String afterText) {
+        public String repr() {
+            var beforeText = beforeText();
+            var afterText = afterText();
+            return """
+                   %s
+                   %s
+                   <<<<<<< SEARCH
+                   %s%s
+                   =======
+                   %s%s
+                   >>>>>>> REPLACE
+                   %s
+                   """
+                    .formatted(
+                            DEFAULT_FENCE.get(0),
+                            rawFileName(),
+                            beforeText,
+                            beforeText.endsWith("\n") ? "" : "\n",
+                            afterText,
+                            afterText.endsWith("\n") ? "" : "\n",
+                            DEFAULT_FENCE.get(1));
+        }
+    }
 
     public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {}
 
@@ -269,7 +294,7 @@ public class EditBlock {
     public static void replaceInFile(
             ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException {
-        String original = file.exists() ? file.read() : "";
+        String original = file.exists() ? file.read().orElse("") : "";
         String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
@@ -302,6 +327,38 @@ public class EditBlock {
      */
     static String replaceMostSimilarChunk(String content, String target, String replace)
             throws AmbiguousMatchException, NoMatchException {
+        // Special-case: if the search block is a BRK_CONFLICT_BEGIN<n> ... BRK_CONFLICT_END<n> block (allow
+        // surrounding whitespace), then replace the entire conflict block (from the matching begin to end)
+        // in `content` with `replace`.
+        var trimmedTarget = target.strip();
+        var conflictPattern =
+                java.util.regex.Pattern.compile("(?s)^BRK_CONFLICT_BEGIN(\\d+)[\\s\\S]*BRK_CONFLICT_END\\1$");
+        var m = conflictPattern.matcher(trimmedTarget);
+        if (m.matches()) {
+            var num = m.group(1);
+            // Find occurrences in the whole content. Include an optional trailing newline after the BRK_CONFLICT_END
+            // so that replacing a block that is followed by a newline doesn't leave a duplicate blank line.
+            var findPattern = java.util.regex.Pattern.compile("BRK_CONFLICT_BEGIN" + java.util.regex.Pattern.quote(num)
+                    + "[\\s\\S]*?BRK_CONFLICT_END" + java.util.regex.Pattern.quote(num)
+                    + "(?:\\r?\\n)?");
+            var matcher = findPattern.matcher(content);
+            int count = 0;
+            while (matcher.find()) {
+                count++;
+            }
+            if (count == 0) {
+                throw new NoMatchException("No matching conflict block found for BRK_CONFLICT_BEGIN" + num);
+            }
+            if (count > 1) {
+                throw new AmbiguousMatchException(
+                        "Multiple matching conflict blocks found for BRK_CONFLICT_BEGIN" + num);
+            }
+            // Replace the single occurrence
+            var replaceMatcher = findPattern.matcher(content);
+            var replaced = replaceMatcher.replaceFirst(java.util.regex.Matcher.quoteReplacement(replace));
+            return replaced;
+        }
+
         // 1) prep for line-based matching
         ContentLines originalCL = prep(content);
         ContentLines targetCl = prep(target);

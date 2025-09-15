@@ -10,7 +10,6 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;
@@ -50,7 +49,8 @@ public interface ContextFragment {
         TASK(false, true, true), // Content-hashed ID
         PASTE_TEXT(false, true, false), // Content-hashed ID
         PASTE_IMAGE(false, true, false), // Content-hashed ID, isText=false for this virtual fragment
-        STACKTRACE(false, true, false); // Content-hashed ID
+        STACKTRACE(false, true, false), // Content-hashed ID
+        BUILD_LOG(false, true, false); // Dynamic; updated by ContextManager with latest build results
 
         private final boolean isPath;
         private final boolean isVirtual;
@@ -178,6 +178,10 @@ public interface ContextFragment {
         return this;
     }
 
+    default List<TaskEntry> entries() {
+        return List.of();
+    }
+
     /**
      * If false, the classes returned by sources() will be pruned from AutoContext suggestions. (Corollary: if sources()
      * always returns empty, this doesn't matter.)
@@ -236,11 +240,7 @@ public interface ContextFragment {
 
         @Override
         default String text() throws UncheckedIOException {
-            try {
-                return file().read();
-            } catch (IOException e) {
-                return ""; // let freeze() clean it out later
-            }
+            return file().read().orElse("");
         }
 
         @Override
@@ -386,9 +386,7 @@ public interface ContextFragment {
                     content,
                     FragmentUtils.calculateContentHash(
                             FragmentType.GIT_FILE,
-                            String.format(
-                                    "%s @%s",
-                                    file.getFileName(), GitUiUtil.shortenCommitId(revision)), // description for hash
+                            String.format("%s @%s", file.getFileName(), revision),
                             content, // text content for hash
                             FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
                             GitFileFragment.class.getName() // original class name for hash
@@ -412,13 +410,9 @@ public interface ContextFragment {
             return new GitFileFragment(file, revision, content, existingId);
         }
 
-        private String shortRevision() {
-            return GitUiUtil.shortenCommitId(revision);
-        }
-
         @Override
         public String shortDescription() {
-            return "%s @%s".formatted(file().getFileName(), shortRevision());
+            return "%s @%s".formatted(file().getFileName(), id);
         }
 
         @Override
@@ -478,7 +472,7 @@ public interface ContextFragment {
 
         @Override
         public String toString() {
-            return "GitFileFragment('%s' @%s)".formatted(file, shortRevision());
+            return "GitFileFragment('%s' @%s)".formatted(file, id);
         }
     }
 
@@ -616,9 +610,25 @@ public interface ContextFragment {
         @Override
         public Image image() throws UncheckedIOException {
             try {
-                return javax.imageio.ImageIO.read(file.absPath().toFile());
+                var imageFile = file.absPath().toFile();
+                if (!imageFile.exists()) {
+                    throw new UncheckedIOException(new IOException("Image file does not exist: " + file.absPath()));
+                }
+                if (!imageFile.canRead()) {
+                    throw new UncheckedIOException(
+                            new IOException("Cannot read image file (permission denied): " + file.absPath()));
+                }
+
+                Image result = javax.imageio.ImageIO.read(imageFile);
+                if (result == null) {
+                    // ImageIO.read() returns null if no registered ImageReader can read the file
+                    // This can happen for unsupported formats, corrupted files, or non-image files
+                    throw new UncheckedIOException(new IOException(
+                            "Unable to read image file (unsupported format or corrupted): " + file.absPath()));
+                }
+                return result;
             } catch (IOException e) {
-                throw new UncheckedIOException(e);
+                throw new UncheckedIOException(new IOException("Failed to read image file: " + file.absPath(), e));
             }
         }
 
@@ -845,7 +855,7 @@ public interface ContextFragment {
         public SearchFragment(
                 IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
             // The ID (hash) is calculated by the TaskFragment constructor based on sessionName and messages.
-            super(contextManager, messages, sessionName);
+            super(contextManager, messages, sessionName, true);
             this.sources = sources;
         }
 
@@ -861,7 +871,8 @@ public interface ContextFragment {
                     contextManager,
                     EditBlockParser.instance,
                     messages,
-                    sessionName); // existingHashId is expected to be a content hash
+                    sessionName,
+                    true); // existingHashId is expected to be a content hash
             this.sources = sources;
         }
 
@@ -971,7 +982,8 @@ public interface ContextFragment {
         private final Image image;
 
         // Helper to get image bytes, might throw UncheckedIOException
-        private static byte[] imageToBytes(Image image) {
+        @Nullable
+        private static byte[] imageToBytes(@Nullable Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
                 return FrozenFragment.imageToBytes(image);
@@ -1025,6 +1037,7 @@ public interface ContextFragment {
             return image;
         }
 
+        @Nullable
         public byte[] imageBytes() {
             return imageToBytes(image);
         }
@@ -1566,9 +1579,59 @@ public interface ContextFragment {
         }
     }
 
+    // Special dynamic fragment that holds the latest build results.
+    // Only ContextManager should update its content.
+    class BuildFragment extends VirtualFragment { // Dynamic, uses nextId
+        private volatile String content = "";
+
+        public BuildFragment(IContextManager contextManager) {
+            super(contextManager);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.BUILD_LOG;
+        }
+
+        @Override
+        public String description() {
+            return "Latest build results";
+        }
+
+        @Override
+        public String text() {
+            return "# CURRENT BUILD STATUS\n\n" + content;
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return true;
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            // Do not seed auto-context from build output
+            return false;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            // Build output may contain Markdown formatting
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        }
+
+        public void setContent(String newContent) {
+            content = newContent;
+        }
+
+        @Override
+        public String toString() {
+            return "BuildFragment('%s')".formatted(description());
+        }
+    }
+
     interface OutputFragment {
         List<TaskEntry> entries();
-
         /** Should raw HTML inside markdown be escaped before rendering? */
         default boolean isEscapeHtml() {
             return true;
@@ -1666,8 +1729,11 @@ public interface ContextFragment {
 
     /** represents a single session's Task History */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
-        private final EditBlockParser parser; // TODO this doesn't belong in TaskFragment anymore
         private final List<ChatMessage> messages; // Content is fixed once created
+
+        @SuppressWarnings({"unused", "UnusedVariable"})
+        private final EditBlockParser parser;
+
         private final String sessionName;
         private final boolean escapeHtml;
 
@@ -1763,11 +1829,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isText() {
-            return true;
-        }
-
-        @Override
         public boolean isDynamic() {
             return false;
         }
@@ -1801,10 +1862,6 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
-        }
-
-        public EditBlockParser parser() {
-            return parser;
         }
     }
 }

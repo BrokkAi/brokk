@@ -848,7 +848,8 @@ public class Service {
             return true;
         }
 
-        if (location.contains("gpt-5")) {
+        if (true) {
+            // something is broken in litellm world
             return true;
         }
 

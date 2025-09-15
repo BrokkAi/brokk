@@ -7,6 +7,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -81,9 +82,19 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         updateTheme(guiTheme.isDarkTheme());
     }
 
+    @Override
+    public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+        updateTheme(guiTheme.isDarkTheme(), wordWrap);
+    }
+
     public void updateTheme(boolean isDark) {
+        boolean wrapMode = MainProject.getCodeBlockWrapMode();
+        updateTheme(isDark, wrapMode);
+    }
+
+    public void updateTheme(boolean isDark, boolean wordWrap) {
         boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-        webHost.setRuntimeTheme(isDark, isDevMode);
+        webHost.setRuntimeTheme(isDark, isDevMode, wordWrap);
     }
 
     public void setBlocking(boolean blocked) {
@@ -101,6 +112,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
         messages.clear();
         webHost.clear();
+        webHost.historyReset();
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -270,6 +282,14 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public void onAnalyzerReady() {
         String contextId = webHost.getContextCacheId();
         webHost.onAnalyzerReadyResponse(contextId);
+    }
+
+    /** Re-sends the entire task history to the WebView. */
+    public void syncHistory(List<TaskEntry> entries) {
+        webHost.historyReset();
+        for (var entry : entries) {
+            webHost.historyTask(entry);
+        }
     }
 
     public void dispose() {

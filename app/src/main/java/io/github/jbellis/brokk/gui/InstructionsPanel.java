@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
@@ -60,10 +61,6 @@ import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.*;
-import javax.swing.text.AbstractDocument;
-import javax.swing.text.AttributeSet;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DocumentFilter;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,6 +84,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_ASK = "Answer";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
+    public static final String ACTION_RUN_TESTS = "Run Selected Tests";
     public static final String ACTION_SCAN_PROJECT = "Scan Project";
 
     private static final String PLACEHOLDER_TEXT =
@@ -102,7 +100,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox searchProjectCheckBox;
-    private final JButton planOptionsLink;
+    private final MaterialButton planOptionsLink;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Answer");
@@ -119,7 +117,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JPanel modeIndicatorPanel;
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
-    private @Nullable JPanel actionGroupPanel;
+    private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
     private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
     private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
@@ -237,138 +235,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
-        planOptionsLink = new JButton("Plan Options") {
-            private static final long serialVersionUID = 1L;
-            // Animation state
-            private float hoverAlpha = 0f;
-            private float targetAlpha = 0f;
-            private final int DURATION_MS = 200; // animation duration
-            private final int INTERVAL_MS = 30; // timer tick
-            private final javax.swing.Timer hoverTimer = new javax.swing.Timer(INTERVAL_MS, ev -> {
-                float step = (float) INTERVAL_MS / (float) DURATION_MS;
-                boolean changed = false;
-                if (hoverAlpha < targetAlpha) {
-                    hoverAlpha = Math.min(targetAlpha, hoverAlpha + step);
-                    changed = true;
-                } else if (hoverAlpha > targetAlpha) {
-                    hoverAlpha = Math.max(targetAlpha, hoverAlpha - step);
-                    changed = true;
-                }
-                if (changed) {
-                    repaint();
-                } else {
-                    javax.swing.Timer t = (javax.swing.Timer) ev.getSource();
-                    t.stop();
-                }
-            });
+        planOptionsLink = new MaterialButton("Plan Options");
+        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-            {
-                // Visual and input configuration
-                KeyStroke planOptionsKs =
-                        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-                setToolTipText("Configure options for the Architect agent (Plan First) ("
-                        + formatKeyStroke(planOptionsKs) + ")");
-                setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-                setContentAreaFilled(false);
-                setFocusPainted(false); // we will render focus via the hover background
-                setOpaque(false);
-                setFocusable(true);
-                setMargin(new Insets(0, 0, 0, 0));
-                setAlignmentY(Component.CENTER_ALIGNMENT);
-
-                // Mouse interactions
-                addMouseListener(new java.awt.event.MouseAdapter() {
-                    @Override
-                    public void mouseClicked(java.awt.event.MouseEvent e) {
-                        ArchitectOptionsDialog.showDialogAndWait(chrome);
-                        javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                    }
-
-                    @Override
-                    public void mouseEntered(java.awt.event.MouseEvent e) {
-                        targetAlpha = 1f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
-
-                    @Override
-                    public void mouseExited(java.awt.event.MouseEvent e) {
-                        targetAlpha = 0f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
-                });
-
-                // Keyboard activation and focus behavior
-                addFocusListener(new java.awt.event.FocusAdapter() {
-                    @Override
-                    public void focusGained(java.awt.event.FocusEvent e) {
-                        targetAlpha = 1f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
-
-                    @Override
-                    public void focusLost(java.awt.event.FocusEvent e) {
-                        targetAlpha = 0f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
-                });
-
-                // Bind Enter and Space to activation for accessibility
-                getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "activate");
-                getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "activate");
-                getActionMap().put("activate", new AbstractAction() {
-                    @Override
-                    public void actionPerformed(ActionEvent e) {
-                        ArchitectOptionsDialog.showDialogAndWait(chrome);
-                        javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                    }
-                });
-
-                // Register global platform shortcut (e.g., Ctrl+, or Cmd+,) to open Plan Options and restore focus
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
-                        chrome.getFrame().getRootPane(), planOptionsKs, "PlanOptions", () -> {
-                            ArchitectOptionsDialog.showDialogAndWait(chrome);
-                            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                        });
-            }
-
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                    // Draw hover/focus rounded background with animated alpha
-                    if (hoverAlpha > 0f) {
-                        boolean isDark = UIManager.getBoolean("laf.dark");
-                        java.awt.Color hoverColor;
-                        try {
-                            hoverColor = ThemeColors.getColor(isDark, "badge_background");
-                            if (hoverColor == null) throw new Exception("null");
-                        } catch (Exception ex) {
-                            // fallback light-blue for light theme, translucent bluish for dark theme
-                            hoverColor = isDark ? new Color(0x1F6FEB) : new Color(0xD9EEFF);
-                        }
-                        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, hoverAlpha));
-                        g2.setColor(hoverColor);
-                        int arc = 8;
-                        g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
-                    }
-
-                    // Draw the text/icon on top (use default button painting for text)
-                    super.paintComponent(g);
-                } finally {
-                    g2.dispose();
-                }
-            }
+        // Action listener and shortcut for click/activation
+        Runnable openOptionsAction = () -> {
+            ArchitectOptionsDialog.showDialogAndWait(chrome);
+            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
         };
+        planOptionsLink.addActionListener(e -> openOptionsAction.run());
 
-        // Try to use a link-like color from UI, fall back to label foreground or blue
-        java.awt.Color linkColor = UIManager.getColor("Label.linkForeground");
-        if (linkColor == null) linkColor = UIManager.getColor("Label.foreground");
-        if (linkColor == null) linkColor = java.awt.Color.BLUE;
-        planOptionsLink.setForeground(linkColor);
+        KeyStroke planOptionsKs =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
+        planOptionsLink.setToolTipText("Configure options for the Architect agent (Plan First)");
+        planOptionsLink.setShortcut(planOptionsKs, chrome.getFrame().getRootPane(), "PlanOptions", openOptionsAction);
+        planOptionsLink.setAppendShortcutToTooltip(true);
 
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
@@ -734,7 +615,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
         var historyDropdown = createHistoryDropdown();
-        topBarPanel.add(historyDropdown, BorderLayout.CENTER);
+        var historyPanel = new JPanel(new BorderLayout());
+        historyPanel.add(historyDropdown, BorderLayout.CENTER);
+        topBarPanel.add(historyPanel, BorderLayout.CENTER);
 
         return topBarPanel;
     }
@@ -754,7 +637,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.inputLayeredPane.setBorder(new EmptyBorder(0, H_PAD, 0, H_PAD));
 
         panel.add(buildModeIndicatorPanel()); // Mode badge
-        panel.add(this.inputLayeredPane); // Add the layered pane instead of the scroll pane directly
+
+        // Add the layered input directly (drawer will host tool panels)
+        panel.add(this.inputLayeredPane);
 
         // Reference-file table will be inserted just below the command input (now layeredPane)
         // by initializeReferenceFileTable()
@@ -984,12 +869,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             inputLayeredPane.repaint();
         }
 
-        if (actionGroupPanel != null) {
-            actionGroupPanel.setBorder(BorderFactory.createCompoundBorder(
-                    new io.github.jbellis.brokk.gui.components.RoundedLineBorder(accent, 1, -1),
-                    BorderFactory.createEmptyBorder(2, 6, 2, 2)));
-            actionGroupPanel.repaint();
-        }
+        actionGroupPanel.setAccentColor(accent);
 
         if (instructionsTitledBorder != null) {
             instructionsTitledBorder.setTitle(askMode ? "Instructions - Answer" : "Instructions - Code");
@@ -1021,23 +901,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Action selector group: Code/Answer switch inside a bordered panel
-        this.actionGroupPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        java.awt.Color borderColor = UIManager.getColor("Component.borderColor");
-        if (borderColor == null) {
-            borderColor = java.awt.Color.GRAY;
-        }
-        this.actionGroupPanel.setBorder(BorderFactory.createCompoundBorder(
-                new io.github.jbellis.brokk.gui.components.RoundedLineBorder(borderColor, 1, -1),
-                BorderFactory.createEmptyBorder(2, 6, 2, 2)));
-        this.actionGroupPanel.setOpaque(false);
-        this.actionGroupPanel.add(codeModeLabel);
-        this.actionGroupPanel.add(Box.createHorizontalStrut(2));
-        this.actionGroupPanel.add(modeSwitch);
-        this.actionGroupPanel.add(Box.createHorizontalStrut(2));
-        this.actionGroupPanel.add(answerModeLabel);
-
-        // Keep the grouping box tight; prevent BoxLayout from stretching it
-        this.actionGroupPanel.setMaximumSize(this.actionGroupPanel.getPreferredSize());
+        this.actionGroupPanel = new ActionGroupPanel(codeModeLabel, modeSwitch, answerModeLabel);
         this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         bottomPanel.add(this.actionGroupPanel);
@@ -1667,9 +1531,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             contextManager.addToHistory(result, false);
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error during Architect execution", e);
-            chrome.toolError("Internal error during Architect command: " + e.getMessage());
         }
     }
 
@@ -1701,12 +1562,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Run in Shell" command. This runs inside the Runnable passed to
      * contextManager.submitAction.
      */
-    private void executeRunCommand(String input) {
+    private void executeRunCommand(String action, String input) {
         assert !SwingUtilities.isEventDispatchThread();
 
         var contextManager = chrome.getContextManager();
-        String actionMessage = "Run: " + input;
 
+        String historyTitle;
         try {
             chrome.showOutputSpinner("Executing command...");
             String shellLang = ExecutorConfig.getShellLanguageFromProject(chrome.getProject());
@@ -1725,9 +1586,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     chrome.getProject());
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
             chrome.systemOutput("Run command complete!");
+            historyTitle = action;
         } catch (Environment.SubprocessException e) {
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Ensure markdown block is closed on error
-            actionMessage = "Run: " + input + " (failed: " + e.getMessage() + ")";
+            historyTitle = action + "(failed: " + e.getMessage() + ")";
             chrome.systemOutput("Run command completed with errors -- see Output");
             logger.warn("Run command '{}' failed: {}", input, e.getMessage(), e);
             chrome.llmOutput("\n**Command Failed**", ChatMessageType.CUSTOM);
@@ -1738,11 +1600,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Add to context history with the action message (which includes success/failure)
-        final String finalActionMessage = actionMessage; // Effectively final for lambda
+        String finalHistoryTitle = historyTitle;
         contextManager.pushContext(ctx -> {
             var parsed = new TaskFragment(
-                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalActionMessage);
-            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
+                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalHistoryTitle);
+            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalHistoryTitle));
         });
     }
 
@@ -2046,20 +1908,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         setActionRunning(future);
     }
 
-    public void runRunCommand() {
-        var input = getInstructions();
-        if (input.isBlank()) {
-            chrome.toolError("Please enter a command to run", "Error");
-            return;
-        }
-        chrome.getProject().addToInstructionsHistory(input, 20);
-
-        runRunCommand(input);
-    }
-
-    public void runRunCommand(String input) {
+    public void runRunCommand(String action, String input) {
         clearCommandInput();
-        var future = submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
+        var future = submitAction(action, input, () -> executeRunCommand(action, input));
         setActionRunning(future);
     }
 
@@ -2068,7 +1919,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
-
         // Map some actions to a more user-friendly display string for the spinner.
         // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
         // affecting other subsystems that detect action by name, but present a clearer label
@@ -2084,8 +1934,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             displayAction = action;
         }
 
-        chrome.setLlmOutput(new ContextFragment.TaskFragment(
-                cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
+        var currentTaskFragment =
+                new ContextFragment.TaskFragment(cm, List.of(new UserMessage(finalAction, input)), input);
+        var history = cm.topContext().getTaskHistory();
+        chrome.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
+
         return cm.submitUserTask(finalAction, true, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + displayAction + " command...");
@@ -2203,18 +2056,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 f.cancel(true);
             }
             // Button will flip back to "Go" once the Future completes (see watcher in setActionRunning)
-            return;
+        } else {
+            // Go action
+            switch (storedAction) {
+                case ACTION_ARCHITECT -> runArchitectCommand();
+                case ACTION_CODE -> runCodeCommand();
+                case ACTION_SEARCH -> runSearchCommand();
+                case ACTION_ASK -> runAskCommand(getInstructions());
+                case ACTION_SCAN_PROJECT -> runScanProjectCommand();
+                default -> runArchitectCommand();
+            }
         }
-
-        // Go action
-        switch (storedAction) {
-            case ACTION_ARCHITECT -> runArchitectCommand();
-            case ACTION_CODE -> runCodeCommand();
-            case ACTION_SEARCH -> runSearchCommand();
-            case ACTION_ASK -> runAskCommand(getInstructions());
-            case ACTION_SCAN_PROJECT -> runScanProjectCommand();
-            default -> runArchitectCommand();
-        }
+        // Always return focus to the instructions area to avoid re-triggering with Enter on the button
+        requestCommandInputFocus();
     }
 
     private void setActionRunning(Future<?> f) {
@@ -2345,13 +2199,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Returns the currently selected Code model configuration from the model selector. Falls back to a reasonable
      * default if none is available.
      */
-    public Service.ModelConfig getCurrentCodeModelConfig() {
+    public Service.ModelConfig getSelectedModel() {
         try {
             return modelSelector.getModel();
         } catch (IllegalStateException e) {
             // Fallback to a basic default; Reasoning & Tier defaulted inside ModelConfig
             return new Service.ModelConfig(Service.GPT_5_MINI);
         }
+    }
+
+    /**
+     * Register a listener to be notified when the model selection in the InstructionsPanel changes. The listener
+     * receives the new Service.ModelConfig.
+     */
+    public void addModelSelectionListener(Consumer<Service.ModelConfig> listener) {
+        modelSelector.addSelectionListener(listener);
     }
 
     /** Returns cosine similarity of two equal-length vectors. */

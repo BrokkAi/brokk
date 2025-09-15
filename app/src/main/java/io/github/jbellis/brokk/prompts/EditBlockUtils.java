@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /** Shared utilities for parsing edit blocks. Used by both the prompt parser and the flexmark markdown parser. */
 public final class EditBlockUtils {
@@ -75,11 +76,18 @@ public final class EditBlockUtils {
     }
 
     /**
-     * Extracts a filename from a line, cleaning up common markers and decorations. Ignores lines that are just ``` or
-     * ...
+     * Returns a cleaned candidate "filename" token from a single line.
      *
-     * @param line the line to process
-     * @return extracted filename or null if none found
+     * <p>Rules: - Trims leading/trailing whitespace. - If the line is exactly "...", or exactly "```", returns null. -
+     * Removes a trailing colon, a leading '#', a leading '//' (with optional space), and surrounding backticks or
+     * asterisks. - Returns null if the result is empty after cleaning.
+     *
+     * <p>Notes: - For code-fence lines like "```path/to/file.java" or "```java", the leading backticks are stripped and
+     * the remainder ("path/to/file.java" or "java") is returned. - The result is not validated as a real path; callers
+     * can use looksLikePath to make that determination.
+     *
+     * @param line line to process
+     * @return cleaned token or null if nothing usable could be extracted
      */
     public static @Nullable String stripFilename(String line) {
         String s = line.trim();
@@ -88,8 +96,13 @@ public final class EditBlockUtils {
         }
         // remove trailing colons, leading #, etc.
         s = s.replaceAll(":$", "").replaceFirst("^#", "").trim();
+        // strip leading line comment marker
+        s = s.replaceFirst("^//\\s*", "");
+        // strip surrounding backticks and asterisks
         s = s.replaceAll("^`+|`+$", "");
         s = s.replaceAll("^\\*+|\\*+$", "");
+        // final trim after removals
+        s = s.trim();
         return s.isBlank() ? null : s;
     }
 
@@ -103,8 +116,9 @@ public final class EditBlockUtils {
      * @param currentPath fallback filename if nothing better is found
      * @return best filename guess based on context
      */
+    @VisibleForTesting
     @Nullable
-    public static String findFileNameNearby(
+    static String findFilenameNearby(
             String[] lines, int headIndex, Set<ProjectFile> projectFiles, @Nullable String currentPath) {
         // Guard against empty arrays
         if (lines.length == 0 || headIndex < 0) {
@@ -114,48 +128,56 @@ public final class EditBlockUtils {
         // Search up to 3 lines above headIndex
         int start = Math.max(0, headIndex - 3);
         var candidates = new ArrayList<String>();
+        var rawContextLines = new ArrayList<String>();
+
         for (int i = headIndex - 1; i >= start; i--) {
-            String s = lines[i].trim();
+            String rawLine = lines[i];
+            String s = rawLine.trim();
             String possible = stripFilename(s);
             if (possible != null && !possible.isBlank()) {
                 candidates.add(possible);
             }
-            // If not a fence line, break.
+            rawContextLines.add(rawLine);
+            // If not a fence line, stop scanning further upward (keeps prior behavior for fenced blocks)
             if (!s.startsWith("```")) {
                 break;
             }
         }
 
-        if (candidates.isEmpty()) {
-            return currentPath;
-        }
-
-        // 1) Exact match (including path) in validFilenames
+        // (2a) Exact match (including path) in valid ProjectFiles using stripped candidates
         for (var c : candidates) {
             if (projectFiles.stream().anyMatch(f -> f.toString().equals(c))) {
                 return c;
             }
         }
 
-        // 2) Look for a matching filename
+        // (2a continued) Candidate-to-ProjectFile filename containment (best-effort)
         var matches = candidates.stream()
                 .flatMap(c -> projectFiles.stream().filter(f -> f.getFileName().contains(c)).findFirst().stream())
                 .map(ProjectFile::toString)
                 .toList();
-        if (!matches.isEmpty()) {
-            // TODO signal ambiguity?
+        if (matches.size() == 1) {
             return matches.getFirst();
         }
 
-        // 3) If the candidate has an extension and no better match found, just return that.
+        // (2b) Look for unique ProjectFile name occurrence in the RAW, unstripped context lines
+        var rawMatches = rawContextLines.stream()
+                .flatMap(raw -> projectFiles.stream().filter(f -> raw.contains(f.getFileName())))
+                .distinct()
+                .toList();
+        if (rawMatches.size() == 1) {
+            return rawMatches.getFirst().toString();
+        }
+
+        // If any stripped candidate looks like a path (has an extension), use it verbatim.
         for (var c : candidates) {
             if (c.contains(".")) {
                 return c;
             }
         }
 
-        // 4) Fallback to the first raw candidate
-        if (candidates.isEmpty()) return currentPath; // Redundant check but safe
-        return candidates.getFirst();
+        // Fallback to the first raw candidate, else currentPath
+        if (!candidates.isEmpty()) return candidates.getFirst();
+        return currentPath;
     }
 }

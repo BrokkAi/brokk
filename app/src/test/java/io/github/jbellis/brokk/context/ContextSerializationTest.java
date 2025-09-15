@@ -785,6 +785,54 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testRoundTripBuildFragment() throws Exception {
+        // Create a BuildFragment with content
+        var buildFragment = new ContextFragment.BuildFragment(mockContextManager);
+        buildFragment.setContent("Build successful\nAll tests passed");
+
+        var context = new Context(mockContextManager, "Test BuildFragment").addVirtualFragment(buildFragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_buildfrag_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        // Basic structural equality (frozen representation should be present)
+        assertContextsEqual(
+                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+
+        var loadedRawFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
+                .findFirst()
+                .orElseThrow();
+
+        if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.BUILD_LOG, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.BuildFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            // Ensure frozen text contains original build content
+            assertNotNull(loadedFrozenFragment.text());
+            assertTrue(loadedFrozenFragment.text().contains("All tests passed"));
+
+            // And unfreeze should produce a live BuildFragment with the same content
+            ContextFragment unfrozen = loadedFrozenFragment.unfreeze(mockContextManager);
+            assertTrue(unfrozen instanceof ContextFragment.BuildFragment);
+            String expectedContent = "Build successful\nAll tests passed";
+            // BuildFragment.text() prefixes content with "# CURRENT BUILD STATUS\n\n"
+            String actualContent =
+                    ((ContextFragment.BuildFragment) unfrozen).text().substring("# CURRENT BUILD STATUS\n\n".length());
+            assertEquals(expectedContent, actualContent);
+        } else if (loadedRawFragment instanceof ContextFragment.BuildFragment bf) {
+            // In case it's already live (unlikely after deserialization), just check content
+            String actualContent = bf.text().substring("# CURRENT BUILD STATUS\n\n".length());
+            assertEquals("Build successful\nAll tests passed", actualContent);
+        } else {
+            fail("Expected FrozenFragment or BuildFragment, got: " + loadedRawFragment.getClass());
+        }
+    }
+
+    @Test
     void testRoundTripSearchFragment() throws Exception {
         var projectFile = new ProjectFile(tempDir, "src/SearchTarget.java");
         Files.createDirectories(projectFile.absPath().getParent());

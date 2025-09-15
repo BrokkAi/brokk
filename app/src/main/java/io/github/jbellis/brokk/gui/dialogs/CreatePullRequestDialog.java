@@ -6,7 +6,7 @@ import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
@@ -36,7 +36,7 @@ public class CreatePullRequestDialog extends JDialog {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitWorkflowService workflowService;
+    private final GitWorkflow workflowService;
     private JComboBox<String> sourceBranchComboBox;
     private JComboBox<String> targetBranchComboBox;
     private JTextField titleField;
@@ -69,7 +69,7 @@ public class CreatePullRequestDialog extends JDialog {
         super(owner, "Create a Pull Request", false);
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.workflowService = new GitWorkflowService(contextManager);
+        this.workflowService = new GitWorkflow(contextManager);
         this.preselectedSourceBranch = preselectedSourceBranch;
 
         initializeDialog();
@@ -704,7 +704,7 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     /** SwingWorker to suggest PR title and description using GitWorkflowService. */
-    private class SuggestPrDetailsWorker extends SwingWorker<GitWorkflowService.PrSuggestion, Void> {
+    private class SuggestPrDetailsWorker extends SwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
 
@@ -714,7 +714,7 @@ public class CreatePullRequestDialog extends JDialog {
         }
 
         @Override
-        protected GitWorkflowService.PrSuggestion doInBackground() throws Exception {
+        protected GitWorkflow.PrSuggestion doInBackground() throws Exception {
             if (isCancelled()) {
                 throw new InterruptedException("Worker cancelled before starting");
             }
@@ -725,7 +725,7 @@ public class CreatePullRequestDialog extends JDialog {
         @Override
         protected void done() {
             try {
-                GitWorkflowService.PrSuggestion suggestion =
+                GitWorkflow.PrSuggestion suggestion =
                         get(); // This will throw specific exceptions if cancelled/interrupted.
                 SwingUtilities.invokeLater(() -> {
                     setTextAndResetCaret(titleField, suggestion.title());

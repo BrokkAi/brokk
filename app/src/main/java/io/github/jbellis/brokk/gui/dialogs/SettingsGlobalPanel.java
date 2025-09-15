@@ -47,6 +47,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JTextField balanceField = new JTextField();
@@ -87,6 +88,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     @Nullable
     private JComboBox<String> uiScaleCombo; // Hidden on macOS
+
+    private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -569,6 +572,22 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
 
+        // Word wrap for code blocks
+        gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        appearancePanel.add(new JLabel("Code Block Layout:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        appearancePanel.add(wordWrapCheckbox, gbc);
+
+        gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
+
         // UI Scale controls (hidden on macOS)
         if (!Environment.isMacOs()) {
             gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
@@ -622,6 +641,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             uiScaleCustomRadio = null;
             uiScaleCombo = null;
         }
+
+        // Terminal font size
+        gbc.insets = new Insets(10, 5, 2, 5); // spacing
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        appearancePanel.add(new JLabel("Terminal Font Size:"), gbc);
+
+        var fontSizeModel = new SpinnerNumberModel(11.0, 8.0, 36.0, 0.5);
+        terminalFontSizeSpinner.setModel(fontSizeModel);
+        terminalFontSizeSpinner.setEditor(new JSpinner.NumberEditor(terminalFontSizeSpinner, "#0.0"));
+
+        var terminalFontSizePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        terminalFontSizePanel.add(terminalFontSizeSpinner);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        appearancePanel.add(terminalFontSizePanel, gbc);
+
+        gbc.insets = new Insets(2, 5, 2, 5); // reset insets
 
         // filler
         gbc.gridy = row;
@@ -759,6 +801,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             lightThemeRadio.setSelected(true);
         }
 
+        // Code Block Layout
+        wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
+
         // UI Scale (if present; hidden on macOS)
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
             String pref = MainProject.getUiScalePref();
@@ -792,6 +837,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 uiScaleCombo.setEnabled(true);
             }
         }
+
+        terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
 
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
@@ -851,10 +898,26 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Appearance Tab
         boolean newIsDark = darkThemeRadio.isSelected();
+        boolean newWrapMode = wordWrapCheckbox.isSelected();
         String newTheme = newIsDark ? "dark" : "light";
-        if (!newTheme.equals(MainProject.getTheme())) {
-            chrome.switchTheme(newIsDark);
-            logger.debug("Applied Theme: {}", newTheme);
+        boolean currentWrapMode = MainProject.getCodeBlockWrapMode();
+
+        // Check if either theme or wrap mode changed
+        boolean themeChanged = !newTheme.equals(MainProject.getTheme());
+        boolean wrapChanged = newWrapMode != currentWrapMode;
+
+        if (themeChanged || wrapChanged) {
+            // Save wrap mode setting globally
+            if (wrapChanged) {
+                MainProject.setCodeBlockWrapMode(newWrapMode);
+                logger.debug("Applied Code Block Wrap Mode: {}", newWrapMode);
+            }
+
+            // Apply theme and wrap mode changes via unified Chrome method
+            if (themeChanged || wrapChanged) {
+                chrome.switchThemeAndWrapMode(newIsDark, newWrapMode);
+                logger.debug("Applied Theme: {} and Wrap Mode: {}", newTheme, newWrapMode);
+            }
         }
 
         // UI Scale preference (if present; hidden on macOS)
@@ -886,6 +949,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
 
+        // Terminal font size
+        float newTerminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
+        if (newTerminalFontSize != MainProject.getTerminalFontSize()) {
+            MainProject.setTerminalFontSize(newTerminalFontSize);
+            chrome.updateTerminalFontSize();
+            logger.debug("Applied Terminal Font Size: {}", newTerminalFontSize);
+        }
+
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
@@ -903,6 +974,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
+        SwingUtilities.updateComponentTreeUI(this);
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+        // Word wrap not applicable to settings global panel
         SwingUtilities.updateComponentTreeUI(this);
     }
 

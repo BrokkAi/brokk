@@ -74,45 +74,4 @@ public class GitUiUtilTest {
         String result = GitUiUtil.formatFileList(files);
         assertEquals("File.java, File.java", result);
     }
-
-    @Test
-    void testShortenCommitId_EmptyString() {
-        String result = GitUiUtil.shortenCommitId("");
-        assertEquals("", result);
-    }
-
-    @Test
-    void testShortenCommitId_ShortCommitId() {
-        String shortId = "abc123";
-        String result = GitUiUtil.shortenCommitId(shortId);
-        assertEquals("abc123", result);
-    }
-
-    @Test
-    void testShortenCommitId_ExactlySeven() {
-        String sevenChars = "abc1234";
-        String result = GitUiUtil.shortenCommitId(sevenChars);
-        assertEquals("abc1234", result);
-    }
-
-    @Test
-    void testShortenCommitId_LongCommitId() {
-        String longId = "abc123456789abcdef0123456789abcdef01234567";
-        String result = GitUiUtil.shortenCommitId(longId);
-        assertEquals("abc1234", result);
-    }
-
-    @Test
-    void testShortenCommitId_EightCharacters() {
-        String eightChars = "abc12345";
-        String result = GitUiUtil.shortenCommitId(eightChars);
-        assertEquals("abc1234", result);
-    }
-
-    @Test
-    void testShortenCommitId_TypicalGitHash() {
-        String gitHash = "f4a8b2c1d9e7f3a6b5c8d0e2f1a9b7c4d6e8f0a2";
-        String result = GitUiUtil.shortenCommitId(gitHash);
-        assertEquals("f4a8b2c", result);
-    }
 }

@@ -16,7 +16,7 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
@@ -85,8 +85,8 @@ public class ArchitectAgent {
                 boolean includeGitCreatePr,
                 boolean includeShellCommand) {
             this(
-                    new Service.ModelConfig(Service.GPT_5_MINI),
-                    new Service.ModelConfig(Service.GPT_5_MINI),
+                    new Service.ModelConfig(Service.GEMINI_2_5_PRO),
+                    new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH),
                     includeContextAgent,
                     includeValidationAgent,
                     includeAnalyzerTools,
@@ -142,7 +142,8 @@ public class ArchitectAgent {
     }
 
     /** A tool for finishing the plan with a final answer. Similar to 'answerSearch' in SearchAgent. */
-    @Tool("Provide a final answer to the multi-step project. Use this when you're done or have everything you need.")
+    @Tool(
+            "Provide a final answer to the multi-step project. Use this when you're done or have everything you need. Do not combine with other tools.")
     public String projectFinished(
             @P("A final explanation or summary addressing all tasks. Format it in Markdown if desired.")
                     String finalExplanation) {
@@ -154,7 +155,8 @@ public class ArchitectAgent {
     }
 
     /** A tool to abort the plan if you cannot proceed or if it is irrelevant. */
-    @Tool("Abort the entire project. Use this if the tasks are impossible or out of scope.")
+    @Tool(
+            "Abort the entire project. Use this if the tasks are impossible or out of scope. Do not combine with other tools.")
     public String abortProject(@P("Explain why the project must be aborted.") String reason) {
         var msg = "# Architect aborted\n\n%s".formatted(reason);
         logger.debug(msg);
@@ -203,6 +205,14 @@ public class ArchitectAgent {
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
+        // Update the BuildFragment on build success or build error
+        if (reason == TaskResult.StopReason.SUCCESS || reason == TaskResult.StopReason.BUILD_ERROR) {
+            var buildText = (reason == TaskResult.StopReason.SUCCESS)
+                    ? "Build succeeded."
+                    : ("Build failed.\n\n" + stopDetails.explanation());
+            contextManager.updateBuildFragment(buildText);
+        }
+
         var newMessages = messagesSince(cursor);
         var historyResult = new TaskResult(result, newMessages, contextManager);
         var entry = contextManager.addToHistory(historyResult, true);
@@ -237,7 +247,9 @@ public class ArchitectAgent {
         this.offerUndoToolNext = true;
         var summary =
                 """
-                CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
+                CodeAgent was not able to get to a clean build. Changes were made but can be undone with 'undoLastChanges'
+                if CodeAgent made negative progress; you will have to determine this from the summary here and the
+                current Workspace contents.
                 <summary>
                 %s
                 </summary>
@@ -267,7 +279,7 @@ public class ArchitectAgent {
             }
 
             // --------------------------------------------------------------------
-            var gws = new GitWorkflowService(contextManager);
+            var gws = new GitWorkflow(contextManager);
             var result = gws.commit(List.of(), message == null ? "" : message.trim());
 
             var summary = "Committed %s - \"%s\"".formatted(result.commitId(), result.firstLine());
@@ -323,7 +335,7 @@ public class ArchitectAgent {
                 throw new IllegalStateException("No 'origin' remote configured for this repository.");
             }
 
-            var gws = new GitWorkflowService(contextManager);
+            var gws = new GitWorkflow(contextManager);
 
             // Auto-generate title/body if blank
             if (title.isBlank() || body.isBlank()) {
@@ -540,7 +552,7 @@ public class ArchitectAgent {
      * Run the multi-step project until we either produce a final answer, abort, or run out of tasks. This uses an
      * iterative approach, letting the LLM decide which tool to call each time.
      */
-    public TaskResult execute() throws ExecutionException, InterruptedException {
+    public TaskResult execute() throws InterruptedException {
         io.systemOutput("Architect Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(goal)));
 
         // Kick off with Context Agent if it's enabled
@@ -723,25 +735,47 @@ public class ArchitectAgent {
                 }
             }
 
-            // If we see "projectFinished" or "abortProject", handle it and then exit
+            // If we see "projectFinished" or "abortProject", handle it and then exit.
+            // If these final/abort calls are present together with other tool calls in the same LLM response,
+            // do NOT execute them. Instead, create ToolExecutionResult entries indicating the call was ignored.
+            boolean multipleRequests = deduplicatedRequests.size() > 1;
+
             if (answerReq != null) {
-                logger.debug("LLM decided to projectFinished. We'll finalize and stop");
-                var toolResult = toolRegistry.executeTool(this, answerReq);
-                logger.debug("Project final answer: {}", toolResult.resultText());
-                var fragment = new ContextFragment.TaskFragment(
-                        contextManager, List.of(new AiMessage(toolResult.resultText())), goal);
-                var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, toolResult.resultText());
-                return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+                if (multipleRequests) {
+                    var ignoredMsg =
+                            "Ignored 'projectFinished' because other tool calls were present in the same turn.";
+                    var toolResult = ToolExecutionResult.failure(answerReq, ignoredMsg);
+                    // Record the ignored result in the architect message history so planning history reflects this.
+                    architectMessages.add(ToolExecutionResultMessage.from(answerReq, toolResult.resultText()));
+                    logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
+                } else {
+                    logger.debug("LLM decided to projectFinished. We'll finalize and stop");
+                    var toolResult = toolRegistry.executeTool(this, answerReq);
+                    logger.debug("Project final answer: {}", toolResult.resultText());
+                    var fragment = new ContextFragment.TaskFragment(
+                            contextManager, List.of(new AiMessage(toolResult.resultText())), goal);
+                    var stopDetails =
+                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, toolResult.resultText());
+                    return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+                }
             }
+
             if (abortReq != null) {
-                logger.debug("LLM decided to abortProject. We'll finalize and stop");
-                var toolResult = toolRegistry.executeTool(this, abortReq);
-                logger.debug("Project aborted: {}", toolResult.resultText());
-                var fragment = new ContextFragment.TaskFragment(
-                        contextManager, List.of(new AiMessage(toolResult.resultText())), goal);
-                var stopDetails =
-                        new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, toolResult.resultText());
-                return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+                if (multipleRequests) {
+                    var ignoredMsg = "Ignored 'abortProject' because other tool calls were present in the same turn.";
+                    var toolResult = ToolExecutionResult.failure(abortReq, ignoredMsg);
+                    architectMessages.add(ToolExecutionResultMessage.from(abortReq, toolResult.resultText()));
+                    logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
+                } else {
+                    logger.debug("LLM decided to abortProject. We'll finalize and stop");
+                    var toolResult = toolRegistry.executeTool(this, abortReq);
+                    logger.debug("Project aborted: {}", toolResult.resultText());
+                    var fragment = new ContextFragment.TaskFragment(
+                            contextManager, List.of(new AiMessage(toolResult.resultText())), goal);
+                    var stopDetails =
+                            new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, toolResult.resultText());
+                    return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+                }
             }
 
             // Execute askHumanQuestion if present

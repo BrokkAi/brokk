@@ -793,4 +793,15 @@ public interface LspAnalyzer
                         .toList())
                 .join();
     }
+
+    @Override
+    default @NotNull Optional<String> getSourceForCodeUnit(@NotNull CodeUnit codeUnit) {
+        if (codeUnit.isFunction()) {
+            return getMethodSource(codeUnit.fqName());
+        } else if (codeUnit.isClass()) {
+            return getClassSource(codeUnit.fqName());
+        } else {
+            return Optional.empty(); // Fields and other types not supported by LSP analyzers
+        }
+    }
 }

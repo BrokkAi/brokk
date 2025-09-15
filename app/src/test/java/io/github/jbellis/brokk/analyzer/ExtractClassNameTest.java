@@ -178,15 +178,102 @@ public class ExtractClassNameTest {
     }
 
     @Test
-    @DisplayName("JavaScript/TypeScript analyzers - default returns empty")
-    void testJsTsDefaultExtractClassName() {
+    @DisplayName("JavaScript/TypeScript analyzers - extract class names correctly")
+    void testJsTsExtractClassName() {
         var js = new JavascriptAnalyzer(mockProject, Set.of());
         var ts = new TypescriptAnalyzer(mockProject, Set.of());
 
+        // These should return empty due to lowercase anchors (heuristic for built-ins)
         assertEquals(Optional.empty(), js.extractClassName("console.log"));
-        assertEquals(Optional.empty(), js.extractClassName("MyClass.myMethod"));
-        assertEquals(Optional.empty(), ts.extractClassName("React.Component.render"));
-        assertEquals(Optional.empty(), ts.extractClassName("Array.isArray"));
+        assertEquals(Optional.empty(), ts.extractClassName("document.querySelector"));
+
+        // Built-in constructors with PascalCase should be extracted (they are legitimate classes)
+        assertEquals(Optional.of("Array"), ts.extractClassName("Array.isArray"));
+
+        // These should extract PascalCase class names
+        assertEquals(Optional.of("MyClass"), js.extractClassName("MyClass.myMethod"));
+        assertEquals(Optional.of("Component"), ts.extractClassName("React.Component.render"));
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - extracts from optional chaining")
+    void testJsTsExtractsFromOptionalChaining() {
+        assertEquals(Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("MyClass?.doWork()"));
+        assertEquals(Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("  MyClass?.doWork(arg1, arg2)  "));
+        assertEquals(Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("MyClass?.doWork"));
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - extracts from prototype chain")
+    void testJsTsExtractsFromPrototypeChain() {
+        assertEquals(Optional.of("Array"), ClassNameExtractor.extractForJsTs("Array.prototype.map"));
+        assertEquals(Optional.of("Array"), ClassNameExtractor.extractForJsTs("Array.prototype['map']"));
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - picks rightmost PascalCase before method")
+    void testJsTsPicksRightmostPascalCaseBeforeMethod() {
+        assertEquals(Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("MyNamespace.MyClass.run"));
+        assertEquals(Optional.of("Observable"), ClassNameExtractor.extractForJsTs("rxjs.Observable.of"));
+        assertEquals(Optional.of("SwingUtilities"), ClassNameExtractor.extractForJsTs("SwingUtilities.invokeLater"));
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - handles generics and type args")
+    void testJsTsHandlesGenericsAndTypeArgs() {
+        assertEquals(Optional.of("Map"), ClassNameExtractor.extractForJsTs("Map<string, number>.set"));
+        assertEquals(
+                Optional.of("Map"),
+                ClassNameExtractor.extractForJsTs("  Map < string , Array<number> >  . set ( 'k', 1 ) "));
+        assertEquals(Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("MyClass.method<T>()"));
+        assertEquals(Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("MyClass.method<T extends Foo, U>()"));
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - normalizes bracket property access")
+    void testJsTsNormalizesBracketPropertyAccess() {
+        assertEquals(Optional.of("Foo"), ClassNameExtractor.extractForJsTs("Foo['bar']()"));
+        assertEquals(Optional.of("Foo"), ClassNameExtractor.extractForJsTs("Foo[\"bar\"]"));
+        assertEquals(Optional.of("Foo"), ClassNameExtractor.extractForJsTs("Foo['bar'].baz"));
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - does not extract lowercase anchors")
+    void testJsTsDoesNotExtractLowercaseAnchors() {
+        assertTrue(ClassNameExtractor.extractForJsTs("console.log").isEmpty());
+        assertTrue(ClassNameExtractor.extractForJsTs("document.querySelector").isEmpty());
+        assertTrue(ClassNameExtractor.extractForJsTs("window.fetch").isEmpty());
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - bare PascalCase now matches")
+    void testJsTsBarePascalCaseNowMatches() {
+        // Bare PascalCase class names should now be extracted
+        assertEquals(Optional.of("BubleStore"), ClassNameExtractor.extractForJsTs("BubleStore"));
+        assertEquals(Optional.of("BubbleState"), ClassNameExtractor.extractForJsTs("BubbleState"));
+        assertEquals(Optional.of("Array"), ClassNameExtractor.extractForJsTs("Array"));
+        assertEquals(Optional.of("ResultMsg"), ClassNameExtractor.extractForJsTs("ResultMsg"));
+
+        // Dotted references still work as before
+        assertEquals(Optional.of("BubleStore"), ClassNameExtractor.extractForJsTs("BubleStore.save"));
+        assertEquals(Optional.of("BubleStore"), ClassNameExtractor.extractForJsTs("BubleStore.save(...)"));
+        assertEquals(Optional.of("BubleStore"), ClassNameExtractor.extractForJsTs("BubleStore.save(arg)"));
+
+        // Still reject non-PascalCase bare names
+        assertTrue(ClassNameExtractor.extractForJsTs("console").isEmpty());
+        assertTrue(ClassNameExtractor.extractForJsTs("document").isEmpty());
+        assertTrue(ClassNameExtractor.extractForJsTs("window").isEmpty());
+        assertTrue(ClassNameExtractor.extractForJsTs("camelCase").isEmpty());
+    }
+
+    @Test
+    @DisplayName("JS/TS extractForJsTs - respects parentheses when finding last dot")
+    void testJsTsRespectsParenthesesWhenFindingLastDot() {
+        // The last dot outside parens is between "MyClass" and "method"
+        assertEquals(
+                Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("MyClass.method(call.with.dots(and, more))"));
+        // Method without call still ok
+        assertEquals(Optional.of("MyClass"), ClassNameExtractor.extractForJsTs("MyClass.method   "));
     }
 
     @Test

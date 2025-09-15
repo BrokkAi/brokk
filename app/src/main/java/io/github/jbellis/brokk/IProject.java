@@ -1,20 +1,36 @@
 package io.github.jbellis.brokk;
 
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
 
     default IGitRepo getRepo() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Provides a DiskLruCache instance scoped to this project.
+     *
+     * <p>Implementations (MainProject) should return a properly initialized DiskLruCache. WorktreeProject will forward
+     * to its MainProject parent.
+     */
+    default DiskLruCache getDiskCache() {
         throw new UnsupportedOperationException();
     }
 
@@ -331,6 +347,27 @@ public interface IProject extends AutoCloseable {
                 return CodeAgentTestScope.valueOf(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 return defaultScope;
+            }
+        }
+    }
+
+    /**
+     * Represents a decompiled dependency included in the project's code intelligence, pairing its top-level root
+     * directory with the detected primary Language.
+     */
+    record Dependency(ProjectFile root, Language language) {
+        private static final Logger logger = LogManager.getLogger(Dependency.class);
+
+        public java.util.Set<ProjectFile> files() {
+            try (var pathStream = Files.walk(root.absPath())) {
+                var masterRoot = root.getRoot();
+                return pathStream
+                        .filter(Files::isRegularFile)
+                        .map(path -> new ProjectFile(masterRoot, masterRoot.relativize(path)))
+                        .collect(Collectors.toSet());
+            } catch (IOException e) {
+                logger.error("Error loading dependency files from {}: {}", root.absPath(), e.getMessage());
+                return java.util.Set.of();
             }
         }
     }

@@ -128,54 +128,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    // ------------------------------------------------------------------
-    // Blitz-History (parallel + post-processing instructions)
-    // ------------------------------------------------------------------
-    private static final String BLITZ_HISTORY_KEY = "blitzHistory";
-
-    public final void saveBlitzHistory(List<List<String>> historyItems, int maxItems) {
-        try {
-            var limited = historyItems.stream().limit(maxItems).toList();
-            String json = objectMapper.writeValueAsString(limited);
-            workspaceProps.setProperty(BLITZ_HISTORY_KEY, json);
-            saveWorkspaceProperties();
-        } catch (Exception e) {
-            logger.error("Error saving Blitz history: {}", e.getMessage());
-        }
-    }
-
-    @Override
-    public List<List<String>> loadBlitzHistory() {
-        try {
-            String json = workspaceProps.getProperty(BLITZ_HISTORY_KEY);
-            if (json != null && !json.isEmpty()) {
-                var tf = objectMapper.getTypeFactory();
-                var type = tf.constructCollectionType(List.class, tf.constructCollectionType(List.class, String.class));
-                return objectMapper.readValue(json, type);
-            }
-        } catch (Exception e) {
-            logger.error("Error loading Blitz history: {}", e.getMessage(), e);
-        }
-        return new ArrayList<>();
-    }
-
-    @Override
-    public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
-        if (parallel.trim().isEmpty() && post.trim().isEmpty()) {
-            return loadBlitzHistory();
-        }
-        var history = new ArrayList<>(loadBlitzHistory());
-        history.removeIf(
-                p -> p.size() >= 2 && p.get(0).equals(parallel) && p.get(1).equals(post));
-        history.add(0, List.of(parallel, post));
-        if (history.size() > maxItems) {
-            history = new ArrayList<>(history.subList(0, maxItems));
-        }
-        saveBlitzHistory(history, maxItems);
-        return history;
-    }
-
-    public abstract Set<ProjectFile> getLiveDependencies();
+    public abstract Set<Dependency> getLiveDependencies();
 
     public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
 
@@ -311,6 +264,27 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         } catch (NumberFormatException e) {
             return -1;
         }
+    }
+
+    /** Computes a context-aware fallback width for split pane positioning. */
+    public final int computeContextualFallback(int frameWidth, boolean isWorktree) {
+        if (isWorktree) {
+            return Math.max(300, Math.min(600, frameWidth * 2 / 5));
+        } else {
+            return Math.max(250, Math.min(800, frameWidth * 3 / 10));
+        }
+    }
+
+    /** Gets a safe horizontal split position that validates against frame dimensions. */
+    public final int getSafeHorizontalSplitPosition(int frameWidth) {
+        int saved = getHorizontalSplitPosition();
+
+        if (saved > 0 && saved < frameWidth - 200) {
+            return saved;
+        }
+
+        boolean isWorktree = this instanceof WorktreeProject;
+        return computeContextualFallback(frameWidth, isWorktree);
     }
 
     @Override
@@ -467,7 +441,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public void close() {
-        SessionRegistry.release(this.root);
         if (repo instanceof AutoCloseable autoCloseableRepo) {
             try {
                 autoCloseableRepo.close();
@@ -509,18 +482,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         var allFiles = new HashSet<>(trackedFiles);
         for (var live : getLiveDependencies()) {
-            try (var pathStream = Files.walk(live.absPath())) {
-                pathStream
-                        .filter(Files::isRegularFile)
-                        .map(path -> {
-                            var relPath = masterRootPathForConfig.relativize(path);
-                            return new ProjectFile(masterRootPathForConfig, relPath);
-                        })
-                        .forEach(allFiles::add);
-            } catch (IOException e) {
-                logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
-                return trackedFiles;
-            }
+            allFiles.addAll(live.files());
         }
 
         return allFiles;
@@ -550,7 +512,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         var liveDependencyPaths =
-                getLiveDependencies().stream().map(ProjectFile::absPath).collect(Collectors.toSet());
+                getLiveDependencies().stream().map(d -> d.root().absPath()).collect(Collectors.toSet());
 
         try (var pathStream = Files.list(dependenciesDir)) {
             pathStream

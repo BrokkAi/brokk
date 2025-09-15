@@ -7,7 +7,7 @@ import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
@@ -54,7 +54,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private final ContextManager contextManager;
     private final CommitContextReloader reloader;
     private final Options options;
-    private final GitWorkflowService gitWorkflowService;
+    private final GitWorkflow gitWorkflow;
 
     public record Options(boolean showSearch, boolean showPushPullButtons, boolean showCreatePrButton) {
         public static final Options FOR_PULL_REQUEST = new Options(true, false, false);
@@ -108,7 +108,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         this.contextManager = contextManager;
         this.reloader = reloader;
         this.options = options;
-        this.gitWorkflowService = new GitWorkflowService(contextManager);
+        this.gitWorkflow = new GitWorkflow(contextManager);
         buildCommitBrowserUI();
 
         // Start a repaint timer so the relative date strings stay up-to-date
@@ -201,7 +201,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 chrome.toolError("Cannot create PR: No branch is currently selected.");
                 return;
             }
-            if (GitWorkflowService.isSyntheticBranchName(branch)) {
+            if (GitWorkflow.isSyntheticBranchName(branch)) {
                 chrome.toolError("Select a local branch before creating a PR. Synthetic views are not supported.");
                 return;
             }
@@ -1084,7 +1084,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 // branchName here is guaranteed not to be STASHES_VIRTUAL_BRANCH or starting with "Search:"
                 // as those are handled by loadStashesInPanel and searchCommitsInPanel respectively.
                 // The gitWorkflowService.evaluatePushPull method handles branchName.contains("/") internally.
-                var pps = gitWorkflowService.evaluatePushPull(branchName);
+                var pps = gitWorkflow.evaluatePushPull(branchName);
                 setCommits(commits, pps.unpushedCommitIds(), pps.canPush(), pps.canPull(), branchName);
             } catch (GitAPIException e) {
                 logger.error(
@@ -1338,7 +1338,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private void handlePullAction(String branchName) {
         contextManager.submitUserTask("Pulling " + branchName, () -> {
             try {
-                String msg = gitWorkflowService.pull(branchName);
+                String msg = gitWorkflow.pull(branchName);
                 SwingUtil.runOnEdt(() -> {
                     chrome.systemOutput(msg);
                     refreshCurrentViewAfterGitOp();
@@ -1354,7 +1354,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private void handlePushAction(String branchName) {
         contextManager.submitUserTask("Pushing " + branchName, () -> {
             try {
-                String msg = gitWorkflowService.push(branchName);
+                String msg = gitWorkflow.push(branchName);
                 SwingUtil.runOnEdt(() -> {
                     chrome.systemOutput(msg);
                     refreshCurrentViewAfterGitOp();

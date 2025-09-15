@@ -7,12 +7,17 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Optional;
 
 public interface BrokkFile extends Comparable<BrokkFile> {
     Path absPath();
 
-    default String read() throws IOException {
-        return Files.readString(absPath());
+    default Optional<String> read() {
+        try {
+            return Optional.of(Files.readString(absPath()));
+        } catch (IOException e) {
+            return Optional.empty();
+        }
     }
 
     default boolean exists() {
@@ -23,10 +28,14 @@ public interface BrokkFile extends Comparable<BrokkFile> {
     @JsonIgnore
     default boolean isText() {
         try {
-            return Files.isRegularFile(absPath())
-                    && FileExtensions.IMAGE_EXTENSIONS.stream().noneMatch(ext -> FileExtensions.matches(absPath(), ext))
-                    && (FileExtensions.TEXT_EXTENSIONS.stream().anyMatch(ext -> FileExtensions.matches(absPath(), ext))
-                            || Files.size(absPath()) < 128 * 1024);
+            var path = absPath();
+            var isNotImage =
+                    FileExtensions.IMAGE_EXTENSIONS.stream().noneMatch(ext -> FileExtensions.matches(path, ext));
+            var hasTextExtension =
+                    FileExtensions.TEXT_EXTENSIONS.stream().anyMatch(ext -> FileExtensions.matches(path, ext));
+            var isSmallFile = Files.exists(path) && Files.isRegularFile(path) && Files.size(path) < 128 * 1024;
+
+            return isNotImage && (hasTextExtension || isSmallFile);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
