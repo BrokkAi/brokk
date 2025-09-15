@@ -644,21 +644,24 @@ public class GitWorktreeTab extends JPanel {
                 JOptionPane optionPane =
                         new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
                 JDialog dialog = optionPane.createDialog(GitWorktreeTab.this, "Add Worktree");
-                JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
+                MaterialButton okButton = new MaterialButton(UIManager.getString("OptionPane.okButtonText"));
                 okButton.addActionListener(e -> {
                     optionPane.setValue(JOptionPane.OK_OPTION);
                     dialog.dispose();
                 });
+                // Style OK button as bright blue with white text
+                okButton.setBackground(new Color(0x1F6FEB));
+                okButton.setForeground(Color.WHITE);
+                
+                MaterialButton cancelButton = new MaterialButton(UIManager.getString("OptionPane.cancelButtonText"));
+                cancelButton.addActionListener(e -> {
+                    optionPane.setValue(JOptionPane.CANCEL_OPTION);
+                    dialog.dispose();
+                });
+                
                 optionPane.setOptions(new Object[] {
                     okButton,
-                    new JButton(UIManager.getString("OptionPane.cancelButtonText")) {
-                        {
-                            addActionListener(e -> {
-                                optionPane.setValue(JOptionPane.CANCEL_OPTION);
-                                dialog.dispose();
-                            });
-                        }
-                    }
+                    cancelButton
                 });
                 dialog.getRootPane().setDefaultButton(okButton);
                 newBranchNameField.requestFocusInWindow(); // Focus the new branch name field
