@@ -33,6 +33,8 @@ public class GuiTheme {
 
     // Track registered popup menus that need theme updates
     private final List<JPopupMenu> popupMenus = new ArrayList<>();
+    // Ensure global button styling listener is registered only once
+    private static volatile boolean buttonStylingRegistered = false;
 
     /**
      * Creates a new theme manager
@@ -74,6 +76,9 @@ public class GuiTheme {
 
             // Register custom icons for this theme
             registerCustomIcons(isDark);
+
+            // Register global button styling so plain JButtons receive MaterialButton-like defaults.
+            registerGlobalButtonStyling();
 
             // Apply theme to RSyntaxTextArea components
             applyThemeAsync(themeName, wordWrap);
@@ -355,5 +360,66 @@ public class GuiTheme {
             icon = new ImageIcon(url);
         }
         UIManager.put(key, icon);
+    }
+
+    /**
+     * Ensure plain JButtons receive MaterialButton-like defaults:
+     *  - set a conservative Button.foreground UIDefault
+     *  - walk existing windows and apply SwingUtil.applyMaterialStyle to any JButton
+     *  - register a single AWTEventListener to style buttons/components added later
+     *
+     * This method is idempotent and safe to call multiple times (guarded by buttonStylingRegistered).
+     */
+    private void registerGlobalButtonStyling() {
+        // Run on EDT to mutate UI safely
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            javax.swing.SwingUtilities.invokeLater(this::registerGlobalButtonStyling);
+            return;
+        }
+
+        // 1) Conservative UIDefault so LAFs that honor Button.foreground pick a link-like color
+        java.awt.Color linkColor = javax.swing.UIManager.getColor("Label.linkForeground");
+        if (linkColor == null) linkColor = javax.swing.UIManager.getColor("Label.foreground");
+        if (linkColor == null) linkColor = java.awt.Color.BLUE;
+        javax.swing.UIManager.put("Button.foreground", linkColor);
+
+        // 2) Walk all existing windows and style any JButtons found
+        java.awt.Window[] windows = java.awt.Window.getWindows();
+        for (java.awt.Window w : windows) {
+            if (w != null && w.isDisplayable()) {
+                walkAndStyle(w);
+            }
+        }
+
+        // 3) Register a single AWTEventListener to style components added at runtime
+        synchronized (GuiTheme.class) {
+            if (buttonStylingRegistered) return;
+            java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(event -> {
+                // We're only interested in container additions
+                if (event instanceof java.awt.event.ContainerEvent ce
+                        && ce.getID() == java.awt.event.ContainerEvent.COMPONENT_ADDED) {
+                    java.awt.Component added = ce.getChild();
+                    if (added != null) {
+                        walkAndStyle(added);
+                    }
+                }
+            }, java.awt.AWTEvent.CONTAINER_EVENT_MASK);
+            buttonStylingRegistered = true;
+            logger.debug("Registered global button styling AWTEventListener");
+        }
+    }
+
+    /** Recursively style any JButton found in the component hierarchy rooted at c. */
+    private static void walkAndStyle(@org.jetbrains.annotations.Nullable java.awt.Component c) {
+        if (c == null) return;
+        if (c instanceof javax.swing.JButton jb) {
+            io.github.jbellis.brokk.gui.SwingUtil.applyMaterialStyle(jb);
+            return;
+        }
+        if (c instanceof java.awt.Container container) {
+            for (java.awt.Component child : container.getComponents()) {
+                walkAndStyle(child);
+            }
+        }
     }
 }

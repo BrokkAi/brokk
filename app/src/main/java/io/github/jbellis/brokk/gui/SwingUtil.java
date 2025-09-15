@@ -221,4 +221,82 @@ public class SwingUtil {
             return delegate().getIconHeight();
         }
     }
+
+    /**
+     * Return a disabled variant for the provided icon if available. This mirrors the behavior previously contained
+     * in MaterialButton.createDisabledVersion: handle ThemedIcon wrappers and FlatSVGIcon disabled variants.
+     *
+     * Note: callers should not pass null; callers in this project guard against null before calling.
+     */
+    public static javax.swing.Icon disabledIconFor(javax.swing.Icon icon) {
+        // Handle the project's ThemedIcon wrapper
+        if (icon instanceof ThemedIcon themedIcon) {
+            javax.swing.Icon delegate = themedIcon.delegate();
+            if (delegate instanceof com.formdev.flatlaf.extras.FlatSVGIcon svgIcon) {
+                return svgIcon.getDisabledIcon();
+            }
+        }
+
+        // Direct FlatSVGIcon case
+        if (icon instanceof com.formdev.flatlaf.extras.FlatSVGIcon svgIcon) {
+            return svgIcon.getDisabledIcon();
+        }
+
+        // Fallback: return original icon (guaranteed non-null by contract)
+        return icon;
+    }
+
+    /**
+     * Apply the MaterialButton visual defaults to a plain JButton so it looks and behaves like the old MaterialButton.
+     * This method is safe to call from any thread; it will schedule on the EDT if required.
+     *
+     * The parameter is nullable for convenience so callers can pass a possibly-null reference without needing to guard.
+     */
+    public static void applyMaterialStyle(@org.jetbrains.annotations.Nullable javax.swing.JButton b) {
+        if (b == null) return;
+
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            javax.swing.SwingUtilities.invokeLater(() -> applyMaterialStyle(b));
+            return;
+        }
+
+        // Avoid installing twice on the same component
+        if (Boolean.TRUE.equals(b.getClientProperty("materialStyleInstalled"))) return;
+        b.putClientProperty("materialStyleInstalled", true);
+
+        // Cursor & appearance
+        b.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        b.setBorderPainted(false);
+        b.setFocusable(true);
+        b.putClientProperty("JButton.buttonType", "borderless"); // Keep FlatLaf integration
+        b.setContentAreaFilled(true);
+        b.setRolloverEnabled(true);
+
+        // Foreground color (link-like)
+        java.awt.Color linkColor = javax.swing.UIManager.getColor("Label.linkForeground");
+        if (linkColor == null) linkColor = javax.swing.UIManager.getColor("Label.foreground");
+        if (linkColor == null) linkColor = java.awt.Color.BLUE;
+        b.setForeground(linkColor);
+
+        // Disabled icon handling for SVG/themed icons
+        javax.swing.Icon ic = b.getIcon();
+        if (ic != null) {
+            javax.swing.Icon disabled = disabledIconFor(ic);
+            // disabledIconFor returns a non-null Icon per contract
+            b.setDisabledIcon(disabled);
+        }
+
+        // Update cursor and disabled-icon when enabled state changes
+        b.addPropertyChangeListener("enabled", evt -> {
+            Object nv = evt.getNewValue();
+            boolean enabled = nv instanceof Boolean en && en;
+            b.setCursor(enabled ? java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                                : java.awt.Cursor.getDefaultCursor());
+            javax.swing.Icon cur = b.getIcon();
+            if (cur != null) {
+                javax.swing.Icon dis = disabledIconFor(cur);
+                b.setDisabledIcon(dis);
+            }
+        });
+    }
 }
