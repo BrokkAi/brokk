@@ -7,12 +7,17 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Optional;
 
 public interface BrokkFile extends Comparable<BrokkFile> {
     Path absPath();
 
-    default String read() throws IOException {
-        return Files.readString(absPath());
+    default Optional<String> read() {
+        try {
+            return Optional.of(Files.readString(absPath()));
+        } catch (IOException e) {
+            return Optional.empty();
+        }
     }
 
     default boolean exists() {

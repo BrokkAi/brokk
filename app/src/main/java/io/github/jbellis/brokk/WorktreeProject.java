@@ -1,9 +1,9 @@
 package io.github.jbellis.brokk;
 
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -128,13 +128,13 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public CpgRefresh getAnalyzerRefresh() {
+    public AnalyzerRefresh getAnalyzerRefresh() {
         return parent.getAnalyzerRefresh();
     }
 
     @Override
-    public void setAnalyzerRefresh(CpgRefresh value) {
-        parent.setAnalyzerRefresh(value);
+    public void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {
+        parent.setAnalyzerRefresh(analyzerRefresh);
     }
 
     @Override
@@ -199,7 +199,12 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public Set<ProjectFile> getLiveDependencies() {
+    public DiskLruCache getDiskCache() {
+        return parent.getDiskCache();
+    }
+
+    @Override
+    public Set<Dependency> getLiveDependencies() {
         return parent.getLiveDependencies();
     }
 

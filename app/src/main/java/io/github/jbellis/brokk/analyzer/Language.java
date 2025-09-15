@@ -34,16 +34,16 @@ public interface Language {
     IAnalyzer loadAnalyzer(IProject project);
 
     /**
-     * Get the path where the CPG for this language in the given project should be stored.
+     * Get the path where the storage for this analyzer in the given project should be stored.
      *
      * @param project The project.
-     * @return The path to the CPG file.
+     * @return The path to the database file.
      */
-    default Path getCpgPath(IProject project) {
-        // Use oldName for CPG path to ensure stable and filesystem-safe names
+    default Path getStoragePath(IProject project) {
+        // Use oldName for storage path to ensure stable and filesystem-safe names
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
     }
 
     default boolean shouldDisableLsp() {
@@ -78,10 +78,6 @@ public interface Language {
     default boolean isAnalyzed(IProject project, Path path) {
         assert path.isAbsolute() : "Path must be absolute for isAnalyzed check: " + path;
         return path.normalize().startsWith(project.getRoot());
-    }
-
-    default boolean isCpg() {
-        return false;
     }
 
     // --- Concrete Language Instances ---
@@ -256,11 +252,6 @@ public interface Language {
 
             return jarFiles;
         }
-
-        @Override
-        public boolean isCpg() {
-            return false;
-        }
     };
 
     Pattern PY_SITE_PKGS = Pattern.compile("^python\\d+\\.\\d+$");
@@ -411,35 +402,20 @@ public interface Language {
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
-            logger.debug("Scanning for Python dependency candidates in project: {}", project.getRoot());
-            List<Path> results = new ArrayList<>();
+            logger.debug("Scanning for Python virtual environments in project: {}", project.getRoot());
             List<Path> venvs = findVirtualEnvs(project.getRoot());
             if (venvs.isEmpty()) {
                 logger.debug("No virtual environments found for Python dependency scan.");
+                return List.of();
             }
 
-            venvs.stream()
+            List<Path> sitePackagesDirs = venvs.stream()
                     .map(this::sitePackagesDir)
-                    .filter(Files::isDirectory) // Filter out empty paths returned by sitePackagesDir if not found
-                    .forEach(dir -> {
-                        logger.debug("Scanning site-packages directory: {}", dir);
-                        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
-                            for (Path p : ds) {
-                                String name = p.getFileName().toString();
-                                if (name.endsWith(".dist-info") || name.endsWith(".egg-info") || name.startsWith("_")) {
-                                    continue;
-                                }
-                                if (Files.isDirectory(p)) {
-                                    logger.debug("Found Python dependency candidate: {}", p);
-                                    results.add(p);
-                                }
-                            }
-                        } catch (IOException e) {
-                            logger.warn("Error scanning site-packages directory {}: {}", dir, e.getMessage());
-                        }
-                    });
-            logger.debug("Found {} Python dependency candidates.", results.size());
-            return results;
+                    .filter(Files::isDirectory)
+                    .toList();
+
+            logger.debug("Found {} Python site-packages directories.", sitePackagesDirs.size());
+            return sitePackagesDirs;
         }
 
         @Override
@@ -497,11 +473,6 @@ public interface Language {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
-        }
-
-        @Override
-        public boolean isCpg() {
-            return false;
         }
 
         @Override
@@ -907,7 +878,7 @@ public interface Language {
      * languages and combines the results.
      *
      * <p>Only the operations that make sense for a multi‑language view are implemented. Methods tied to a
-     * single‐language identity ‑ such as {@link #internalName()} or {@link #getCpgPath(IProject)} ‑ throw
+     * single‐language identity ‑ such as {@link #internalName()} or {@link #getStoragePath(IProject)} ‑ throw
      * {@link UnsupportedOperationException}.
      */
     class MultiLanguage implements Language {
@@ -941,13 +912,8 @@ public interface Language {
         }
 
         @Override
-        public Path getCpgPath(IProject project) {
+        public Path getStoragePath(IProject project) {
             throw new UnsupportedOperationException("MultiLanguage has no single CPG file");
-        }
-
-        @Override
-        public boolean isCpg() {
-            return languages.stream().anyMatch(Language::isCpg);
         }
 
         @Override

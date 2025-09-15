@@ -1600,15 +1600,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             String originalContent = contentBeforeChanges.get(filename);
             if (originalContent == null) {
                 // Fallback: read original from disk before saving
-                try {
-                    var pf = createProjectFileFromPath(filename);
-                    if (pf != null && pf.absPath().toFile().exists()) {
-                        originalContent = pf.read();
-                    } else {
-                        originalContent = "";
-                    }
-                } catch (Exception e) {
-                    logger.warn("Failed to read pre-save baseline for {}", filename, e);
+                var pf = createProjectFileFromPath(filename);
+                if (pf != null && pf.absPath().toFile().exists()) {
+                    originalContent = pf.read().orElse("");
+                } else {
                     originalContent = "";
                 }
             }

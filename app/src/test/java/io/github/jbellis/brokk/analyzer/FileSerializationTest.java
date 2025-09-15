@@ -148,7 +148,7 @@ public class FileSerializationTest {
 
         // Verify the deserialized instance can read the file
         assertTrue(deserialized.exists());
-        assertEquals(testContent, deserialized.read());
+        assertEquals(testContent, deserialized.read().orElseThrow());
         assertEquals(original.absPath(), deserialized.absPath());
     }
 
@@ -167,7 +167,7 @@ public class FileSerializationTest {
 
         // Verify the deserialized instance can read the file
         assertTrue(deserialized.exists());
-        assertEquals(testContent, deserialized.read());
+        assertEquals(testContent, deserialized.read().orElseThrow());
         assertEquals(original.absPath(), deserialized.absPath());
     }
 

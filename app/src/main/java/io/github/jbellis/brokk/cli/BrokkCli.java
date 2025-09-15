@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
+import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -108,6 +109,9 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String searchPrompt;
 
+    @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
+    private boolean merge = false;
+
     @CommandLine.Option(
             names = "--worktree",
             description = "Create a detached worktree at the given path, from the default branch's HEAD.")
@@ -145,12 +149,14 @@ public final class BrokkCli implements Callable<Integer> {
         long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
+        if (merge) actionCount++;
         if (actionCount > 1) {
-            System.err.println("At most one action (--architect, --code, --ask, --search) can be specified.");
+            System.err.println("At most one action (--architect, --code, --ask, --search, --merge) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
-            System.err.println("Exactly one action (--architect, --code, --ask, --search) or --worktree is required.");
+            System.err.println(
+                    "Exactly one action (--architect, --code, --ask, --search, --merge) or --worktree is required.");
             return 1;
         }
 
@@ -344,6 +350,23 @@ public final class BrokkCli implements Callable<Integer> {
                 StreamingChatModel askModel;
                 askModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
                 result = InstructionsPanel.executeAskCommand(cm, askModel, askPrompt);
+            } else if (merge) {
+                var planningModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
+                var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
+                MergeAgent mergeAgent;
+                try {
+                    mergeAgent = MergeAgent.inferFromExternal(cm, planningModel, codeModel);
+                } catch (IllegalStateException e) {
+                    System.err.println("Cannot run --merge: " + e.getMessage());
+                    return 1;
+                }
+                try {
+                    mergeAgent.execute();
+                } catch (Exception e) {
+                    io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
+                    return 1;
+                }
+                return 0; // merge is terminal for this CLI command
             } else { // searchPrompt != null
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
                 var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, 0);

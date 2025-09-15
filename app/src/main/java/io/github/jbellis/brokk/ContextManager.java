@@ -19,9 +19,9 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
@@ -85,6 +85,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public static boolean isTestFile(ProjectFile file) {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
+    }
+
+    public void runTests(Set<ProjectFile> testFiles) {
+        String cmd = BuildAgent.getBuildLintSomeCommand(this, getProject().loadBuildDetails(), testFiles);
+        if (cmd.isEmpty()) {
+            getIo().toolError("Run in Shell: build commands are unknown; run Build Setup first");
+            return;
+        }
+
+        getIo().getInstructionsPanel().runRunCommand(InstructionsPanel.ACTION_RUN_TESTS, cmd);
     }
 
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
@@ -159,6 +169,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
+
+    // Special fragment that holds the latest build results (created lazily on first update)
+    private volatile @Nullable ContextFragment.BuildFragment buildFragment;
 
     // Model reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
@@ -1016,6 +1029,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Lazily creates and updates the special BuildFragment with the latest build results text. Does not push a history
+     * entry for updates after creation. Triggers a workspace UI refresh.
+     */
+    public void updateBuildFragment(String text) {
+        var existing = this.buildFragment;
+        boolean needsCreate = existing == null
+                || liveContext()
+                        .virtualFragments()
+                        .noneMatch(f -> f instanceof ContextFragment.BuildFragment bf && bf.equals(existing));
+
+        if (needsCreate) {
+            var bf = new ContextFragment.BuildFragment(this);
+            bf.setContent(text);
+            this.buildFragment = bf;
+            // Adding the fragment pushes a new frozen snapshot once.
+            addVirtualFragment(bf);
+        } else {
+            // Update the dynamic fragment in place (no history entry).
+            requireNonNull(existing).setContent(text);
+            // Request UI refresh so frozen view mirrors dynamic content.
+            SwingUtilities.invokeLater(io::updateWorkspace);
+        }
+    }
+
+    /**
      * Handles pasting an image from the clipboard. Submits a task to summarize the image and adds a PasteImageFragment
      * to the context.
      *
@@ -1074,12 +1112,41 @@ public class ContextManager implements IContextManager, AutoCloseable {
         submitContextTask("Capture output", () -> {
             // Capture from the selected *frozen* context in history view
             var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
-            if (selectedFrozenCtx.getParsedOutput() != null) {
-                // Add the captured (TaskFragment, which is Virtual) to the *live* context
-                addVirtualFragment(selectedFrozenCtx.getParsedOutput());
-                io.systemOutput("Content captured from output");
-            } else {
+
+            var parsedOutput = selectedFrozenCtx.getParsedOutput();
+            if (parsedOutput == null) {
                 io.systemOutput("No content to capture");
+                return;
+            }
+
+            String action = selectedFrozenCtx.getAction();
+            if (action.startsWith(InstructionsPanel.ACTION_RUN_TESTS)) {
+                // Update the dynamic BuildFragment instead of adding a new virtual fragment to history.
+                // This keeps build/test captures visible in the workspace without polluting the history.
+                try {
+                    assert parsedOutput.messages().size() == 2 : parsedOutput.messages();
+                    var cmd = Messages.getText(parsedOutput.messages().getFirst());
+                    var result = Messages.getText(parsedOutput.messages().getLast());
+                    var text =
+                            """
+                            Command: `%s`
+
+                            Result:
+                            ```
+                            %s
+                            ```
+                            """
+                                    .formatted(cmd, result);
+                    updateBuildFragment(text);
+                    io.systemOutput("Build/Test output captured to Build Fragment");
+                } catch (Exception e) {
+                    logger.error("Failed to update BuildFragment from captured test output", e);
+                    io.systemOutput("Failed to capture build/test output: " + e.getMessage());
+                }
+            } else {
+                // Non-build capture: preserve existing behavior of adding the parsed output into the live context.
+                addVirtualFragment(parsedOutput);
+                io.systemOutput("Content captured from output");
             }
         });
     }
@@ -1101,15 +1168,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         try {
             sourceCode = getAnalyzer()
                     .as(SourceCodeProvider.class)
-                    .flatMap(provider -> {
-                        if (codeUnit.isFunction()) {
-                            return provider.getMethodSource(codeUnit.fqName());
-                        } else if (codeUnit.isClass()) {
-                            return provider.getClassSource(codeUnit.fqName());
-                        } else {
-                            return Optional.empty();
-                        }
-                    })
+                    .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit))
                     .orElse(null);
         } catch (InterruptedException e) {
             logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
@@ -1123,6 +1182,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     codeUnit.source().getSyntaxStyle());
             pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
             io.systemOutput("Added source code for " + codeUnit.shortName());
+        } else {
+            // Notify user of failed source capture
+            SwingUtilities.invokeLater(() -> {
+                io.systemNotify(
+                        "Could not capture source code for: " + codeUnit.shortName()
+                                + "\n\nThis may be due to unsupported symbol type or missing source ranges.",
+                        "Capture Source Failed",
+                        JOptionPane.WARNING_MESSAGE);
+            });
         }
     }
 
@@ -1684,11 +1752,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    @Override
-    public EditBlockParser getParserForWorkspace() {
-        return CodePrompts.instance.getParser(topContext());
-    }
-
     public void reloadModelsAsync() {
         if (isReloadingModels.compareAndSet(false, true)) {
             // Run reinit in the background so callers don't block; notify UI listeners when finished.
@@ -1743,7 +1806,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Ensure style guide exists, generating if needed */
     private void ensureStyleGuide() {
-        if (!project.getStyleGuide().isEmpty() || !analyzerWrapper.isCpg()) {
+        if (!project.getStyleGuide().isEmpty()) {
             return;
         }
 
@@ -1770,37 +1833,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // Use project root for relative path display if possible
                     var relativePath =
                             project.getRoot().relativize(file.absPath()).toString();
-                    try {
-                        chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, file.read());
-                        // Calculate tokens and check limits *inside* the try block, only if read succeeds
-                        var chunkTokens = Messages.getApproximateTokens(chunk);
-                        if (tokens > 0 && tokens + chunkTokens > MAX_STYLE_TOKENS) { // Check if adding exceeds limit
-                            logger.debug(
-                                    "Style guide context limit ({}) reached after {} tokens.",
-                                    MAX_STYLE_TOKENS,
-                                    tokens);
-                            break; // Exit the loop if limit reached
-                        }
-                        if (chunkTokens > MAX_STYLE_TOKENS) { // Skip single large files
-                            logger.debug(
-                                    "Skipping large file {} ({} tokens) for style guide context.",
-                                    relativePath,
-                                    chunkTokens);
-                            continue; // Skip to next file
-                        }
-                        // Append chunk if within limits
-                        codeForLLM.append(chunk);
-                        tokens += chunkTokens;
-                        logger.trace(
-                                "Added {} ({} tokens, total {}) to style guide context",
-                                relativePath,
-                                chunkTokens,
-                                tokens);
-                    } catch (IOException e) {
-                        logger.error("Failed to read {}: {}", relativePath, e.getMessage());
-                        // Skip this file on error
-                        // continue; // This continue is redundant
+                    var contentOpt = file.read();
+                    if (contentOpt.isEmpty()) {
+                        logger.debug("Skipping unreadable file {} for style guide", relativePath);
+                        continue;
                     }
+                    chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());
+                    // Calculate tokens and check limits
+                    var chunkTokens = Messages.getApproximateTokens(chunk);
+                    if (tokens > 0 && tokens + chunkTokens > MAX_STYLE_TOKENS) { // Check if adding exceeds limit
+                        logger.debug(
+                                "Style guide context limit ({}) reached after {} tokens.", MAX_STYLE_TOKENS, tokens);
+                        break; // Exit the loop if limit reached
+                    }
+                    if (chunkTokens > MAX_STYLE_TOKENS) { // Skip single large files
+                        logger.debug(
+                                "Skipping large file {} ({} tokens) for style guide context.",
+                                relativePath,
+                                chunkTokens);
+                        continue; // Skip to next file
+                    }
+                    // Append chunk if within limits
+                    codeForLLM.append(chunk);
+                    tokens += chunkTokens;
+                    logger.trace(
+                            "Added {} ({} tokens, total {}) to style guide context", relativePath, chunkTokens, tokens);
                 }
 
                 if (codeForLLM.isEmpty()) {
@@ -2460,11 +2517,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public static class SummarizeWorker extends SwingWorker<String, String> {
-        private final ContextManager cm;
+        private final IContextManager cm;
         private final String content;
         private final int words;
 
-        public SummarizeWorker(ContextManager cm, String content, int words) {
+        public SummarizeWorker(IContextManager cm, String content, int words) {
             this.cm = cm;
             this.content = content;
             this.words = words;

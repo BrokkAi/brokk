@@ -24,8 +24,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
@@ -149,12 +147,7 @@ public class ContextAgent {
                 if (fileOpt.isPresent()) {
                     var file = fileOpt.get();
                     String content;
-                    try {
-                        content = file.read();
-                    } catch (IOException e) {
-                        debug("IOException reading file for token calculation: {}", file, e);
-                        content = ""; // Ensure content is not null for token calculation
-                    }
+                    content = file.read().orElse("");
                     totalTokens += Messages.getApproximateTokens(content);
                 } else {
                     debug(
@@ -323,16 +316,15 @@ public class ContextAgent {
         Map<CodeUnit, String> rawSummaries;
         var ctx = cm.liveContext();
 
-        if (isCodeInWorkspace(ctx)
-                && !deepScan
-                && cm.getAnalyzerWrapper().isCpg()
-                && cm.getAnalyzerWrapper().isReady()) {
-            // If the workspace isn't empty, use pagerank candidates for Quick context
+        if (isCodeInWorkspace(ctx) && !deepScan && cm.getAnalyzerWrapper().isReady()) {
+            // If the workspace isn't empty, use Git distance candidates for Quick context
             var ac = cm.liveContext().buildAutoContext(50);
             // fetchSkeletons() is private in SkeletonFragment. We need to use its sources() or text().
             // For now, let's get the target FQNs and then fetch summaries for them.
             List<String> targetFqns = ac.getTargetIdentifiers();
-            debug("Non-empty workspace; using pagerank candidates (target FQNs: {})", String.join(",", targetFqns));
+            debug(
+                    "Non-empty workspace; using Git-based distance candidates (target FQNs: {})",
+                    String.join(",", targetFqns));
 
             // Create a temporary map for rawSummaries from these targetFqns
             Map<CodeUnit, String> tempSummaries = new HashMap<>();
@@ -1038,15 +1030,8 @@ public class ContextAgent {
                 .distinct()
                 .parallel()
                 .map(file -> {
-                    try {
-                        return Map.entry(file, file.read());
-                    } catch (IOException e) {
-                        logger.warn("Could not read content of file: {}. Skipping.", file, e);
-                        return Map.entry(file, ""); // Return empty string on error
-                    } catch (UncheckedIOException e) {
-                        logger.warn("Could not read content of file (Unchecked): {}. Skipping.", file, e);
-                        return Map.entry(file, "");
-                    }
+                    var content = file.read().orElse("");
+                    return Map.entry(file, content);
                 })
                 .filter(entry -> !entry.getValue().isEmpty()) // Filter out files that couldn't be read
                 // Use merge function (v1, v2) -> v1 to handle potential duplicate keys by keeping the first value

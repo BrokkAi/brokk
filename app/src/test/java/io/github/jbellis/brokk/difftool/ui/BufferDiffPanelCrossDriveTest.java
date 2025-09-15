@@ -165,7 +165,7 @@ public class BufferDiffPanelCrossDriveTest {
         // Test the logic pattern: capture from disk before save
         String preSaveContent = null;
         if (projectFile.absPath().toFile().exists()) {
-            preSaveContent = projectFile.read();
+            preSaveContent = projectFile.read().orElseThrow();
         }
 
         // Verify we captured the original content
@@ -175,7 +175,7 @@ public class BufferDiffPanelCrossDriveTest {
         java.nio.file.Files.writeString(testFile, "modified content");
 
         // Verify that post-save read would return different content
-        var postSaveContent = projectFile.read();
+        var postSaveContent = projectFile.read().orElseThrow();
         assertEquals("modified content", postSaveContent, "Post-save content should be modified");
 
         // The key insight: if we had captured baseline AFTER save, we'd get the modified content

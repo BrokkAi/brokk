@@ -75,7 +75,7 @@ public class BufferDiffPanelFilePathTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
         assertNotNull(projectFile, "Should be able to create ProjectFile with full path");
         assertTrue(projectFile.absPath().toFile().exists(), "ProjectFile should point to existing file");
-        assertEquals(testContent, projectFile.read(), "ProjectFile should read correct content");
+        assertEquals(testContent, projectFile.read().orElseThrow(), "ProjectFile should read correct content");
     }
 
     @Test
@@ -120,7 +120,7 @@ public class BufferDiffPanelFilePathTest {
 
         assertNotNull(projectFile, "ProjectFile creation should succeed with full path");
         assertTrue(projectFile.absPath().toFile().exists(), "ProjectFile should point to existing file");
-        assertEquals(testContent, projectFile.read(), "ProjectFile should read correct content");
+        assertEquals(testContent, projectFile.read().orElseThrow(), "ProjectFile should read correct content");
 
         // Verify the relative path calculation is correct (platform-independent)
         var expectedRelativePath = Path.of("src", "main", "java", "com", "example", "TestClass.java");
@@ -231,7 +231,10 @@ public class BufferDiffPanelFilePathTest {
                 "ProjectFile should resolve to existing file on all platforms");
 
         // Verify we can read content through ProjectFile
-        assertEquals(testContent, projectFile.read(), "ProjectFile should read correct content on all platforms");
+        assertEquals(
+                testContent,
+                projectFile.read().orElseThrow(),
+                "ProjectFile should read correct content on all platforms");
 
         // Verify the relative path is calculated correctly
         assertFalse(relativePath.isAbsolute(), "Relative path should not be absolute on any platform");

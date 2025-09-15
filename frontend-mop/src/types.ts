@@ -13,6 +13,17 @@ export type BrokkEvent =
   | {
       type: 'clear';
       epoch: number;
+    }
+  | {
+      type: 'history-reset';
+      epoch: number;
+    }
+  | {
+      type: 'history-task';
+      epoch: number;
+      compressed: boolean;
+      summary?: string;
+      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM' }[];
     };
 
 export type Bubble = {
@@ -37,6 +48,7 @@ export interface BufferItem {
 }
 
 export type BubbleState = Bubble & {
+  threadId: number;
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
@@ -47,4 +59,10 @@ export type BubbleState = Bubble & {
   reasoningComplete?: boolean;  // true when the reasoning stream ends
   duration?: number;            // calculated duration in seconds
   isCollapsed?: boolean;        // for UI state
+};
+
+export type HistoryTask = {
+  threadId: number;
+  compressed: boolean;
+  entries: BubbleState[];
 };

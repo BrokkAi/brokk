@@ -13,6 +13,8 @@ export interface SymbolLookupResult {
     highlightRanges: HighlightRange[];
     isPartialMatch: boolean;
     originalText: string | null;
+    confidence?: number;              // 0-100 confidence score (optional for backward compatibility)
+    processingTimeMs?: number;        // Processing time in milliseconds (optional for backward compatibility)
 }
 
 const log = createLogger('symbol-cache-store');
@@ -440,6 +442,14 @@ function updateResolvedSymbols(cache: Map<string, SymbolCacheEntry>,
         if (wasUpdated) {
             keysToNotify.push(cacheKey);
             updatedCount++;
+
+            // Log performance metrics for streaming analysis
+            if (symbolResult.processingTimeMs) {
+                const found = symbolResult.fqn ? 'found' : 'not found';
+                const confidence = symbolResult.confidence || 0;
+                const matchType = symbolResult.isPartialMatch ? 'partial' : 'exact';
+                log.debug(`[PERF][FRONTEND] Symbol '${symbol}' ${found} (${matchType}, ${confidence}% confidence, ${symbolResult.processingTimeMs}ms)`);
+            }
         }
     }
 

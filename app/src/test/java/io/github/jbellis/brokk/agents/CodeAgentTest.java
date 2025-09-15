@@ -69,7 +69,7 @@ class CodeAgentTest {
         // as CodeAgent's constructor doesn't use it directly.
         // Llm instance creation is deferred to runTask/runQuickTask.
         codeAgent = new CodeAgent(contextManager, new Service.UnavailableStreamingModel(), consoleIO);
-        parser = EditBlockParser.getParserFor(""); // Basic parser
+        parser = EditBlockParser.instance; // Basic parser
 
         // Save original shell command runner factory
         originalShellCommandRunnerFactory = Environment.shellCommandRunnerFactory;
@@ -315,7 +315,7 @@ class CodeAgentTest {
         assertTrue(nextRequestText.contains(file2.getFileName()));
 
         // Verify the successful edit was actually made.
-        assertEquals("goodbye world", file1.read().strip());
+        assertEquals("goodbye world", file1.read().orElseThrow().strip());
     }
 
     // V-1: verifyPhase – skip when no edits
@@ -477,7 +477,7 @@ class CodeAgentTest {
 
         assertEquals(TaskResult.StopReason.BUILD_ERROR, result.stopDetails().reason());
         assertTrue(result.stopDetails().explanation().contains("Compiler error on line 5"));
-        assertEquals("goodbye", file.read().strip()); // The edit was made and not reverted
+        assertEquals("goodbye", file.read().orElseThrow().strip()); // The edit was made and not reverted
     }
 
     // CF-1: changedFiles tracking after successful apply

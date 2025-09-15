@@ -1,10 +1,11 @@
 import './styles/global.scss';
 import {mount, tick} from 'svelte';
-import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
+import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
+import { threadStore } from './stores/threadStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
@@ -65,6 +66,9 @@ function setupBrokkInterface(): any[] {
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
+        // Debug API
+        toggleWrapStatus: () => typeof window !== 'undefined' && window.toggleWrapStatus ? window.toggleWrapStatus() : undefined,
+
     };
 
     // Signal to Java that the bridge is ready
@@ -76,7 +80,11 @@ function setupBrokkInterface(): any[] {
 }
 
 async function handleEvent(payload: any): Promise<void> {
-    onBrokkEvent(payload); // updates store & talks to worker
+    if (payload.type === 'history-reset' || payload.type === 'history-task') {
+        onHistoryEvent(payload);
+    } else {
+        onBrokkEvent(payload); // updates store & talks to worker
+    }
 
     // Wait until Svelte updated *and* browser painted
     await tick();
@@ -91,15 +99,33 @@ function getCurrentSelection(): string {
 
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
+    onHistoryEvent({type: 'history-reset', epoch: 0});
 }
 
-function setAppTheme(dark: boolean, isDevMode?: boolean): void {
-    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode);
+function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean): void {
+    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode);
     themeStore.set(dark);
     const html = document.querySelector('html')!;
+
+    // Handle theme classes
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
+
+    // Handle wrap mode classes - default to wrap mode enabled
+    const shouldWrap = wrapMode !== undefined ? wrapMode : true;
+    if (shouldWrap) {
+        html.classList.add('code-wrap-mode');
+        console.info('Applied code-wrap-mode class');
+    } else {
+        html.classList.remove('code-wrap-mode');
+        console.info('Removed code-wrap-mode class');
+    }
+
+    // Trigger status update for debug display
+    if (typeof window !== 'undefined' && window.updateWrapStatus) {
+        window.updateWrapStatus();
+    }
 
     // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
     mainLog.info(`set theme dark: ${dark} dev mode: ${isDevMode}`);
@@ -173,7 +199,7 @@ async function initSearchController(): Promise<void> {
 
 function setupSearchRehighlight(): void {
     let pending = false;
-    bubblesStore.subscribe(() => {
+    const trigger = () => {
         if (!searchCtrl || !searchCtrl.getState().query) return;
         if (pending) return;
         pending = true;
@@ -184,5 +210,7 @@ function setupSearchRehighlight(): void {
                 searchCtrl?.onContentChanged();
             });
         });
-    });
+    };
+    bubblesStore.subscribe(trigger);
+    threadStore.subscribe(trigger);
 }

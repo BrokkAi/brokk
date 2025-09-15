@@ -1094,11 +1094,7 @@ public class BlitzForgeDialog extends JDialog {
     /** Returns the cached token count of a file, computing it once if necessary. */
     private long getTokenCount(ProjectFile pf) {
         return tokenCountCache.computeIfAbsent(pf, file -> {
-            try {
-                return (long) Messages.getApproximateTokens(file.read());
-            } catch (Exception e) {
-                return 0L;
-            }
+            return (long) Messages.getApproximateTokens(file.read().orElse(""));
         });
     }
 
