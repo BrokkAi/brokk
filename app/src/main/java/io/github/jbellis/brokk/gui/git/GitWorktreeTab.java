@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -220,7 +221,8 @@ public class GitWorktreeTab extends JPanel {
         removeButton.setEnabled(false); // Initially disabled
         removeButton.addActionListener(e -> removeWorktree());
 
-        openButton = new MaterialButton("Open");
+        openButton = new MaterialButton();
+        openButton.setIcon(Icons.OPEN_NEW_WINDOW);
         openButton.setToolTipText("Open selected worktree(s)");
         openButton.setEnabled(false); // Initially disabled
         openButton.addActionListener(e -> {
@@ -230,7 +232,8 @@ public class GitWorktreeTab extends JPanel {
             }
         });
 
-        refreshButton = new MaterialButton("Refresh");
+        refreshButton = new MaterialButton();
+        refreshButton.setIcon(Icons.REFRESH);
         refreshButton.setToolTipText("Refresh the list of worktrees");
         refreshButton.addActionListener(e -> refresh());
 
