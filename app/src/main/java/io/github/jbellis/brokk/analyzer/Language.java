@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.cpg.AnalyzerStorageCache;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
