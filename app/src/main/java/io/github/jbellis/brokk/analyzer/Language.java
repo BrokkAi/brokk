@@ -46,6 +46,21 @@ public interface Language {
                 .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
     }
 
+    /** Whether this language's analyzer provides compact symbol summaries. */
+    default boolean providesSummaries() {
+        return false;
+    }
+
+    /** Whether this language's analyzer can fetch or reconstruct source code for code units. */
+    default boolean providesSourceCode() {
+        return false;
+    }
+
+    /** Whether this language's analyzer supports interprocedural analysis such as call graphs across files. */
+    default boolean providesInterproceduralAnalysis() {
+        return false;
+    }
+
     default boolean shouldDisableLsp() {
         var raw = System.getenv("BRK_NO_LSP");
         if (raw == null) return false;
@@ -158,6 +173,21 @@ public interface Language {
         public IAnalyzer loadAnalyzer(IProject project) {
             // the LSP server component will handle loading in the cache
             return createAnalyzer(project);
+        }
+
+        @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return !shouldDisableLsp();
         }
 
         @Override
@@ -290,6 +320,21 @@ public interface Language {
         }
 
         @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
+        }
+
+        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return NodeJsDependencyHelper.getDependencyCandidates(project);
         }
@@ -331,6 +376,21 @@ public interface Language {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
+        }
+
+        @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
         }
 
         private List<Path> findVirtualEnvs(@Nullable Path root) {
@@ -476,6 +536,21 @@ public interface Language {
         }
 
         @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
+        }
+
+        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return Language.super.getDependencyCandidates(project);
         }
@@ -555,6 +630,21 @@ public interface Language {
         }
 
         @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
+        }
+
+        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return Language.super.getDependencyCandidates(project);
         }
@@ -591,6 +681,21 @@ public interface Language {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
+        }
+
+        @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
         }
 
         // TODO: Implement getDependencyCandidates for Rust (e.g. scan Cargo.lock, vendor dir)
@@ -691,6 +796,21 @@ public interface Language {
             return createAnalyzer(project);
         }
 
+        @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
+        }
+
         // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
@@ -754,6 +874,21 @@ public interface Language {
         }
 
         @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
+        }
+
+        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return Language.super.getDependencyCandidates(project);
         }
@@ -786,6 +921,21 @@ public interface Language {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
+        }
+
+        @Override
+        public boolean providesSummaries() {
+            return true;
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return true;
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return false;
         }
 
         @Override
@@ -935,6 +1085,21 @@ public interface Language {
                 if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
+        }
+
+        @Override
+        public boolean providesSummaries() {
+            return languages.stream().anyMatch(Language::providesSummaries);
+        }
+
+        @Override
+        public boolean providesSourceCode() {
+            return languages.stream().anyMatch(Language::providesSourceCode);
+        }
+
+        @Override
+        public boolean providesInterproceduralAnalysis() {
+            return languages.stream().anyMatch(Language::providesInterproceduralAnalysis);
         }
 
         @Override
