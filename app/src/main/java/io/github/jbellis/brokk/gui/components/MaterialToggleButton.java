@@ -8,7 +8,6 @@ import java.awt.Cursor;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.event.KeyEvent;
-
 import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JToggleButton;
@@ -87,7 +86,7 @@ public class MaterialToggleButton extends JToggleButton {
         // then accent/focus colors; finally a lighter blue as a fallback.
         Color c = UIManager.getColor("TabbedPane.underlineColor");
         if (c == null) {
-           c = new Color(0x64B5F6); // fallback lighter blue
+            c = new Color(0x64B5F6); // fallback lighter blue
         }
         return c;
     }
