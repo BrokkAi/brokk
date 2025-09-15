@@ -16,6 +16,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class SwingUtil {
     private static final Logger logger = LogManager.getLogger(SwingUtil.class);
+    private static final String PRIMARY_BUTTON_KEY = "brokk.primaryButton";
 
     /**
      * Executes a Callable on the EDT and handles exceptions properly. Use this instead of Swingutilities.invokeAndWait.
@@ -274,10 +275,13 @@ public class SwingUtil {
         b.setRolloverEnabled(true);
 
         // Foreground color (link-like)
+        // If the button is marked as a Brokk "primary" button, don't override its foreground here.
         java.awt.Color linkColor = javax.swing.UIManager.getColor("Label.linkForeground");
         if (linkColor == null) linkColor = javax.swing.UIManager.getColor("Label.foreground");
         if (linkColor == null) linkColor = java.awt.Color.BLUE;
-        b.setForeground(linkColor);
+        if (!Boolean.TRUE.equals(b.getClientProperty(PRIMARY_BUTTON_KEY))) {
+            b.setForeground(linkColor);
+        }
 
         // Disabled icon handling for SVG/themed icons
         javax.swing.Icon ic = b.getIcon();
@@ -300,6 +304,24 @@ public class SwingUtil {
                 javax.swing.Icon dis = disabledIconFor(cur);
                 b.setDisabledIcon(dis);
             }
+        });
+    }
+
+    /**
+     * Apply the primary button visual style: bright blue background and white text.
+     *
+     * This method only changes the background and foreground colors and schedules the update on the EDT.
+     */
+    public static void applyPrimaryButtonStyle(@org.jetbrains.annotations.Nullable javax.swing.JButton b) {
+        if (b == null) return;
+
+        // Ensure material-style walker will not override the foreground for this button.
+        // Marking the component also avoids losing other material/default behavior.
+        runOnEdt(() -> {
+            b.putClientProperty(PRIMARY_BUTTON_KEY, true);
+            // Bright blue (hex #007BFF) and white text. We intentionally do not alter any other properties.
+            b.setBackground(new java.awt.Color(0x007BFF));
+            b.setForeground(java.awt.Color.WHITE);
         });
     }
 }
