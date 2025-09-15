@@ -83,9 +83,7 @@ public final class CpgCache {
      */
     private static String computeHash(IProject project, Language lang) throws IOException, NoSuchAlgorithmException {
         // Collect all relevant project files first (serial); order does not matter here.
-        List<ProjectFile> files = project.getAllFiles().stream()
-                .filter(pf -> lang.getExtensions().contains(pf.extension()))
-                .toList();
+        List<ProjectFile> files = project.getFiles(lang).stream().toList();
 
         // Hash individual files in parallel.
         List<String> perFileEntries = files.parallelStream()

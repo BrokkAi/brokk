@@ -252,11 +252,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     continue;
                 }
                 // Filter tracked files relevant to this language
-                List<ProjectFile> tracked = project.getAllFiles().stream()
-                        .filter(pf -> lang.getExtensions()
-                                .contains(com.google.common.io.Files.getFileExtension(
-                                        pf.absPath().toString())))
-                        .toList();
+                List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
                 if (isStale(lang, cpgPath, tracked)) // cache older than sources
                 needsRebuild = true;
             }
