@@ -116,12 +116,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                             long startTime = System.currentTimeMillis();
                             IAnalyzer result = incAnalyzer.update();
                             long duration = System.currentTimeMillis() - startTime;
-                            if (duration > 1000) {
-                                logger.info(
-                                        "Library ingestion: {} analyzer refresh completed in {}ms",
-                                        getLanguageDescription(),
-                                        duration);
-                            }
+                            logger.info(
+                                    "Library ingestion: {} analyzer refresh completed in {}ms",
+                                    getLanguageDescription(),
+                                    duration);
                             return result;
                         })
                         .orElse(analyzer);
@@ -169,13 +167,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                             long startTime = System.currentTimeMillis();
                             IAnalyzer result = incAnalyzer.update(relevantFiles);
                             long duration = System.currentTimeMillis() - startTime;
-                            if (duration > 1000) {
-                                logger.info(
-                                        "Library ingestion: {} analyzer processed {} files in {}ms",
-                                        getLanguageDescription(),
-                                        relevantFiles.size(),
-                                        duration);
-                            }
+                            logger.info(
+                                    "Library ingestion: {} analyzer processed {} files in {}ms",
+                                    getLanguageDescription(),
+                                    relevantFiles.size(),
+                                    duration);
                             return result;
                         })
                         .orElse(analyzer);
@@ -580,13 +576,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                         long startTime = System.currentTimeMillis();
                         IAnalyzer result = incAnalyzer.update(changedFiles);
                         long duration = System.currentTimeMillis() - startTime;
-                        if (duration > 1000) {
-                            logger.info(
-                                    "Library ingestion: {} analyzer processed {} files in {}ms",
-                                    getLanguageDescription(),
-                                    changedFiles.size(),
-                                    duration);
-                        }
+                        logger.info(
+                                "Library ingestion: {} analyzer processed {} files in {}ms",
+                                getLanguageDescription(),
+                                changedFiles.size(),
+                                duration);
                         return result;
                     })
                     .orElse(analyzer);

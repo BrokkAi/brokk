@@ -2182,11 +2182,8 @@ public abstract class TreeSitterAnalyzer
                             log.error("Cannot set TSLanguage for {}", file);
                             continue;
                         }
-
                         var analysisResult = analyzeFileDeclarations(file, localParser);
-
                         ingestAnalysisResult(file, analysisResult);
-
                     } catch (IOException e) {
                         log.warn("IO error re-analysing {}: {}", file, e.getMessage());
                     } catch (RuntimeException e) {
