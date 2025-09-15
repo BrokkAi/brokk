@@ -33,4 +33,5 @@ public final class Icons {
     public static final Icon MANAGE_DEPENDENCIES = SwingUtil.uiIcon("Brokk.dependencies");
     public static final Icon ADD = SwingUtil.uiIcon("Brokk.add");
     public static final Icon REMOVE = SwingUtil.uiIcon("Brokk.remove");
+    public static final Icon FETCH = SwingUtil.uiIcon("Brokk.fetch");
 }
