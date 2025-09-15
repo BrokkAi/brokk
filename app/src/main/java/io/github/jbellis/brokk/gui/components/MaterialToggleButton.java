@@ -85,7 +85,6 @@ public class MaterialToggleButton extends JToggleButton {
         // Prefer an explicitly set color; otherwise try to match the tab selection indicator color,
         // then accent/focus colors; finally a lighter blue as a fallback.
         Color c = UIManager.getColor("Button.focus");
-    
         if (c == null) {
             c = new Color(0x64B5F6); // fallback lighter blue
         }
@@ -93,10 +92,9 @@ public class MaterialToggleButton extends JToggleButton {
     }
 
     /**
-     * When true, the button behaves like an icon-only toolbar toggle:
-     * - LAF background is shown only on hover
-     * - A left-edge highlight bar is drawn only when selected
-     * When false, the button uses standard LAF painting for all states.
+     * When true, the button behaves like an icon-only toolbar toggle: - LAF background is shown only on hover - A
+     * left-edge highlight bar is drawn only when selected When false, the button uses standard LAF painting for all
+     * states.
      */
     public void setBorderHighlightOnly(boolean borderHighlightOnly) {
         this.borderHighlightOnly = borderHighlightOnly;
