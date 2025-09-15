@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -14,6 +15,7 @@ public class BackgroundGitHubAuth {
 
     private static @Nullable CompletableFuture<Void> currentAuthFuture;
     private static @Nullable GitHubDeviceFlowService currentService;
+    private static @Nullable ScheduledExecutorService currentExecutor;
     private static final Object authLock = new Object();
 
     static {
@@ -35,8 +37,13 @@ public class BackgroundGitHubAuth {
             // Cancel any existing background authentication
             cancelCurrentAuthUnsafe();
 
-            // Create new service for this authentication using Brokk's executor
-            var executor = (ScheduledExecutorService) contextManager.getBackgroundTasks();
+            // Create new service for this authentication with dedicated scheduler
+            var executor = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "BackgroundGitHubAuth-Scheduler");
+                t.setDaemon(true);
+                return t;
+            });
+            currentExecutor = executor;
             currentService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId(), executor);
 
             // Start polling in background
@@ -66,6 +73,12 @@ public class BackgroundGitHubAuth {
         }
 
         currentService = null;
+
+        var executor = currentExecutor;
+        if (executor != null) {
+            executor.shutdown();
+            currentExecutor = null;
+        }
 
         currentAuthFuture = null;
     }
@@ -121,6 +134,12 @@ public class BackgroundGitHubAuth {
         synchronized (authLock) {
             currentAuthFuture = null;
             currentService = null;
+
+            var executor = currentExecutor;
+            if (executor != null) {
+                executor.shutdown();
+                currentExecutor = null;
+            }
         }
     }
 }

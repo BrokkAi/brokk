@@ -12,6 +12,7 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -59,6 +60,7 @@ public class GitHubAuthDialog extends JDialog {
     private @Nullable CompletableFuture<Void> authenticationFuture;
     private @Nullable DeviceFlowModels.DeviceCodeResponse currentDeviceCodeResponse;
     private final IContextManager contextManager;
+    private final ScheduledExecutorService scheduledExecutor;
 
     public GitHubAuthDialog(Window parent, IContextManager contextManager) {
         this(parent, contextManager, GitHubAuthConfig.getClientId());
@@ -71,6 +73,11 @@ public class GitHubAuthDialog extends JDialog {
         logger.info("Initializing GitHub Auth Dialog with client_id: {}", clientId);
 
         this.contextManager = contextManager;
+        this.scheduledExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "GitHubAuth-Scheduler");
+            t.setDaemon(true);
+            return t;
+        });
         this.statusLabel = new JLabel();
         this.userCodeLabel = new JLabel();
         this.instructionsLabel = new JLabel();
@@ -86,8 +93,7 @@ public class GitHubAuthDialog extends JDialog {
         setLocationRelativeTo(parent);
         setResizable(false);
 
-        var executor = (ScheduledExecutorService) contextManager.getBackgroundTasks();
-        this.deviceFlowService = new GitHubDeviceFlowService(clientId, executor);
+        this.deviceFlowService = new GitHubDeviceFlowService(clientId, scheduledExecutor);
         updateStatus(AuthStatus.STARTING);
     }
 
@@ -363,6 +369,8 @@ public class GitHubAuthDialog extends JDialog {
         if (authenticationFuture != null && !authenticationFuture.isDone()) {
             authenticationFuture.cancel(true);
         }
+
+        scheduledExecutor.shutdown();
     }
 
     @Override

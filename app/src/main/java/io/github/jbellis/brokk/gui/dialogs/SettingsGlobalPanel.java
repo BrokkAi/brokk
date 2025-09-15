@@ -443,9 +443,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private void startGitHubIntegration() {
         logger.info("Starting inline GitHub integration");
 
-        // Initialize device flow service
-        var executor = (java.util.concurrent.ScheduledExecutorService)
-                chrome.getContextManager().getBackgroundTasks();
+        // Initialize device flow service with dedicated scheduler
+        var executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "SettingsGitHubAuth-Scheduler");
+            t.setDaemon(true);
+            return t;
+        });
         deviceFlowService = new GitHubDeviceFlowService(GitHubAuthConfig.getClientId(), executor);
 
         // Start device code request in background
