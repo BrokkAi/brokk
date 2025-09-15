@@ -40,15 +40,6 @@
     </Logger>
 
     <!-- Suppress verbose external library logs -->
-    <Logger name="io.joern" level="error" additivity="false">
-      <AppenderRef ref="SkeletonPrinterFileLogger"/>
-    </Logger>
-    <Logger name="io.shiftleft" level="error" additivity="false">
-      <AppenderRef ref="SkeletonPrinterFileLogger"/>
-    </Logger>
-    <Logger name="flatgraph" level="error" additivity="false">
-      <AppenderRef ref="SkeletonPrinterFileLogger"/>
-    </Logger>
     <Logger name="org.eclipse" level="error" additivity="false">
       <AppenderRef ref="SkeletonPrinterFileLogger"/>
     </Logger>
