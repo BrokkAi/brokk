@@ -98,7 +98,10 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
-        this.copyButton = new JButton("Copy");
+        this.copyButton = new JButton();
+        SwingUtilities.invokeLater(() -> {
+            this.copyButton.setIcon(Icons.CONTENT_COPY);
+        });
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
 
@@ -647,7 +650,10 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new JButton("Capture");
+        var captureButton = new JButton();
+        SwingUtilities.invokeLater(() -> {
+            captureButton.setIcon(Icons.CONTENT_CAPTURE);
+        });
         captureButton.setMnemonic(KeyEvent.VK_C);
         captureButton.setToolTipText("Add the output to context");
         captureButton.addActionListener(e -> {
@@ -658,7 +664,10 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new JButton("Open in New Window");
+        var openWindowButton = new JButton();
+        SwingUtilities.invokeLater(() -> {
+            openWindowButton.setIcon(Icons.OPEN_IN_NEW_WINDOW);
+        });
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
@@ -885,7 +894,8 @@ public class HistoryOutputPanel extends JPanel {
                 toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
                 toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
 
-                JButton captureButton = new JButton("Capture");
+                JButton captureButton = new JButton();
+                SwingUtilities.invokeLater(() -> captureButton.setIcon(Icons.CONTENT_CAPTURE));
                 captureButton.setToolTipText("Add the output to context");
                 captureButton.addActionListener(e -> {
                     parentPanel.contextManager.captureTextFromContextAsync();
