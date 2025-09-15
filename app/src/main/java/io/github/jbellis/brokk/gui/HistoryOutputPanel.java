@@ -655,15 +655,15 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
             if (llmStreamArea.isBlocking()) {
-                        openOutputWindowStreaming();
-                    } else {
-                        var context = contextManager.selectedContext();
-                        if (context == null) {
-                            logger.warn("Cannot open output in new window: current context is null.");
-                            return;
-                        }
-                        openOutputWindowFromContext(context);
-                    }
+                openOutputWindowStreaming();
+            } else {
+                var context = contextManager.selectedContext();
+                if (context == null) {
+                    logger.warn("Cannot open output in new window: current context is null.");
+                    return;
+                }
+                openOutputWindowFromContext(context);
+            }
         });
         // Set minimum size
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
@@ -804,8 +804,7 @@ public class HistoryOutputPanel extends JPanel {
     private void openOutputWindowStreaming() {
         // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
-        var tempFragment =
-                new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
         var history = contextManager.topContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
@@ -838,7 +837,6 @@ public class HistoryOutputPanel extends JPanel {
          * @param isDark Whether to use dark theme
          * @param isBlockingMode Whether the window shows a streaming (in-progress) output
          */
-
         public OutputWindow(
                 HistoryOutputPanel parentPanel,
                 List<TaskEntry> history,
@@ -872,7 +870,6 @@ public class HistoryOutputPanel extends JPanel {
             SwingUtilities.invokeLater(() -> {
                 outputPanel.replaceHistory(history);
             });
-
 
             // Create toolbar panel with capture button if not in blocking mode
             JPanel toolbarPanel = null;
