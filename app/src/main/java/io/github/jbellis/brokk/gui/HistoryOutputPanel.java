@@ -41,7 +41,6 @@ import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.checkerframework.checker.units.qual.s;
 import org.jetbrains.annotations.Nullable;
 
 /** A component that combines the context history panel with the output panel using BorderLayout. */
@@ -655,7 +654,7 @@ public class HistoryOutputPanel extends JPanel {
 
         // "Capture" button
         var captureButton = new MaterialButton();
-                SwingUtilities.invokeLater(() -> {
+        SwingUtilities.invokeLater(() -> {
             captureButton.setIcon(Icons.CONTENT_CAPTURE);
         });
         captureButton.setMnemonic(KeyEvent.VK_C);

@@ -201,9 +201,9 @@ public class GitLogTab extends JPanel {
         fetchButton.setText(""); // icon-only
         fetchButton.setMargin(new Insets(2, 2, 2, 2)); // small padding to match other material buttons
         // More descriptive tooltip and accessible description
-        fetchButton.setToolTipText("<html><b>Fetch (all remotes)</b><br/>" +
-                "Download updates from all remotes. This fetches objects and refs but does not merge or modify " +
-                "local branches. Use to update remote refs, discover new branches or tags.</html>");
+        fetchButton.setToolTipText("<html><b>Fetch (all remotes)</b><br/>"
+                + "Download updates from all remotes. This fetches objects and refs but does not merge or modify "
+                + "local branches. Use to update remote refs, discover new branches or tags.</html>");
         branchButtonPanel.add(fetchButton);
         branchesPanel.add(branchButtonPanel, BorderLayout.SOUTH);
 

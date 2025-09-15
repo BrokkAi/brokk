@@ -38,5 +38,4 @@ public final class Icons {
     public static final Icon OPEN_NEW_WINDOW = SwingUtil.uiIcon("Brokk.open_in_new_window");
     public static final Icon UNDO = SwingUtil.uiIcon("Brokk.undo");
     public static final Icon REDO = SwingUtil.uiIcon("Brokk.redo");
-
 }
