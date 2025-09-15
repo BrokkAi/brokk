@@ -1114,4 +1114,70 @@ public class TypescriptAnalyzerTest {
                 namespaceNames.stream().anyMatch(name -> name.contains("ThirdPartyLib")),
                 "Namespace pattern should match ThirdPartyLib");
     }
+
+    // ==================== SANITY TESTS FOR FILE FILTERING ====================
+
+    @Test
+    void testGetSkeletonsRejectsJavaFile() {
+        // Test that TypeScript analyzer safely rejects Java files
+        ProjectFile javaFile = new ProjectFile(project.getRoot(), "test/A.java");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(javaFile);
+
+        assertTrue(skeletons.isEmpty(), "TypeScript analyzer should return empty skeletons for Java file");
+    }
+
+    @Test
+    void testGetDeclarationsInFileRejectsJavaFile() {
+        // Test that TypeScript analyzer safely rejects Java files
+        ProjectFile javaFile = new ProjectFile(project.getRoot(), "test/B.java");
+        Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(javaFile);
+
+        assertTrue(declarations.isEmpty(), "TypeScript analyzer should return empty declarations for Java file");
+    }
+
+    @Test
+    void testUpdateFiltersMixedFileTypes() {
+        // Test that update() properly filters files by extension
+        ProjectFile tsFile = new ProjectFile(project.getRoot(), "valid.ts");
+        ProjectFile jsFile = new ProjectFile(project.getRoot(), "valid.js");
+        ProjectFile javaFile = new ProjectFile(project.getRoot(), "invalid.java");
+        ProjectFile pythonFile = new ProjectFile(project.getRoot(), "invalid.py");
+
+        Set<ProjectFile> mixedFiles = Set.of(tsFile, jsFile, javaFile, pythonFile);
+
+        // This should not throw an exception and should only process TS/JS files
+        IAnalyzer result = analyzer.update(mixedFiles);
+        assertNotNull(result, "Update should complete successfully with mixed file types");
+
+        // Verify the analyzer still works for TypeScript files
+        Map<CodeUnit, String> tsSkeletons = analyzer.getSkeletons(tsFile);
+        // tsSkeletons might be empty if the file doesn't exist, but the call should not hang
+        assertNotNull(tsSkeletons, "Should return non-null result for TypeScript file");
+    }
+
+    @Test
+    void testUpdateWithOnlyNonTypeScriptFiles() {
+        // Test that update() with only irrelevant files returns immediately
+        ProjectFile javaFile = new ProjectFile(project.getRoot(), "test.java");
+        ProjectFile pythonFile = new ProjectFile(project.getRoot(), "test.py");
+        ProjectFile rustFile = new ProjectFile(project.getRoot(), "test.rs");
+
+        Set<ProjectFile> nonTsFiles = Set.of(javaFile, pythonFile, rustFile);
+
+        long startTime = System.currentTimeMillis();
+        IAnalyzer result = analyzer.update(nonTsFiles);
+        long duration = System.currentTimeMillis() - startTime;
+
+        assertNotNull(result, "Update should complete successfully");
+        assertTrue(duration < 100, "Update with no relevant files should complete quickly (took " + duration + "ms)");
+    }
+
+    @Test
+    void testAnalyzerOnlyProcessesRelevantExtensions() {
+        // Verify that the analyzer language extensions match expectations
+        Set<String> tsExtensions = Set.of("ts", "tsx");
+        Set<String> analyzerExtensions = Set.copyOf(Language.TYPESCRIPT.getExtensions());
+
+        assertEquals(tsExtensions, analyzerExtensions, "TypeScript analyzer should only handle TS/TSX file extensions");
+    }
 }

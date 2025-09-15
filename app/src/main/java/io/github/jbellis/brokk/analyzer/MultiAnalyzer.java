@@ -205,9 +205,26 @@ public class MultiAnalyzer
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-        for (var an : delegates.values()) {
-            an.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> incAnalyzer.update(changedFiles));
+
+        for (var entry : delegates.entrySet()) {
+            var delegateKey = entry.getKey();
+            var analyzer = entry.getValue();
+
+            // Filter files by language extensions
+            var languageExtensions = delegateKey.getExtensions();
+            var relevantFiles = changedFiles.stream()
+                    .filter(pf -> languageExtensions.contains(pf.extension()))
+                    .collect(Collectors.toSet());
+
+            if (relevantFiles.isEmpty()) {
+                continue;
+            }
+
+            analyzer.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> {
+                incAnalyzer.update(relevantFiles);
+            });
         }
+
         return this;
     }
 
