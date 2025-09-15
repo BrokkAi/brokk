@@ -42,6 +42,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import com.formdev.flatlaf.util.SwingUtils;
+
 /** A component that combines the context history panel with the output panel using BorderLayout. */
 public class HistoryOutputPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
@@ -109,8 +111,14 @@ public class HistoryOutputPanel extends JPanel {
         };
         this.historyTable = new JTable(this.historyModel);
         this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
-        this.undoButton = new JButton("Undo");
-        this.redoButton = new JButton("Redo");
+        this.undoButton = new JButton();
+        SwingUtilities.invokeLater(() -> {
+            this.undoButton.setIcon(Icons.UNDO);
+        });
+        this.redoButton = new JButton();
+        SwingUtilities.invokeLater(() -> {
+            this.redoButton.setIcon(Icons.REDO);
+        });
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("New");
         this.manageSessionsButton = new SplitButton("Manage");
