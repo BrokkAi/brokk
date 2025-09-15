@@ -37,8 +37,8 @@ public class GitWorktreeTab extends JPanel {
 
     private JTable worktreeTable = new JTable();
     private DefaultTableModel worktreeTableModel = new DefaultTableModel();
-    private JButton addButton = new JButton();
-    private JButton removeButton = new JButton();
+    private MaterialButton addButton = new MaterialButton();
+    private MaterialButton removeButton = new MaterialButton();
     private MaterialButton openButton = new MaterialButton(); // Added
     private MaterialButton refreshButton = new MaterialButton(); // Added
 
@@ -212,11 +212,13 @@ public class GitWorktreeTab extends JPanel {
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS));
 
         // Initialize field buttons (their properties like text, tooltip, listener)
-        addButton = new JButton("+");
+        addButton = new MaterialButton();
+        addButton.setIcon(Icons.ADD);
         addButton.setToolTipText("Add new worktree");
         addButton.addActionListener(e -> addWorktree());
 
-        removeButton = new JButton("-");
+        removeButton = new MaterialButton();
+        removeButton.setIcon(Icons.REMOVE);
         removeButton.setToolTipText("Remove selected worktree(s)");
         removeButton.setEnabled(false); // Initially disabled
         removeButton.addActionListener(e -> removeWorktree());
