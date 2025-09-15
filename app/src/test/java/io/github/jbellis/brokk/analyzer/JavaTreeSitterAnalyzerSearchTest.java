@@ -26,7 +26,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         final var testPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
-        testProject = new TestProject(testPath, Language.JAVA);
+        testProject = new TestProject(testPath, Languages.JAVA);
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());

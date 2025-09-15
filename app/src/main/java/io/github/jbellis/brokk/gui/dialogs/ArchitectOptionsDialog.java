@@ -7,35 +7,21 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
-import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
+import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.util.Environment;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.FlowLayout;
-import java.awt.GridLayout;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.KeyStroke;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,7 +30,7 @@ public class ArchitectOptionsDialog {
 
     private static boolean isCodeIntelConfigured(IProject project) {
         var langs = project.getAnalyzerLanguages();
-        return !langs.isEmpty() && !(langs.size() == 1 && langs.contains(Language.NONE));
+        return !langs.isEmpty() && !(langs.size() == 1 && langs.contains(Languages.NONE));
     }
 
     /**
@@ -62,7 +48,10 @@ public class ArchitectOptionsDialog {
 
         SwingUtil.runOnEdt(() -> {
             var project = chrome.getProject();
-            var isCpg = contextManager.getAnalyzerWrapper().isCpg();
+
+            final var supportsInterproceduralAnalysis =
+                    contextManager.getAnalyzerWrapper().providesInterproceduralAnalysis();
+
             boolean codeIntelConfigured = isCodeIntelConfigured(project);
 
             var currentOptions = project.getArchitectOptions();
@@ -125,11 +114,11 @@ public class ArchitectOptionsDialog {
                     "Code Intelligence Tools",
                     "Allow direct querying of code structure (e.g., find usages, call graphs)");
             analyzerCb.setSelected(currentOptions.includeAnalyzerTools() && codeIntelConfigured);
-            analyzerCb.setEnabled(isCpg && codeIntelConfigured);
+            analyzerCb.setEnabled(supportsInterproceduralAnalysis && codeIntelConfigured);
             if (!codeIntelConfigured) {
                 analyzerCb.setToolTipText(
                         "Code Intelligence is not configured. Please configure languages in Project Settings.");
-            } else if (!isCpg) {
+            } else if (!supportsInterproceduralAnalysis) {
                 analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available"
                         .formatted(project.getAnalyzerLanguages()));
             }
@@ -220,6 +209,37 @@ public class ArchitectOptionsDialog {
             mainPanel.add(Box.createVerticalStrut(10));
             mainPanel.add(gitToolsPanel);
 
+            // MCP Tools section
+            mainPanel.add(Box.createVerticalStrut(10));
+            var mcpToolsPanel = createTitledGroupPanel("MCP Tools");
+            var mcpServers = project.getMcpConfig().servers();
+            final var serverCheckboxMap = new LinkedHashMap<JCheckBox, McpServer>();
+            var preselectedMcpTools = currentOptions.selectedMcpTools();
+
+            if (mcpServers.isEmpty()) {
+                mcpToolsPanel.add(new JLabel("No MCP servers configured in Settings."));
+            } else {
+                var selectionPanel = new JPanel();
+                selectionPanel.setLayout(new BoxLayout(selectionPanel, BoxLayout.Y_AXIS));
+                selectionPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
+
+                for (var server : mcpServers) {
+                    var checkbox = new JCheckBox(server.name());
+                    // Pre-select if any previously selected tool belongs to this server
+                    boolean preselect = preselectedMcpTools.stream()
+                            .anyMatch(t -> t.server().equals(server));
+                    checkbox.setSelected(preselect);
+                    serverCheckboxMap.put(checkbox, server);
+                    selectionPanel.add(checkbox);
+                }
+
+                var scrollPane = new JScrollPane(selectionPanel);
+                scrollPane.setPreferredSize(new Dimension(300, 150));
+                mcpToolsPanel.add(scrollPane);
+            }
+
+            mainPanel.add(mcpToolsPanel);
+
             dialog.add(new JScrollPane(mainPanel), BorderLayout.CENTER);
 
             // Buttons
@@ -272,19 +292,33 @@ public class ArchitectOptionsDialog {
 
                 project.setArchitectModelConfig(selectedPlanning);
 
+                var selectedMcpTools = new ArrayList<ArchitectAgent.McpTool>();
+                for (var entry : serverCheckboxMap.entrySet()) {
+                    if (entry.getKey().isSelected()) {
+                        var server = entry.getValue();
+                        var tools = server.tools();
+                        if (tools != null) {
+                            for (var toolName : tools) {
+                                selectedMcpTools.add(new ArchitectAgent.McpTool(server, toolName));
+                            }
+                        }
+                    }
+                }
+
                 var selectedOptions = new ArchitectAgent.ArchitectOptions(
                         selectedPlanning,
                         selectedCode,
                         contextCb.isSelected(),
                         validationCb.isSelected(),
-                        isCpg && codeIntelConfigured && analyzerCb.isSelected(),
+                        supportsInterproceduralAnalysis && codeIntelConfigured && analyzerCb.isSelected(),
                         workspaceCb.isSelected(),
                         codeCb.isSelected(),
                         searchCb.isSelected(),
                         askHumanCb.isSelected(),
                         commitCb.isSelected(),
                         prCb.isSelected(),
-                        shellCb.isSelected());
+                        shellCb.isSelected(),
+                        selectedMcpTools);
 
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 

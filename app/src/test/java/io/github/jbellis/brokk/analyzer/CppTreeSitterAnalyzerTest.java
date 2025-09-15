@@ -32,7 +32,7 @@ public class CppTreeSitterAnalyzerTest {
         final var testPath =
                 Path.of("src/test/resources/testcode-cpp").toAbsolutePath().normalize();
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-cpp' not found.");
-        testProject = new TestProject(testPath, Language.CPP_TREESITTER);
+        testProject = new TestProject(testPath, Languages.CPP_TREESITTER);
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());

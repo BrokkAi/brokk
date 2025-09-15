@@ -139,7 +139,7 @@ public final class MergeOneFile {
 
         // Tool exposure
         var allowed = new ArrayList<String>();
-        if (cm.getAnalyzerWrapper().isCpg()) {
+        if (cm.getAnalyzerWrapper().providesSummaries()) {
             allowed.addAll(List.of("getClassSkeletons", "getClassSources", "getMethodSources"));
         } else {
             allowed.addAll(List.of("getFileContents", "getFileSummaries"));

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -140,7 +141,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default CpgRefresh getAnalyzerRefresh() {
+    default AnalyzerRefresh getAnalyzerRefresh() {
         throw new UnsupportedOperationException();
     }
 
@@ -148,7 +149,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default void setAnalyzerRefresh(CpgRefresh cpgRefresh) {}
+    default void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {}
 
     default boolean isDataShareAllowed() {
         return false;
@@ -310,6 +311,15 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    // MCP server configuration for this project
+    default McpConfig getMcpConfig() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setMcpConfig(McpConfig config) {
+        throw new UnsupportedOperationException();
+    }
+
     // New methods for the IssueProvider record
     default io.github.jbellis.brokk.IssueProvider
             getIssuesProvider() { // Method name clash is intentional record migration
@@ -336,7 +346,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    enum CpgRefresh {
+    enum AnalyzerRefresh {
         AUTO,
         ON_RESTART,
         MANUAL,

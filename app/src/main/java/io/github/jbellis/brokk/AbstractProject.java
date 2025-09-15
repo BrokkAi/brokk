@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -370,7 +371,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
         if (configured != null && !configured.isBlank()) {
             try {
-                return Language.valueOf(configured);
+                return Languages.valueOf(configured);
             } catch (IllegalArgumentException e) {
                 logger.warn("Invalid build language '{}' in workspace properties for {}", configured, root);
             }
@@ -425,17 +426,17 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     .map(pf -> com.google.common.io.Files.getFileExtension(
                             pf.absPath().toString()))
                     .filter(ext -> !ext.isEmpty())
-                    .map(Language::fromExtension)
-                    .filter(lang -> lang != Language.NONE)
+                    .map(Languages::fromExtension)
+                    .filter(lang -> lang != Languages.NONE)
                     .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
 
             return counts.entrySet().stream()
                     .max(Map.Entry.comparingByValue())
                     .map(Map.Entry::getKey)
-                    .orElse(Language.NONE);
+                    .orElse(Languages.NONE);
         } catch (Exception e) {
             logger.warn("Failed to compute most common language for {}: {}", root, e.getMessage());
-            return Language.NONE;
+            return Languages.NONE;
         }
     }
 

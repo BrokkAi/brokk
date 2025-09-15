@@ -21,8 +21,10 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.FileVisitResult;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Predicate;
@@ -66,14 +68,7 @@ public class ImportDependencyDialog {
         private final Path dependenciesRoot;
 
         // Tabs
-        @Nullable
-        private ImportJavaPanel javaPanel;
-
-        @Nullable
-        private ImportRustPanel rustPanel;
-
-        @Nullable
-        private ImportPythonPanel pythonPanel;
+        private final Map<Language, ImportLanguagePanel> languagePanels = new LinkedHashMap<>();
 
         @Nullable
         private JPanel gitPanel;
@@ -117,49 +112,31 @@ public class ImportDependencyDialog {
             var mainPanel = new JPanel(new BorderLayout());
             mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-            // Tabs in order: Java / Python / Rust / Repository / Local Directory
-            if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {
-                javaPanel = new ImportJavaPanel(chrome);
-                javaPanel.setLifecycleListener(listener);
-                javaPanel.addSelectionListener(path -> updateImportButtonState());
-                javaPanel.addDoubleClickListener(() -> {
-                    if (importButton.isEnabled() && tabbedPane.getSelectedComponent() == javaPanel) {
-                        if (requireNonNull(javaPanel).initiateImport()) {
-                            dialog.dispose();
+            // Dynamically add language tabs only when candidates exist.
+            var project = chrome.getProject();
+            for (var lang : project.getAnalyzerLanguages()) {
+                try {
+                    var candidates = lang.getDependencyCandidates(project);
+                    if (candidates.isEmpty()) continue; // requirement: skip languages with no candidates
+
+                    var lp = new ImportLanguagePanel(chrome, lang);
+                    lp.setLifecycleListener(listener);
+                    lp.addSelectionListener(pkg -> updateImportButtonState());
+                    lp.addDoubleClickListener(() -> {
+                        if (importButton.isEnabled() && tabbedPane.getSelectedComponent() == lp) {
+                            if (lp.initiateImport()) dialog.dispose();
                         }
-                    }
-                });
-                tabbedPane.addTab("JAR", javaPanel);
+                    });
+
+                    languagePanels.put(lang, lp);
+                    tabbedPane.addTab(lang.name(), lp);
+                } catch (Exception ex) {
+                    logger.debug(
+                            "Skipping language {} due to candidate discovery error: {}", lang.name(), ex.toString());
+                }
             }
 
-            if (chrome.getProject().getAnalyzerLanguages().contains(Language.PYTHON)) {
-                pythonPanel = new ImportPythonPanel(chrome);
-                pythonPanel.setLifecycleListener(listener);
-                pythonPanel.addSelectionListener(pkg -> updateImportButtonState());
-                pythonPanel.addDoubleClickListener(() -> {
-                    if (importButton.isEnabled() && tabbedPane.getSelectedComponent() == pythonPanel) {
-                        if (requireNonNull(pythonPanel).initiateImport()) {
-                            dialog.dispose();
-                        }
-                    }
-                });
-                tabbedPane.addTab("VENV", pythonPanel);
-            }
-
-            if (chrome.getProject().getAnalyzerLanguages().contains(Language.RUST)) {
-                rustPanel = new ImportRustPanel(chrome);
-                rustPanel.setLifecycleListener(listener);
-                rustPanel.addSelectionListener(pkg -> updateImportButtonState());
-                rustPanel.addDoubleClickListener(() -> {
-                    if (importButton.isEnabled() && tabbedPane.getSelectedComponent() == rustPanel) {
-                        if (requireNonNull(rustPanel).initiateImport()) {
-                            dialog.dispose();
-                        }
-                    }
-                });
-                tabbedPane.addTab("Cargo", rustPanel);
-            }
-
+            // Repository + Local Directory tabs
             gitPanel = createGitPanel();
             tabbedPane.addTab("Repository", gitPanel);
 
@@ -173,25 +150,11 @@ public class ImportDependencyDialog {
             // Buttons
             importButton.setEnabled(false);
             importButton.addActionListener(e -> {
-                // Detect selected tab by component instance.
                 var comp = tabbedPane.getSelectedComponent();
-                if (comp == javaPanel) {
-                    if (requireNonNull(javaPanel).initiateImport()) {
+                if (comp instanceof ImportLanguagePanel lp) {
+                    if (lp.initiateImport()) {
                         dialog.dispose();
                     } else {
-                        importButton.setEnabled(true);
-                    }
-                } else if (comp == pythonPanel) {
-                    if (requireNonNull(pythonPanel).initiateImport()) {
-                        dialog.dispose();
-                    } else {
-                        importButton.setEnabled(true);
-                    }
-                } else if (comp == rustPanel) {
-                    if (requireNonNull(rustPanel).initiateImport()) {
-                        dialog.dispose();
-                    } else {
-                        // keep dialog open so user can run cargo build and retry
                         importButton.setEnabled(true);
                     }
                 } else if (comp == gitPanel) {
@@ -372,12 +335,8 @@ public class ImportDependencyDialog {
         private void updateImportButtonState() {
             var comp = tabbedPane.getSelectedComponent();
             boolean enabled;
-            if (comp == javaPanel) {
-                enabled = requireNonNull(javaPanel).getSelectedJar() != null;
-            } else if (comp == pythonPanel) {
-                enabled = requireNonNull(pythonPanel).getSelectedPackage() != null;
-            } else if (comp == rustPanel) {
-                enabled = requireNonNull(rustPanel).getSelectedPackage() != null;
+            if (comp instanceof ImportLanguagePanel lp) {
+                enabled = lp.getSelectedPackage() != null;
             } else if (comp == gitPanel) {
                 enabled = remoteInfo != null && requireNonNull(gitRefComboBox).getSelectedItem() != null;
             } else {

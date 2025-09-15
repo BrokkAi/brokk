@@ -114,7 +114,7 @@ public class MultiAnalyzer
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        var lang = Language.fromExtension(Files.getFileExtension(file.absPath().toString()));
+        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
         if (delegate == null) {
             return Collections.emptyMap();
@@ -145,7 +145,7 @@ public class MultiAnalyzer
 
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
-        var lang = Language.fromExtension(
+        var lang = Languages.fromExtension(
                 com.google.common.io.Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
         if (delegate != null) {

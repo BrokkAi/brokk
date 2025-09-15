@@ -35,7 +35,7 @@ public class ExtractClassNameTest {
     @Test
     @DisplayName("Java analyzer - extractClassName with various method references")
     void testJavaAnalyzerExtractClassName() {
-        var analyzer = Language.JAVA.createAnalyzer(mockProject);
+        var analyzer = Languages.JAVA.createAnalyzer(mockProject);
 
         // Valid Java method references
         assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.myMethod"));
@@ -279,7 +279,7 @@ public class ExtractClassNameTest {
     @Test
     @DisplayName("Edge cases - whitespace and special characters")
     void testEdgeCases() {
-        var javaAnalyzer = Language.JAVA.createAnalyzer(mockProject);
+        var javaAnalyzer = Languages.JAVA.createAnalyzer(mockProject);
         var cppAnalyzer = new CppTreeSitterAnalyzer(mockProject, Set.of());
 
         // Whitespace handling

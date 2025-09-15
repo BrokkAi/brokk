@@ -1151,11 +1151,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    /** usage for identifier */
-    public void usageForIdentifier(String identifier) {
-        usageForIdentifier(identifier, false);
-    }
-
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
         var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
@@ -1364,7 +1359,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void close() {
         // we're not in a hurry when calling close(), this indicates a single window shutting down
-        closeAsync(5_000);
+        closeAsync(5_000).join();
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
@@ -1806,7 +1801,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Ensure style guide exists, generating if needed */
     private void ensureStyleGuide() {
-        if (!project.getStyleGuide().isEmpty() || !analyzerWrapper.isCpg()) {
+        if (!project.getStyleGuide().isEmpty()) {
             return;
         }
 

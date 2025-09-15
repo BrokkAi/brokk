@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
@@ -1107,7 +1108,7 @@ public class BlitzForgeDialog extends JDialog {
                 String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
                 if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
                     files = files.filter(pf -> langSel.equals(
-                            Language.fromExtension(pf.extension()).toString()));
+                            Languages.fromExtension(pf.extension()).toString()));
                 }
                 return files.toList();
             }
@@ -1128,7 +1129,7 @@ public class BlitzForgeDialog extends JDialog {
                                 return true;
                             }
                             return langSel.equals(
-                                    Language.fromExtension(pf.extension()).toString());
+                                    Languages.fromExtension(pf.extension()).toString());
                         })
                         .toList();
             }
@@ -1150,7 +1151,7 @@ public class BlitzForgeDialog extends JDialog {
         String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
         if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
             files = files.filter(
-                    pf -> langSel.equals(Language.fromExtension(pf.extension()).toString()));
+                    pf -> langSel.equals(Languages.fromExtension(pf.extension()).toString()));
         }
         long count = files.count();
         selectedFilesCountLabel.setText(count + " file" + (count == 1 ? "" : "s") + " selected");
@@ -1276,7 +1277,8 @@ public class BlitzForgeDialog extends JDialog {
                     if (ALL_LANGUAGES_OPTION.equals(langSel)) {
                         return true;
                     }
-                    return langSel.equals(Language.fromExtension(pf.extension()).toString());
+                    return langSel.equals(
+                            Languages.fromExtension(pf.extension()).toString());
                 })
                 .sorted(Comparator.comparing(ProjectFile::toString))
                 .toList();
@@ -1334,7 +1336,7 @@ public class BlitzForgeDialog extends JDialog {
             String selectedLanguageString = (String) languageComboBox.getSelectedItem();
             if (selectedLanguageString != null && !ALL_LANGUAGES_OPTION.equals(selectedLanguageString)) {
                 filesToProcess = filesToProcess.filter(pf -> {
-                    Language lang = Language.fromExtension(pf.extension());
+                    Language lang = Languages.fromExtension(pf.extension());
                     return selectedLanguageString.equals(lang.toString());
                 });
             }
@@ -1368,7 +1370,7 @@ public class BlitzForgeDialog extends JDialog {
                             return true;
                         }
                         return langSel.equals(
-                                Language.fromExtension(pf.extension()).toString());
+                                Languages.fromExtension(pf.extension()).toString());
                     })
                     .toList();
 

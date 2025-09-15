@@ -26,7 +26,7 @@ class JavaTreeSitterAnalyzerUpdateTest {
         }
         """);
 
-        project = UpdateTestUtil.newTestProject(rootDir, Language.JAVA);
+        project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
         analyzer = new JavaTreeSitterAnalyzer(project);
     }
 

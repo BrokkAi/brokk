@@ -81,7 +81,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     metrics.numberOfCodeUnits());
 
             // configure auto-refresh based on how long the first build took
-            if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
+            if (project.getAnalyzerRefresh() == IProject.AnalyzerRefresh.UNSET) {
                 handleFirstBuildRefreshSettings(
                         metrics.numberOfCodeUnits(), durationMs, project.getAnalyzerLanguages());
             }
@@ -146,7 +146,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         if (!relevantFiles.isEmpty()) {
             // update the analyzer if we're configured to do so
-            if (project.getAnalyzerRefresh() != IProject.CpgRefresh.AUTO) {
+            if (project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.AUTO) {
                 return;
             }
 
@@ -154,7 +154,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     "Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
                     relevantFiles.stream()
                             .filter(pf -> {
-                                Language lang = Language.fromExtension(pf.extension());
+                                Language lang = Languages.fromExtension(pf.extension());
                                 return projectLanguages.contains(lang);
                             })
                             .distinct()
@@ -213,12 +213,12 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
         var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Language.NONE)
+                .filter(l -> l != Languages.NONE)
                 .map(Language::name)
                 .collect(Collectors.toList());
         logger.info("Setting up analyzer for languages: {} in directory: {}", projectLangs, project.getRoot());
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
-        if (langHandle == Language.NONE) {
+        if (langHandle == Languages.NONE) {
             logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
             return new DisabledAnalyzer();
         }
@@ -236,20 +236,19 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         if (buildDetails.equals(BuildAgent.BuildDetails.EMPTY))
             logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
 
-        /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
+        /* ── 2.  Determine if any cached storage is stale ───────────────────────────────── */
         logger.debug("Scanning for modified project files");
         boolean needsRebuild = externalRebuildRequested; // explicit user request wins
-        if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
+        if (project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.MANUAL) {
             for (Language lang : project.getAnalyzerLanguages()) {
-                if (!lang.isCpg()) continue; // non‑CPG langs are rebuilt ad‑hoc
-                Path cpgPath = lang.getCpgPath(project);
-                if (!Files.exists(cpgPath)) { // no cache → rebuild
+                Path storagePath = lang.getStoragePath(project);
+                if (!Files.exists(storagePath)) { // no cache → rebuild
                     needsRebuild = true;
                     continue;
                 }
                 // Filter tracked files relevant to this language
                 List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
-                if (isStale(lang, cpgPath, tracked)) // cache older than sources
+                if (isStale(lang, storagePath, tracked)) // cache older than sources
                 needsRebuild = true;
             }
         }
@@ -302,7 +301,9 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
-        if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
+        if (needsRebuild
+                && project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.MANUAL
+                && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
             runner.submit("Refreshing Code Intelligence", () -> {
@@ -330,11 +331,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     "AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
             // Set a default refresh policy if listener is unexpectedly null
             if (isEmpty || durationMs > 3 * 6000) {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
+                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.MANUAL);
             } else if (durationMs > 5000) {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
+                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.ON_RESTART);
             } else {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
+                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.AUTO);
             }
             return;
         }
@@ -343,7 +344,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             logger.info("Empty {} analyzer", langNames);
             listener.afterFirstBuild("");
         } else if (durationMs > 3 * 6000) {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
+            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.MANUAL);
             var msg =
                     """
                             Code Intelligence for %s found %d declarations in %,d ms.
@@ -355,7 +356,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else if (durationMs > 5000) {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
+            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.ON_RESTART);
             var msg =
                     """
                             Code Intelligence for %s found %d declarations in %,d ms.
@@ -367,7 +368,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
+            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.AUTO);
             var msg =
                     """
                             Code Intelligence for %s found %d declarations in %,d ms.
@@ -376,23 +377,31 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                             dialog, or disable Code Intelligence by setting the language(s) to NONE.
                             """
                             .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
+                            .formatted(langNames, totalDeclarations, durationMs, langExtensions, Languages.NONE.name());
             listener.afterFirstBuild(msg);
             logger.info(msg);
         }
     }
 
-    public boolean isCpg() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::isCpg);
+    public boolean providesInterproceduralAnalysis() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesInterproceduralAnalysis);
+    }
+
+    public boolean providesSummaries() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSummaries);
+    }
+
+    public boolean providesSourceCode() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSourceCode);
     }
 
     /** Convenience overload that infers the language set from {@link #project}. */
     private Language getLanguageHandle() {
         var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Language.NONE)
+                .filter(l -> l != Languages.NONE)
                 .collect(Collectors.toUnmodifiableSet());
         if (projectLangs.isEmpty()) {
-            return Language.NONE;
+            return Languages.NONE;
         }
         return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
@@ -400,7 +409,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     /** Get a human-readable description of the analyzer languages for logging. */
     private String getLanguageDescription() {
         return project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Language.NONE)
+                .filter(l -> l != Languages.NONE)
                 .map(Language::name)
                 .collect(Collectors.joining("/"));
     }
@@ -419,9 +428,9 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             return true;
         }
 
-        long cpgMTime;
+        long lastModifiedTime;
         try {
-            cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
+            lastModifiedTime = Files.getLastModifiedTime(analyzerPath).toMillis();
         } catch (IOException e) {
             logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
             // Unable to read the timestamp - treat the cache as stale so that we rebuild.
@@ -436,14 +445,14 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     return true;
                 }
                 long fileMTime = Files.getLastModifiedTime(path).toMillis();
-                if (fileMTime > cpgMTime) {
+                if (fileMTime > lastModifiedTime) {
                     logger.debug(
                             "Tracked file {} for language {} is newer than its CPG {} ({} > {})",
                             path,
                             lang.name(),
                             analyzerPath,
                             fileMTime,
-                            cpgMTime);
+                            lastModifiedTime);
                     return true;
                 }
             } catch (IOException e) {

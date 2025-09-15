@@ -365,17 +365,7 @@ public class HistoryOutputPanel extends JPanel {
                     int row = historyTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
                         Context context = (Context) requireNonNull(historyModel.getValueAt(row, 2));
-                        var output = context.getParsedOutput();
-                        if (output != null) {
-                            // Open in new window
-                            String titleHint = context.getAction();
-                            new OutputWindow(
-                                    HistoryOutputPanel.this,
-                                    output,
-                                    titleHint,
-                                    chrome.themeManager.isDarkTheme(),
-                                    false);
-                        }
+                        openOutputWindowFromContext(context);
                     }
                 }
             }
@@ -665,34 +655,14 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
             if (llmStreamArea.isBlocking()) {
-                // show all = grab all messages, including reasoning for preview window
-                List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
-                var tempFragment =
-                        new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-                String titleHint = lastSpinnerMessage;
-                OutputWindow newStreamingWindow =
-                        new OutputWindow(this, tempFragment, titleHint, chrome.themeManager.isDarkTheme(), true);
-                if (lastSpinnerMessage != null) {
-                    newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
-                }
-                activeStreamingWindows.add(newStreamingWindow);
-                newStreamingWindow.addWindowListener(new WindowAdapter() {
-                    @Override
-                    public void windowClosed(WindowEvent evt) {
-                        activeStreamingWindows.remove(newStreamingWindow);
-                    }
-                });
+                openOutputWindowStreaming();
             } else {
                 var context = contextManager.selectedContext();
                 if (context == null) {
                     logger.warn("Cannot open output in new window: current context is null.");
                     return;
                 }
-                var output = context.getParsedOutput();
-                if (output != null) {
-                    String titleHint = context.getAction();
-                    new OutputWindow(this, output, titleHint, chrome.themeManager.isDarkTheme(), false);
-                }
+                openOutputWindowFromContext(context);
             }
         });
         // Set minimum size
@@ -728,7 +698,7 @@ public class HistoryOutputPanel extends JPanel {
         // prioritize rendering live area, then history
         setLlmOutput(main);
         SwingUtilities.invokeLater(() -> {
-            llmStreamArea.syncHistory(history);
+            llmStreamArea.replaceHistory(history);
         });
     }
 
@@ -812,22 +782,65 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
+    private void openOutputWindowFromContext(Context context) {
+        var taskHistory = context.getTaskHistory();
+        TaskEntry mainTask = null;
+        List<TaskEntry> historyTasks = List.of();
+        if (!taskHistory.isEmpty()) {
+            historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+            mainTask = taskHistory.getLast();
+        } else {
+            var output = context.getParsedOutput();
+            if (output != null) {
+                mainTask = new TaskEntry(-1, output, null);
+            }
+        }
+        if (mainTask != null) {
+            String titleHint = context.getAction();
+            new OutputWindow(this, historyTasks, mainTask, titleHint, chrome.themeManager.isDarkTheme(), false);
+        }
+    }
+
+    private void openOutputWindowStreaming() {
+        // show all = grab all messages, including reasoning for preview window
+        List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
+        var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var history = contextManager.topContext().getTaskHistory();
+        var mainTask = new TaskEntry(-1, tempFragment, null);
+        String titleHint = lastSpinnerMessage;
+        OutputWindow newStreamingWindow =
+                new OutputWindow(this, history, mainTask, titleHint, chrome.themeManager.isDarkTheme(), true);
+        if (lastSpinnerMessage != null) {
+            newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
+        }
+        activeStreamingWindows.add(newStreamingWindow);
+        newStreamingWindow.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent evt) {
+                activeStreamingWindows.remove(newStreamingWindow);
+            }
+        });
+    }
+
     /** Inner class representing a detached window for viewing output text */
     private static class OutputWindow extends JFrame {
         private final IProject project;
         private final MarkdownOutputPanel outputPanel;
 
         /**
-         * Creates a new output window with the given text content
+         * Creates a new output window with the given content and optional history.
          *
          * @param parentPanel The parent HistoryOutputPanel
-         * @param output The messages (ai, user, ...) to display
+         * @param history The conversation tasks to display in the history section (all but the main task)
+         * @param main The main/last task to display in the live area
          * @param titleHint A hint for the window title (e.g., task summary or spinner message)
          * @param isDark Whether to use dark theme
+         * @param isBlockingMode Whether the window shows a streaming (in-progress) output
          */
         public OutputWindow(
                 HistoryOutputPanel parentPanel,
-                ContextFragment.TaskFragment output,
+                List<TaskEntry> history,
+                TaskEntry main,
                 @Nullable String titleHint,
                 boolean isDark,
                 boolean isBlockingMode) {
@@ -852,7 +865,11 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
             outputPanel.updateTheme(isDark);
             outputPanel.setBlocking(isBlockingMode);
-            outputPanel.setText(output);
+            // Seed main content first, then history
+            outputPanel.setText(main);
+            SwingUtilities.invokeLater(() -> {
+                outputPanel.replaceHistory(history);
+            });
 
             // Create toolbar panel with capture button if not in blocking mode
             JPanel toolbarPanel = null;

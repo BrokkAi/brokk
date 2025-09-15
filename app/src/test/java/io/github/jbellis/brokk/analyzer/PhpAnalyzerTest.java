@@ -18,7 +18,7 @@ public class PhpAnalyzerTest {
 
     @BeforeAll
     static void setUp() throws IOException {
-        testProject = createTestProject("testcode-php", Language.PHP);
+        testProject = createTestProject("testcode-php", Languages.PHP);
         analyzer = new PhpAnalyzer(testProject); // This will trigger analysis
     }
 

@@ -21,7 +21,7 @@ class CppTreeSitterAnalyzerUpdateTest {
         UpdateTestUtil.writeFile(rootDir, "A.cpp", """
                 int foo() { return 1; }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Language.CPP_TREESITTER);
+        project = UpdateTestUtil.newTestProject(rootDir, Languages.CPP_TREESITTER);
         analyzer = new CppTreeSitterAnalyzer(project, new HashSet<>());
     }
 

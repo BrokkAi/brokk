@@ -713,15 +713,15 @@ public class TreeSitterRepoRunner {
             case "cpp" -> {
                 try {
                     // Try CPP_TREESITTER first, fall back to C_CPP
-                    yield Language.valueOf("CPP_TREESITTER");
+                    yield Languages.valueOf("CPP_TREESITTER");
                 } catch (IllegalArgumentException e) {
-                    yield Language.C_CPP;
+                    yield Languages.C_CPP;
                 }
             }
-            case "java" -> Language.JAVA;
-            case "typescript" -> Language.TYPESCRIPT;
-            case "javascript" -> Language.JAVASCRIPT;
-            case "python" -> Language.PYTHON;
+            case "java" -> Languages.JAVA;
+            case "typescript" -> Languages.TYPESCRIPT;
+            case "javascript" -> Languages.JAVASCRIPT;
+            case "python" -> Languages.PYTHON;
             default -> null;
         };
     }
