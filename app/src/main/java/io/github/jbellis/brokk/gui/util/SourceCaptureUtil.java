@@ -4,12 +4,16 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Shared utility for capturing source code from CodeUnits and adding them as workspace fragments. Used by both
  * ContextMenuBuilder and PreviewTextPanel to ensure consistent behavior.
  */
 public class SourceCaptureUtil {
+
+    private static final Logger logger = LoggerFactory.getLogger(SourceCaptureUtil.class);
 
     /**
      * Captures source code for the given CodeUnit and adds it as a workspace fragment.
@@ -41,6 +45,7 @@ public class SourceCaptureUtil {
                     try {
                         return provider.getSourceForCodeUnit(codeUnit).isPresent();
                     } catch (Exception e) {
+                        logger.warn("Unable to obtain source code for {}", codeUnit.fqName(), e);
                         return false;
                     }
                 })
