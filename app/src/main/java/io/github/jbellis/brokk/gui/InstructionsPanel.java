@@ -2004,7 +2004,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
         } else {
-            actionButton.setIcon(Icons.SEND);
+            actionButton.setIcon(Icons.ARROW_WARM_UP);
             actionButton.setText(null);
             actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         }
@@ -2093,7 +2093,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             KeyStroke submitKs = KeyStroke.getKeyStroke(
                                     KeyEvent.VK_ENTER,
                                     Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-                            actionButton.setIcon(Icons.SEND);
+                            actionButton.setIcon(Icons.ARROW_WARM_UP);
                             actionButton.setText(null);
                             actionButton.setToolTipText(
                                     "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
