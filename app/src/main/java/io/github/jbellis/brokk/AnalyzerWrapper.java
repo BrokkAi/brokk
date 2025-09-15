@@ -112,7 +112,18 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             refresh(() -> {
                 final var analyzer = requireNonNull(currentAnalyzer);
                 return analyzer.as(IncrementalUpdateProvider.class)
-                        .map(IncrementalUpdateProvider::update)
+                        .map(incAnalyzer -> {
+                            long startTime = System.currentTimeMillis();
+                            IAnalyzer result = incAnalyzer.update();
+                            long duration = System.currentTimeMillis() - startTime;
+                            if (duration > 1000) {
+                                logger.info(
+                                        "Library ingestion: {} analyzer refresh completed in {}ms",
+                                        getLanguageDescription(),
+                                        duration);
+                            }
+                            return result;
+                        })
                         .orElse(analyzer);
             });
         }
@@ -154,7 +165,19 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             refresh(() -> {
                 final var analyzer = requireNonNull(currentAnalyzer);
                 return analyzer.as(IncrementalUpdateProvider.class)
-                        .map(incAnalyzer -> incAnalyzer.update(relevantFiles))
+                        .map(incAnalyzer -> {
+                            long startTime = System.currentTimeMillis();
+                            IAnalyzer result = incAnalyzer.update(relevantFiles);
+                            long duration = System.currentTimeMillis() - startTime;
+                            if (duration > 1000) {
+                                logger.info(
+                                        "Library ingestion: {} analyzer processed {} files in {}ms",
+                                        getLanguageDescription(),
+                                        relevantFiles.size(),
+                                        duration);
+                            }
+                            return result;
+                        })
                         .orElse(analyzer);
             });
         } else {
@@ -382,6 +405,14 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
 
+    /** Get a human-readable description of the analyzer languages for logging. */
+    private String getLanguageDescription() {
+        return project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Language.NONE)
+                .map(Language::name)
+                .collect(Collectors.joining("/"));
+    }
+
     /**
      * Determine whether the cached analyzer for the given language is stale relative to its tracked source files and
      * any user-requested rebuilds.
@@ -549,7 +580,19 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         try {
             final var analyzer = future.get();
             currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
-                    .map(incAnalyzer -> incAnalyzer.update(changedFiles))
+                    .map(incAnalyzer -> {
+                        long startTime = System.currentTimeMillis();
+                        IAnalyzer result = incAnalyzer.update(changedFiles);
+                        long duration = System.currentTimeMillis() - startTime;
+                        if (duration > 1000) {
+                            logger.info(
+                                    "Library ingestion: {} analyzer processed {} files in {}ms",
+                                    getLanguageDescription(),
+                                    changedFiles.size(),
+                                    duration);
+                        }
+                        return result;
+                    })
                     .orElse(analyzer);
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
