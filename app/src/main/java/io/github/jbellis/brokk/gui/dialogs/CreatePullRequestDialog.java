@@ -8,8 +8,8 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
@@ -480,7 +480,7 @@ public class CreatePullRequestDialog extends JDialog {
 
         this.createPrButton = new MaterialLoadingButton("Create PR", null, chrome, null); // Assign to field
         this.createPrButton.addActionListener(e -> createPullRequest());
-        
+
         // Style Create PR button as primary action (bright blue with white text)
         this.createPrButton.setBackground(new Color(0x1F6FEB));
         this.createPrButton.setForeground(Color.WHITE);
