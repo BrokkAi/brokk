@@ -35,7 +35,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
-import javax.swing.KeyStroke;
 import javax.swing.border.Border;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
@@ -49,7 +48,6 @@ import org.jetbrains.annotations.Nullable;
 public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
     public static final String MODELS_TAB_TITLE = "Favorite Models"; // Used for targeting this tab
-    public static final String SHORTCUTS_TAB_TITLE = "Keyboard Shortcuts"; // Targeting title
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh
@@ -89,7 +87,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
-    private JPanel shortcutsPanel;
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
         this.chrome = chrome;
@@ -113,10 +110,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         // Quick Models Tab
         var quickModelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, quickModelsPanel, "Define model aliases (shortcuts)");
-
-        // Keyboard Shortcuts Tab
-        shortcutsPanel = createShortcutsPanel();
-        globalSubTabbedPane.addTab(SHORTCUTS_TAB_TITLE, null, shortcutsPanel, "Customize keyboard shortcuts");
 
         // GitHub Tab (conditionally added)
         var project = chrome.getProject();
@@ -598,9 +591,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             gitHubTokenField.setText(MainProject.getGitHubToken());
         }
 
-        // Shortcuts Tab
-        refreshShortcutsPanel();
-
         // MCP Servers Tab
         mcpServersListModel.clear();
         var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
@@ -733,8 +723,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 logger.debug("Applied GitHub Token");
             }
         }
-
-        // Shortcuts Tab has no staged edits; changes are persisted immediately on edit
 
         // MCP Servers Tab
         var servers = new ArrayList<McpServer>();
@@ -2264,363 +2252,5 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         public Object getCellEditorValue() {
             return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ProcessingTier.DEFAULT;
         }
-    }
-
-    // --- Shortcuts Tab (minimal read/edit UI) ---
-    private JPanel createShortcutsPanel() {
-        var panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        var tableModel = new javax.swing.table.DefaultTableModel(new Object[] {"Action", "Shortcut", ""}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return column == 2; // Only Edit button column
-            }
-        };
-        var table = new JTable(tableModel);
-        table.setRowHeight(table.getRowHeight() + 4);
-
-        var editRenderer = new javax.swing.table.TableCellRenderer() {
-            private final JButton button = new JButton("Edit");
-
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable t, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                return button;
-            }
-        };
-        var editEditor = new DefaultCellEditor(new JCheckBox()) {
-            private final JButton button = new JButton("Edit");
-
-            {
-                button.addActionListener(e -> {
-                    int row = table.getEditingRow();
-                    if (row < 0) return;
-                    String id = (String) table.getValueAt(row, 0);
-                    KeyStroke current = resolveShortcut(id, defaultFor(id));
-                    KeyStroke captured = captureKeyStroke(panel, current);
-                    MainProject.setShortcut(id, captured);
-                    table.setValueAt(formatKeyStroke(captured), row, 1);
-                    fireEditingStopped();
-                });
-            }
-
-            @Override
-            public Component getTableCellEditorComponent(JTable t, Object value, boolean isSelected, int row, int col) {
-                return button;
-            }
-        };
-
-        table.getColumnModel().getColumn(2).setCellRenderer(editRenderer);
-        table.getColumnModel().getColumn(2).setCellEditor(editEditor);
-
-        var restoreButton = new JButton("Restore Defaults");
-        restoreButton.addActionListener(e -> {
-            for (int i = 0; i < tableModel.getRowCount(); i++) {
-                String id = (String) tableModel.getValueAt(i, 0);
-                KeyStroke def = defaultFor(id);
-                MainProject.setShortcut(id, def);
-                tableModel.setValueAt(formatKeyStroke(def), i, 1);
-            }
-        });
-
-        panel.add(new JScrollPane(table), BorderLayout.CENTER);
-        var south = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        south.add(restoreButton);
-        panel.add(south, BorderLayout.SOUTH);
-
-        // Populate initially
-        Runnable populate = () -> {
-            tableModel.setRowCount(0);
-            Object[][] rows = new Object[][] {
-                // Instructions panel shortcuts
-                {"instructions.submit", formatKeyStroke(resolveShortcut("instructions.submit", defaultSubmit())), "Edit"
-                },
-                {
-                    "instructions.toggleMode",
-                    formatKeyStroke(resolveShortcut("instructions.toggleMode", defaultToggleMode())),
-                    "Edit"
-                },
-                {
-                    "instructions.togglePlanOrSearch",
-                    formatKeyStroke(resolveShortcut("instructions.togglePlanOrSearch", defaultTogglePlanOrSearch())),
-                    "Edit"
-                },
-                {
-                    "instructions.openPlanOptions",
-                    formatKeyStroke(resolveShortcut("instructions.openPlanOptions", defaultOpenPlanOptions())),
-                    "Edit"
-                },
-
-                // Global text editing shortcuts
-                {"global.undo", formatKeyStroke(resolveShortcut("global.undo", defaultUndo())), "Edit"},
-                {"global.redo", formatKeyStroke(resolveShortcut("global.redo", defaultRedo())), "Edit"},
-                {"global.copy", formatKeyStroke(resolveShortcut("global.copy", defaultCopy())), "Edit"},
-                {"global.paste", formatKeyStroke(resolveShortcut("global.paste", defaultPaste())), "Edit"},
-
-                // Voice and interface
-                {
-                    "global.toggleMicrophone",
-                    formatKeyStroke(resolveShortcut("global.toggleMicrophone", defaultToggleMicrophone())),
-                    "Edit"
-                },
-
-                // Panel navigation
-                {
-                    "panel.switchToProjectFiles",
-                    formatKeyStroke(resolveShortcut("panel.switchToProjectFiles", defaultSwitchToProjectFiles())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToChanges",
-                    formatKeyStroke(resolveShortcut("panel.switchToChanges", defaultSwitchToChanges())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToWorktrees",
-                    formatKeyStroke(resolveShortcut("panel.switchToWorktrees", defaultSwitchToWorktrees())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToLog",
-                    formatKeyStroke(resolveShortcut("panel.switchToLog", defaultSwitchToLog())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToPullRequests",
-                    formatKeyStroke(resolveShortcut("panel.switchToPullRequests", defaultSwitchToPullRequests())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToIssues",
-                    formatKeyStroke(resolveShortcut("panel.switchToIssues", defaultSwitchToIssues())),
-                    "Edit"
-                },
-
-                // General navigation
-                {
-                    "global.closeWindow",
-                    formatKeyStroke(resolveShortcut("global.closeWindow", defaultCloseWindow())),
-                    "Edit"
-                },
-                {
-                    "global.focusSearch",
-                    formatKeyStroke(resolveShortcut("global.focusSearch", defaultFocusSearch())),
-                    "Edit"
-                }
-            };
-            for (Object[] r : rows) tableModel.addRow(r);
-        };
-        populate.run();
-
-        // Keep a handle to refresh from loadSettings
-        panel.putClientProperty("populateShortcutsTable", populate);
-        return panel;
-    }
-
-    private void refreshShortcutsPanel() {
-        Object r = shortcutsPanel.getClientProperty("populateShortcutsTable");
-        if (r instanceof Runnable run) run.run();
-    }
-
-    private static KeyStroke resolveShortcut(String id, KeyStroke def) {
-        return MainProject.getShortcut(id, def);
-    }
-
-    private static String formatKeyStroke(KeyStroke ks) {
-        return java.awt.event.InputEvent.getModifiersExText(ks.getModifiers())
-                + (ks.getModifiers() == 0 ? "" : "+")
-                + java.awt.event.KeyEvent.getKeyText(ks.getKeyCode());
-    }
-
-    private static KeyStroke captureKeyStroke(Component parent, KeyStroke current) {
-        final KeyStroke[] captured = {current};
-        java.awt.Frame owner = javax.swing.JOptionPane.getFrameForComponent(parent);
-        JDialog dlg = new JDialog(owner, "Press new shortcut", true);
-        dlg.setLayout(new BorderLayout());
-        var label = new JLabel(
-                "Press a key combination with at least one modifier (Ctrl/Alt/Shift). Esc to cancel.",
-                SwingConstants.CENTER);
-        label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        dlg.add(label, BorderLayout.CENTER);
-        dlg.setSize(420, 120);
-        dlg.setLocationRelativeTo(parent);
-
-        java.awt.KeyEventDispatcher dispatcher = e -> {
-            if (e.getID() != java.awt.event.KeyEvent.KEY_PRESSED) return false;
-            if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
-                captured[0] = current;
-                dlg.dispose();
-                return true;
-            }
-            // Ignore pure modifier keys
-            if (e.getKeyCode() == java.awt.event.KeyEvent.VK_SHIFT
-                    || e.getKeyCode() == java.awt.event.KeyEvent.VK_CONTROL
-                    || e.getKeyCode() == java.awt.event.KeyEvent.VK_ALT
-                    || e.getKeyCode() == java.awt.event.KeyEvent.VK_META) {
-                return true; // consume but keep dialog open
-            }
-            int mods = e.getModifiersEx();
-            int requiredMask = java.awt.event.InputEvent.SHIFT_DOWN_MASK
-                    | java.awt.event.InputEvent.CTRL_DOWN_MASK
-                    | java.awt.event.InputEvent.ALT_DOWN_MASK
-                    | java.awt.event.InputEvent.META_DOWN_MASK;
-            // Require at least one modifier; if none, keep dialog open
-            if ((mods & requiredMask) == 0) {
-                return true;
-            }
-            captured[0] = KeyStroke.getKeyStroke(e.getKeyCode(), mods);
-            dlg.dispose();
-            return true;
-        };
-
-        java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher);
-        try {
-            dlg.setVisible(true);
-        } finally {
-            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher);
-        }
-        return captured[0];
-    }
-
-    // Instructions panel defaults
-    private static KeyStroke defaultSubmit() {
-        return KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_ENTER,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-    }
-
-    private static KeyStroke defaultToggleMode() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_M);
-    }
-
-    private static KeyStroke defaultTogglePlanOrSearch() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_SEMICOLON);
-    }
-
-    private static KeyStroke defaultOpenPlanOptions() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_COMMA);
-    }
-
-    // Global text editing defaults
-    private static KeyStroke defaultUndo() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_Z);
-    }
-
-    private static KeyStroke defaultRedo() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(
-                java.awt.event.KeyEvent.VK_Z);
-    }
-
-    private static KeyStroke defaultCopy() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_C);
-    }
-
-    private static KeyStroke defaultPaste() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_V);
-    }
-
-    // Voice and interface defaults
-    private static KeyStroke defaultToggleMicrophone() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_L);
-    }
-
-    // Panel navigation defaults (Alt/Cmd+Number)
-    private static KeyStroke defaultSwitchToProjectFiles() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_1, modifier);
-    }
-
-    private static KeyStroke defaultSwitchToChanges() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_2, modifier);
-    }
-
-    private static KeyStroke defaultSwitchToWorktrees() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_3, modifier);
-    }
-
-    private static KeyStroke defaultSwitchToLog() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, modifier);
-    }
-
-    private static KeyStroke defaultSwitchToPullRequests() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, modifier);
-    }
-
-    private static KeyStroke defaultSwitchToIssues() {
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? java.awt.event.KeyEvent.META_DOWN_MASK
-                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_6, modifier);
-    }
-
-    // General navigation defaults
-    private static KeyStroke defaultCloseWindow() {
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0);
-    }
-
-    private static KeyStroke defaultFocusSearch() {
-        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
-                java.awt.event.KeyEvent.VK_F);
-    }
-
-    private static KeyStroke defaultFor(String id) {
-        return switch (id) {
-            // Instructions panel
-            case "instructions.submit" -> defaultSubmit();
-            case "instructions.toggleMode" -> defaultToggleMode();
-            case "instructions.togglePlanOrSearch" -> defaultTogglePlanOrSearch();
-            case "instructions.openPlanOptions" -> defaultOpenPlanOptions();
-
-            // Global text editing
-            case "global.undo" -> defaultUndo();
-            case "global.redo" -> defaultRedo();
-            case "global.copy" -> defaultCopy();
-            case "global.paste" -> defaultPaste();
-
-            // Voice and interface
-            case "global.toggleMicrophone" -> defaultToggleMicrophone();
-
-            // Panel navigation
-            case "panel.switchToProjectFiles" -> defaultSwitchToProjectFiles();
-            case "panel.switchToChanges" -> defaultSwitchToChanges();
-            case "panel.switchToWorktrees" -> defaultSwitchToWorktrees();
-            case "panel.switchToLog" -> defaultSwitchToLog();
-            case "panel.switchToPullRequests" -> defaultSwitchToPullRequests();
-            case "panel.switchToIssues" -> defaultSwitchToIssues();
-
-            // General navigation
-            case "global.closeWindow" -> defaultCloseWindow();
-            case "global.focusSearch" -> defaultFocusSearch();
-
-            default -> defaultSubmit();
-        };
     }
 }

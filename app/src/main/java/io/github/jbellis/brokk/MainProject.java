@@ -35,7 +35,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1184,41 +1183,6 @@ public final class MainProject extends AbstractProject {
 
     public static void addSettingsChangeListener(SettingsChangeListener listener) {
         settingsChangeListeners.add(listener);
-    }
-
-    // --- Keyboard Shortcuts (Global) ---
-    private static final String SHORTCUT_PREFIX = "shortcut.";
-
-    public static KeyStroke getShortcut(String id, KeyStroke defaultKeyStroke) {
-        var props = loadGlobalProperties();
-        String raw = props.getProperty(SHORTCUT_PREFIX + id);
-        if (raw == null || raw.isBlank()) return defaultKeyStroke;
-        try {
-            String[] parts = raw.split(",", 2);
-            int keyCode = Integer.parseInt(parts[0]);
-            int modifiers = Integer.parseInt(parts[1]);
-            return KeyStroke.getKeyStroke(keyCode, modifiers);
-        } catch (Exception e) {
-            logger.warn("Invalid shortcut format for {}: {}", id, raw);
-            return defaultKeyStroke;
-        }
-    }
-
-    public static void setShortcut(String id, KeyStroke keyStroke) {
-        var props = loadGlobalProperties();
-        props.setProperty(SHORTCUT_PREFIX + id, keyStroke.getKeyCode() + "," + keyStroke.getModifiers());
-        saveGlobalProperties(props);
-        notifyShortcutsChanged();
-    }
-
-    private static void notifyShortcutsChanged() {
-        for (SettingsChangeListener listener : settingsChangeListeners) {
-            try {
-                listener.shortcutsChanged();
-            } catch (Exception e) {
-                logger.error("Error notifying listener of shortcuts change", e);
-            }
-        }
     }
 
     public static void removeSettingsChangeListener(SettingsChangeListener listener) {
