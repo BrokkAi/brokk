@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -193,8 +194,11 @@ public class GitLogTab extends JPanel {
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var fetchButton = new LoadingButton(
-                "Fetch", null, // no idle icon
+                "", Icons.FETCH, // icon-only button
                 chrome, null); // ActionListener added below
+        fetchButton.setText(""); // icon-only
+        fetchButton.setMargin(new Insets(2, 2, 2, 2)); // small padding to match other material buttons
+        fetchButton.setToolTipText("Fetch");
         branchButtonPanel.add(fetchButton);
         branchesPanel.add(branchButtonPanel, BorderLayout.SOUTH);
 
