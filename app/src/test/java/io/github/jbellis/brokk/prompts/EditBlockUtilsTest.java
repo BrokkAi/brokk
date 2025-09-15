@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.prompts;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Set;
