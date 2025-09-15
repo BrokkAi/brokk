@@ -249,9 +249,9 @@ public abstract class TreeSitterAnalyzer
                         return false;
                     }
 
-                    // Check extension
-                    var pathStr = filePath.toString();
-                    return validExtensions.stream().anyMatch(pathStr::endsWith);
+                    // Check extension using proper file extension matching
+                    var extension = pf.extension();
+                    return validExtensions.contains(extension);
                 })
                 .parallel()
                 .forEach(pf -> {

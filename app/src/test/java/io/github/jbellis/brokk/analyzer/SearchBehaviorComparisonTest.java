@@ -28,11 +28,6 @@ public final class SearchBehaviorComparisonTest {
     static void setup() {
         javaTestProject = createTestProject("", "testcode-java", Language.JAVA);
         javaAnalyzer = JavaAnalyzer.create(javaTestProject);
-        try {
-            javaAnalyzer.isAdvancedAnalysisReady().join();
-        } catch (Exception e) {
-            logger.error("The Java analyzer's advanced capabilities failed during initialization.", e);
-        }
         jsTestProject = createTestProject("", "testcode-js", Language.JAVASCRIPT);
         jsAnalyzer = new JavascriptAnalyzer(jsTestProject);
     }
