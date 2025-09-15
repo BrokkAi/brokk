@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
@@ -67,6 +68,7 @@ public final class MainProject extends AbstractProject {
     // Keys for Architect Options persistence
     private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
+    private static final String MCP_CONFIG_JSON_KEY = "mcpConfigJson";
 
     // Keys for Plan First and Search First workspace preferences
     private static final String PLAN_FIRST_KEY = "planFirst";
@@ -960,6 +962,41 @@ public final class MainProject extends AbstractProject {
     public void setSearchFirst(boolean v) {
         workspaceProps.setProperty(SEARCH_FIRST_KEY, String.valueOf(v));
         saveWorkspaceProperties();
+    }
+
+    @Override
+    public McpConfig getMcpConfig() {
+        var props = loadGlobalProperties();
+        String json = props.getProperty(MCP_CONFIG_JSON_KEY);
+        if (json == null || json.isBlank()) {
+            return McpConfig.EMPTY;
+        }
+        logger.info("Deserializing McpConfig from JSON: {}", json);
+        try {
+            return objectMapper.readValue(json, McpConfig.class);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize McpConfig from JSON. JSON: {}", json, e);
+            return McpConfig.EMPTY;
+        }
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {
+        var props = loadGlobalProperties();
+        try {
+            if (config.servers().isEmpty()) {
+                props.remove(MCP_CONFIG_JSON_KEY);
+            } else {
+                String newJson = objectMapper.writeValueAsString(config);
+                logger.info("Serialized McpConfig to JSON: {}", newJson);
+                props.setProperty(MCP_CONFIG_JSON_KEY, newJson);
+            }
+            saveGlobalProperties(props);
+            logger.debug("Saved MCP configuration to global properties.");
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize McpConfig to JSON: {}. Settings not saved.", config, e);
+            throw new RuntimeException(e);
+        }
     }
 
     @Override

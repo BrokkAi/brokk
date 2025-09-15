@@ -78,6 +78,7 @@ dependencies {
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
     implementation(libs.disklrucache)
+    implementation(libs.mcp.sdk)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
