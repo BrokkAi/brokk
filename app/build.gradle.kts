@@ -54,9 +54,6 @@ repositories {
 }
 
 dependencies {
-    // API interfaces and supporting classes
-    implementation(project(":analyzer-api"))
-
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
 
