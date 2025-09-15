@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -23,9 +24,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private SettingsGlobalPanel globalSettingsPanel;
     private SettingsProjectPanel projectSettingsPanel;
 
-    private final JButton okButton;
-    private final JButton cancelButton;
-    private final JButton applyButton;
+    private final MaterialButton okButton;
+    private final MaterialButton cancelButton;
+    private final MaterialButton applyButton;
 
     private boolean proxySettingsChanged = false; // Track if proxy needs restart
     private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
@@ -40,9 +41,13 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
 
         // Create buttons first, as they might be passed to panels
-        okButton = new JButton("OK");
-        cancelButton = new JButton("Cancel");
-        applyButton = new JButton("Apply");
+        okButton = new MaterialButton("OK");
+        cancelButton = new MaterialButton("Cancel");
+        applyButton = new MaterialButton("Apply");
+
+        // Style OK button as blue
+        okButton.setBackground(new Color(0x1F6FEB));
+        okButton.setForeground(Color.WHITE);
 
         // Global Settings Panel
         globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
@@ -268,8 +273,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         contentPanel.add(tempProjectPanelForRetention, BorderLayout.CENTER);
 
-        var okButtonDialog = new JButton("OK");
-        var cancelButtonDialog = new JButton("Cancel");
+        var okButtonDialog = new MaterialButton("OK");
+        okButtonDialog.setBackground(new Color(0x1F6FEB)); // blue styling
+        okButtonDialog.setForeground(Color.WHITE);
+        var cancelButtonDialog = new MaterialButton("Cancel");
         var buttonPanelDialog = new JPanel(new FlowLayout(FlowLayout.CENTER));
         buttonPanelDialog.add(okButtonDialog);
         buttonPanelDialog.add(cancelButtonDialog);
