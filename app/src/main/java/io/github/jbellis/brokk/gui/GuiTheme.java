@@ -363,12 +363,11 @@ public class GuiTheme {
     }
 
     /**
-     * Ensure plain JButtons receive MaterialButton-like defaults:
-     *  - set a conservative Button.foreground UIDefault
-     *  - walk existing windows and apply SwingUtil.applyMaterialStyle to any JButton
-     *  - register a single AWTEventListener to style buttons/components added later
+     * Ensure plain JButtons receive MaterialButton-like defaults: - set a conservative Button.foreground UIDefault -
+     * walk existing windows and apply SwingUtil.applyMaterialStyle to any JButton - register a single AWTEventListener
+     * to style buttons/components added later
      *
-     * This method is idempotent and safe to call multiple times (guarded by buttonStylingRegistered).
+     * <p>This method is idempotent and safe to call multiple times (guarded by buttonStylingRegistered).
      */
     private void registerGlobalButtonStyling() {
         // Run on EDT to mutate UI safely
@@ -394,16 +393,19 @@ public class GuiTheme {
         // 3) Register a single AWTEventListener to style components added at runtime
         synchronized (GuiTheme.class) {
             if (buttonStylingRegistered) return;
-            java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(event -> {
-                // We're only interested in container additions
-                if (event instanceof java.awt.event.ContainerEvent ce
-                        && ce.getID() == java.awt.event.ContainerEvent.COMPONENT_ADDED) {
-                    java.awt.Component added = ce.getChild();
-                    if (added != null) {
-                        walkAndStyle(added);
-                    }
-                }
-            }, java.awt.AWTEvent.CONTAINER_EVENT_MASK);
+            java.awt.Toolkit.getDefaultToolkit()
+                    .addAWTEventListener(
+                            event -> {
+                                // We're only interested in container additions
+                                if (event instanceof java.awt.event.ContainerEvent ce
+                                        && ce.getID() == java.awt.event.ContainerEvent.COMPONENT_ADDED) {
+                                    java.awt.Component added = ce.getChild();
+                                    if (added != null) {
+                                        walkAndStyle(added);
+                                    }
+                                }
+                            },
+                            java.awt.AWTEvent.CONTAINER_EVENT_MASK);
             buttonStylingRegistered = true;
             logger.debug("Registered global button styling AWTEventListener");
         }

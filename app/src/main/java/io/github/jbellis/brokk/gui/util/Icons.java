@@ -36,4 +36,9 @@ public final class Icons {
     public static final Icon MANAGE_DEPENDENCIES = SwingUtil.uiIcon("Brokk.dependencies");
     public static final Icon ADD = SwingUtil.uiIcon("Brokk.add");
     public static final Icon REMOVE = SwingUtil.uiIcon("Brokk.remove");
+    public static final Icon REDO = SwingUtil.uiIcon("Brokk.redo");
+    public static final Icon UNDO = SwingUtil.uiIcon("Brokk.undo");
+    public static final Icon SAVE = SwingUtil.uiIcon("Brokk.save");
+    public static final Icon EDIT_DOCUMENT = SwingUtil.uiIcon("Brokk.edit_document");
+    public static final Icon OPEN_IN_NEW_WINDOW = SwingUtil.uiIcon("Brokk.open_in_new_window");
 }

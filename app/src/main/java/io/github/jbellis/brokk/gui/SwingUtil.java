@@ -223,10 +223,10 @@ public class SwingUtil {
     }
 
     /**
-     * Return a disabled variant for the provided icon if available. This mirrors the behavior previously contained
-     * in MaterialButton.createDisabledVersion: handle ThemedIcon wrappers and FlatSVGIcon disabled variants.
+     * Return a disabled variant for the provided icon if available. This mirrors the behavior previously contained in
+     * MaterialButton.createDisabledVersion: handle ThemedIcon wrappers and FlatSVGIcon disabled variants.
      *
-     * Note: callers should not pass null; callers in this project guard against null before calling.
+     * <p>Note: callers should not pass null; callers in this project guard against null before calling.
      */
     public static javax.swing.Icon disabledIconFor(javax.swing.Icon icon) {
         // Handle the project's ThemedIcon wrapper
@@ -250,7 +250,8 @@ public class SwingUtil {
      * Apply the MaterialButton visual defaults to a plain JButton so it looks and behaves like the old MaterialButton.
      * This method is safe to call from any thread; it will schedule on the EDT if required.
      *
-     * The parameter is nullable for convenience so callers can pass a possibly-null reference without needing to guard.
+     * <p>The parameter is nullable for convenience so callers can pass a possibly-null reference without needing to
+     * guard.
      */
     public static void applyMaterialStyle(@org.jetbrains.annotations.Nullable javax.swing.JButton b) {
         if (b == null) return;
@@ -290,8 +291,10 @@ public class SwingUtil {
         b.addPropertyChangeListener("enabled", evt -> {
             Object nv = evt.getNewValue();
             boolean enabled = nv instanceof Boolean en && en;
-            b.setCursor(enabled ? java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                                : java.awt.Cursor.getDefaultCursor());
+            b.setCursor(
+                    enabled
+                            ? java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                            : java.awt.Cursor.getDefaultCursor());
             javax.swing.Icon cur = b.getIcon();
             if (cur != null) {
                 javax.swing.Icon dis = disabledIconFor(cur);
