@@ -760,22 +760,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             currentSearchFuture.cancel(true);
         }
 
-        // Check for GitHub authentication before making API calls
-        if (this.issueService instanceof GitHubIssueService) {
-            IProject project = contextManager.getProject();
-            if (!GitHubAuth.tokenPresent(project)) {
-                logger.debug("No GitHub token present, skipping issue list update");
-                SwingUtilities.invokeLater(() -> {
-                    allIssuesFromApi.clear();
-                    displayedIssues.clear();
-                    issueTableModel.setRowCount(0);
-                    disableIssueActionsAndClearDetails();
-                    // Don't show loading indicator since we're not loading
-                });
-                return;
-            }
-        }
-
         searchBox.setLoading(true, "Searching issues");
         currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<IssueHeader> fetchedIssueHeaders;
