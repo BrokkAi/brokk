@@ -65,6 +65,7 @@ public class FileSelectionDialog extends JDialog {
 
         // Buttons at the bottom
         okButton = new JButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
         okButton.addActionListener(e -> doOk());
         cancelButton = new JButton("Cancel");
         cancelButton.addActionListener(e -> {

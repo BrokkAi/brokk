@@ -68,6 +68,7 @@ public class BrokkKeyDialog extends JDialog {
 
         // Buttons
         var okBtn = new JButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okBtn);
         var cancelBtn = new JButton("Cancel");
 
         okBtn.addActionListener(e -> submit());

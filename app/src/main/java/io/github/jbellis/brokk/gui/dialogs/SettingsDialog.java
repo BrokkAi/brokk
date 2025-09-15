@@ -271,6 +271,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         contentPanel.add(tempProjectPanelForRetention, BorderLayout.CENTER);
 
         var okButtonDialog = new JButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButtonDialog);
         var cancelButtonDialog = new JButton("Cancel");
         var buttonPanelDialog = new JPanel(new FlowLayout(FlowLayout.CENTER));
         buttonPanelDialog.add(okButtonDialog);

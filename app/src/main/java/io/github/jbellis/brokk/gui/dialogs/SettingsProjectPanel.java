@@ -1234,6 +1234,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var okBtn = new JButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okBtn);
         var cancelBtn = new JButton("Cancel");
         buttonPanel.add(okBtn);
         buttonPanel.add(cancelBtn);

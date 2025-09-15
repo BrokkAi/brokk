@@ -977,6 +977,7 @@ public class BlitzForgeDialog extends JDialog {
         // Buttons Panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton okButton = new JButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
         JButton cancelButton = new JButton("Cancel");
 
         okButton.addActionListener(e -> onOK());

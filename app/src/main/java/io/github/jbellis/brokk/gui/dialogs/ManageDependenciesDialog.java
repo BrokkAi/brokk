@@ -21,6 +21,7 @@ public class ManageDependenciesDialog extends JDialog {
 
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var okButton = new JButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
         var cancelButton = new JButton("Cancel");
 
         var order = UIManager.getString("OptionPane.buttonOrder");

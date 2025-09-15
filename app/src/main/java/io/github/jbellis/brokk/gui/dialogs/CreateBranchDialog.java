@@ -45,6 +45,7 @@ public class CreateBranchDialog extends JDialog {
         checkoutCheckBox = new JCheckBox("Checkout after creation", true);
         feedbackLabel = new JLabel(" "); // Placeholder for feedback
         okButton = new JButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
         okButton.setEnabled(false); // Initially disabled
 
         JButton cancelButton = new JButton("Cancel");
