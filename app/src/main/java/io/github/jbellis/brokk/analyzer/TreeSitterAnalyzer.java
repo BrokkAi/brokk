@@ -646,7 +646,7 @@ public abstract class TreeSitterAnalyzer
      * @return the surrounding method, or the given fqName otherwise.
      */
     protected String nearestMethodName(String fqName) {
-        // Should be overridden by the superclass
+        // Should be overridden by the subclasses
         return fqName;
     }
 
