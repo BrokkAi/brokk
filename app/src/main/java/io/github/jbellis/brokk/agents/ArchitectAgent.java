@@ -20,16 +20,16 @@ import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
+import io.github.jbellis.brokk.mcp.McpServer;
+import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
-import io.github.jbellis.brokk.util.ExecutorValidator;
-import io.github.jbellis.brokk.util.LogDescription;
-import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.*;
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -42,6 +42,8 @@ import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
+
+    public record McpTool(McpServer server, String toolName) {}
 
     /** Configuration options for the ArchitectAgent, including selected models and enabled tools. */
     public record ArchitectOptions(
@@ -56,7 +58,8 @@ public class ArchitectAgent {
             boolean includeAskHuman,
             boolean includeGitCommit,
             boolean includeGitCreatePr,
-            boolean includeShellCommand) {
+            boolean includeShellCommand,
+            @Nullable List<McpTool> selectedMcpTools) {
         /** Default options (all enabled, except Git tools and shell command). Uses GPT_5_MINI for both models. */
         public static final ArchitectOptions DEFAULTS = new ArchitectOptions(
                 new Service.ModelConfig(Service.GEMINI_2_5_PRO),
@@ -70,7 +73,8 @@ public class ArchitectAgent {
                 true,
                 false,
                 false,
-                false);
+                false,
+                List.of());
 
         // Backward-compatible constructor for existing callers that pass only booleans.
         public ArchitectOptions(
@@ -96,7 +100,13 @@ public class ArchitectAgent {
                     includeAskHuman,
                     includeGitCommit,
                     includeGitCreatePr,
-                    includeShellCommand);
+                    includeShellCommand,
+                    List.of());
+        }
+
+        @Override
+        public List<McpTool> selectedMcpTools() {
+            return selectedMcpTools == null ? List.of() : selectedMcpTools;
         }
     }
 
@@ -221,11 +231,11 @@ public class ArchitectAgent {
             var entrySummary = entry.summary();
             var summary =
                     """
-                    CodeAgent success!
-                    <summary>
-                    %s
-                    </summary>
-                    """
+                            CodeAgent success!
+                            <summary>
+                            %s
+                            </summary>
+                            """
                             .stripIndent()
                             .formatted(entrySummary); // stopDetails may be redundant for success
             logger.debug("Summary for successful callCodeAgent: {}", summary);
@@ -247,17 +257,17 @@ public class ArchitectAgent {
         this.offerUndoToolNext = true;
         var summary =
                 """
-                CodeAgent was not able to get to a clean build. Changes were made but can be undone with 'undoLastChanges'
+                        CodeAgent was not able to get to a clean build. Changes were made but can be undone with 'undoLastChanges'
                 if CodeAgent made negative progress; you will have to determine this from the summary here and the
                 current Workspace contents.
-                <summary>
-                %s
-                </summary>
+                        <summary>
+                        %s
+                        </summary>
 
-                <stop-details>
-                %s
-                </stop-details>
-                """
+                        <stop-details>
+                        %s
+                        </stop-details>
+                        """
                         .stripIndent()
                         .formatted(entry.summary(), stopDetails);
         logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
@@ -448,11 +458,11 @@ public class ArchitectAgent {
 
         var msg =
                 """
-                    Command finished successfully.
-                    <output>
-                    %s
-                    </output>
-                    """
+                        Command finished successfully.
+                        <output>
+                        %s
+                        </output>
+                        """
                         .stripIndent()
                         .formatted(output.trim());
         io.llmOutput(msg, ChatMessageType.CUSTOM);
@@ -503,17 +513,53 @@ public class ArchitectAgent {
                 result.output().sources().stream().map(CodeUnit::fqName).collect(Collectors.joining(","));
         var stringResult =
                 """
-                %s
+                        %s
 
-                Full list of potentially relevant classes:
-                %s
-                """
+                        Full list of potentially relevant classes:
+                        %s
+                        """
                         .stripIndent()
                         .formatted(
                                 TaskEntry.formatMessages(historyResult.output().messages()), relevantClasses);
         logger.debug(stringResult);
 
         return stringResult;
+    }
+
+    @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
+    public String callMcpTool(
+            @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
+            @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
+                    @Nullable
+                    Map<String, Object> arguments) {
+        Map<String, Object> args = Objects.requireNonNullElseGet(arguments, HashMap::new);
+        var mcpToolOptional = options.selectedMcpTools().stream()
+                .filter(t -> t.toolName().equals(toolName))
+                .findFirst();
+
+        if (mcpToolOptional.isEmpty()) {
+            var err = "Error: MCP tool '" + toolName + "' not found in configuration.";
+            if (toolName.contains("(") || toolName.contains("{")) {
+                err = err
+                        + " Possible arguments found in the tool name. Hint: The first argument, 'toolName', is the tool name only. Any arguments must be defined as a map in the second argument, named 'arguments'.";
+            }
+            logger.warn(err);
+            return err;
+        }
+
+        var server = mcpToolOptional.get().server();
+        try {
+            var projectRoot = this.contextManager.getProject().getRoot();
+            var result = McpUtils.callTool(server, toolName, args, projectRoot);
+            var preamble = McpPrompts.mcpToolPreamble();
+            var msg = preamble + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
+            logger.info("MCP tool '{}' executed successfully via server '{}'", toolName, server.name());
+            return msg;
+        } catch (IOException | RuntimeException e) {
+            var err = "Error calling MCP tool '" + toolName + "': " + e.getMessage();
+            logger.error(err, e);
+            return err;
+        }
     }
 
     @Tool("Escalate to a human for guidance. The model should call this "
@@ -657,6 +703,9 @@ public class ArchitectAgent {
                 }
                 if (options.includeGitCreatePr()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("createPullRequest")));
+                }
+                if (!options.selectedMcpTools().isEmpty()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("callMcpTool")));
                 }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
@@ -956,6 +1005,13 @@ public class ArchitectAgent {
         // System message defines the agent's role and general instructions
         var reminder = CodePrompts.instance.architectReminder(contextManager.getService(), model);
         messages.add(ArchitectPrompts.instance.systemMessage(contextManager, reminder));
+
+        // Describe available MCP tools
+        var mcpToolPrompt = McpPrompts.mcpToolPrompt(options.selectedMcpTools());
+        if (mcpToolPrompt != null) {
+            messages.add(new SystemMessage(mcpToolPrompt));
+        }
+
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
@@ -964,14 +1020,14 @@ public class ArchitectAgent {
         if (!topClassesRaw.isBlank()) {
             var topClassesText =
                     """
-                           <related_classes>
-                           Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
-                           If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
-                           visible to Code Agent. If they are not relevant, just ignore them.
+                            <related_classes>
+                            Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
+                            If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
+                            visible to Code Agent. If they are not relevant, just ignore them.
 
-                           %s
-                           </related_classes>
-                           """
+                            %s
+                            </related_classes>
+                            """
                             .stripIndent()
                             .formatted(topClassesRaw);
             messages.add(new UserMessage(topClassesText));

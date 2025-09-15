@@ -22,6 +22,8 @@ public final class Icons {
     public static final Icon CONTENT_COPY = SwingUtil.uiIcon("Brokk.content_copy");
     public static final Icon CONTENT_CAPTURE = SwingUtil.uiIcon("Brokk.camera");
     public static final Icon OPEN_IN_BROWSER = SwingUtil.uiIcon("Brokk.open_in_browser");
+    public static final Icon VISIBILITY = SwingUtil.uiIcon("Brokk.visibility");
+    public static final Icon VISIBILITY_OFF = SwingUtil.uiIcon("Brokk.visibility_off");
     public static final Icon MIC = SwingUtil.uiIcon("Brokk.mic");
     public static final Icon MIC_OFF = SwingUtil.uiIcon("Brokk.mic_off");
     public static final Icon FLOWCHART = SwingUtil.uiIcon("Brokk.flowchart");
@@ -30,6 +32,7 @@ public final class Icons {
     public static final Icon STOP = SwingUtil.uiIcon("Brokk.stop");
     public static final Icon TERMINAL = SwingUtil.uiIcon("Brokk.terminal");
     public static final Icon ATTACH_FILE = SwingUtil.uiIcon("Brokk.attach-file");
+    public static final Icon HELP = SwingUtil.uiIcon("Brokk.help");
     public static final Icon MANAGE_DEPENDENCIES = SwingUtil.uiIcon("Brokk.dependencies");
     public static final Icon ADD = SwingUtil.uiIcon("Brokk.add");
     public static final Icon REMOVE = SwingUtil.uiIcon("Brokk.remove");

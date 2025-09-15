@@ -38,6 +38,9 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.SwingWorker;
+import javax.swing.UIManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -75,6 +78,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
     private JButton addExcludedDirButton = new JButton("Add");
     private JButton removeExcludedDirButton = new JButton("Remove");
+
     private JTextField languagesDisplayField = new JTextField(20);
     private JButton editLanguagesButton = new JButton("Edit");
     private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
@@ -157,9 +161,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var msg = new JLabel(
                 """
-            Build Agent has completed inspecting your project, \
-            please review the build configuration.
-        """);
+                            Build Agent has completed inspecting your project, \
+                            please review the build configuration.
+                        """);
         p.add(msg, BorderLayout.CENTER);
 
         var close = new JButton("×");

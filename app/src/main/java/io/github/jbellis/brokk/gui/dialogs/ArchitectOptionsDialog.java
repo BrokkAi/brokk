@@ -15,9 +15,11 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
+import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.event.KeyEvent;
@@ -25,6 +27,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.BorderFactory;
@@ -39,6 +43,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.KeyStroke;
+import javax.swing.border.EmptyBorder;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -237,6 +242,37 @@ public class ArchitectOptionsDialog {
             mainPanel.add(Box.createVerticalStrut(10));
             mainPanel.add(gitToolsPanel);
 
+            // MCP Tools section
+            mainPanel.add(Box.createVerticalStrut(10));
+            var mcpToolsPanel = createTitledGroupPanel("MCP Tools");
+            var mcpServers = project.getMcpConfig().servers();
+            final var serverCheckboxMap = new LinkedHashMap<JCheckBox, McpServer>();
+            var preselectedMcpTools = currentOptions.selectedMcpTools();
+
+            if (mcpServers.isEmpty()) {
+                mcpToolsPanel.add(new JLabel("No MCP servers configured in Settings."));
+            } else {
+                var selectionPanel = new JPanel();
+                selectionPanel.setLayout(new BoxLayout(selectionPanel, BoxLayout.Y_AXIS));
+                selectionPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
+
+                for (var server : mcpServers) {
+                    var checkbox = new JCheckBox(server.name());
+                    // Pre-select if any previously selected tool belongs to this server
+                    boolean preselect = preselectedMcpTools.stream()
+                            .anyMatch(t -> t.server().equals(server));
+                    checkbox.setSelected(preselect);
+                    serverCheckboxMap.put(checkbox, server);
+                    selectionPanel.add(checkbox);
+                }
+
+                var scrollPane = new JScrollPane(selectionPanel);
+                scrollPane.setPreferredSize(new Dimension(300, 150));
+                mcpToolsPanel.add(scrollPane);
+            }
+
+            mainPanel.add(mcpToolsPanel);
+
             dialog.add(new JScrollPane(mainPanel), BorderLayout.CENTER);
 
             // Buttons
@@ -289,6 +325,19 @@ public class ArchitectOptionsDialog {
 
                 project.setArchitectModelConfig(selectedPlanning);
 
+                var selectedMcpTools = new ArrayList<ArchitectAgent.McpTool>();
+                for (var entry : serverCheckboxMap.entrySet()) {
+                    if (entry.getKey().isSelected()) {
+                        var server = entry.getValue();
+                        var tools = server.tools();
+                        if (tools != null) {
+                            for (var toolName : tools) {
+                                selectedMcpTools.add(new ArchitectAgent.McpTool(server, toolName));
+                            }
+                        }
+                    }
+                }
+
                 var selectedOptions = new ArchitectAgent.ArchitectOptions(
                         selectedPlanning,
                         selectedCode,
@@ -301,7 +350,8 @@ public class ArchitectOptionsDialog {
                         askHumanCb.isSelected(),
                         commitCb.isSelected(),
                         prCb.isSelected(),
-                        shellCb.isSelected());
+                        shellCb.isSelected(),
+                        selectedMcpTools);
 
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 
