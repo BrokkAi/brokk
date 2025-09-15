@@ -113,8 +113,8 @@ public class HistoryOutputPanel extends JPanel {
         };
         this.historyTable = new JTable(this.historyModel);
         this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
-        this.undoButton = new MaterialButton("Undo");
-        this.redoButton = new MaterialButton("Redo");
+        this.undoButton = new MaterialButton();
+        this.redoButton = new MaterialButton();
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("New");
         this.manageSessionsButton = new SplitButton("Manage");
@@ -436,11 +436,17 @@ public class HistoryOutputPanel extends JPanel {
         undoButton.addActionListener(e -> {
             contextManager.undoContextAsync();
         });
+        SwingUtilities.invokeLater(() -> {
+            undoButton.setIcon(Icons.UNDO);
+        });
 
         redoButton.setMnemonic(KeyEvent.VK_Y);
         redoButton.setToolTipText("Redo the most recently undone entry");
         redoButton.addActionListener(e -> {
             contextManager.redoContextAsync();
+        });
+        SwingUtilities.invokeLater(() -> {
+            redoButton.setIcon(Icons.REDO);
         });
 
         buttonPanel.add(undoButton);
