@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.analyzer.ranking;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.testutil.TestProject;
@@ -34,7 +34,7 @@ public class GitDistanceMostImportantTest {
         testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
         testRepo = new GitRepo(testPath);
-        testProject = new TestProjectWithRepo(testPath, Language.JAVA, testRepo);
+        testProject = new TestProjectWithRepo(testPath, Languages.JAVA, testRepo);
     }
 
     @AfterAll

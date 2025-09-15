@@ -32,7 +32,7 @@ public class GoAnalyzerTest {
     static void setUp() {
         Path testCodeDir = Path.of("src/test/resources/testcode-go").toAbsolutePath();
         assertTrue(Files.exists(testCodeDir), "Test resource directory 'testcode-go' not found.");
-        testProject = new TestProject(testCodeDir, Language.GO);
+        testProject = new TestProject(testCodeDir, Languages.GO);
         analyzer = new GoAnalyzer(testProject);
 
         packagesGoFile = new ProjectFile(testProject.getRoot(), "packages.go");

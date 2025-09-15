@@ -23,7 +23,7 @@ class TypescriptAnalyzerUpdateTest {
                 """
                 export function foo(): number { return 1; }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Language.TYPESCRIPT);
+        project = UpdateTestUtil.newTestProject(rootDir, Languages.TYPESCRIPT);
         analyzer = new TypescriptAnalyzer(project);
     }
 

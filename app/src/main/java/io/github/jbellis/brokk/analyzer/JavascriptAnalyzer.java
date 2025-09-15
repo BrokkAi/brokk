@@ -39,7 +39,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             );
 
     public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.JAVASCRIPT, excludedFiles);
+        super(project, Languages.JAVASCRIPT, excludedFiles);
     }
 
     public JavascriptAnalyzer(IProject project) {

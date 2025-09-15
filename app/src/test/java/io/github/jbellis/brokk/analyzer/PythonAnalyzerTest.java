@@ -23,8 +23,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonInitializationAndSkeletons() {
-        TestProject project = createTestProject(
-                "testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON); // Use Brokk's Language enum
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON); // Use Brokk's Language enum
         PythonAnalyzer ana = new PythonAnalyzer(project);
         assertInstanceOf(PythonAnalyzer.class, ana);
         // Cast to PythonAnalyzer
@@ -86,7 +85,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonTopLevelVariables() {
-        TestProject project = createTestProject("testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON);
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         IAnalyzer ana = new PythonAnalyzer(project);
         assertInstanceOf(PythonAnalyzer.class, ana);
         PythonAnalyzer analyzer = (PythonAnalyzer) ana;

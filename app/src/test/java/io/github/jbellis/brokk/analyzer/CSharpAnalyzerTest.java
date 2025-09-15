@@ -18,8 +18,7 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpInitializationAndSkeletons() {
-        TestProject project =
-                TestProject.createTestProject("testcode-cs", io.github.jbellis.brokk.analyzer.Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         IAnalyzer ana = new CSharpAnalyzer(project);
         assertInstanceOf(CSharpAnalyzer.class, ana);
 
@@ -87,8 +86,7 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpMixedScopesAndNestedNamespaces() {
-        TestProject project =
-                TestProject.createTestProject("testcode-cs", io.github.jbellis.brokk.analyzer.Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
 
         ProjectFile mixedScopeFile = new ProjectFile(project.getRoot(), "MixedScope.cs");
@@ -160,7 +158,7 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpGetMethodSource() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-cs", Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
         assertFalse(analyzer.isEmpty());
 
@@ -225,7 +223,7 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpInterfaceSkeleton() {
-        TestProject project = TestProject.createTestProject("testcode-cs", Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "AssetRegistrySA.cs");
 
@@ -328,7 +326,7 @@ public final class CSharpAnalyzerTest {
         // The issue: TreeSitter returns byte offsets, but String.substring requires char offsets
         // Without proper handling, names in non-ASCII files get truncated
 
-        TestProject project = TestProject.createTestProject("testcode-cs", Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
 
         // GetTerminationRecordByIdHandler.cs contains a UTF-8 BOM

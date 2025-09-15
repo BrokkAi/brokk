@@ -1077,7 +1077,7 @@ public abstract class TreeSitterAnalyzer
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
             // Adjust simpleName and classChain for Go methods to correctly include the receiver type
-            if (language == Language.GO && "method.definition".equals(primaryCaptureName)) {
+            if (language == Languages.GO && "method.definition".equals(primaryCaptureName)) {
                 // The SCM query for Go methods captures `@method.receiver.type` and `@method.identifier`
                 // `simpleName` at this point is from `@method.identifier` (e.g., "MyMethod")
                 // We need to find the receiver type from the original captures for this match
@@ -1197,7 +1197,7 @@ public abstract class TreeSitterAnalyzer
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
-                    && (language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)) {
+                    && (language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)) {
                 List<String> existingSignatures =
                         localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
                 boolean newIsExported = signature.trim().startsWith("export");
@@ -1351,7 +1351,7 @@ public abstract class TreeSitterAnalyzer
 
         // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
         // For JAVASCRIPT/TYPESCRIPT: unwrap for processing but keep original for signature
-        if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                 && "export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
@@ -1364,12 +1364,12 @@ public abstract class TreeSitterAnalyzer
                         typeMatch = profile.functionLikeNodeTypes().contains(innerType)
                                 ||
                                 // Special case for TypeScript/JavaScript arrow functions in lexical declarations
-                                ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+                                ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                                         && ("lexical_declaration".equals(innerType)
                                                 || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
                     case ALIAS_LIKE ->
-                        typeMatch = (project.getAnalyzerLanguages().contains(Language.TYPESCRIPT)
+                        typeMatch = (project.getAnalyzerLanguages().contains(Languages.TYPESCRIPT)
                                 && "type_alias_declaration".equals(innerType));
                     default -> {}
                 }
@@ -1389,7 +1389,7 @@ public abstract class TreeSitterAnalyzer
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
-        if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                 && ("lexical_declaration".equals(nodeForContent.getType())
                         || "variable_declaration".equals(nodeForContent.getType()))
                 && (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
@@ -1434,7 +1434,7 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        if (language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
+        if (language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
             // Python's decorated_definition: decorators and actual def are children.
             // Process decorators directly here and identify the actual content node.
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
@@ -1449,7 +1449,7 @@ public abstract class TreeSitterAnalyzer
         }
         // 2. Handle decorators for languages where they precede the definition
         //    (Skip if Python already handled its specific decorator structure)
-        if (!(language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
+        if (!(language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
             List<TSNode> decorators =
                     getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
             for (TSNode decoratorNode : decorators) {

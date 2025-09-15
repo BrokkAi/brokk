@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -519,19 +520,19 @@ public final class MainProject extends AbstractProject {
      * the most frequently occurring language. Falls back to Language.NONE if none detected.
      */
     private static Language detectLanguageForDependency(ProjectFile depDir) {
-        var counts = new IProject.Dependency(depDir, Language.NONE)
+        var counts = new IProject.Dependency(depDir, Languages.NONE)
                 .files().stream()
                         .map(pf -> com.google.common.io.Files.getFileExtension(
                                 pf.absPath().toString()))
                         .filter(ext -> !ext.isEmpty())
-                        .map(Language::fromExtension)
-                        .filter(lang -> lang != Language.NONE)
+                        .map(Languages::fromExtension)
+                        .filter(lang -> lang != Languages.NONE)
                         .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
 
         return counts.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
-                .orElse(Language.NONE);
+                .orElse(Languages.NONE);
     }
 
     @Override
@@ -543,7 +544,7 @@ public final class MainProject extends AbstractProject {
                     .filter(s -> !s.isEmpty())
                     .map(langName -> {
                         try {
-                            return Language.valueOf(langName.toUpperCase(Locale.ROOT));
+                            return Languages.valueOf(langName.toUpperCase(Locale.ROOT));
                         } catch (IllegalArgumentException e) {
                             logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
                             return null;
@@ -554,15 +555,15 @@ public final class MainProject extends AbstractProject {
         }
 
         Map<Language, Long> languageSizes = repo.getTrackedFiles().stream() // repo from AbstractProject
-                .filter(pf -> Language.fromExtension(pf.extension()) != Language.NONE)
+                .filter(pf -> Languages.fromExtension(pf.extension()) != Languages.NONE)
                 .collect(Collectors.groupingBy(
-                        pf -> Language.fromExtension(pf.extension()),
+                        pf -> Languages.fromExtension(pf.extension()),
                         Collectors.summingLong(MainProject::getFileSize)));
 
         if (languageSizes.isEmpty()) {
             logger.debug(
                     "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
-            return Set.of(Language.NONE);
+            return Set.of(Languages.NONE);
         }
 
         long totalRecognizedBytes =
@@ -583,8 +584,8 @@ public final class MainProject extends AbstractProject {
                     root, mostCommonEntry.getKey().name());
         }
 
-        if (languageSizes.containsKey(Language.SQL)) {
-            boolean addedByThisRule = detectedLanguages.add(Language.SQL);
+        if (languageSizes.containsKey(Languages.SQL)) {
+            boolean addedByThisRule = detectedLanguages.add(Languages.SQL);
             if (addedByThisRule) {
                 logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
             }
@@ -598,7 +599,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
-        if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Language.NONE))) {
+        if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
             String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));

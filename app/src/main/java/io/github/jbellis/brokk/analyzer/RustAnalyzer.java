@@ -40,7 +40,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             /* modifier node types  */ Set.of(VISIBILITY_MODIFIER));
 
     public RustAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.RUST, excludedFiles);
+        super(project, Languages.RUST, excludedFiles);
     }
 
     public RustAnalyzer(IProject project) {

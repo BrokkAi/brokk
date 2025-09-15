@@ -22,7 +22,7 @@ public final class TestContextManager implements IContextManager {
     private final Context liveContext;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
-        this(new TestProject(projectRoot, Language.JAVA), consoleIO);
+        this(new TestProject(projectRoot, Languages.JAVA), consoleIO);
     }
 
     public TestContextManager(TestProject project, IConsoleIO consoleIO) {

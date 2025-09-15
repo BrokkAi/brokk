@@ -15,7 +15,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     private final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
 
     public JavaTreeSitterAnalyzer(IProject project) {
-        super(project, Language.JAVA, project.getExcludedDirectories());
+        super(project, Languages.JAVA, project.getExcludedDirectories());
     }
 
     @Override

@@ -34,7 +34,7 @@ public class TypescriptAnalyzerTest {
                 "Test resource directory 'testcode-ts' must exist.");
 
         // For TypescriptAnalyzerTest, we'll point the TestProject root directly to testcode-ts
-        project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
         analyzer = new TypescriptAnalyzer(project); // Initialize with default excluded files (none)
         assertFalse(analyzer.isEmpty(), "Analyzer should have processed TypeScript files and not be empty.");
     }
@@ -753,7 +753,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testCodeUnitEqualityFixed() throws IOException {
         // Test that verifies the CodeUnit equality fix prevents byte range corruption
-        var project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        var project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
         var analyzer = new TypescriptAnalyzer(project);
 
         // Find both Point interfaces from different files
@@ -803,7 +803,7 @@ public class TypescriptAnalyzerTest {
         // Create a temporary test project with a node_modules directory
         Path tempDir = Files.createTempDirectory("typescript-dep-test");
         try {
-            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
 
             // Create a node_modules directory structure
             Path nodeModules = tempDir.resolve("node_modules");
@@ -828,7 +828,7 @@ public class TypescriptAnalyzerTest {
             Files.writeString(lodashDir.resolve("lodash.js"), "module.exports = _;");
 
             // Test getDependencyCandidates
-            List<Path> candidates = Language.TYPESCRIPT.getDependencyCandidates(tsProject);
+            List<Path> candidates = Languages.TYPESCRIPT.getDependencyCandidates(tsProject);
 
             // Should find react and lodash but not .bin
             assertEquals(2, candidates.size(), "Should find 2 dependency candidates");
@@ -838,29 +838,29 @@ public class TypescriptAnalyzerTest {
 
             // Now test that TypeScript analyzer only processes .ts/.tsx files from dependencies
             // Check which file extensions TypeScript language recognizes
-            assertTrue(Language.TYPESCRIPT.getExtensions().contains("ts"), "TypeScript should recognize .ts files");
-            assertTrue(Language.TYPESCRIPT.getExtensions().contains("tsx"), "TypeScript should recognize .tsx files");
+            assertTrue(Languages.TYPESCRIPT.getExtensions().contains("ts"), "TypeScript should recognize .ts files");
+            assertTrue(Languages.TYPESCRIPT.getExtensions().contains("tsx"), "TypeScript should recognize .tsx files");
             assertFalse(
-                    Language.TYPESCRIPT.getExtensions().contains("js"), "TypeScript should NOT recognize .js files");
+                    Languages.TYPESCRIPT.getExtensions().contains("js"), "TypeScript should NOT recognize .js files");
             assertFalse(
-                    Language.TYPESCRIPT.getExtensions().contains("jsx"), "TypeScript should NOT recognize .jsx files");
+                    Languages.TYPESCRIPT.getExtensions().contains("jsx"), "TypeScript should NOT recognize .jsx files");
 
             // Verify that Language.fromExtension correctly routes files
             assertEquals(
-                    Language.TYPESCRIPT,
-                    Language.fromExtension("ts"),
+                    Languages.TYPESCRIPT,
+                    Languages.fromExtension("ts"),
                     ".ts files should be handled by TypeScript analyzer");
             assertEquals(
-                    Language.TYPESCRIPT,
-                    Language.fromExtension("tsx"),
+                    Languages.TYPESCRIPT,
+                    Languages.fromExtension("tsx"),
                     ".tsx files should be handled by TypeScript analyzer");
             assertEquals(
-                    Language.JAVASCRIPT,
-                    Language.fromExtension("js"),
+                    Languages.JAVASCRIPT,
+                    Languages.fromExtension("js"),
                     ".js files should be handled by JavaScript analyzer");
             assertEquals(
-                    Language.JAVASCRIPT,
-                    Language.fromExtension("jsx"),
+                    Languages.JAVASCRIPT,
+                    Languages.fromExtension("jsx"),
                     ".jsx files should be handled by JavaScript analyzer");
 
         } finally {
@@ -874,9 +874,9 @@ public class TypescriptAnalyzerTest {
         // Test with project that has no node_modules
         Path tempDir = Files.createTempDirectory("typescript-nodeps-test");
         try {
-            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
 
-            List<Path> candidates = Language.TYPESCRIPT.getDependencyCandidates(tsProject);
+            List<Path> candidates = Languages.TYPESCRIPT.getDependencyCandidates(tsProject);
 
             assertTrue(candidates.isEmpty(), "Should return empty list when no node_modules exists");
 
@@ -890,7 +890,7 @@ public class TypescriptAnalyzerTest {
         // Create a temporary test project
         Path tempDir = Files.createTempDirectory("typescript-analyzed-test");
         try {
-            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
 
             // Create a node_modules directory
             Path nodeModules = tempDir.resolve("node_modules");
@@ -908,24 +908,24 @@ public class TypescriptAnalyzerTest {
 
             // Project source files should be analyzed
             assertTrue(
-                    Language.TYPESCRIPT.isAnalyzed(tsProject, sourceFile),
+                    Languages.TYPESCRIPT.isAnalyzed(tsProject, sourceFile),
                     "Project source files should be considered analyzed");
             assertTrue(
-                    Language.TYPESCRIPT.isAnalyzed(tsProject, srcDir),
+                    Languages.TYPESCRIPT.isAnalyzed(tsProject, srcDir),
                     "Project source directories should be considered analyzed");
 
             // node_modules should NOT be analyzed (as they are dependencies)
             assertFalse(
-                    Language.TYPESCRIPT.isAnalyzed(tsProject, nodeModules),
+                    Languages.TYPESCRIPT.isAnalyzed(tsProject, nodeModules),
                     "node_modules directory should not be considered analyzed");
             assertFalse(
-                    Language.TYPESCRIPT.isAnalyzed(tsProject, reactDir),
+                    Languages.TYPESCRIPT.isAnalyzed(tsProject, reactDir),
                     "Individual dependency directories should not be considered analyzed");
 
             // Files outside project should not be analyzed
             Path outsideFile = Path.of("/tmp/outside.ts").toAbsolutePath();
             assertFalse(
-                    Language.TYPESCRIPT.isAnalyzed(tsProject, outsideFile),
+                    Languages.TYPESCRIPT.isAnalyzed(tsProject, outsideFile),
                     "Files outside project should not be considered analyzed");
 
         } finally {
@@ -938,7 +938,7 @@ public class TypescriptAnalyzerTest {
         // Create a test project with mixed TypeScript and JavaScript files
         Path tempDir = Files.createTempDirectory("typescript-js-ignore-test");
         try {
-            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+            var tsProject = new TestProject(tempDir, Languages.TYPESCRIPT);
 
             // Create both TypeScript and JavaScript files in project root
             Files.writeString(

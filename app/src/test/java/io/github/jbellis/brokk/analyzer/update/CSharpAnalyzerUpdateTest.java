@@ -27,7 +27,7 @@ class CSharpAnalyzerUpdateTest {
                   }
                 }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Language.C_SHARP);
+        project = UpdateTestUtil.newTestProject(rootDir, Languages.C_SHARP);
         analyzer = new CSharpAnalyzer(project);
     }
 

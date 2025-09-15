@@ -145,7 +145,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     "Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
                     relevantFiles.stream()
                             .filter(pf -> {
-                                Language lang = Language.fromExtension(pf.extension());
+                                Language lang = Languages.fromExtension(pf.extension());
                                 return projectLanguages.contains(lang);
                             })
                             .distinct()
@@ -194,12 +194,12 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
         var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Language.NONE)
+                .filter(l -> l != Languages.NONE)
                 .map(Language::name)
                 .collect(Collectors.toList());
         logger.info("Setting up analyzer for languages: {} in directory: {}", projectLangs, project.getRoot());
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
-        if (langHandle == Language.NONE) {
+        if (langHandle == Languages.NONE) {
             logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
             return new DisabledAnalyzer();
         }
@@ -362,7 +362,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                             dialog, or disable Code Intelligence by setting the language(s) to NONE.
                             """
                             .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
+                            .formatted(langNames, totalDeclarations, durationMs, langExtensions, Languages.NONE.name());
             listener.afterFirstBuild(msg);
             logger.info(msg);
         }
@@ -383,10 +383,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     /** Convenience overload that infers the language set from {@link #project}. */
     private Language getLanguageHandle() {
         var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Language.NONE)
+                .filter(l -> l != Languages.NONE)
                 .collect(Collectors.toUnmodifiableSet());
         if (projectLangs.isEmpty()) {
-            return Language.NONE;
+            return Languages.NONE;
         }
         return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
