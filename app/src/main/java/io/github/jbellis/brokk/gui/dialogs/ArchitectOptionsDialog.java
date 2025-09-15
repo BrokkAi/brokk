@@ -74,7 +74,7 @@ public class ArchitectOptionsDialog {
             IAnalyzer currentAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
             if (currentAnalyzer != null) {
                 tmpBool = currentAnalyzer.as(UsagesProvider.class).isPresent()
-                        && currentAnalyzer.as(CallGraphProvider.class).isPresent();
+                        || currentAnalyzer.as(CallGraphProvider.class).isPresent();
             } else {
                 log.warn("Interrupted while determining analyzer capabilities.");
             }
