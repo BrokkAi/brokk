@@ -368,6 +368,18 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
     }
 
+    public boolean providesInterproceduralAnalysis() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesInterproceduralAnalysis);
+    }
+
+    public boolean providesSummaries() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSummaries);
+    }
+
+    public boolean providesSourceCode() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSourceCode);
+    }
+
     /** Convenience overload that infers the language set from {@link #project}. */
     private Language getLanguageHandle() {
         var projectLangs = project.getAnalyzerLanguages().stream()

@@ -18,7 +18,6 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -140,7 +139,7 @@ public final class MergeOneFile {
 
         // Tool exposure
         var allowed = new ArrayList<String>();
-        if (cm.getAnalyzer().as(SkeletonProvider.class).isPresent()) {
+        if (cm.getAnalyzerWrapper().providesSummaries()) {
             allowed.addAll(List.of("getClassSkeletons", "getClassSources", "getMethodSources"));
         } else {
             allowed.addAll(List.of("getFileContents", "getFileSummaries"));
