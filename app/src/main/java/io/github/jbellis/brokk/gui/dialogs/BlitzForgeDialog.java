@@ -14,9 +14,9 @@ import io.github.jbellis.brokk.gui.FileSelectionPanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.ScaledIcon;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.*;
@@ -253,11 +253,11 @@ public class BlitzForgeDialog extends JDialog {
         JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
         leftPanel.add(fileSelectionPanel, BorderLayout.CENTER);
         MaterialButton addFilesButton = new MaterialButton();
-addFilesButton.setIcon(Icons.ADD);
-addFilesButton.setToolTipText("Add Files");
-addFilesButton.addActionListener(e -> addSelectedFilesToTable());
-JPanel addButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-addButtonPanel.add(addFilesButton);
+        addFilesButton.setIcon(Icons.ADD);
+        addFilesButton.setToolTipText("Add Files");
+        addFilesButton.addActionListener(e -> addSelectedFilesToTable());
+        JPanel addButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        addButtonPanel.add(addFilesButton);
         horizontalSplitPane.add(leftPanel);
 
         // Create the JTable and its scroll pane
@@ -313,10 +313,10 @@ addButtonPanel.add(addFilesButton);
         // The removeButtonPanel remains at BorderLayout.SOUTH
         JPanel removeButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         MaterialButton removeButton = new MaterialButton();
-removeButton.setIcon(Icons.REMOVE);
-removeButton.setToolTipText("Remove Selected");
-removeButton.addActionListener(e -> removeSelectedFilesFromTable());
-removeButtonPanel.add(removeButton);
+        removeButton.setIcon(Icons.REMOVE);
+        removeButton.setToolTipText("Remove Selected");
+        removeButton.addActionListener(e -> removeSelectedFilesFromTable());
+        removeButtonPanel.add(removeButton);
         // Combine Add Files and Remove Selected on a single bottom row
         JPanel bottomButtonsPanel = new JPanel(new GridLayout(1, 2, H_GAP, 0));
         bottomButtonsPanel.add(addButtonPanel); // left side, right-aligned within its cell
