@@ -433,4 +433,18 @@ public class JavaTreeSitterAnalyzerTest {
         assertTrue(classSkeletonStr.contains("formatMessage"));
         assertTrue(classSkeletonStr.contains("printVersion"));
     }
+
+    @Test
+    public void testNearestMethodName() {
+        // regular method
+        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method"));
+        // method with lambda/anon class
+        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method$anon$357:32"));
+        // method with anon class (just digits)
+        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method$1"));
+        // method in nested class
+        assertEquals("package.A$AInner.method", analyzer.nearestMethodName("package.A$AInner.method"));
+        // method with lambda in nested class
+        assertEquals("package.A$AInner.method", analyzer.nearestMethodName("package.A$AInner.method$anon$1"));
+    }
 }

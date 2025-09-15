@@ -1151,11 +1151,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    /** usage for identifier */
-    public void usageForIdentifier(String identifier) {
-        usageForIdentifier(identifier, false);
-    }
-
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
         var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);

@@ -384,7 +384,13 @@ public abstract class TreeSitterAnalyzer
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return uniqueCodeUnitList().stream()
-                .filter(cu -> cu.fqName().equals(fqName))
+                .filter(cu -> {
+                    if (cu.isFunction()) {
+                        return cu.fqName().equals(nearestMethodName(fqName));
+                    } else {
+                        return cu.fqName().equals(fqName);
+                    }
+                })
                 .findFirst();
     }
 
@@ -630,6 +636,18 @@ public abstract class TreeSitterAnalyzer
             log.trace("getSkeleton: fqName='{}', found=false", fqName);
             return Optional.empty();
         });
+    }
+
+    /**
+     * Assuming the fqName is an entity nested within a method, or is a method itself, will return the fqName of the
+     * method. This is mostly useful with escaping lambdas to their parent method.
+     *
+     * @param fqName the fqName of a method.
+     * @return the surrounding method, or the given fqName otherwise.
+     */
+    protected String nearestMethodName(String fqName) {
+        // Should be overridden by the superclass
+        return fqName;
     }
 
     @Override
