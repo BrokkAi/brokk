@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Predicate;
@@ -654,22 +653,21 @@ public class SearchTools {
 
         var matchingFilenames = contextManager.getProject().getAllFiles().parallelStream()
                 .map(file -> {
-                    try {
-                        if (!file.isText()) {
-                            return null;
-                        }
-                        String fileContents = file.read(); // Use ProjectFile.read()
-
-                        for (Predicate<String> predicate : predicates) {
-                            if (predicate.test(fileContents)) {
-                                return file;
-                            }
-                        }
-                        return null;
-                    } catch (Exception e) {
-                        logger.debug("Error processing file {}", file, e);
+                    if (!file.isText()) {
                         return null;
                     }
+                    var fileContentsOpt = file.read(); // Optional<String> from ProjectFile.read()
+                    if (fileContentsOpt.isEmpty()) {
+                        return null;
+                    }
+                    String fileContents = fileContentsOpt.get();
+
+                    for (Predicate<String> predicate : predicates) {
+                        if (predicate.test(fileContents)) {
+                            return file;
+                        }
+                    }
+                    return null;
                 })
                 .filter(Objects::nonNull)
                 .map(ProjectFile::toString)
@@ -754,7 +752,12 @@ public class SearchTools {
                     logger.debug("File not found or not a regular file: {}", file);
                     continue;
                 }
-                var content = file.read();
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) {
+                    logger.debug("Skipping unreadable file: {}", filename);
+                    continue;
+                }
+                var content = contentOpt.get();
                 if (result.length() > 0) {
                     result.append("\n\n");
                 }
@@ -767,9 +770,6 @@ public class SearchTools {
                                 .stripIndent()
                                 .formatted(filename, content));
                 anySuccess = true;
-            } catch (IOException e) {
-                logger.error("Error reading file content for {}: {}", filename, e.getMessage());
-                // Continue to next file
             } catch (Exception e) {
                 logger.error("Unexpected error getting content for {}: {}", filename, e.getMessage());
                 // Continue to next file

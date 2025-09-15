@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
@@ -50,6 +51,11 @@ public final class MainProject extends AbstractProject {
     private final SessionManager sessionManager;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
+    @Nullable
+    private volatile DiskLruCache diskCache = null;
+
+    private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
+
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
     private static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
@@ -61,6 +67,10 @@ public final class MainProject extends AbstractProject {
     // Keys for Architect Options persistence
     private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
+
+    // Keys for Plan First and Search First workspace preferences
+    private static final String PLAN_FIRST_KEY = "planFirst";
+    private static final String SEARCH_FIRST_KEY = "searchFirst";
 
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
@@ -141,10 +151,10 @@ public final class MainProject extends AbstractProject {
     public MainProject(Path root) {
         super(root); // Initializes this.root and this.repo
 
-        this.propertiesFile = this.masterRootPathForConfig.resolve(".brokk").resolve("project.properties");
-        this.styleGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("style.md");
-        this.reviewGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("review.md");
-        var sessionsDir = this.masterRootPathForConfig.resolve(".brokk").resolve("sessions");
+        this.propertiesFile = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(PROJECT_PROPERTIES_FILE);
+        this.styleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(STYLE_GUIDE_FILE);
+        this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
+        var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
         this.sessionManager = new SessionManager(sessionsDir);
 
         this.projectProps = new Properties();
@@ -252,6 +262,23 @@ public final class MainProject extends AbstractProject {
     @Override
     public MainProject getMainProject() {
         return this;
+    }
+
+    @Override
+    public synchronized DiskLruCache getDiskCache() {
+        if (diskCache != null) {
+            return diskCache;
+        }
+        var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
+        try {
+            Files.createDirectories(cacheDir);
+            diskCache = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
+            return diskCache;
+        } catch (IOException e) {
+            logger.error("Unable to open disk cache at {}: {}", cacheDir, e.getMessage());
+            throw new RuntimeException("Unable to open disk cache", e);
+        }
     }
 
     private static synchronized Properties loadGlobalProperties() {
@@ -483,6 +510,26 @@ public final class MainProject extends AbstractProject {
             logger.warn("Unable to determine size of file {}: {}", pf, e.getMessage());
             return 0L;
         }
+    }
+
+    /**
+     * Detects the primary Language used by a dependency directory by scanning file extensions inside it and selecting
+     * the most frequently occurring language. Falls back to Language.NONE if none detected.
+     */
+    private static Language detectLanguageForDependency(ProjectFile depDir) {
+        var counts = new IProject.Dependency(depDir, Language.NONE)
+                .files().stream()
+                        .map(pf -> com.google.common.io.Files.getFileExtension(
+                                pf.absPath().toString()))
+                        .filter(ext -> !ext.isEmpty())
+                        .map(Language::fromExtension)
+                        .filter(lang -> lang != Language.NONE)
+                        .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
+
+        return counts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(Language.NONE);
     }
 
     @Override
@@ -895,29 +942,60 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    /** Workspace preference: whether to "Plan First" (Architect) when coding. Defaults to true on first run. */
+    public boolean getPlanFirst() {
+        return Boolean.parseBoolean(workspaceProps.getProperty(PLAN_FIRST_KEY, "true"));
+    }
+
+    public void setPlanFirst(boolean v) {
+        workspaceProps.setProperty(PLAN_FIRST_KEY, String.valueOf(v));
+        saveWorkspaceProperties();
+    }
+
+    /** Workspace preference: whether to "Search First" when in Ask/Answer mode. Defaults to true on first run. */
+    public boolean getSearchFirst() {
+        return Boolean.parseBoolean(workspaceProps.getProperty(SEARCH_FIRST_KEY, "true"));
+    }
+
+    public void setSearchFirst(boolean v) {
+        workspaceProps.setProperty(SEARCH_FIRST_KEY, String.valueOf(v));
+        saveWorkspaceProperties();
+    }
+
     @Override
-    public Set<ProjectFile> getLiveDependencies() {
+    public Set<Dependency> getLiveDependencies() {
         var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
-        if (liveDepsNames == null || liveDepsNames.isBlank()) {
-            return allDeps;
+
+        Set<ProjectFile> selected;
+        if (liveDepsNames == null) {
+            // Property not set: default to all dependencies enabled
+            selected = allDeps;
+        } else if (liveDepsNames.isBlank()) {
+            // Property explicitly set but empty: user disabled all dependencies
+            return Set.of();
+        } else {
+            var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toSet());
+
+            selected = allDeps.stream()
+                    .filter(dep -> {
+                        // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
+                        if (dep.getRelPath().getNameCount() < 3) {
+                            return false;
+                        }
+                        // relPath is relative to masterRootPathForConfig, so .brokk is first component
+                        var depName = dep.getRelPath().getName(2).toString();
+                        return liveNamesSet.contains(depName);
+                    })
+                    .collect(Collectors.toSet());
         }
 
-        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        return allDeps.stream()
-                .filter(dep -> {
-                    // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
-                    if (dep.getRelPath().getNameCount() < 3) {
-                        return false;
-                    }
-                    // relPath is relative to masterRootPathForConfig, so .brokk is first component
-                    var depName = dep.getRelPath().getName(2).toString();
-                    return liveNamesSet.contains(depName);
-                })
+        // Wrap with detected language for each dependency root directory
+        return selected.stream()
+                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
                 .collect(Collectors.toSet());
     }
 
@@ -974,11 +1052,23 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public static boolean getCodeBlockWrapMode() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty("wordWrap", "true"));
+    }
+
+    public static void setCodeBlockWrapMode(boolean wrap) {
+        var props = loadGlobalProperties();
+        props.setProperty("wordWrap", String.valueOf(wrap));
+        saveGlobalProperties(props);
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
     //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
     private static final String UI_SCALE_KEY = "uiScale";
+    private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -994,6 +1084,29 @@ public final class MainProject extends AbstractProject {
     public static void setUiScalePrefCustom(double scale) {
         var props = loadGlobalProperties();
         props.setProperty(UI_SCALE_KEY, Double.toString(scale));
+        saveGlobalProperties(props);
+    }
+
+    public static float getTerminalFontSize() {
+        var props = loadGlobalProperties();
+        String valueStr = props.getProperty(TERMINAL_FONT_SIZE_KEY);
+        if (valueStr != null) {
+            try {
+                return Float.parseFloat(valueStr);
+            } catch (NumberFormatException e) {
+                // fall through and return default
+            }
+        }
+        return 11.0f;
+    }
+
+    public static void setTerminalFontSize(float size) {
+        var props = loadGlobalProperties();
+        if (size == 11.0f) {
+            props.remove(TERMINAL_FONT_SIZE_KEY);
+        } else {
+            props.setProperty(TERMINAL_FONT_SIZE_KEY, Float.toString(size));
+        }
         saveGlobalProperties(props);
     }
 
@@ -1470,14 +1583,26 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
-        super.close();
+        // Close disk cache if open
+        try {
+            if (diskCache != null) {
+                diskCache.close();
+                diskCache = null;
+                logger.debug("Closed disk cache for project {}", root.getFileName());
+            }
+        } catch (Exception e) {
+            logger.warn("Error closing disk cache for {}: {}", root.getFileName(), e.getMessage());
+        }
+
+        // Close session manager and other resources
         sessionManager.close();
+        super.close();
     }
 
     public Path getWorktreeStoragePath() {
         return Path.of(
                 System.getProperty("user.home"),
-                ".brokk",
+                BROKK_DIR,
                 "worktrees",
                 getMasterRootPathForConfig().getFileName().toString());
     }
@@ -1497,7 +1622,7 @@ public final class MainProject extends AbstractProject {
                     continue;
                 }
 
-                var wsPropsPath = wtPath.resolve(".brokk").resolve("workspace.properties");
+                var wsPropsPath = wtPath.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
                 if (!Files.exists(wsPropsPath)) {
                     continue;
                 }
@@ -1534,17 +1659,51 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    /* --------------------------------------------------------
-    Blitz-history (parallel + post-processing instructions)
-    -------------------------------------------------------- */
+    // ------------------------------------------------------------------
+    // Blitz-History (parallel + post-processing instructions)
+    // ------------------------------------------------------------------
+    private static final String BLITZ_HISTORY_KEY = "blitzHistory";
+
+    private void saveBlitzHistory(List<List<String>> historyItems, int maxItems) {
+        try {
+            var limited = historyItems.stream().limit(maxItems).toList();
+            String json = objectMapper.writeValueAsString(limited);
+            workspaceProps.setProperty(BLITZ_HISTORY_KEY, json);
+            saveWorkspaceProperties();
+        } catch (Exception e) {
+            logger.error("Error saving Blitz history: {}", e.getMessage());
+        }
+    }
+
     @Override
     public List<List<String>> loadBlitzHistory() {
-        return super.loadBlitzHistory();
+        try {
+            String json = workspaceProps.getProperty(BLITZ_HISTORY_KEY);
+            if (json != null && !json.isEmpty()) {
+                var tf = objectMapper.getTypeFactory();
+                var type = tf.constructCollectionType(List.class, tf.constructCollectionType(List.class, String.class));
+                return objectMapper.readValue(json, type);
+            }
+        } catch (Exception e) {
+            logger.error("Error loading Blitz history: {}", e.getMessage(), e);
+        }
+        return new ArrayList<>();
     }
 
     @Override
     public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
-        return super.addToBlitzHistory(parallel, post, maxItems);
+        if (parallel.trim().isEmpty() && post.trim().isEmpty()) {
+            return loadBlitzHistory();
+        }
+        var history = new ArrayList<>(loadBlitzHistory());
+        history.removeIf(
+                p -> p.size() >= 2 && p.get(0).equals(parallel) && p.get(1).equals(post));
+        history.add(0, List.of(parallel, post));
+        if (history.size() > maxItems) {
+            history = new ArrayList<>(history.subList(0, maxItems));
+        }
+        saveBlitzHistory(history, maxItems);
+        return history;
     }
 
     @Override

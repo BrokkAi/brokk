@@ -26,6 +26,7 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.TargetDataLine;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -33,6 +34,8 @@ import org.jetbrains.annotations.Nullable;
 /** A button that captures voice input from the microphone and transcribes it to a text area. */
 public class VoiceInputButton extends JButton {
     private static final Logger logger = LogManager.getLogger(VoiceInputButton.class);
+
+    private static final int ICON_PADDING = 6;
 
     private final JTextArea targetTextArea;
     private final ContextManager contextManager;
@@ -76,18 +79,12 @@ public class VoiceInputButton extends JButton {
 
         // Determine standard button height to make this button square
         var referenceButton = new JButton(" ");
-        int normalButtonHeight = referenceButton.getPreferredSize().height;
+        int normalButtonHeight = referenceButton.getPreferredSize().height + ICON_PADDING;
 
-        // Determine appropriate icon size, leaving some padding similar to default button margins
+        // Determine appropriate icon size, leaving consistent visual padding
         SwingUtilities.invokeLater(() -> {
-            Insets buttonMargin = UIManager.getInsets("Button.margin");
-            if (buttonMargin == null) {
-                // Fallback if Look and Feel doesn't provide Button.margin
-                // These values are typical for many L&Fs
-                buttonMargin = new Insets(2, 14, 2, 14);
-            }
             // Calculate icon size to fit within button height considering vertical margins
-            int iconDisplaySize = normalButtonHeight - (buttonMargin.top + buttonMargin.bottom);
+            int iconDisplaySize = normalButtonHeight - ICON_PADDING * 2;
             iconDisplaySize = Math.max(8, iconDisplaySize); // Ensure a minimum practical size
 
             // Load mic icons
@@ -100,6 +97,7 @@ public class VoiceInputButton extends JButton {
                 if (micOffIcon instanceof SwingUtil.ThemedIcon icon) {
                     micOffIcon = icon.withSize(iconDisplaySize);
                 }
+                setBorder(new EmptyBorder(ICON_PADDING, ICON_PADDING, ICON_PADDING, ICON_PADDING));
                 logger.trace("Successfully loaded and scaled mic icons to {}x{}", iconDisplaySize, iconDisplaySize);
             } catch (Exception e) {
                 logger.warn("Failed to load mic icons", e);
@@ -121,6 +119,15 @@ public class VoiceInputButton extends JButton {
         setMinimumSize(buttonSize);
         setMaximumSize(buttonSize);
         setMargin(new Insets(0, 0, 0, 0));
+
+        // Make the button visually transparent (icon-only)
+        setOpaque(false);
+        setContentAreaFilled(false);
+        setBorderPainted(false);
+        setFocusPainted(false);
+        // Hint for FlatLaf and similar LAFs to use transparent styling
+        putClientProperty("JButton.buttonType", "borderless");
+        setRolloverEnabled(true);
 
         // Track recording state
         putClientProperty("isRecording", false);
@@ -144,7 +151,7 @@ public class VoiceInputButton extends JButton {
 
         // Initialize enabled state based on whether an STT model is available.
         boolean sttAvailable = contextManager.getService().hasSttModel();
-        model.setEnabled(sttAvailable);
+        setEnabled(sttAvailable);
         if (!sttAvailable) {
             setToolTipText("Speech-to-text unavailable — configure a transcription-capable model in Settings.");
         }
@@ -177,7 +184,7 @@ public class VoiceInputButton extends JButton {
     /** Update the button enabled/tooltip state based on current STT availability. This is invoked on the EDT. */
     private void updateSttAvailability() {
         boolean available = contextManager.getService().hasSttModel();
-        model.setEnabled(available);
+        setEnabled(available);
         if (available) {
             setToolTipText("Toggle Microphone (Cmd/Ctrl+L)");
         } else {
@@ -371,5 +378,44 @@ public class VoiceInputButton extends JButton {
                 SwingUtilities.invokeLater(() -> targetTextArea.setEnabled(true));
             }
         });
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        var model = getModel();
+        var hover = model.isRollover();
+        var pressed = model.isArmed() && model.isPressed();
+        var focus = isFocusOwner();
+        var showCue = hover || pressed || focus;
+
+        if (showCue) {
+            var g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int w = getWidth();
+                int h = getHeight();
+
+                int pad = 2;
+                int arc = Math.min(w, h) / 3;
+
+                var base = UIManager.getColor("Component.focusColor");
+                if (base == null) {
+                    base = getForeground();
+                }
+                int fillAlpha = pressed ? 60 : 32;
+                int strokeAlpha = pressed ? 160 : 96;
+
+                g2.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), fillAlpha));
+                g2.fillRoundRect(pad, pad, w - pad - pad, h - pad - pad, arc, arc);
+
+                g2.setStroke(new BasicStroke(1f));
+                g2.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), strokeAlpha));
+                g2.drawRoundRect(pad, pad, w - pad - pad, h - pad - pad, arc, arc);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        super.paintComponent(g);
     }
 }

@@ -25,6 +25,7 @@ import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
 import dev.langchain4j.model.chat.request.json.JsonNumberSchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -45,7 +46,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -125,7 +126,7 @@ public class Llm {
      * @return The Path object representing the base history directory.
      */
     public static Path getHistoryBaseDir(Path projectRoot) {
-        return projectRoot.resolve(".brokk").resolve(HISTORY_DIR_NAME);
+        return projectRoot.resolve(AbstractProject.BROKK_DIR).resolve(HISTORY_DIR_NAME);
     }
 
     /**
@@ -151,7 +152,7 @@ public class Llm {
         }
 
         // latch for awaiting any response from llm
-        var llmResponseLatch = new AtomicReference<>(new CountDownLatch(1));
+        var tick = new Semaphore(0);
         var firstToken = new AtomicBoolean(true);
         var completed = new AtomicBoolean(false);
         var cancelled = new AtomicBoolean(false);
@@ -163,7 +164,7 @@ public class Llm {
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
 
-        Consumer<Runnable> ifNotCancelled = (r) -> {
+        Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
             try {
                 if (!cancelled.get()) {
@@ -173,16 +174,16 @@ public class Llm {
                 // litellm is fucking us over again, try to recover
                 logger.error(e);
                 errorRef.set(e);
-                completed.set(true); // Ensure we release the lock if an exception occurs
+                completed.set(true);
             } finally {
                 if (firstToken.get()) {
                     firstToken.set(false);
                 }
-                requireNonNull(llmResponseLatch.get()).countDown();
+                // signal an event (partial, reasoning, complete, or error)
+                tick.release();
                 lock.unlock();
             }
         };
-
         var rawHandler = new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String token) {
@@ -250,19 +251,17 @@ public class Llm {
 
         try {
             while (!completed.get()) {
-                var llmResponseTimeout = getLlmResponseTimeoutSeconds(firstToken.get());
-                boolean timeout = !requireNonNull(llmResponseLatch.get()).await(llmResponseTimeout, TimeUnit.SECONDS);
-                lock.lock(); // LockNotBeforeTry
-                try {
-                    if (timeout) {
-                        cancelled.set(true); // Ensure callback stops echoing
+                long secs = getLlmResponseTimeoutSeconds(firstToken.get());
+                boolean gotSignal = tick.tryAcquire(secs, TimeUnit.SECONDS);
+                if (!gotSignal) {
+                    lock.lock();
+                    try {
+                        cancelled.set(true);
                         errorRef.set(new HttpException(504, "LLM timed out"));
                         completed.set(true);
-                    } else {
-                        llmResponseLatch.set(new CountDownLatch(1));
+                    } finally {
+                        lock.unlock();
                     }
-                } finally {
-                    lock.unlock();
                 }
             }
         } catch (InterruptedException e) {
@@ -1004,7 +1003,10 @@ public class Llm {
             List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
-                    var parametersInfo = tool.parameters().properties().entrySet().stream()
+                    var props = tool.parameters() == null
+                            ? Map.<String, JsonSchemaElement>of()
+                            : tool.parameters().properties();
+                    var parametersInfo = props.entrySet().stream()
                             .map(entry -> {
                                 var schema = entry.getValue();
                                 String description;
@@ -1057,7 +1059,9 @@ public class Llm {
                                         .formatted(
                                                 entry.getKey(),
                                                 type,
-                                                tool.parameters().required().contains(entry.getKey()),
+                                                requireNonNull(tool.parameters())
+                                                        .required()
+                                                        .contains(entry.getKey()),
                                                 description);
                             })
                             .collect(Collectors.joining("\n"));

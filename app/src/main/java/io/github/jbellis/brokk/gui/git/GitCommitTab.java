@@ -8,16 +8,15 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -27,6 +26,7 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -39,7 +39,7 @@ public class GitCommitTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitWorkflowService workflowService;
+    private final GitWorkflow workflowService;
 
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
@@ -58,7 +58,7 @@ public class GitCommitTab extends JPanel {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.workflowService = new GitWorkflowService(contextManager);
+        this.workflowService = new GitWorkflow(contextManager);
         buildCommitTabUI();
     }
 
@@ -164,16 +164,17 @@ public class GitCommitTab extends JPanel {
 
         // Add action listener for the view history item
         viewHistoryItem.addActionListener(e -> {
-            // int row = uncommittedFilesTable.getSelectedRow(); // Using rightClickedFile instead
+            ProjectFile fileToShow = null;
             if (rightClickedFile != null) {
-                chrome.addFileHistoryTab(rightClickedFile);
+                fileToShow = rightClickedFile;
             } else { // Fallback to selection if rightClickedFile is somehow null
                 int row = uncommittedFilesTable.getSelectedRow();
                 if (row >= 0) {
-                    var projectFile =
-                            (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
-                    chrome.addFileHistoryTab(projectFile);
+                    fileToShow = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
                 }
+            }
+            if (fileToShow != null) {
+                chrome.showFileHistory(fileToShow);
             }
             rightClickedFile = null; // Clear after use
         });
@@ -224,7 +225,7 @@ public class GitCommitTab extends JPanel {
                     filesToCommit,
                     commitResult -> { // This is the onCommitSuccessCallback
                         chrome.systemOutput("Committed "
-                                + GitUiUtil.shortenCommitId(commitResult.commitId())
+                                + getRepo().shortHash(commitResult.commitId())
                                 + ": " + commitResult.firstLine());
                         updateCommitPanel(); // Refresh file list
                         chrome.updateLogTab();
@@ -239,12 +240,17 @@ public class GitCommitTab extends JPanel {
         stashButton.setToolTipText("Save your changes to the stash");
         stashButton.setEnabled(false);
         stashButton.addActionListener(e -> {
-            List<ProjectFile> selectedFiles = getSelectedFilesFromTable();
+            var selectedFiles = getSelectedFilesFromTable();
+            int totalRows = uncommittedFilesTable.getRowCount();
+            int selectedCount = uncommittedFilesTable.getSelectedRowCount();
+            boolean allSelected = selectedCount > 0 && selectedCount == totalRows;
+            var filesToStash = allSelected ? List.<ProjectFile>of() : selectedFiles;
+
             // Stash without asking for a message, using a default one.
             String stashMessage = "Stash created by Brokk";
             contextManager.submitUserTask("Stashing changes", () -> {
                 try {
-                    performStash(selectedFiles, stashMessage);
+                    performStash(filesToStash, stashMessage);
                 } catch (GitAPIException ex) {
                     logger.error("Error stashing changes:", ex);
                     SwingUtilities.invokeLater(
@@ -279,18 +285,6 @@ public class GitCommitTab extends JPanel {
 
         // Ensure initial sizing is only as large as the table contents
         shrinkTableToContents();
-
-        // Recompute button labels responsively when the panel resizes
-        addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                updateCommitButtonText();
-                buttonPanel.revalidate();
-                buttonPanel.repaint();
-                revalidate(); // ensure BorderLayout.NORTH recalculates height if buttons wrap
-                repaint();
-            }
-        });
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -380,65 +374,33 @@ public class GitCommitTab extends JPanel {
         });
     }
 
-    /** Adjusts the commit and stash button labels depending on file selection and available width. */
+    /** Adjusts the commit and stash button labels depending on file selection. */
     private void updateCommitButtonText() {
         assert SwingUtilities.isEventDispatchThread() : "updateCommitButtonText must be called on EDT";
 
         int selectedRowCount = uncommittedFilesTable.getSelectedRowCount();
+        int totalRowCount = uncommittedFilesTable.getRowCount();
+        boolean anySelected = selectedRowCount > 0;
+        boolean allSelected = anySelected && selectedRowCount == totalRowCount;
 
-        // Full labels always reflect the action; we may render them wrapped (HTML) when space is tight.
-        var commitFull = selectedRowCount > 0 ? "Commit Selected..." : "Commit All...";
-        var stashFull = selectedRowCount > 0 ? "Stash Selected" : "Stash All";
+        // Labels
+        var commitLabel = (anySelected && !allSelected) ? "Commit Selected..." : "Commit All...";
+        var stashLabel = (anySelected && !allSelected) ? "Stash Selected" : "Stash All";
 
-        // Start with plain (single-line) labels.
-        commitButton.setText(commitFull);
-        stashButton.setText(stashFull);
+        // Set plain single-line labels
+        commitButton.setText(commitLabel);
+        stashButton.setText(stashLabel);
 
-        // Tooltips always describe the full action
-        commitButton.setToolTipText(selectedRowCount > 0 ? "Commit the selected files..." : "Commit all files...");
-        stashButton.setToolTipText(
-                selectedRowCount > 0 ? "Save selected changes to the stash" : "Save all changes to the stash");
+        // Tooltips describe the action
+        var commitTooltip = (anySelected && !allSelected) ? "Commit the selected files..." : "Commit all files...";
+        var stashTooltip =
+                (anySelected && !allSelected) ? "Save selected changes to the stash" : "Save all changes to the stash";
+        commitButton.setToolTipText(commitTooltip);
+        stashButton.setToolTipText(stashTooltip);
 
-        // Determine if we need to wrap labels so buttons can shrink horizontally to fit.
-        int availableWidth;
-        var parent = buttonPanel.getParent();
-        if (parent != null) {
-            availableWidth = parent.getWidth();
-        } else {
-            availableWidth = buttonPanel.getWidth();
-        }
-
-        if (availableWidth > 0) {
-            var layout = (FlowLayout) buttonPanel.getLayout();
-            var insets = buttonPanel.getInsets();
-            int neededWidth = commitButton.getPreferredSize().width
-                    + layout.getHgap()
-                    + stashButton.getPreferredSize().width
-                    + insets.left
-                    + insets.right;
-
-            if (neededWidth > availableWidth) {
-                // Wrap labels into two lines (same words, just visual break) to allow narrower buttons.
-                commitButton.setText(makeWrappedHtmlLabel(commitFull));
-                stashButton.setText(makeWrappedHtmlLabel(stashFull));
-            }
-        }
-
+        // Let the horizontal scroll handle overflow; no wrapping or panel-wide revalidation necessary
         buttonPanel.revalidate();
         buttonPanel.repaint();
-        revalidate();
-        repaint();
-    }
-
-    // Render the same label text but with a line break after the first space, allowing the JButton to be narrower.
-    private static String makeWrappedHtmlLabel(String label) {
-        int idx = label.indexOf(' ');
-        if (idx < 0) {
-            return label;
-        }
-        String first = label.substring(0, idx);
-        String rest = label.substring(idx + 1);
-        return "<html><div style='text-align:center'>" + first + "<br>" + rest + "</div></html>";
     }
 
     /**
@@ -598,6 +560,34 @@ public class GitCommitTab extends JPanel {
                 }
 
                 SwingUtilities.invokeLater(() -> {
+                    // Create normalized sources for window raising check (use all files in consistent order)
+                    var normalizedFiles = allFiles.stream()
+                            .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
+                            .collect(Collectors.toList());
+
+                    var leftSources = new java.util.ArrayList<BufferSource>();
+                    var rightSources = new java.util.ArrayList<BufferSource>();
+
+                    for (var file : normalizedFiles) {
+                        var rightSource =
+                                new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                        String headContent = "";
+                        try {
+                            var repo = contextManager.getProject().getRepo();
+                            headContent = repo.getFileContent("HEAD", file);
+                        } catch (Exception ex) {
+                            headContent = "";
+                        }
+                        var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.getFileName());
+                        leftSources.add(leftSource);
+                        rightSources.add(rightSource);
+                    }
+
+                    // Check if we already have a window showing this diff
+                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
+                        return; // Existing window raised, don't create new one
+                    }
+
                     var panel = builder.build();
                     panel.showInFrame("Uncommitted Changes Diff");
                 });
@@ -741,11 +731,19 @@ public class GitCommitTab extends JPanel {
         var frozen = contextManager.liveContext().freezeAndCleanup();
         contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
 
+        RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {
-            getRepo().createStash(stashDescription);
+            stashCommit = getRepo().createStash(stashDescription);
         } else {
-            getRepo().createPartialStash(stashDescription, selectedFiles);
+            stashCommit = getRepo().createPartialStash(stashDescription, selectedFiles);
         }
+
+        if (stashCommit == null) {
+            SwingUtilities.invokeLater(() -> chrome.toolError("No changes to stash.", "Stash Failed"));
+            // The `undo` stack will have a no-op change. This is acceptable.
+            return;
+        }
+
         SwingUtilities.invokeLater(() -> {
             if (selectedFiles.isEmpty()) {
                 chrome.systemOutput("All changes stashed successfully: " + stashDescription);

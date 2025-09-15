@@ -443,15 +443,13 @@ public class ContextHistory {
             var pf = fragment.files().iterator().next();
             try {
                 var newContent = fragment.text();
-                var currentContent = pf.exists() ? pf.read() : "";
+                var currentContent = pf.exists() ? pf.read().orElse("") : "";
 
                 if (!newContent.equals(currentContent)) {
                     pf.write(newContent);
                     var restoredFiles = new ArrayList<String>();
                     restoredFiles.add(pf.toString());
-                    if (!restoredFiles.isEmpty()) {
-                        io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
-                    }
+                    io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
                     io.updateWorkspace();
                 }
             } catch (IOException e) {

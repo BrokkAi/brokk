@@ -163,6 +163,16 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         setSize(previousSize);
     }
 
+    @Override
+    public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+        // Word wrap not applicable to settings dialog
+        var previousSize = getSize();
+        SwingUtilities.updateComponentTreeUI(this);
+        globalSettingsPanel.applyTheme(guiTheme, wordWrap);
+        projectSettingsPanel.applyTheme(guiTheme, wordWrap);
+        setSize(previousSize);
+    }
+
     // Called by SettingsGlobalPanel when UI scale preference changes
     public void markRestartNeededForUiScale() {
         this.uiScaleSettingsChanged = true;

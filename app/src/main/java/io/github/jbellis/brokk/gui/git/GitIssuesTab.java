@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui.git;
 
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -92,9 +91,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
     private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
 
-    @Nullable
-    private volatile Future<?> currentSearchFuture;
-
+    private volatile @Nullable Future<?> currentSearchFuture;
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
@@ -907,14 +904,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
 
         // Data for EDT update
-        final List<IssueHeader> finalSourceListForApiField = isFullUpdate ? new ArrayList<>(sourceList) : null;
         final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
 
         SwingUtilities.invokeLater(() -> {
             // This part runs on the EDT
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
-            if (isFullUpdate && finalSourceListForApiField != null) {
-                allIssuesFromApi = finalSourceListForApiField;
+            if (isFullUpdate) {
+                allIssuesFromApi = new ArrayList<>(sourceList);
                 logger.debug(
                         "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
                         allIssuesFromApi.size());
@@ -1026,11 +1022,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
-        IssueHeader header = displayedIssues.get(selectedRow);
-        captureIssueHeader(header);
+        captureIssue(displayedIssues.get(selectedRow));
     }
 
-    private void captureIssueHeader(IssueHeader header) {
+    private void captureIssue(IssueHeader header) {
         var future = contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
@@ -1092,16 +1087,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
                 header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
                 bodyForCapture);
-        return List.of(new CustomMessage(Map.of("text", content)));
+        return List.of(UserMessage.from(header.author(), content));
     }
 
     private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(
             IssueDetails details, List<ChatMessage> messages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: %s", header.id(), header.title());
-        return new ContextFragment.TaskFragment(
-                this.contextManager, messages, description, false // some issues contain HTML
-                );
+        return new ContextFragment.TaskFragment(this.contextManager, messages, description, false);
     }
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
@@ -1126,9 +1119,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             IssueDetails details, List<ChatMessage> commentMessages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: Comments", header.id());
-        return new ContextFragment.TaskFragment(
-                this.contextManager, commentMessages, description, false // some comments contain HTML
-                );
+        return new ContextFragment.TaskFragment(this.contextManager, commentMessages, description, false);
     }
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {

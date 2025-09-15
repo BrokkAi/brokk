@@ -226,6 +226,17 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    /** Container for a function’s location and current source text. */
+    /** Container for a function's location and current source text. */
     record FunctionLocation(ProjectFile file, int startLine, int endLine, String code) {}
+
+    /**
+     * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
+     * method that may produce false positives/negatives.
+     *
+     * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
+     * @return Optional containing the extracted class/module name, empty if none found
+     */
+    default Optional<String> extractClassName(String reference) {
+        return Optional.empty();
+    }
 }

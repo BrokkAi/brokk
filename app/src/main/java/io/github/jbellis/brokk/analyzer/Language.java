@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.cpg.AnalyzerStorageCache;
 import io.github.jbellis.brokk.util.Environment;
@@ -41,7 +42,25 @@ public interface Language {
      */
     default Path getStoragePath(IProject project) {
         // Use oldName for storage path to ensure stable and filesystem-safe names
-        return project.getRoot().resolve(".brokk").resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
+        return project.getRoot()
+                .resolve(AbstractProject.BROKK_DIR)
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
+    }
+
+    default boolean shouldDisableLsp() {
+        var raw = System.getenv("BRK_NO_LSP");
+        if (raw == null) return false;
+        var value = raw.trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) return true;
+        return switch (value) {
+            case "1", "true", "t", "yes", "y", "on" -> true;
+            case "0", "false", "f", "no", "n", "off" -> false;
+            default -> {
+                logger.warn("Environment variable BRK_NO_LSP='" + raw
+                        + "' is not a recognized boolean; defaulting to disabling LSP.");
+                yield true;
+            }
+        };
     }
 
     default List<Path> getDependencyCandidates(IProject project) {
@@ -128,7 +147,12 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return JavaAnalyzer.create(project);
+            if (shouldDisableLsp()) {
+                logger.info("BRK_NO_LSP disables JDT LSP; TSA-only mode.");
+                return new JavaTreeSitterAnalyzer(project);
+            } else {
+                return JavaAnalyzer.create(project);
+            }
         }
 
         @Override
@@ -379,35 +403,20 @@ public interface Language {
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
-            logger.debug("Scanning for Python dependency candidates in project: {}", project.getRoot());
-            List<Path> results = new ArrayList<>();
+            logger.debug("Scanning for Python virtual environments in project: {}", project.getRoot());
             List<Path> venvs = findVirtualEnvs(project.getRoot());
             if (venvs.isEmpty()) {
                 logger.debug("No virtual environments found for Python dependency scan.");
+                return List.of();
             }
 
-            venvs.stream()
+            List<Path> sitePackagesDirs = venvs.stream()
                     .map(this::sitePackagesDir)
-                    .filter(Files::isDirectory) // Filter out empty paths returned by sitePackagesDir if not found
-                    .forEach(dir -> {
-                        logger.debug("Scanning site-packages directory: {}", dir);
-                        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
-                            for (Path p : ds) {
-                                String name = p.getFileName().toString();
-                                if (name.endsWith(".dist-info") || name.endsWith(".egg-info") || name.startsWith("_")) {
-                                    continue;
-                                }
-                                if (Files.isDirectory(p)) {
-                                    logger.debug("Found Python dependency candidate: {}", p);
-                                    results.add(p);
-                                }
-                            }
-                        } catch (IOException e) {
-                            logger.warn("Error scanning site-packages directory {}: {}", dir, e.getMessage());
-                        }
-                    });
-            logger.debug("Found {} Python dependency candidates.", results.size());
-            return results;
+                    .filter(Files::isDirectory)
+                    .toList();
+
+            logger.debug("Found {} Python site-packages directories.", sitePackagesDirs.size());
+            return sitePackagesDirs;
         }
 
         @Override
@@ -459,16 +468,12 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return AnalyzerStorageCache.getOrCompute(project, this, () -> {
-                var cpgPath = getStoragePath(project);
-                return new CppAnalyzer(project.getRoot(), project.getExcludedDirectories(), cpgPath);
-            });
+            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            Path cpgPath = getStoragePath(project);
-            return CppAnalyzer$.MODULE$.loadAnalyzer(project.getRoot(), cpgPath);
+            return createAnalyzer(project);
         }
 
         @Override

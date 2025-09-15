@@ -367,14 +367,12 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                             project.hasGit() ? project.getRepo().getTrackedFiles() : java.util.Set.<ProjectFile>of();
                     var deletedInfos = filesToDelete.stream()
                             .map(pf -> {
-                                try {
-                                    var content = pf.exists() ? pf.read() : "";
-                                    boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
-                                    return new ContextHistory.DeletedFile(pf, content, wasTracked);
-                                } catch (Exception ex) {
-                                    logger.error("Failed to read file before deletion: " + pf, ex);
+                                var content = pf.exists() ? pf.read().orElse(null) : null;
+                                if (content == null) {
                                     return null;
                                 }
+                                boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
+                                return new ContextHistory.DeletedFile(pf, content, wasTracked);
                             })
                             .filter(Objects::nonNull)
                             .toList();
@@ -441,11 +439,11 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 var testProjectFiles =
                         targetFiles.stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
 
-                if (!testProjectFiles.isEmpty()) {
-                    RunTestsService.runTests(chrome, contextManager, testProjectFiles);
-                } else {
+                if (testProjectFiles.isEmpty()) {
                     // This case might occur if selection changes between menu population and action
                     chrome.toolError("No test files were selected to run");
+                } else {
+                    chrome.getContextManager().runTests(testProjectFiles);
                 }
             });
         });

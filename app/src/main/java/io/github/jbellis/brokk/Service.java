@@ -848,7 +848,8 @@ public class Service {
             return true;
         }
 
-        if (location.contains("gpt-5")) {
+        if (true) {
+            // something is broken in litellm world
             return true;
         }
 
@@ -1070,7 +1071,8 @@ public class Service {
                 .addFormDataPart("user_id", kp.userId().toString());
 
         if (includeDebugLog) {
-            var debugLogPath = Path.of(System.getProperty("user.home"), ".brokk", "debug.log");
+            var debugLogPath =
+                    Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR, AbstractProject.DEBUG_LOG_FILE);
             var debugFile = debugLogPath.toFile();
             if (debugFile.exists()) {
                 try {

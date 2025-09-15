@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.analyzer.linting;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.wildfly.common.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.JdtAnalyzer;

@@ -1,12 +1,17 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
+import static java.util.Objects.requireNonNull;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
+import io.github.jbellis.brokk.util.Messages;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -114,9 +119,9 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark, boolean isDevMode) {
+    public void setTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
-                + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
+                + ", " + wrapMode + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
@@ -136,6 +141,41 @@ public final class MOPBridge {
     public void clear() {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.Clear(e));
+        scheduleSend();
+    }
+
+    /** Enqueue a history reset event for the WebView to clear its stored history. */
+    public void sendHistoryReset() {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.HistoryReset(e));
+        scheduleSend();
+    }
+
+    /** Enqueue a single task from the conversation history to the WebView. */
+    public void sendHistoryTask(TaskEntry entry) {
+        var e = epoch.incrementAndGet();
+
+        // compressed summary
+        if (entry.isCompressed()) {
+            var event = new BrokkEvent.HistoryTask(e, true, requireNonNull(entry.summary()), null);
+            eventQueue.add(event);
+            scheduleSend();
+            return;
+        }
+
+        // Uncompressed: convert messages
+        var taskFragment = entry.log();
+        List<BrokkEvent.HistoryTask.Message> messages = new ArrayList<>();
+
+        if (taskFragment != null) {
+            var msgs = taskFragment.messages();
+            for (var message : msgs) {
+                var text = Messages.getText(message);
+                messages.add(new BrokkEvent.HistoryTask.Message(text, message.type()));
+            }
+        }
+        var event = new BrokkEvent.HistoryTask(e, false, null, messages);
+        eventQueue.add(event);
         scheduleSend();
     }
 
@@ -168,13 +208,12 @@ public final class MOPBridge {
                         firstChunk = chunk;
                     }
                     currentText.append(chunk.text());
-                } else if (event instanceof BrokkEvent.Clear clearEvent) {
-                    // This is a Clear event.
-                    // First, we MUST send any pending text that came before it.
+                } else {
+                    // Any non-chunk event (clear, history-reset, history-task, etc.)
+                    // must flush any pending chunk first and then be forwarded immediately.
                     flushCurrentChunk(firstChunk, currentText);
                     firstChunk = null;
-                    // Now, send the Clear event itself.
-                    sendEvent(clearEvent);
+                    sendEvent(event);
                 }
             }
 
@@ -277,10 +316,6 @@ public final class MOPBridge {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
 
-        logger.debug(
-                "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
-        logger.debug("ContextManager available: {}", contextManager != null);
-
         // Parse symbol names (keep existing parsing logic)
         Set<String> symbolNames;
         try {
@@ -316,12 +351,13 @@ public final class MOPBridge {
                         symbolNames,
                         contextManager,
                         // Result callback - called for each individual symbol result
-                        (symbolName, fqn) -> {
+                        (symbolName, symbolResult) -> {
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
-                                    var singleResult = java.util.Map.of(symbolName, fqn != null ? fqn : "");
+                                    var singleResult = java.util.Map.of(symbolName, symbolResult);
                                     var resultsJson = toJson(singleResult);
+
                                     var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
                                             + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
                                             + toJson(contextId) + "); }";
@@ -371,13 +407,19 @@ public final class MOPBridge {
 
             if (component != null && contextManager != null) {
                 if (chrome != null) {
-                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
-                                    symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
-                                            contextManager)
-                            .show(component, x, y);
+                    try {
+                        ContextMenuBuilder.forSymbol(
+                                        symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
+                                                contextManager)
+                                .show(component, x, y);
+                    } catch (Exception e) {
+                        logger.error("Failed to show context menu", e);
+                    }
                 } else {
                     logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
                 }
+            } else {
+                logger.warn("Cannot show context menu - missing dependencies");
             }
         });
     }

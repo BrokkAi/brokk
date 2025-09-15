@@ -25,6 +25,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import javax.imageio.ImageIO;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,6 +38,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>FrozenFragments are never created for non-dynamic ContextFragments, which are already content-addressable.
  */
 public final class FrozenFragment extends ContextFragment.VirtualFragment {
+    private static final Logger logger = LogManager.getLogger(FrozenFragment.class);
 
     private static final ConcurrentMap<String, FrozenFragment> INTERN_POOL = new ConcurrentHashMap<>();
 
@@ -290,8 +293,17 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             if (isText) {
                 textContent = liveFragment.text();
             } else {
-                var image = liveFragment.image();
-                imageBytesContent = imageToBytes(image);
+                try {
+                    var image = liveFragment.image();
+                    imageBytesContent = imageToBytes(image);
+                } catch (UncheckedIOException e) {
+                    // If image can't be read, treat as empty image data
+                    logger.warn(
+                            "Failed to read image for fragment {}: {}",
+                            liveFragment.shortDescription(),
+                            e.getMessage());
+                    imageBytesContent = null;
+                }
             }
 
             var meta = new HashMap<String, String>();
@@ -446,6 +458,21 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 var isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
                 yield new ContextFragment.CallGraphFragment(cm, methodName, depth, isCalleeGraph);
             }
+            case "io.github.jbellis.brokk.context.ContextFragment$BuildFragment" -> {
+                // Recreate a live BuildFragment with the captured build output.
+                var bf = new ContextFragment.BuildFragment(cm);
+                if (isTextFragment && textContent != null) {
+                    // BuildFragment.text() stores "# CURRENT BUILD STATUS\n\n" + content.
+                    // We store the whole textContent during freezing, so strip the prefix when restoring.
+                    String prefix = "# CURRENT BUILD STATUS\n\n";
+                    if (textContent.startsWith(prefix)) {
+                        bf.setContent(textContent.substring(prefix.length()));
+                    } else {
+                        bf.setContent(textContent);
+                    }
+                }
+                yield bf;
+            }
             default -> {
                 throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName
                         + ". Implement unfreezing logic if this type needs to become live.");
@@ -454,7 +481,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     }
 
     /** Clears the internal intern pool. For testing purposes only. */
-    static void clearInternPoolForTesting() {
+    public static void clearInternPoolForTesting() {
         INTERN_POOL.clear();
     }
 
@@ -465,7 +492,12 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return PNG bytes, or null if image is null
      * @throws IOException If conversion fails
      */
-    public static byte[] imageToBytes(Image image) throws IOException {
+    @Nullable
+    public static byte[] imageToBytes(@Nullable Image image) throws IOException {
+        if (image == null) {
+            return null;
+        }
+
         BufferedImage bufferedImage;
         if (image instanceof BufferedImage bi) {
             bufferedImage = bi;

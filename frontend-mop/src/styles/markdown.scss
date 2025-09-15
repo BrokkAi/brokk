@@ -101,21 +101,163 @@ li > p {
   cursor: pointer;
 }
 
-:not(pre) > code.symbol-exists:hover {
+/* Hover effects only for exact matches (exclude partial matches) */
+:not(pre) > code.symbol-exists:not(.partial-match):hover {
   background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
+}
+
+/* Partial match styling - remove base underline and cursor since we use span-based highlighting */
+:not(pre) > code.symbol-exists.partial-match {
+  text-decoration: none; /* Remove underline from entire code element */
+  cursor: default; /* Remove pointer cursor from entire element */
+  contain: style;
+  color: var(--link-color-hex); /* Match the base symbol-exists color */
+  font-weight: normal;
+}
+
+:not(pre) > code.symbol-exists.partial-match::after {
+  content: "◦";
+  font-size: 0.7em;
+  vertical-align: super;
+  opacity: 0.6;
+  margin-left: 1px;
+}
+
+/* Multi-range symbol highlighting - restore original underline style */
+.symbol-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Make highlighted spans clickable */
+}
+
+/* Enhanced partial match styling - use same styling as exact matches */
+:not(pre) > code.symbol-exists.partial-match .symbol-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Ensure partial match highlights are clickable */
+  color: var(--link-color-hex); /* Match exact match color */
+  font-weight: normal; /* Match exact match base font weight */
+}
+
+/* Ensure non-highlighted spans have no interactive hover effects but inherit base styling */
+.symbol-non-highlight {
+  cursor: default;
+}
+
+.symbol-non-highlight:hover {
+  cursor: default;
+  /* Prevent any hover effects by maintaining current state */
+  color: inherit;
+  font-weight: inherit;
+  background-color: inherit;
+  text-shadow: inherit;
+}
+
+/* Hover effect only on highlighted spans within partial matches */
+:not(pre) > code.symbol-exists.partial-match .symbol-highlight:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 15%, transparent);
   color: var(--link-color-hex);
   font-weight: bold;
 }
 
 pre > code {
   font-size: 0.9em;
+  white-space: inherit;
 }
 
 pre {
   padding: 15px;
   margin: 0;
   background-color: var(--shiki-background);
+  white-space: pre;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-width: thin; /* Firefox */
+}
+
+/* WebKit scrollbar styling for horizontal scrollbars */
+pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 8px;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+html.code-wrap-mode pre {
+  white-space: pre-wrap;
+  overflow-x: hidden;
   overflow-y: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+html.code-wrap-mode pre > code {
+  white-space: inherit;
+}
+
+/* Edit block specific code block mode handling */
+/* Edit blocks have a nested structure that needs more specific selectors */
+
+/* Default scroll mode for edit blocks */
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre {
+  white-space: pre;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  position: relative;
+}
+
+/* Wrap mode for edit blocks */
+html.code-wrap-mode .edit-block-body .custom-code-block pre {
+  white-space: pre-wrap;
+  overflow-x: hidden;
+  overflow-y: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Ensure edit block containers don't interfere with overflow behavior */
+.edit-block-body .custom-code-block {
+  overflow: visible;
+}
+
+.edit-block-body {
+  overflow: visible;
+}
+
+/* Fix diff line backgrounds to extend full width in scroll mode */
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
+  /* Make code container expand to full content width */
+  display: inline-block;
+  min-width: 100%;
+}
+
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre .diff-line {
+  /* Reset diff line styling */
+  display: block;
+  padding-left: 0.8em;
+  padding-right: 0.8em;
+  position: relative;
+  /* Extend background to full width using negative margins */
+  margin-left: -0.8em;
+  margin-right: -0.8em;
+  padding-left: 1.6em;
+  padding-right: 1.6em;
+  /* Force all lines to be same width as code container */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 table {

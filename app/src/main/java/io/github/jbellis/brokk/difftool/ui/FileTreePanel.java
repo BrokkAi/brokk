@@ -9,7 +9,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.swing.*;
@@ -42,6 +41,9 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private FileSelectionListener selectionListener;
 
     private final AtomicBoolean suppressSelectionEvents = new AtomicBoolean(false);
+
+    // Indices of files that currently have unsaved changes
+    private final Set<Integer> dirtyIndices = new HashSet<>();
     private volatile int pendingInitialSelection = -1;
 
     public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot) {
@@ -71,7 +73,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         fileTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         fileTree.setRootVisible(true);
         fileTree.setShowsRootHandles(true);
-        fileTree.setCellRenderer(new FileTreeCellRenderer(() -> this.currentTheme));
+        fileTree.setCellRenderer(new FileTreeCellRenderer());
 
         fileTree.addTreeSelectionListener(new TreeSelectionListener() {
             @Override
@@ -486,6 +488,44 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
     }
 
+    /** Update the set of file indices that are dirty (have unsaved changes). Must be called on the EDT. */
+    public void setDirtyFiles(Set<Integer> indices) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        // Compute delta between previous and new sets to avoid collapsing the tree
+        var oldDirty = new HashSet<>(dirtyIndices);
+        var newDirty = new HashSet<>(indices);
+
+        // If nothing changed, do nothing
+        if (oldDirty.equals(newDirty)) {
+            return;
+        }
+
+        // Update internal state first
+        dirtyIndices.clear();
+        dirtyIndices.addAll(newDirty);
+
+        // Symmetric difference: (old - new) U (new - old)
+        var changed = new HashSet<Integer>(oldDirty);
+        changed.removeAll(newDirty);
+        for (var idx : newDirty) {
+            if (!oldDirty.contains(idx)) {
+                changed.add(idx);
+            }
+        }
+
+        // Notify only the affected leaf nodes; preserve expansion/selection
+        for (var idx : changed) {
+            var path = findPathForFileIndex(idx);
+            if (path != null) {
+                var node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                treeModel.nodeChanged(node);
+            }
+        }
+
+        // Repaint to reflect icon/tooltip changes; no reload to keep expansion/selection
+        fileTree.repaint();
+    }
+
     @Nullable
     private TreePath findPathForFileIndex(int fileIndex) {
         return findNodeWithFileIndex(rootNode, fileIndex, new TreePath(rootNode));
@@ -522,12 +562,8 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    private static class FileTreeCellRenderer extends DefaultTreeCellRenderer {
-        private final Supplier<GuiTheme> themeProvider;
-
-        public FileTreeCellRenderer(Supplier<GuiTheme> themeProvider) {
-            this.themeProvider = themeProvider;
-        }
+    private class FileTreeCellRenderer extends DefaultTreeCellRenderer {
+        public FileTreeCellRenderer() {}
 
         @Override
         public Component getTreeCellRendererComponent(
@@ -539,8 +575,15 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
             if (userObject instanceof FileInfo fileInfo) {
                 setText(fileInfo.name());
-                setIcon(getDiffStatusIcon(fileInfo.status(), themeProvider.get()));
-                setToolTipText(fileInfo.name() + " (" + getStatusText(fileInfo.status()) + ")");
+                boolean isDirty = dirtyIndices.contains(fileInfo.index());
+                var theme = FileTreePanel.this.currentTheme;
+                if (isDirty) {
+                    setIcon(getDirtyStatusIcon(fileInfo.status(), theme));
+                    setToolTipText(fileInfo.name() + " (" + getStatusText(fileInfo.status()) + ", unsaved changes)");
+                } else {
+                    setIcon(getDiffStatusIcon(fileInfo.status(), theme));
+                    setToolTipText(fileInfo.name() + " (" + getStatusText(fileInfo.status()) + ")");
+                }
             } else if (node instanceof CollapsedDirectoryNode collapsedNode) {
                 setText(collapsedNode.getDisplayName());
                 setIcon(expanded ? getOpenIcon() : getClosedIcon());
@@ -577,6 +620,19 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             };
         }
 
+        private static Icon getDirtyStatusIcon(DiffStatus status, @Nullable GuiTheme theme) {
+            // For dirty files, keep the circle and add a small asterisk indicator to the left
+            boolean isDark = theme == null || theme.isDarkTheme();
+            Color color =
+                    switch (status) {
+                        case ADDED -> ThemeColors.getColor(isDark, "git_status_added");
+                        case DELETED -> ThemeColors.getColor(isDark, "git_status_deleted");
+                        case MODIFIED -> ThemeColors.getColor(isDark, "git_status_modified");
+                        case UNCHANGED -> ThemeColors.getColor(isDark, "git_status_unknown");
+                    };
+            return createDirtyStatusIcon(color);
+        }
+
         private static String getStatusText(DiffStatus status) {
             return switch (status) {
                 case ADDED -> "Added";
@@ -596,6 +652,50 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                     g2.fillOval(x + 4, y + 4, 8, 8);
                     g2.setColor(color.darker());
                     g2.drawOval(x + 4, y + 4, 8, 8);
+                    g2.dispose();
+                }
+
+                @Override
+                public int getIconWidth() {
+                    return 16;
+                }
+
+                @Override
+                public int getIconHeight() {
+                    return 16;
+                }
+            };
+        }
+
+        private static Icon createDirtyStatusIcon(Color color) {
+            return new Icon() {
+                @Override
+                public void paintIcon(Component c, Graphics g, int x, int y) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                    // Draw the main status circle (same footprint as getDiffStatusIcon)
+                    g2.setColor(color);
+                    g2.fillOval(x + 4, y + 4, 8, 8);
+                    g2.setColor(color.darker());
+                    g2.drawOval(x + 4, y + 4, 8, 8);
+
+                    // Draw a small red asterisk further to the left of the circle
+                    // Move it even further left and make it smaller
+                    int cx = x + 1;
+                    int cy = y + 8;
+                    int arm = 1; // half-length of each arm
+
+                    g2.setColor(Color.RED);
+                    // Horizontal
+                    g2.drawLine(cx - arm, cy, cx + arm, cy);
+                    // Vertical
+                    g2.drawLine(cx, cy - arm, cx, cy + arm);
+                    // Diagonal \
+                    g2.drawLine(cx - arm, cy - arm, cx + arm, cy + arm);
+                    // Diagonal /
+                    g2.drawLine(cx - arm, cy + arm, cx + arm, cy - arm);
+
                     g2.dispose();
                 }
 

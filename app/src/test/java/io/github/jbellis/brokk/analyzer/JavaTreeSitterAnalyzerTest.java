@@ -271,6 +271,8 @@ public class JavaTreeSitterAnalyzerTest {
                 "F",
                 "Interface",
                 "MethodReturner",
+                "ServiceImpl",
+                "ServiceInterface",
                 "UseE",
                 "UsePackaged",
                 "XExtendsY",
@@ -390,5 +392,45 @@ public class JavaTreeSitterAnalyzerTest {
                 .sorted()
                 .toList();
         assertEquals(expected, children);
+    }
+
+    public void testSummarizeClassWithDefaultMethods() {
+        // Test skeleton generation for the interface with default methods
+        var interfaceSkeleton = analyzer.getSkeleton("ServiceInterface");
+        assertTrue(
+                interfaceSkeleton.isPresent(),
+                "ServiceInterface skeleton should be available via JavaTreeSitterAnalyzer");
+        var interfaceSkeletonStr = interfaceSkeleton.get();
+
+        assertTrue(interfaceSkeletonStr.contains("ServiceInterface"));
+        assertTrue(interfaceSkeletonStr.contains("processData"));
+        assertTrue(interfaceSkeletonStr.contains("formatMessage"), "Should contain default method formatMessage");
+        assertTrue(interfaceSkeletonStr.contains("logMessage"), "Should contain default method logMessage");
+        assertTrue(interfaceSkeletonStr.contains("getVersion"), "Should contain static method getVersion");
+
+        // Verify that the skeleton includes method signatures (default methods appear as regular methods in skeleton)
+        // This is correct behavior - skeletons show structure, not implementation details like 'default' keyword or
+        // bodies
+        assertTrue(
+                interfaceSkeletonStr.contains("void processData(String data)"),
+                "Should contain abstract method signature");
+        assertTrue(
+                interfaceSkeletonStr.contains("String formatMessage(String message)"),
+                "Should contain default method signature");
+        assertTrue(
+                interfaceSkeletonStr.contains("void logMessage(String message)"),
+                "Should contain default method signature");
+        assertTrue(interfaceSkeletonStr.contains("String getVersion()"), "Should contain static method signature");
+
+        // Test skeleton generation for the implementing class
+        var classSkeleton = analyzer.getSkeleton("ServiceImpl");
+        assertTrue(classSkeleton.isPresent(), "ServiceImpl skeleton should be available via JavaTreeSitterAnalyzer");
+        var classSkeletonStr = classSkeleton.get();
+
+        assertTrue(classSkeletonStr.contains("ServiceImpl"));
+        assertTrue(classSkeletonStr.contains("implements ServiceInterface"));
+        assertTrue(classSkeletonStr.contains("processData"));
+        assertTrue(classSkeletonStr.contains("formatMessage"));
+        assertTrue(classSkeletonStr.contains("printVersion"));
     }
 }

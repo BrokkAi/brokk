@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.git;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.*;
@@ -457,6 +458,23 @@ public class GitRepo implements Closeable, IGitRepo {
         return head.getName();
     }
 
+    /**
+     * Returns an abbreviated (short) hash for the given revision. Attempts to abbreviate via JGit to a unique short id;
+     * falls back to the first 7 chars on error.
+     */
+    public String shortHash(String rev) {
+        try {
+            var id = resolve(rev);
+            try (var reader = repository.newObjectReader()) {
+                var abbrev = reader.abbreviate(id);
+                return abbrev.name();
+            }
+        } catch (GitAPIException | IOException e) {
+            logger.warn(e);
+            return rev;
+        }
+    }
+
     /** Performs git diff operation with the given filter group, handling NoHeadException for empty repositories. */
     private String performDiffWithFilter(TreeFilter filterGroup) throws GitAPIException {
         try (var out = new ByteArrayOutputStream()) {
@@ -483,6 +501,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 return Stream.of(staged, unstaged).filter(s -> !s.isEmpty()).collect(Collectors.joining("\n"));
             } catch (NoHeadException e) {
                 // Handle empty repository case - return empty diff for repositories with no commits
+                logger.debug("NoHeadException caught - empty repository, returning empty diff");
                 return "";
             }
         } catch (IOException e) {
@@ -493,6 +512,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Produces a combined diff of staged + unstaged changes, restricted to the given files. */
     @Override
     public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
+
         var filters = files.stream()
                 .map(file -> PathFilter.create(toRepoRelativePath(file)))
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -504,6 +524,7 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public synchronized String diff() throws GitAPIException {
         var status = git.status().call();
+
         var trackedPaths = new HashSet<String>();
         trackedPaths.addAll(status.getModified());
         trackedPaths.addAll(status.getChanged());
@@ -512,6 +533,7 @@ public class GitRepo implements Closeable, IGitRepo {
         trackedPaths.addAll(status.getMissing());
 
         if (trackedPaths.isEmpty()) {
+            logger.debug("No tracked changes found, returning empty diff");
             return "";
         }
 
@@ -1689,12 +1711,13 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /** Create a stash from the current changes */
-    public void createStash(String message) throws GitAPIException {
+    public @Nullable RevCommit createStash(String message) throws GitAPIException {
         assert !message.isEmpty();
         logger.debug("Creating stash with message: {}", message);
         var stashId = git.stashCreate().setWorkingDirectoryMessage(message).call();
         logger.debug("Stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
         invalidateCaches();
+        return stashId;
     }
 
     /**
@@ -1707,11 +1730,21 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param filesToStash The specific files to include in the stash
      * @throws GitAPIException If there's an error during the stash process
      */
-    public void createPartialStash(String message, List<ProjectFile> filesToStash) throws GitAPIException {
+    public @Nullable RevCommit createPartialStash(String message, List<ProjectFile> filesToStash)
+            throws GitAPIException {
         assert !message.isEmpty();
         assert !filesToStash.isEmpty();
 
         logger.debug("Creating partial stash with message: {} for {} files", message, filesToStash.size());
+
+        // 1. Determine initial staging state
+        var status = git.status().call();
+        var stagedPaths = new HashSet<String>();
+        stagedPaths.addAll(status.getAdded());
+        stagedPaths.addAll(status.getChanged());
+        stagedPaths.addAll(status.getRemoved());
+        var originallyStagedFiles =
+                stagedPaths.stream().map(this::toProjectFile).collect(Collectors.toSet());
 
         var allUncommittedFilesWithStatus = getModifiedFiles();
         var allUncommittedProjectFiles =
@@ -1721,53 +1754,91 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Files NOT to stash
-        var filesToCommit = allUncommittedFilesWithStatus.stream()
+        var filesToKeep = allUncommittedFilesWithStatus.stream()
                 .map(ModifiedFile::file)
                 .filter(file -> !filesToStash.contains(file))
                 .collect(Collectors.toList());
 
-        if (filesToCommit.isEmpty()) {
+        if (filesToKeep.isEmpty()) {
             // If all changed files are selected for stashing, just do a regular stash
             logger.debug("All changed files selected for stashing, using regular stash");
-            createStash(message);
-            return;
+            return createStash(message);
         }
 
         // Remember the original branch
         String originalBranch = getCurrentBranch();
         String tempBranchName = "temp-stash-branch-" + System.currentTimeMillis();
+        RevCommit stashId = null;
 
-        // Add the UN-selected files to the index
-        add(filesToCommit);
+        try {
+            // 2. Prepare index for temporary commit:
+            // - Stage all files we want to keep (those not being stashed)
+            // - Unstage any files that are to be stashed but were already staged
+            add(filesToKeep);
 
-        // Create a temporary branch and commit those files
-        logger.debug("Creating temporary branch: {}", tempBranchName);
-        git.branchCreate().setName(tempBranchName).call();
+            var stagedFilesToStash = filesToStash.stream()
+                    .filter(originallyStagedFiles::contains)
+                    .toList();
+            if (!stagedFilesToStash.isEmpty()) {
+                var resetCommand = git.reset();
+                for (var file : stagedFilesToStash) {
+                    resetCommand.addPath(toRepoRelativePath(file));
+                }
+                resetCommand.call();
+            }
 
-        logger.debug("Committing UN-selected files to temporary branch");
-        git.commit().setMessage("Temporary commit to facilitate partial stash").call();
+            // 3. Create a temporary branch and commit the staged files
+            logger.debug("Creating temporary branch: {}", tempBranchName);
+            git.branchCreate().setName(tempBranchName).call();
+            git.checkout().setName(tempBranchName).call();
 
-        // Now stash the remaining changes
-        logger.debug("Creating stash with only the selected files");
-        var stashId = git.stashCreate().setWorkingDirectoryMessage(message).call();
-        logger.debug("Partial stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
+            logger.debug("Committing UN-selected files to temporary branch");
+            git.commit()
+                    .setMessage("Temporary commit to facilitate partial stash")
+                    .call();
 
-        // Soft reset to restore uncommitted files
-        logger.debug("Soft resetting to restore UN-selected files as uncommitted");
-        git.reset()
-                .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
-                .setRef("HEAD~1")
-                .call();
+            // 4. Prepare the remaining files (those to be stashed) by restoring their original staging state
+            if (!stagedFilesToStash.isEmpty()) {
+                add(stagedFilesToStash);
+            }
 
-        // Checkout the original branch
-        logger.debug("Checking out original branch: {}", originalBranch);
-        git.checkout().setName(originalBranch).call();
+            // 5. Stash the remaining changes
+            logger.debug("Creating stash with only the selected files");
+            stashId = git.stashCreate().setWorkingDirectoryMessage(message).call();
+            logger.debug("Partial stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
 
-        // Delete the temporary branch
-        logger.debug("Deleting temporary branch");
-        git.branchDelete().setBranchNames(tempBranchName).setForce(true).call();
+            // 6. Soft reset to undo the temporary commit, leaving its changes staged
+            logger.debug("Soft resetting to restore staged changes of files not stashed");
+            git.reset()
+                    .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
+                    .setRef("HEAD~1")
+                    .call();
 
-        invalidateCaches();
+            // 7. Unstage any files from the temporary commit that were not originally staged
+            var unstagedFilesToKeep = filesToKeep.stream()
+                    .filter(f -> !originallyStagedFiles.contains(f))
+                    .toList();
+            if (!unstagedFilesToKeep.isEmpty()) {
+                var resetCommand = git.reset();
+                for (var file : unstagedFilesToKeep) {
+                    resetCommand.addPath(toRepoRelativePath(file));
+                }
+                resetCommand.call();
+            }
+        } finally {
+            // 8. Cleanup: switch back to the original branch and delete the temporary one
+            if (!getCurrentBranch().equals(originalBranch)) {
+                logger.debug("Checking out original branch: {}", originalBranch);
+                git.checkout().setName(originalBranch).call();
+            }
+
+            logger.debug("Deleting temporary branch");
+            git.branchDelete().setBranchNames(tempBranchName).setForce(true).call();
+
+            invalidateCaches();
+        }
+
+        return stashId;
     }
 
     // StashInfo record removed
@@ -1855,12 +1926,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public void popStash(int stashIndex) throws GitAPIException {
         var stashRef = "stash@{" + stashIndex + "}";
         logger.debug("Popping stash {}", stashRef);
-        git.stashApply()
-                .setStashRef(stashRef)
-                .setRestoreIndex(false)
-                .setRestoreUntracked(true)
-                .ignoreRepositoryState(true)
-                .call();
+        git.stashApply().setStashRef(stashRef).call();
         git.stashDrop().setStashRef(stashIndex).call();
         logger.debug("Stash pop completed successfully");
         invalidateCaches();
@@ -2168,7 +2234,62 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Adds “.git” to simple GitHub HTTPS URLs when missing. */
+    /**
+     * Clone a repository to the specified directory with branch/tag selection.
+     *
+     * @param remoteUrl the URL of the remote repository
+     * @param directory the local directory to clone into (must be empty or not exist)
+     * @param depth clone depth (0 for full clone, > 0 for shallow)
+     * @param branchOrTag specific branch or tag to clone (null for default branch)
+     * @return a GitRepo instance for the cloned repository
+     * @throws GitAPIException if the clone fails
+     */
+    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
+            throws GitAPIException {
+        requireNonNull(remoteUrl, "remoteUrl");
+        requireNonNull(directory, "directory");
+
+        String effectiveUrl = normalizeRemoteUrl(remoteUrl);
+
+        // Ensure the target directory is empty (or doesn't yet exist)
+        if (Files.exists(directory)
+                && directory.toFile().list() != null
+                && directory.toFile().list().length > 0) {
+            throw new IllegalArgumentException("Target directory " + directory + " must be empty or not yet exist");
+        }
+
+        try {
+            var cloneCmd = Git.cloneRepository()
+                    .setURI(effectiveUrl)
+                    .setDirectory(directory.toFile())
+                    .setCloneAllBranches(depth <= 0);
+
+            if (branchOrTag != null && !branchOrTag.trim().isEmpty()) {
+                cloneCmd.setBranch(branchOrTag);
+            }
+
+            if (depth > 0) {
+                cloneCmd.setDepth(depth);
+                cloneCmd.setNoTags();
+            }
+            // Perform clone and immediately close the returned Git handle
+            try (var ignored = cloneCmd.call()) {
+                // nothing – resources closed via try-with-resources
+            }
+            return new GitRepo(directory);
+        } catch (GitAPIException e) {
+            logger.error(
+                    "Failed to clone {} (branch/tag: {}) into {}: {}",
+                    effectiveUrl,
+                    branchOrTag,
+                    directory,
+                    e.getMessage(),
+                    e);
+            throw e;
+        }
+    }
+
+    /** Adds ".git" to simple GitHub HTTPS URLs when missing. */
     private static String normalizeRemoteUrl(String remoteUrl) {
         var pattern = Pattern.compile("^https://github\\.com/[^/]+/[^/]+$");
         return pattern.matcher(remoteUrl).matches() && !remoteUrl.endsWith(".git") ? remoteUrl + ".git" : remoteUrl;
@@ -2454,6 +2575,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 command = String.format("git worktree remove %s", absolutePath).trim();
             }
             Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
+            SessionRegistry.release(path);
         } catch (Environment.SubprocessException e) {
             String output = e.getOutput();
             // If 'force' was false and the command failed because force is needed, throw WorktreeNeedsForceException
