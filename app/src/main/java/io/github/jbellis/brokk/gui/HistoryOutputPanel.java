@@ -41,6 +41,7 @@ import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.checker.units.qual.s;
 import org.jetbrains.annotations.Nullable;
 
 /** A component that combines the context history panel with the output panel using BorderLayout. */
@@ -97,7 +98,10 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
-        this.copyButton = new MaterialButton("Copy");
+        this.copyButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            this.copyButton.setIcon(Icons.CONTENT_COPY);
+        });
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
 
@@ -650,7 +654,10 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new MaterialButton("Capture");
+        var captureButton = new MaterialButton();
+                SwingUtilities.invokeLater(() -> {
+            captureButton.setIcon(Icons.CONTENT_CAPTURE);
+        });
         captureButton.setMnemonic(KeyEvent.VK_C);
         captureButton.setToolTipText("Add the output to context");
         captureButton.addActionListener(e -> {
@@ -661,7 +668,10 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new MaterialButton("Open in New Window");
+        var openWindowButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
+        });
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
