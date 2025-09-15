@@ -7,7 +7,10 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.UsagesProvider;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
@@ -38,9 +41,13 @@ import javax.swing.JScrollPane;
 import javax.swing.KeyStroke;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** A modal dialog to configure the tools available to the Architect agent. */
 public class ArchitectOptionsDialog {
+
+    private static final Logger log = LoggerFactory.getLogger(ArchitectOptionsDialog.class);
 
     private static boolean isCodeIntelConfigured(IProject project) {
         var langs = project.getAnalyzerLanguages();
@@ -62,7 +69,17 @@ public class ArchitectOptionsDialog {
 
         SwingUtil.runOnEdt(() -> {
             var project = chrome.getProject();
-            var isCpg = contextManager.getAnalyzerWrapper().isCpg();
+
+            var tmpBool = false;
+            IAnalyzer currentAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            if (currentAnalyzer != null) {
+                tmpBool = currentAnalyzer.as(UsagesProvider.class).isPresent()
+                        || currentAnalyzer.as(CallGraphProvider.class).isPresent();
+            } else {
+                log.warn("Interrupted while determining analyzer capabilities.");
+            }
+            final var supportsInterproceduralAnalysis = tmpBool;
+
             boolean codeIntelConfigured = isCodeIntelConfigured(project);
 
             var currentOptions = project.getArchitectOptions();
@@ -125,11 +142,11 @@ public class ArchitectOptionsDialog {
                     "Code Intelligence Tools",
                     "Allow direct querying of code structure (e.g., find usages, call graphs)");
             analyzerCb.setSelected(currentOptions.includeAnalyzerTools() && codeIntelConfigured);
-            analyzerCb.setEnabled(isCpg && codeIntelConfigured);
+            analyzerCb.setEnabled(supportsInterproceduralAnalysis && codeIntelConfigured);
             if (!codeIntelConfigured) {
                 analyzerCb.setToolTipText(
                         "Code Intelligence is not configured. Please configure languages in Project Settings.");
-            } else if (!isCpg) {
+            } else if (!supportsInterproceduralAnalysis) {
                 analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available"
                         .formatted(project.getAnalyzerLanguages()));
             }
@@ -277,7 +294,7 @@ public class ArchitectOptionsDialog {
                         selectedCode,
                         contextCb.isSelected(),
                         validationCb.isSelected(),
-                        isCpg && codeIntelConfigured && analyzerCb.isSelected(),
+                        supportsInterproceduralAnalysis && codeIntelConfigured && analyzerCb.isSelected(),
                         workspaceCb.isSelected(),
                         codeCb.isSelected(),
                         searchCb.isSelected(),

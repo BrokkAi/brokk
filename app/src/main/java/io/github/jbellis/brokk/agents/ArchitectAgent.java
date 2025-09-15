@@ -960,9 +960,7 @@ public class ArchitectAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // Add auto-context as a separate message/ack pair
-        var topClassesRaw = contextManager.getAnalyzerWrapper().isCpg()
-                ? contextManager.liveContext().buildAutoContext(10).text()
-                : "";
+        var topClassesRaw = contextManager.liveContext().buildAutoContext(10).text();
         if (!topClassesRaw.isBlank()) {
             var topClassesText =
                     """

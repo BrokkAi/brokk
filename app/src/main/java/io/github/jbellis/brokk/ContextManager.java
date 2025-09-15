@@ -1806,7 +1806,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Ensure style guide exists, generating if needed */
     private void ensureStyleGuide() {
-        if (!project.getStyleGuide().isEmpty() || !analyzerWrapper.isCpg()) {
+        if (!project.getStyleGuide().isEmpty()) {
             return;
         }
 

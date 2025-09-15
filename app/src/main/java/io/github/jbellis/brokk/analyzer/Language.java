@@ -34,16 +34,16 @@ public interface Language {
     IAnalyzer loadAnalyzer(IProject project);
 
     /**
-     * Get the path where the CPG for this language in the given project should be stored.
+     * Get the path where the storage for this analyzer in the given project should be stored.
      *
      * @param project The project.
-     * @return The path to the CPG file.
+     * @return The path to the database file.
      */
-    default Path getCpgPath(IProject project) {
-        // Use oldName for CPG path to ensure stable and filesystem-safe names
+    default Path getStoragePath(IProject project) {
+        // Use oldName for storage path to ensure stable and filesystem-safe names
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
     }
 
     default boolean shouldDisableLsp() {
@@ -78,10 +78,6 @@ public interface Language {
     default boolean isAnalyzed(IProject project, Path path) {
         assert path.isAbsolute() : "Path must be absolute for isAnalyzed check: " + path;
         return path.normalize().startsWith(project.getRoot());
-    }
-
-    default boolean isCpg() {
-        return false;
     }
 
     // --- Concrete Language Instances ---
@@ -255,11 +251,6 @@ public interface Language {
             logger.info("Found {} JAR files in common dependency locations in {} ms", jarFiles.size(), duration);
 
             return jarFiles;
-        }
-
-        @Override
-        public boolean isCpg() {
-            return false;
         }
     };
 
@@ -482,11 +473,6 @@ public interface Language {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
-        }
-
-        @Override
-        public boolean isCpg() {
-            return false;
         }
 
         @Override
@@ -892,7 +878,7 @@ public interface Language {
      * languages and combines the results.
      *
      * <p>Only the operations that make sense for a multi‑language view are implemented. Methods tied to a
-     * single‐language identity ‑ such as {@link #internalName()} or {@link #getCpgPath(IProject)} ‑ throw
+     * single‐language identity ‑ such as {@link #internalName()} or {@link #getStoragePath(IProject)} ‑ throw
      * {@link UnsupportedOperationException}.
      */
     class MultiLanguage implements Language {
@@ -926,13 +912,8 @@ public interface Language {
         }
 
         @Override
-        public Path getCpgPath(IProject project) {
+        public Path getStoragePath(IProject project) {
             throw new UnsupportedOperationException("MultiLanguage has no single CPG file");
-        }
-
-        @Override
-        public boolean isCpg() {
-            return languages.stream().anyMatch(Language::isCpg);
         }
 
         @Override

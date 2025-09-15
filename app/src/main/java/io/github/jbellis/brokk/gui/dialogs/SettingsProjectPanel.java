@@ -54,8 +54,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // UI Components managed by this panel
-    private JComboBox<MainProject.CpgRefresh> cpgRefreshComboBox = new JComboBox<>(new MainProject.CpgRefresh[] {
-        IProject.CpgRefresh.AUTO, IProject.CpgRefresh.ON_RESTART, IProject.CpgRefresh.MANUAL
+    private JComboBox<IProject.AnalyzerRefresh> cpgRefreshComboBox = new JComboBox<>(new IProject.AnalyzerRefresh[] {
+        IProject.AnalyzerRefresh.AUTO, IProject.AnalyzerRefresh.ON_RESTART, IProject.AnalyzerRefresh.MANUAL
     });
     private JTextField buildCleanCommandField = new JTextField();
     private JTextField allTestsCommandField = new JTextField();
@@ -1336,7 +1336,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var currentRefresh = project.getAnalyzerRefresh();
         cpgRefreshComboBox.setSelectedItem(
-                currentRefresh == IProject.CpgRefresh.UNSET ? IProject.CpgRefresh.AUTO : currentRefresh);
+                currentRefresh == IProject.AnalyzerRefresh.UNSET ? IProject.AnalyzerRefresh.AUTO : currentRefresh);
 
         // Primary language
         populatePrimaryLanguageComboBox();
@@ -1436,7 +1436,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             logger.debug("Applied Run Command Timeout: {} seconds", timeout);
         }
 
-        var selectedRefresh = (MainProject.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
+        var selectedRefresh = (IProject.AnalyzerRefresh) cpgRefreshComboBox.getSelectedItem();
         if (selectedRefresh != project.getAnalyzerRefresh()) {
             project.setAnalyzerRefresh(selectedRefresh);
             logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
