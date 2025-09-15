@@ -399,7 +399,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public List<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, @Nullable String fallbackPattern, Pattern compiledPattern) {
+            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // an explicit search for everything should return everything, not just classes
         if (originalPattern.equals(".*")) {
             return uniqueCodeUnitList();
@@ -410,10 +410,14 @@ public abstract class TreeSitterAnalyzer
             return uniqueCodeUnitList().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
                     .toList();
-        } else {
+        } else if (compiledPattern != null) {
             // Primary search using compiled regex pattern
             return uniqueCodeUnitList().stream()
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                    .toList();
+        } else {
+            return uniqueCodeUnitList().stream()
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
                     .toList();
         }
     }

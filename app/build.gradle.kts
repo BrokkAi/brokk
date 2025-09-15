@@ -78,6 +78,8 @@ dependencies {
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
     implementation(libs.disklrucache)
+    // For JSON serialization interfaces (used by CodeUnit)
+    api(libs.jackson.annotations)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
