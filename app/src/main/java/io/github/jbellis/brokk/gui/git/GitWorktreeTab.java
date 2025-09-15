@@ -61,22 +61,7 @@ public class GitWorktreeTab extends JPanel {
             loadWorktrees();
         } else {
             buildUnsupportedUI();
-        } // Set icons on the EDT so we are not modifying Swing components off-thread.
-        // Do not set icons synchronously in the constructor body.
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Buttons are fields; they will be initialized either in buildWorktreeTabUI()
-                // or left as their default instances in unsupported UI. Setting icons safely
-                // on the EDT avoids threading issues.
-                addButton.setIcon(Icons.ADD);
-                removeButton.setIcon(Icons.REMOVE);
-                openButton.setIcon(Icons.OPEN_IN_NEW_WINDOW);
-                refreshButton.setIcon(Icons.REFRESH);
-            } catch (Exception e) {
-                // Log any unexpected error while setting icons; do not throw from EDT lambda.
-                logger.warn("Failed to set worktree tab icons on EDT: {}", e.getMessage(), e);
-            }
-        });
+        }
     }
 
     private void buildUnsupportedUI() {
