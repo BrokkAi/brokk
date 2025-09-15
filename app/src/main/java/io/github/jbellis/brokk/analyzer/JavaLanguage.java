@@ -57,6 +57,21 @@ public class JavaLanguage implements Language {
     }
 
     @Override
+    public boolean providesSummaries() {
+        return true;
+    }
+
+    @Override
+    public boolean providesSourceCode() {
+        return true;
+    }
+
+    @Override
+    public boolean providesInterproceduralAnalysis() {
+        return !shouldDisableLsp();
+    }
+
+    @Override
     public List<Path> getDependencyCandidates(IProject project) {
         long startTime = System.currentTimeMillis();
 

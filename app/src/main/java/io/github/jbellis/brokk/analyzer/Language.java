@@ -42,19 +42,13 @@ public interface Language {
     }
 
     /** Whether this language's analyzer provides compact symbol summaries. */
-    default boolean providesSummaries() {
-        return false;
-    }
+    boolean providesSummaries();
 
     /** Whether this language's analyzer can fetch or reconstruct source code for code units. */
-    default boolean providesSourceCode() {
-        return false;
-    }
+    boolean providesSourceCode();
 
     /** Whether this language's analyzer supports interprocedural analysis such as call graphs across files. */
-    default boolean providesInterproceduralAnalysis() {
-        return false;
-    }
+    boolean providesInterproceduralAnalysis();
 
     default boolean shouldDisableLsp() {
         var raw = System.getenv("BRK_NO_LSP");
