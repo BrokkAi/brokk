@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
@@ -50,8 +51,8 @@ public class HistoryOutputPanel extends JPanel {
     private final ContextManager contextManager;
     private final JTable historyTable;
     private final DefaultTableModel historyModel;
-    private final JButton undoButton;
-    private final JButton redoButton;
+    private final MaterialButton undoButton;
+    private final MaterialButton redoButton;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
@@ -72,7 +73,7 @@ public class HistoryOutputPanel extends JPanel {
     @Nullable
     private JTextArea captureDescriptionArea; // This one seems to be intentionally nullable or less strictly managed
 
-    private final JButton copyButton;
+    private final MaterialButton copyButton;
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
@@ -96,7 +97,7 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
-        this.copyButton = new JButton("Copy");
+        this.copyButton = new MaterialButton("Copy");
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
 
@@ -109,8 +110,8 @@ public class HistoryOutputPanel extends JPanel {
         };
         this.historyTable = new JTable(this.historyModel);
         this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
-        this.undoButton = new JButton("Undo");
-        this.redoButton = new JButton("Redo");
+        this.undoButton = new MaterialButton("Undo");
+        this.redoButton = new MaterialButton("Redo");
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("New");
         this.manageSessionsButton = new SplitButton("Manage");
@@ -171,7 +172,7 @@ public class HistoryOutputPanel extends JPanel {
         sessionSwitchPanel.add(contentPanel, BorderLayout.NORTH);
     }
 
-    private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, JButton copyButton) {
+    private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, MaterialButton copyButton) {
         // Build capture output panel (copyButton is passed in)
         var capturePanel = buildCaptureOutputPanel(copyButton);
 
@@ -616,7 +617,7 @@ public class HistoryOutputPanel extends JPanel {
     // buildCommandResultLabel removed
 
     /** Builds the "Capture Output" panel with a horizontal layout: [Capture Text] */
-    private JPanel buildCaptureOutputPanel(JButton copyButton) {
+    private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 
@@ -649,7 +650,7 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new JButton("Capture");
+        var captureButton = new MaterialButton("Capture");
         captureButton.setMnemonic(KeyEvent.VK_C);
         captureButton.setToolTipText("Add the output to context");
         captureButton.addActionListener(e -> {
@@ -660,7 +661,7 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new JButton("Open in New Window");
+        var openWindowButton = new MaterialButton("Open in New Window");
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
@@ -860,7 +861,7 @@ public class HistoryOutputPanel extends JPanel {
                 toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
                 toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
 
-                JButton captureButton = new JButton("Capture");
+                MaterialButton captureButton = new MaterialButton("Capture");
                 captureButton.setToolTipText("Add the output to context");
                 captureButton.addActionListener(e -> {
                     parentPanel.contextManager.captureTextFromContextAsync();

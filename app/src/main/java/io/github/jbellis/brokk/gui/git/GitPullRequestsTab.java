@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -65,7 +66,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private DefaultTableModel prTableModel;
     private JTable prCommitsTable;
     private DefaultTableModel prCommitsTableModel;
-    private JButton viewPrDiffButton;
+    private io.github.jbellis.brokk.gui.components.MaterialButton viewPrDiffButton;
 
     // Context Menu Items for prTable
     private JMenuItem checkoutPrMenuItem;
@@ -83,7 +84,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
     private FilterBox reviewFilter;
-    private JButton refreshPrButton;
+    private MaterialButton refreshPrButton;
 
     private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
 
@@ -333,8 +334,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
         prButtonPanel.setLayout(new BoxLayout(prButtonPanel, BoxLayout.X_AXIS));
 
-        viewPrDiffButton = new JButton(); // This button remains
+        viewPrDiffButton = new io.github.jbellis.brokk.gui.components.MaterialButton();
         viewPrDiffButton.setIcon(Icons.DIFFERENCE);
+        viewPrDiffButton.setText(""); // icon-only
+        viewPrDiffButton.setMargin(new Insets(2, 2, 2, 2)); // small padding to match other material buttons
         viewPrDiffButton.setToolTipText("View all changes in this PR in a diff viewer");
         viewPrDiffButton.setEnabled(false);
         viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
@@ -342,8 +345,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
 
-        refreshPrButton = new JButton();
+        refreshPrButton = new MaterialButton();
         refreshPrButton.setIcon(Icons.REFRESH);
+        refreshPrButton.setText(""); // icon-only button
+        refreshPrButton.setMargin(new Insets(2, 2, 2, 2)); // small padding to match other material buttons
+        refreshPrButton.setToolTipText("Refresh");
         refreshPrButton.addActionListener(e -> updatePrList());
         prButtonPanel.add(refreshPrButton);
 

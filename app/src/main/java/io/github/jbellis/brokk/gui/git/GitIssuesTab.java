@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.*;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -160,7 +161,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // ── Refresh button ──────────────────────────────────────────────────────
         // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        JButton refreshButton = new JButton(); // Unicode clockwise arrow
+        MaterialButton refreshButton = new MaterialButton(); // Unicode clockwise arrow
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
@@ -427,9 +428,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // No separate bottom-button panel needed after redesign
 
-        copyIssueDescriptionButton = new JButton(copyDescriptionAction);
-        openInBrowserButton = new JButton(openInBrowserAction);
-        captureButton = new JButton(captureAction);
+        copyIssueDescriptionButton = new MaterialButton();
+        copyIssueDescriptionButton.setAction(copyDescriptionAction);
+        openInBrowserButton = new MaterialButton();
+        openInBrowserButton.setAction(openInBrowserAction);
+        captureButton = new MaterialButton();
+        captureButton.setAction(captureAction);
 
         // ── compact icon-style buttons ───────────────────────────────────────
         final Icon copyIcon = Icons.CONTENT_COPY;

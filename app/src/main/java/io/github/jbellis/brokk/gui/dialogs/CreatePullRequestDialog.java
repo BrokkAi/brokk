@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
@@ -481,7 +482,7 @@ public class CreatePullRequestDialog extends JDialog {
         this.createPrButton.addActionListener(e -> createPullRequest());
         buttonPanel.add(this.createPrButton);
 
-        var cancelButton = new JButton("Cancel");
+        var cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
         buttonPanel.add(cancelButton);
 

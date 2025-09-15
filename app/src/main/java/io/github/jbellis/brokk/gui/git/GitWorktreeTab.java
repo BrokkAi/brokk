@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -37,8 +38,8 @@ public class GitWorktreeTab extends JPanel {
     private DefaultTableModel worktreeTableModel = new DefaultTableModel();
     private JButton addButton = new JButton();
     private JButton removeButton = new JButton();
-    private JButton openButton = new JButton(); // Added
-    private JButton refreshButton = new JButton(); // Added
+    private MaterialButton openButton = new MaterialButton(); // Added
+    private MaterialButton refreshButton = new MaterialButton(); // Added
 
     @org.jetbrains.annotations.Nullable
     private JButton mergeButton = null; // Added for worktree merge functionality
@@ -219,7 +220,7 @@ public class GitWorktreeTab extends JPanel {
         removeButton.setEnabled(false); // Initially disabled
         removeButton.addActionListener(e -> removeWorktree());
 
-        openButton = new JButton("Open");
+        openButton = new MaterialButton("Open");
         openButton.setToolTipText("Open selected worktree(s)");
         openButton.setEnabled(false); // Initially disabled
         openButton.addActionListener(e -> {
@@ -229,7 +230,7 @@ public class GitWorktreeTab extends JPanel {
             }
         });
 
-        refreshButton = new JButton("Refresh");
+        refreshButton = new MaterialButton("Refresh");
         refreshButton.setToolTipText("Refresh the list of worktrees");
         refreshButton.addActionListener(e -> refresh());
 
