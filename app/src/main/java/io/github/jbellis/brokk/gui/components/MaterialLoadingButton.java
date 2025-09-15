@@ -7,8 +7,8 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A Material-themed loading button that shows a spinner while a background operation runs.
- * Extends MaterialButton so it matches the application's Material look-and-feel.
+ * A Material-themed loading button that shows a spinner while a background operation runs. Extends MaterialButton so it
+ * matches the application's Material look-and-feel.
  */
 public class MaterialLoadingButton extends MaterialButton {
 

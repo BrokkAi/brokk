@@ -6,9 +6,8 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Backwards-compatible thin wrapper for the new MaterialLoadingButton.
- * Existing code that constructs `LoadingButton` continues to work,
- * while the real implementation lives in MaterialLoadingButton.
+ * Backwards-compatible thin wrapper for the new MaterialLoadingButton. Existing code that constructs `LoadingButton`
+ * continues to work, while the real implementation lives in MaterialLoadingButton.
  */
 public final class LoadingButton extends MaterialLoadingButton {
 

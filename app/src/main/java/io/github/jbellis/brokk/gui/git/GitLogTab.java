@@ -194,8 +194,10 @@ public class GitLogTab extends JPanel {
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var fetchButton = new LoadingButton(
-                "", Icons.FETCH, // icon-only button
-                chrome, null); // ActionListener added below
+                "",
+                Icons.FETCH, // icon-only button
+                chrome,
+                null); // ActionListener added below
         fetchButton.setText(""); // icon-only
         fetchButton.setMargin(new Insets(2, 2, 2, 2)); // small padding to match other material buttons
         fetchButton.setToolTipText("Fetch");
