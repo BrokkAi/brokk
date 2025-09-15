@@ -310,7 +310,7 @@ public class SwingUtil {
     /**
      * Apply the primary button visual style: bright blue background and white text.
      *
-     * This method only changes the background and foreground colors and schedules the update on the EDT.
+     * <p>This method only changes the background and foreground colors and schedules the update on the EDT.
      */
     public static void applyPrimaryButtonStyle(@org.jetbrains.annotations.Nullable javax.swing.JButton b) {
         if (b == null) return;
