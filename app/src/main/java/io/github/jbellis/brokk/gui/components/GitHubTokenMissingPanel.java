@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.gui.components;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.dialogs.GitHubAuthDialog;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import java.awt.*;
 import javax.swing.*;
 
@@ -11,29 +11,13 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
 
     public GitHubTokenMissingPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT));
-        var tokenMissingLabel = new JLabel("GitHub account not connected.");
+        var tokenMissingLabel = new JLabel("GitHub access token not configured.");
         tokenMissingLabel.setFont(tokenMissingLabel.getFont().deriveFont(Font.ITALIC));
         add(tokenMissingLabel);
-
-        JButton connectButton = new JButton("Connect GitHub");
-        connectButton.addActionListener(e -> {
-            connectButton.setEnabled(false);
-            connectButton.setText("Connecting...");
-
-            GitHubAuthDialog authDialog =
-                    new GitHubAuthDialog(SwingUtilities.getWindowAncestor(this), chrome.getContextManager());
-
-            GitHubAuthDialog.DialogCompletionCallback callback = (cancelled) -> {
-                SwingUtilities.invokeLater(() -> {
-                    connectButton.setEnabled(true);
-                    connectButton.setText("Connect GitHub");
-                });
-            };
-            authDialog.setCompletionCallback(callback);
-
-            authDialog.setVisible(true);
-        });
-        add(connectButton);
+        JButton settingsButton = new JButton("Settings");
+        settingsButton.addActionListener(
+                e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME));
+        add(settingsButton);
         MainProject.addSettingsChangeListener(this);
         updateVisibility();
     }
