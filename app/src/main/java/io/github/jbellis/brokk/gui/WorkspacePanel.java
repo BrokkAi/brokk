@@ -2185,8 +2185,8 @@ public class WorkspacePanel extends JPanel {
     }
 
     /**
-     * Return the combined preferred height of the bottom controls (summary, warnings, analyzer rebuild panel)
-     * so other panels can align to it.
+     * Return the combined preferred height of the bottom controls (summary, warnings, analyzer rebuild panel) so other
+     * panels can align to it.
      */
     public int getBottomControlsPreferredHeight() {
         int h = 0;

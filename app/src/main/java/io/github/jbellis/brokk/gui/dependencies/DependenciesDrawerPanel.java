@@ -84,8 +84,6 @@ public class DependenciesDrawerPanel extends JPanel {
                 }
             }
         });
-
-        
     }
 
     /** Opens the panel in the drawer */

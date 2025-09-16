@@ -17,13 +17,11 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -40,6 +38,8 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableRowSorter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -347,12 +347,13 @@ public final class DependenciesPanel extends JPanel {
             });
 
             // Listen for explicit bottom-controls height changes from WorkspacePanel
-            workspacePanel.addBottomControlsListener(new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
-                @Override
-                public void bottomControlsHeightChanged(int newHeight) {
-                    updateBottomSpacer();
-                }
-            });
+            workspacePanel.addBottomControlsListener(
+                    new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
+                        @Override
+                        public void bottomControlsHeightChanged(int newHeight) {
+                            updateBottomSpacer();
+                        }
+                    });
         }
     }
 
