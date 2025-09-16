@@ -3,15 +3,14 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
-import org.slf4j.LoggerFactory;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.prefs.Preferences;
+import javax.swing.*;
+import org.slf4j.LoggerFactory;
 
 public abstract class AnalyzerSettingsPanel extends JPanel {
 
@@ -38,8 +37,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
         }
     }
 
-    public void saveSettings() {
-    }
+    public void saveSettings() {}
 
     /**
      * Configuration panel for the Java analyzer – lets the user choose the JDK home directory. Persisted in the user
@@ -57,7 +55,8 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
         private final JLabel memoryWarningLabel;
         private int savedMemoryMB;
 
-        public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
+        public JavaAnalyzerSettingsPanel(
+                SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
             super(new BorderLayout(), language, projectRoot, io);
             logger.debug("JavaAnalyzerConfigPanel initialised");
 
@@ -91,8 +90,9 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             long maxMemoryMB = Runtime.getRuntime().maxMemory() / (1024 * 1024);
             // If maxMemory returns Long.MAX_VALUE, use total memory instead
             if (maxMemoryMB > 100000) {
-                maxMemoryMB =
-                        Runtime.getRuntime().totalMemory() / (1024 * 1024) * 4; // Assume 4x current heap as reasonable max
+                maxMemoryMB = Runtime.getRuntime().totalMemory()
+                        / (1024 * 1024)
+                        * 4; // Assume 4x current heap as reasonable max
             }
             int computedMax = (int) Math.min(maxMemoryMB, 32768);
             int maxBound = Math.max(MIN_MEMORY_MB, computedMax);
@@ -105,8 +105,8 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             memoryPanel.add(memorySpinner);
 
             // Memory warning label
-            memoryWarningLabel =
-                    new JLabel("<html><font color='orange'>! Restart required</font> - <a href='#'>Restart now</a></html>");
+            memoryWarningLabel = new JLabel(
+                    "<html><font color='orange'>! Restart required</font> - <a href='#'>Restart now</a></html>");
             memoryWarningLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
             memoryWarningLabel.setVisible(false);
             memoryWarningLabel.addMouseListener(new MouseAdapter() {

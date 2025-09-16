@@ -2,11 +2,6 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.util.ArrayList;
@@ -14,12 +9,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Reusable JDK selector component that wraps a JComboBox with a Browse... button.
- * - Discovers installed JDKs asynchronously.
- * - Allows selecting a custom JDK directory via a file chooser.
- * - Exposes the selected JDK path.
+ * Reusable JDK selector component that wraps a JComboBox with a Browse... button. - Discovers installed JDKs
+ * asynchronously. - Allows selecting a custom JDK directory via a file chooser. - Exposes the selected JDK path.
  */
 public class JdkSelector extends JPanel {
     private static final Logger logger = LogManager.getLogger(JdkSelector.class);
@@ -60,12 +57,11 @@ public class JdkSelector extends JPanel {
     }
 
     /**
-     * Populate the combo asynchronously with discovered JDKs and select the given desired path if provided.
-     * If the desired path is not among discovered ones, a "Custom JDK" entry will be added and selected.
+     * Populate the combo asynchronously with discovered JDKs and select the given desired path if provided. If the
+     * desired path is not among discovered ones, a "Custom JDK" entry will be added and selected.
      */
     public void loadJdksAsync(@Nullable String desiredPath) {
-        CompletableFuture
-                .supplyAsync(JdkSelector::discoverInstalledJdks, ForkJoinPool.commonPool())
+        CompletableFuture.supplyAsync(JdkSelector::discoverInstalledJdks, ForkJoinPool.commonPool())
                 .whenComplete((List<JdkItem> items, @Nullable Throwable ex) -> {
                     if (ex != null) {
                         logger.warn("JDK discovery failed: {}", ex.getMessage(), ex);
@@ -87,9 +83,7 @@ public class JdkSelector extends JPanel {
                 });
     }
 
-    /**
-     * Ensure the given path is in the combo (adding a Custom entry if needed) and select it.
-     */
+    /** Ensure the given path is in the combo (adding a Custom entry if needed) and select it. */
     public void setSelectedJdkPath(@Nullable String path) {
         if (path == null || path.isBlank()) {
             return;
@@ -111,9 +105,7 @@ public class JdkSelector extends JPanel {
         }
     }
 
-    /**
-     * @return the selected JDK path or null if none selected.
-     */
+    /** @return the selected JDK path or null if none selected. */
     public @Nullable String getSelectedJdkPath() {
         var sel = (JdkItem) combo.getSelectedItem();
         return sel == null ? null : sel.path;

@@ -6,8 +6,7 @@ import io.github.jbellis.brokk.analyzer.lsp.LspFileUtilities;
 import io.github.jbellis.brokk.analyzer.lsp.LspLanguageClient;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
-import io.github.jbellis.brokk.gui.dialogs.AnalyzerSettingsPanel;
-
+import io.github.jbellis.brokk.gui.dialogs.AnalyzerSettingsPanel.JavaAnalyzerSettingsPanel;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,8 +14,6 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-
-import io.github.jbellis.brokk.gui.dialogs.AnalyzerSettingsPanel.JavaAnalyzerSettingsPanel;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.jetbrains.annotations.Nullable;
 

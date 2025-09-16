@@ -40,7 +40,6 @@ import javax.swing.SwingWorker;
 import javax.swing.UIManager;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -194,7 +193,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Code Intelligence Tab (replaces old Analyzers tab)
         var codeIntPanel = createCodeIntelligencePanel();
-        projectSubTabbedPane.addTab("Code Intelligence", null, codeIntPanel, "Code intelligence settings and analyzers");
+        projectSubTabbedPane.addTab(
+                "Code Intelligence", null, codeIntPanel, "Code intelligence settings and analyzers");
 
         // Data Retention Tab
         dataRetentionPanelInner = new DataRetentionPanel(project, this);
@@ -721,12 +721,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         int pref = 0;
 
         // Header width
-        var headerComp = headerRenderer.getTableCellRendererComponent(table, langCol.getHeaderValue(), false, false, -1, 1);
+        var headerComp =
+                headerRenderer.getTableCellRendererComponent(table, langCol.getHeaderValue(), false, false, -1, 1);
         pref = Math.max(pref, headerComp.getPreferredSize().width);
 
         // Cells width
         for (int r = 0; r < tableModel.getRowCount(); r++) {
-            var comp = table.getCellRenderer(r, 1).getTableCellRendererComponent(table, tableModel.getValueAt(r, 1), false, false, r, 1);
+            var comp = table.getCellRenderer(r, 1)
+                    .getTableCellRendererComponent(table, tableModel.getValueAt(r, 1), false, false, r, 1);
             pref = Math.max(pref, comp.getPreferredSize().width);
         }
 
@@ -740,8 +742,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         table.setPreferredScrollableViewportSize(table.getPreferredSize());
         // Titled border + inner horizontal padding to match Language Details panel
         leftScroll.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder("Detected Languages"),
-                BorderFactory.createEmptyBorder(0, 8, 0, 8)));
+                BorderFactory.createTitledBorder("Detected Languages"), BorderFactory.createEmptyBorder(0, 8, 0, 8)));
 
         // Right detail panel
         var rightPanel = new JPanel(new BorderLayout());
@@ -852,8 +853,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
             // Create (or reuse) analyzer settings panel for this language
             AnalyzerSettingsPanel settingsPanel = analyzerSettingsCache.computeIfAbsent(
-                    lang, l -> AnalyzerSettingsPanel.createAnalyzersPanel(
-                            SettingsProjectPanel.this, l, projectRoot, chrome.getContextManager().getIo()));
+                    lang,
+                    l -> AnalyzerSettingsPanel.createAnalyzersPanel(
+                            SettingsProjectPanel.this,
+                            l,
+                            projectRoot,
+                            chrome.getContextManager().getIo()));
             // ensure zero margin for embedded analyzer panels
             settingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
@@ -861,7 +866,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             int fileCount = project.getFiles(lang).size();
             var fileCountLabel = new JLabel("Files: " + String.format("%,d", fileCount));
             fileCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
-            fileCountLabel.setFont(fileCountLabel.getFont().deriveFont(fileCountLabel.getFont().getSize() * 0.95f));
+            fileCountLabel.setFont(
+                    fileCountLabel.getFont().deriveFont(fileCountLabel.getFont().getSize() * 0.95f));
 
             var wrapper = new JPanel(new BorderLayout());
             // Add horizontal padding to match the Files label's spacing; keep analyzer panel itself borderless
@@ -1655,8 +1661,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
     }
 
-
-
     private void populateJdkControlsFromProject() {
         var project = chrome.getProject();
         var desired = project.getJdk();
@@ -1973,5 +1977,4 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             } // else this is standalone data retention dialog
         }
     }
-
 }
