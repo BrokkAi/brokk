@@ -276,11 +276,12 @@ public interface LspAnalyzer
     }
 
     @Override
-    default @NotNull List<CodeUnit> getUses(@Nullable String fqName) {
-        if (fqName == null || fqName.isEmpty()) {
-            final var reason = "Symbol '" + fqName + "' not found as a method, field, or class";
+    default @NotNull List<CodeUnit> getUses(@Nullable String rawFqName) {
+        if (rawFqName == null || rawFqName.isEmpty()) {
+            final var reason = "Symbol '" + rawFqName + "' not found as a method, field, or class";
             throw new IllegalArgumentException(reason);
         }
+        var fqName = resolveMethodName(rawFqName);
 
         // Start with the normal lookup
         var definitions = getDefinitionsInWorkspace(fqName);

@@ -422,6 +422,16 @@ public class JdtAnalyzerTest {
     }
 
     @Test
+    public void getUsesNestedClassConstructorTest() {
+        final var symbol = "A$AInner.AInner";
+        final var usages = analyzer.getUses(symbol);
+
+        // Expect references in B.callsIntoA() because it calls a.method2("test")
+        final var actualRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(Set.of("A.usesInnerClass"), actualRefs);
+    }
+
+    @Test
     public void getUsesMethodNonexistentTest() {
         final var symbol = "A.noSuchMethod:java.lang.String()";
         final var ex = assertThrows(IllegalArgumentException.class, () -> analyzer.getUses(symbol));

@@ -143,13 +143,21 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
         final var cleanedName = methodName.replace('$', '.');
         int parenIndex = cleanedName.indexOf('(');
 
-        // If a parenthesis is found, return the part of the string before it.
-        if (parenIndex != -1) {
-            return cleanedName.substring(0, parenIndex);
+        // Remove any parameter signature (e.g., "myMethod(int)" -> "myMethod")
+        final String base = (parenIndex != -1) ? cleanedName.substring(0, parenIndex) : cleanedName;
+
+        // If the name ends with the same token twice (e.g., "package.Foo.Foo"),
+        // collapse the duplicate to "package.Foo".
+        final var parts = base.split("\\.");
+        if (parts.length >= 2) {
+            final String last = parts[parts.length - 1];
+            final String secondLast = parts[parts.length - 2];
+            if (last.equals(secondLast)) {
+                return String.join(".", Arrays.copyOf(parts, parts.length - 1));
+            }
         }
 
-        // Otherwise, return the original string.
-        return cleanedName;
+        return base;
     }
 
     @Override
