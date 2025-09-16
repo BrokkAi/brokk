@@ -494,7 +494,7 @@ public class Languages {
 
         @Override
         public String internalName() {
-            return name();
+            return "TYPESCRIPT";
         }
 
         @Override
