@@ -10,6 +10,8 @@ import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
@@ -75,8 +77,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
     private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-    private JButton addExcludedDirButton = new JButton("Add");
-    private JButton removeExcludedDirButton = new JButton("Remove");
+    private MaterialButton addExcludedDirButton = new MaterialButton();
+    private MaterialButton removeExcludedDirButton = new MaterialButton();
 
     private JTextField languagesDisplayField = new JTextField(20);
     private JButton editLanguagesButton = new JButton("Edit");
@@ -792,6 +794,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         ciPanel.add(this.excludedScrollPane, gbcCi);
 
         var excludedButtonsPanel2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // Use icon-only MaterialButtons for a cleaner compact UI
+        this.addExcludedDirButton.setIcon(Icons.ADD);
+        this.addExcludedDirButton.setToolTipText("Add");
+        this.removeExcludedDirButton.setIcon(Icons.REMOVE);
+        this.removeExcludedDirButton.setToolTipText("Remove");
+
         excludedButtonsPanel2.add(this.addExcludedDirButton);
         excludedButtonsPanel2.add(Box.createHorizontalStrut(5));
         excludedButtonsPanel2.add(this.removeExcludedDirButton);
