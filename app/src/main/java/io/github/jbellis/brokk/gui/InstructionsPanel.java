@@ -211,7 +211,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setSelected(false); // Code by default
 
         codeCheckBox = new JCheckBox("Plan First");
-        // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search First".
+        // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
         KeyStroke toggleSearchKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
 
@@ -220,10 +220,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 + "<li><b>unchecked:</b> Assumes necessary files are already in Workspace. Useful for small, well-defined code changes.</li>"
                 + "</ul>  (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
-        searchProjectCheckBox = new JCheckBox("Search First");
+        searchProjectCheckBox = new JCheckBox("Search");
 
         // Append the shortcut to the tooltip for discoverability
-        searchProjectCheckBox.setToolTipText("<html><b>Search First:</b><br><ul>"
+        searchProjectCheckBox.setToolTipText("<html><b>Search:</b><br><ul>"
                 + "<li><b>checked:</b> Performs an &quot;agentic&quot; search across your entire project (even files not in the Workspace) to find relevant code</li>"
                 + "<li><b>unchecked:</b> Answers using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
@@ -917,12 +917,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
         optionsPanel = new JPanel(new CardLayout());
-        optionsPanel.add(codeCheckBox, OPTIONS_CARD_CODE);
+
+        // Create a CODE card that contains both the Plan First checkbox and the Plan Options button,
+        // so the Plan Options button stays visually adjacent to the checkbox only in CODE mode.
+        JPanel codeOptionsPanel = new JPanel();
+        codeOptionsPanel.setOpaque(false);
+        codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
+        codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        codeOptionsPanel.add(codeCheckBox);
+        codeOptionsPanel.add(Box.createHorizontalStrut(6));
+        codeOptionsPanel.add(planOptionsLink);
+
+        optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
         optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
 
-        // Group the checkbox card and the Plan Options button so they stay adjacent.
-        // Use a horizontal Box so the group lives in the same BoxLayout context as the bottom bar,
-        // improving vertical centering relative to other toolbar controls.
+        // Group the card panel so it stays aligned with other toolbar controls.
         Box optionGroup = Box.createHorizontalBox();
         optionGroup.setOpaque(false);
         optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -950,10 +959,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         optionsPanel.setMinimumSize(new Dimension(0, planFixedHeight));
         optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
+        // Add the composite card panel; the PLAN button lives inside the CODE card now.
         optionGroup.add(optionsPanel);
-        // Small, fixed spacing between checkbox card and Plan Options
-        optionGroup.add(Box.createHorizontalStrut(6));
-        optionGroup.add(planOptionsLink);
 
         bottomPanel.add(optionGroup);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
