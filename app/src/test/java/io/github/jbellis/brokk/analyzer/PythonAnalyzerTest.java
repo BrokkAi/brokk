@@ -14,8 +14,7 @@ import org.junit.jupiter.api.Test;
 public final class PythonAnalyzerTest {
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
-    static TestProject createTestProject(
-            String subDir, io.github.jbellis.brokk.analyzer.Language lang) { // Use Brokk's Language enum
+    static TestProject createTestProject(String subDir, Language lang) { // Use Brokk's Language enum
         Path testDir = Path.of("src/test/resources", subDir);
         assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
         assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
@@ -136,7 +135,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonGetClassSourceWithComments() {
-        TestProject project = createTestProject("testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON);
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         Function<String, String> normalize =
@@ -172,7 +171,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonGetMethodSourceWithComments() {
-        TestProject project = createTestProject("testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON);
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         Function<String, String> normalize =
@@ -234,7 +233,7 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testPythonCommentExpansionEdgeCases() {
-        TestProject project = createTestProject("testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON);
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
         // Test constructor with comment (use correct FQN format)

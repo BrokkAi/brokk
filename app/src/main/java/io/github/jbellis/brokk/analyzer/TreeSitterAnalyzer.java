@@ -2416,7 +2416,12 @@ public abstract class TreeSitterAnalyzer
     protected Range expandRangeWithComments(ProjectFile file, Range originalRange) {
         try {
             // Re-parse the source file
-            String src = file.read();
+            var srcOpt = file.read();
+            if (srcOpt.isEmpty()) {
+                log.warn("Unable to read source file for comment expansion: {}", file);
+                return originalRange;
+            }
+            String src = srcOpt.get();
 
             TSParser parser = new TSParser();
             if (!parser.setLanguage(getTSLanguage())) {
@@ -2462,9 +2467,6 @@ public abstract class TreeSitterAnalyzer
 
             return expandedRange;
 
-        } catch (IOException e) {
-            log.warn("IO error during comment expansion for file {}: {}", file, e.getMessage());
-            return originalRange;
         } catch (Exception e) {
             log.warn("Error during comment expansion for file {}: {}", file, e.getMessage());
             return originalRange;

@@ -1185,7 +1185,7 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testTypescriptAnnotationComments() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
         TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
         Function<String, String> normalize =
@@ -1240,7 +1240,7 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testTypescriptGenericClassAnnotations() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
         TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
         Function<String, String> normalize =
@@ -1271,7 +1271,7 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testTypescriptFunctionOverloadsWithAnnotations() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
         TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
         Function<String, String> normalize =
@@ -1310,7 +1310,7 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testTypescriptInterfaceAndEnumAnnotations() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        TestProject project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
         TypescriptAnalyzer analyzer = new TypescriptAnalyzer(project);
 
         Function<String, String> normalize =
