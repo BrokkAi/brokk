@@ -55,10 +55,6 @@ public class GitCommitTab extends JPanel {
     // Thread-safe cached count for badge updates
     private volatile int cachedModifiedFileCount = 0;
 
-    // Minimum height (in pixels) for the changes list area so it remains readable.
-    // Adjust this value as desired; 250 gives a taller, easier-to-read area.
-    private static final int MIN_CHANGES_PANEL_HEIGHT = 250;
-
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
@@ -274,23 +270,12 @@ public class GitCommitTab extends JPanel {
             }
         });
 
-        // Stack the table and buttons at the top so they don't stretch to fill the panel
-        var contentPanel = new JPanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        fileStatusPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-        buttonPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(fileStatusPane);
-        contentPanel.add(Box.createVerticalStrut(Constants.V_GAP));
-        contentPanel.add(buttonPanel);
-
         JPanel titledPanel = new JPanel(new BorderLayout());
         titledPanel.setBorder(BorderFactory.createTitledBorder("Changes"));
-        titledPanel.add(contentPanel, BorderLayout.NORTH);
+        titledPanel.add(fileStatusPane, BorderLayout.CENTER);
+        titledPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(titledPanel, BorderLayout.CENTER);
-
-        // Ensure initial sizing is only as large as the table contents
-        shrinkTableToContents();
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -339,8 +324,6 @@ public class GitCommitTab extends JPanel {
                     // Populate the table via the reusable FileStatusTable widget
                     // This also populates the statusMap within FileStatusTable
                     fileStatusPane.setFiles(uncommittedFilesList);
-                    // Ensure the table's viewport only takes as much space as its contents
-                    shrinkTableToContents();
 
                     // Restore selection
                     List<Integer> rowsToSelect = new ArrayList<>();
@@ -784,29 +767,5 @@ public class GitCommitTab extends JPanel {
 
         // Update the git tab badge
         chrome.updateGitTabBadge(newCount);
-    }
-
-    /**
-     * Adjust the table's viewport and the surrounding scroll pane so the table only takes as much vertical space as it
-     * needs instead of expanding to fill the panel.
-     */
-    private void shrinkTableToContents() {
-        assert SwingUtilities.isEventDispatchThread() : "shrinkTableToContents must be called on EDT";
-        var table = uncommittedFilesTable;
-        var header = table.getTableHeader();
-        var tablePref = table.getPreferredSize();
-        int headerHeight = header == null ? 0 : header.getPreferredSize().height;
-        int height = tablePref.height + headerHeight;
-        int width = Math.max(tablePref.width, fileStatusPane.getPreferredSize().width);
-
-        // Ensure we don't make the changes area smaller than the configured minimum
-        int finalHeight = Math.max(height, MIN_CHANGES_PANEL_HEIGHT);
-
-        table.setPreferredScrollableViewportSize(tablePref);
-        fileStatusPane.setPreferredSize(new Dimension(width, finalHeight));
-        // Also set a minimum size so layout managers respect the minimum height
-        fileStatusPane.setMinimumSize(new Dimension(width, MIN_CHANGES_PANEL_HEIGHT));
-        fileStatusPane.revalidate();
-        fileStatusPane.repaint();
     }
 }
