@@ -652,7 +652,7 @@ public class GitWorktreeTab extends JPanel {
                 });
                 io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
 
-                MaterialButton cancelButton = new MaterialButton(UIManager.getString("OptionPane.cancelButtonText"));
+                JButton cancelButton = new JButton(UIManager.getString("OptionPane.cancelButtonText"));
                 cancelButton.addActionListener(e -> {
                     optionPane.setValue(JOptionPane.CANCEL_OPTION);
                     dialog.dispose();

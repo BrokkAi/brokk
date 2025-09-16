@@ -485,7 +485,7 @@ public class CreatePullRequestDialog extends JDialog {
         io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(this.createPrButton);
         buttonPanel.add(this.createPrButton);
 
-        var cancelButton = new MaterialButton("Cancel");
+        var cancelButton = new JButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
         buttonPanel.add(cancelButton);
 
