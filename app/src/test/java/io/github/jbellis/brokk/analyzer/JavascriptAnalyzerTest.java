@@ -30,7 +30,7 @@ public final class JavascriptAnalyzerTest {
 
     @BeforeAll
     static void setup() {
-        jsTestProject = createTestProject("testcode-js", Language.JAVASCRIPT);
+        jsTestProject = createTestProject("testcode-js", Languages.JAVASCRIPT);
         jsAnalyzer = new JavascriptAnalyzer(jsTestProject);
         assertFalse(jsAnalyzer.isEmpty(), "Analyzer should have processed JS/JSX files");
 

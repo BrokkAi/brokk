@@ -31,7 +31,7 @@ public class CompletionsTest {
 
         // Input "do" -> we want it to match "a.b.Do"
         // Because "Do" simple name starts with 'D'
-        var completions = Completions.completeSymbols("do", mock);
+        var completions = Completions.completeSymbols("do", mock, CodeUnit.NameType.IDENTIFIER);
 
         var values = toValues(completions);
         assertEquals(Set.of("a.b.Do"), values);
@@ -41,7 +41,7 @@ public class CompletionsTest {
     public void testUnqualifiedRe() {
         var mock = new MockAnalyzer(tempDir);
         // Input "re" -> user wants to find "a.b.Do$Re" by partial name "Re"
-        var completions = Completions.completeSymbols("re", mock);
+        var completions = Completions.completeSymbols("re", mock, CodeUnit.NameType.IDENTIFIER);
         var values = toValues(completions);
         assertEquals(Set.of("a.b.Do$Re"), values);
     }
@@ -49,7 +49,7 @@ public class CompletionsTest {
     @Test
     public void testNestedClassRe() {
         var mock = new MockAnalyzer(tempDir);
-        var completions = Completions.completeSymbols("Re", mock);
+        var completions = Completions.completeSymbols("Re", mock, CodeUnit.NameType.IDENTIFIER);
         var values = toValues(completions);
 
         assertEquals(2, values.size());
@@ -67,11 +67,11 @@ public class CompletionsTest {
             }
         };
         // Input "CC" -> should match "test.CamelClass" due to camel case matching
-        var completions = Completions.completeSymbols("CC", mock);
+        var completions = Completions.completeSymbols("CC", mock, CodeUnit.NameType.IDENTIFIER);
         var values = toValues(completions);
         assertEquals(Set.of("test.CamelClass"), values);
 
-        completions = Completions.completeSymbols("cam", mock);
+        completions = Completions.completeSymbols("cam", mock, CodeUnit.NameType.IDENTIFIER);
         values = toValues(completions);
         assertEquals(Set.of("test.CamelClass"), values);
     }
@@ -80,7 +80,7 @@ public class CompletionsTest {
     public void testShortNameCompletions() {
         var mock = new MockAnalyzer(tempDir);
 
-        var completions = Completions.completeSymbols("Do", mock);
+        var completions = Completions.completeSymbols("Do", mock, CodeUnit.NameType.IDENTIFIER);
         assertEquals(3, completions.size());
         var shortValues = toShortValues(completions);
         assertTrue(shortValues.contains("Do"));
@@ -91,7 +91,7 @@ public class CompletionsTest {
     @Test
     public void testArchCompletion() {
         var mock = new MockAnalyzer(tempDir);
-        var completions = Completions.completeSymbols("arch", mock);
+        var completions = Completions.completeSymbols("arch", mock, CodeUnit.NameType.IDENTIFIER);
         var values = toValues(completions);
         assertEquals(Set.of("a.b.Architect"), values);
     }

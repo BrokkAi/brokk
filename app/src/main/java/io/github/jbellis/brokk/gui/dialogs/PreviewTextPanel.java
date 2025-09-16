@@ -456,28 +456,36 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                         contextManager.submitBackgroundTask(
                                                                 "Capture Usages",
                                                                 () -> contextManager.usageForIdentifier(
-                                                                        codeUnit.fqName()));
+                                                                        codeUnit.fqName(), true));
                                                     });
                                                 } else {
                                                     usageItem.setToolTipText(
                                                             "Code intelligence does not support usage capturing for this language.");
                                                 }
 
-                                                var analyzer = contextManager.getAnalyzerUninterrupted();
-                                                var sourceCodeAvailable = SourceCaptureUtil.isSourceCaptureAvailable(
-                                                        codeUnit, capabilities.hasSource(), analyzer);
+                                                var analyzer = contextManager
+                                                        .getAnalyzerWrapper()
+                                                        .getNonBlocking();
+                                                boolean sourceCodeAvailable = analyzer != null
+                                                        && SourceCaptureUtil.isSourceCaptureAvailable(
+                                                                codeUnit, capabilities.hasSource(), analyzer);
 
+                                                var sourceItem = new JMenuItem("<html>Capture source of <code>"
+                                                        + identifier + "</code></html>");
+                                                dynamicMenuItems.add(sourceItem);
+
+                                                sourceItem.setEnabled(sourceCodeAvailable);
                                                 if (sourceCodeAvailable) {
-                                                    var sourceItem = new JMenuItem("<html>Capture source of <code>"
-                                                            + identifier + "</code></html>");
-                                                    dynamicMenuItems.add(sourceItem);
-
-                                                    sourceItem.setEnabled(sourceCodeAvailable);
                                                     // Use shared utility for consistent behavior
                                                     sourceItem.addActionListener(action -> {
                                                         SourceCaptureUtil.captureSourceForCodeUnit(
                                                                 codeUnit, contextManager);
                                                     });
+                                                } else {
+                                                    sourceItem.setToolTipText(
+                                                            analyzer == null
+                                                                    ? "Code intelligence is still initializing."
+                                                                    : "Source capture not available for this language/symbol.");
                                                 }
                                             });
                                 }

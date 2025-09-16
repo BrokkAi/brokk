@@ -31,7 +31,7 @@ public class JavaTreeSitterAnalyzerTest {
         final var testPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
-        testProject = new TestProject(testPath, Language.JAVA);
+        testProject = new TestProject(testPath, Languages.JAVA);
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
@@ -432,5 +432,19 @@ public class JavaTreeSitterAnalyzerTest {
         assertTrue(classSkeletonStr.contains("processData"));
         assertTrue(classSkeletonStr.contains("formatMessage"));
         assertTrue(classSkeletonStr.contains("printVersion"));
+    }
+
+    @Test
+    public void testNearestMethodName() {
+        // regular method
+        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method"));
+        // method with lambda/anon class
+        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method$anon$357:32"));
+        // method with anon class (just digits)
+        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method$1"));
+        // method in nested class
+        assertEquals("package.A$AInner.method", analyzer.nearestMethodName("package.A$AInner.method"));
+        // method with lambda in nested class
+        assertEquals("package.A$AInner.method", analyzer.nearestMethodName("package.A$AInner.method$anon$1"));
     }
 }

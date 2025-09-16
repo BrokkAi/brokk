@@ -316,16 +316,15 @@ public class ContextAgent {
         Map<CodeUnit, String> rawSummaries;
         var ctx = cm.liveContext();
 
-        if (isCodeInWorkspace(ctx)
-                && !deepScan
-                && cm.getAnalyzerWrapper().isCpg()
-                && cm.getAnalyzerWrapper().isReady()) {
-            // If the workspace isn't empty, use pagerank candidates for Quick context
+        if (isCodeInWorkspace(ctx) && !deepScan && cm.getAnalyzerWrapper().isReady()) {
+            // If the workspace isn't empty, use Git distance candidates for Quick context
             var ac = cm.liveContext().buildAutoContext(50);
             // fetchSkeletons() is private in SkeletonFragment. We need to use its sources() or text().
             // For now, let's get the target FQNs and then fetch summaries for them.
             List<String> targetFqns = ac.getTargetIdentifiers();
-            debug("Non-empty workspace; using pagerank candidates (target FQNs: {})", String.join(",", targetFqns));
+            debug(
+                    "Non-empty workspace; using Git-based distance candidates (target FQNs: {})",
+                    String.join(",", targetFqns));
 
             // Create a temporary map for rawSummaries from these targetFqns
             Map<CodeUnit, String> tempSummaries = new HashMap<>();

@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
+import java.awt.event.ItemEvent;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -1010,30 +1011,30 @@ public class GitWorktreeTab extends JPanel {
         logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
         gitRepo.addWorktree(branchForWorktree, newWorktreePath);
 
-        // Copy (prefer hard-link) existing language CPG caches to the new worktree
+        // Copy (prefer hard-link) existing language storage caches to the new worktree
         var enabledLanguages = parentProject.getAnalyzerLanguages();
         for (var lang : enabledLanguages) {
-            if (!lang.isCpg()) {
-                continue;
-            }
-            var srcCpg = lang.getCpgPath(parentProject);
-            if (!Files.exists(srcCpg)) {
+            var sourceCache = lang.getStoragePath(parentProject);
+            if (!Files.exists(sourceCache)) {
                 continue;
             }
             try {
-                var relative = parentProject.getRoot().relativize(srcCpg);
-                var destCpg = newWorktreePath.resolve(relative);
-                Files.createDirectories(destCpg.getParent());
+                var relative = parentProject.getRoot().relativize(sourceCache);
+                var destCache = newWorktreePath.resolve(relative);
+                Files.createDirectories(destCache.getParent());
                 try {
-                    Files.createLink(destCpg, srcCpg); // Try hard-link first
-                    logger.debug("Hard-linked CPG cache from {} to {}", srcCpg, destCpg);
+                    Files.createLink(destCache, sourceCache); // Try hard-link first
+                    logger.debug("Hard-linked analyzer storage cache from {} to {}", sourceCache, destCache);
                 } catch (UnsupportedOperationException | IOException linkEx) {
-                    Files.copy(srcCpg, destCpg, StandardCopyOption.REPLACE_EXISTING);
-                    logger.debug("Copied CPG cache from {} to {}", srcCpg, destCpg);
+                    Files.copy(sourceCache, destCache, StandardCopyOption.REPLACE_EXISTING);
+                    logger.debug("Copied analyzer storage cache from {} to {}", sourceCache, destCache);
                 }
             } catch (IOException copyEx) {
                 logger.warn(
-                        "Failed to replicate CPG cache for language {}: {}", lang.name(), copyEx.getMessage(), copyEx);
+                        "Failed to replicate analyzer storage cache for language {}: {}",
+                        lang.name(),
+                        copyEx.getMessage(),
+                        copyEx);
             }
         }
 
@@ -1140,63 +1141,59 @@ public class GitWorktreeTab extends JPanel {
 
         String dialogTitle = "Merge branch '" + finalWorktreeBranchName + "'";
         JOptionPane optionPane = new JOptionPane(dialogPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+
+        // Create explicit OK and Cancel buttons so we have a reliable reference to the OK button
+        JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
+        JButton cancelButton = new JButton(UIManager.getString("OptionPane.cancelButtonText"));
+
+        okButton.addActionListener(e -> {
+            optionPane.setValue(JOptionPane.OK_OPTION);
+            Window w = SwingUtilities.getWindowAncestor(okButton);
+            if (w instanceof JDialog d) d.dispose();
+        });
+        cancelButton.addActionListener(e -> {
+            optionPane.setValue(JOptionPane.CANCEL_OPTION);
+            Window w = SwingUtilities.getWindowAncestor(cancelButton);
+            if (w instanceof JDialog d) d.dispose();
+        });
+
+        optionPane.setOptions(new Object[] {okButton, cancelButton});
+        okButton.setEnabled(false); // Initially disabled until conflict check completes successfully
+
         JDialog dialog = optionPane.createDialog(this, dialogTitle);
+        dialog.getRootPane().setDefaultButton(okButton);
 
-        JButton okButton = null;
-        // Attempt to find the OK button
-        // This relies on the internal structure of JOptionPane, which can vary by Look and Feel
-        // A more robust solution might involve iterating deeper or custom button components.
-        for (Component comp : optionPane.getComponents()) {
-            if (comp instanceof JPanel buttonBar) { // JPanel often contains buttons
-                for (Component btnComp : buttonBar.getComponents()) {
-                    if (btnComp instanceof JButton jButton
-                            && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                        okButton = jButton;
-                        break;
-                    }
-                }
-                if (okButton != null) break;
-            }
-        }
-        if (okButton == null) {
-            // Fallback: Try a simpler structure if the above fails
-            Component[] components = optionPane.getComponents();
-            // Typically, buttons are at the end, in a JPanel, or directly.
-            // This is a simplified search and might need adjustment based on L&F.
-            for (int i = components.length - 1; i >= 0; i--) {
-                if (components[i] instanceof JPanel panel) {
-                    for (Component c : panel.getComponents()) {
-                        if (c instanceof JButton jButton
-                                && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                            okButton = jButton;
-                            break;
-                        }
-                    }
-                } else if (components[i] instanceof JButton jButton
-                        && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                    okButton = jButton;
-                }
-                if (okButton != null) break;
-            }
-        }
-
-        // Add ActionListeners to combo boxes
+        // Add listeners to re-check conflicts on selection changes (both Action and Item to be robust)
         final JButton finalOkButton = okButton; // effectively final for lambda
         targetBranchComboBox.addActionListener(e -> checkConflictsAsync(
                 targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
         mergeModeComboBox.addActionListener(e -> checkConflictsAsync(
                 targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
 
-        if (okButton != null) {
-            // Initial conflict check, now passing the button
-            checkConflictsAsync(
-                    targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, okButton);
-        } else {
-            logger.warn("Could not find the OK button in the merge dialog. OK button state will not be managed.");
-            // Fallback: perform an initial check without button control if OK button not found
-            checkConflictsAsync(
-                    targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, null);
-        }
+        targetBranchComboBox.addItemListener(e -> {
+            if (e.getStateChange() == ItemEvent.SELECTED) {
+                checkConflictsAsync(
+                        targetBranchComboBox,
+                        mergeModeComboBox,
+                        conflictStatusLabel,
+                        finalWorktreeBranchName,
+                        finalOkButton);
+            }
+        });
+        mergeModeComboBox.addItemListener(e -> {
+            if (e.getStateChange() == ItemEvent.SELECTED) {
+                checkConflictsAsync(
+                        targetBranchComboBox,
+                        mergeModeComboBox,
+                        conflictStatusLabel,
+                        finalWorktreeBranchName,
+                        finalOkButton);
+            }
+        });
+
+        // Initial conflict check with the explicit OK button reference
+        checkConflictsAsync(
+                targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton);
 
         dialog.setVisible(true);
         Object selectedValue = optionPane.getValue();

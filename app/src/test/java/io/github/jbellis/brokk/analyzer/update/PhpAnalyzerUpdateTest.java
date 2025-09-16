@@ -24,7 +24,7 @@ class PhpAnalyzerUpdateTest {
                 <?php
                 function foo(): int { return 1; }
                 """);
-        project = UpdateTestUtil.newTestProject(rootDir, Language.PHP);
+        project = UpdateTestUtil.newTestProject(rootDir, Languages.PHP);
         analyzer = new PhpAnalyzer(project);
     }
 

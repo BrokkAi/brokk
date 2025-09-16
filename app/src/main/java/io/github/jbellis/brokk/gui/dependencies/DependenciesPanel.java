@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dependencies;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.NodeJsDependencyHelper;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.BorderUtils;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -325,10 +326,14 @@ public final class DependenciesPanel extends JPanel {
         Set<IProject.Dependency> liveDeps = new HashSet<>(project.getLiveDependencies());
 
         for (var dep : allDeps) {
-            String name = dep.getRelPath().getFileName().toString();
-            dependencyProjectFileMap.put(name, dep);
+            String folderName = dep.getRelPath().getFileName().toString();
+            var pkg = NodeJsDependencyHelper.readPackageJsonFromDir(dep.absPath());
+            String displayName = (pkg != null) ? NodeJsDependencyHelper.displayNameFrom(pkg) : folderName;
+            if (displayName == null || displayName.isEmpty()) displayName = folderName;
+
+            dependencyProjectFileMap.put(displayName, dep);
             boolean isLive = liveDeps.stream().anyMatch(d -> d.root().equals(dep));
-            tableModel.addRow(new Object[] {isLive, name, 0L});
+            tableModel.addRow(new Object[] {isLive, displayName, 0L});
         }
         isProgrammaticChange = false;
 

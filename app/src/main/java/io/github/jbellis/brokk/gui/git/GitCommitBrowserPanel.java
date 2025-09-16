@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
@@ -90,6 +91,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private JMenuItem dropStashCommitItem;
     private JMenuItem createBranchFromCommitItem;
     private JMenuItem cherryPickCommitItem;
+    private JMenuItem captureWorkspaceSelectionsItem;
 
     private MaterialButton pullButton;
     private MaterialButton pushButton;
@@ -475,6 +477,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         registerMenu(commitsContextMenu);
 
         addToContextItem = new JMenuItem("Capture Diff");
+        captureWorkspaceSelectionsItem = new JMenuItem("Capture workspace selections at this revision");
         softResetItem = new JMenuItem("Soft Reset to Here");
         revertCommitItem = new JMenuItem("Revert Commit");
         viewChangesItem = new JMenuItem("View Diff");
@@ -486,6 +489,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         cherryPickCommitItem = new JMenuItem("Cherry pick into ...");
 
         commitsContextMenu.add(addToContextItem);
+        commitsContextMenu.add(captureWorkspaceSelectionsItem);
         commitsContextMenu.add(viewChangesItem);
         commitsContextMenu.add(compareAllToLocalItem);
         commitsContextMenu.add(softResetItem);
@@ -544,9 +548,13 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
         boolean isStash = firstCommitInfo.stashIndex().isPresent(); // boolean preferred by style guide
+        boolean hasWorkspaceSelections =
+                !chrome.getContextPanel().getSelectedProjectFiles().isEmpty();
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
         compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash);
+        captureWorkspaceSelectionsItem.setVisible(!isStash);
+        captureWorkspaceSelectionsItem.setEnabled(selectedRows.length == 1 && !isStash && hasWorkspaceSelections);
         softResetItem.setVisible(!isStash);
         softResetItem.setEnabled(selectedRows.length == 1 && !isStash);
         revertCommitItem.setVisible(!isStash);
@@ -582,6 +590,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             compareAllToLocalItem.setVisible(false);
             createBranchFromCommitItem.setVisible(false);
             cherryPickCommitItem.setVisible(false);
+            captureWorkspaceSelectionsItem.setVisible(false);
         }
         // Hide stash items if not all are stashes (or none are)
         if (!allSelectedAreStashes) {
@@ -602,6 +611,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         dropStashCommitItem.setVisible(visible);
         createBranchFromCommitItem.setVisible(visible);
         cherryPickCommitItem.setVisible(visible);
+        captureWorkspaceSelectionsItem.setVisible(visible);
     }
 
     private void setupCommitContextMenuActions() {
@@ -619,6 +629,45 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         (ICommitInfo) commitsTableModel.getValueAt(group.getLast(), COL_COMMIT_OBJ);
                 GitUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
             }
+        });
+
+        captureWorkspaceSelectionsItem.addActionListener(e -> {
+            int row = commitsTable.getSelectedRow();
+            if (row == -1) return;
+
+            var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+            if (ci == null || ci.stashIndex().isPresent()) {
+                chrome.systemOutput("Capture is only available for standard commits.");
+                return;
+            }
+            final String commitId = ci.id();
+            final String shortId = getRepo().shortHash(commitId);
+
+            // Gather selected project files from the workspace
+            var selectedFiles = chrome.getContextPanel().getSelectedProjectFiles();
+            if (selectedFiles.isEmpty()) {
+                chrome.systemOutput("No project files selected in the workspace to capture.");
+                return;
+            }
+
+            contextManager.submitUserTask("Capturing workspace selections at " + shortId, () -> {
+                int success = 0;
+                for (var pf : selectedFiles) {
+                    try {
+                        final String content = getRepo().getFileContent(commitId, pf);
+                        var fragment = new ContextFragment.GitFileFragment(pf, shortId, content);
+                        contextManager.addReadOnlyFragmentAsync(fragment);
+                        success++;
+                    } catch (GitAPIException ex) {
+                        logger.warn("Error capturing {} at {}: {}", pf, commitId, ex.getMessage());
+                    }
+                }
+                final int captured = success;
+                SwingUtil.runOnEdt(() -> {
+                    chrome.systemOutput("Captured " + captured + " file(s) at " + shortId + ".");
+                    chrome.updateWorkspace();
+                });
+            });
         });
 
         softResetItem.addActionListener(e -> {

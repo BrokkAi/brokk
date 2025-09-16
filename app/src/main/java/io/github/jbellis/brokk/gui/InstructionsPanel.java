@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.analyzer.CodeUnit.NameType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -122,6 +123,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
+
+    // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
+    private @Nullable JPanel optionsPanel;
+    private static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
+    private static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
     private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
     private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
@@ -208,7 +214,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setSelected(false); // Code by default
 
         codeCheckBox = new JCheckBox("Plan First");
-        // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search First".
+        // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
         KeyStroke toggleSearchKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
 
@@ -217,10 +223,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 + "<li><b>unchecked:</b> Assumes necessary files are already in Workspace. Useful for small, well-defined code changes.</li>"
                 + "</ul>  (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
-        searchProjectCheckBox = new JCheckBox("Search First");
+        searchProjectCheckBox = new JCheckBox("Search");
 
         // Append the shortcut to the tooltip for discoverability
-        searchProjectCheckBox.setToolTipText("<html><b>Search First:</b><br><ul>"
+        searchProjectCheckBox.setToolTipText("<html><b>Search:</b><br><ul>"
                 + "<li><b>checked:</b> Performs an &quot;agentic&quot; search across your entire project (even files not in the Workspace) to find relevant code</li>"
                 + "<li><b>unchecked:</b> Answers using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
@@ -272,17 +278,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.addItemListener(e2 -> {
             boolean askMode = modeSwitch.isSelected();
             if (askMode) {
-                searchProjectCheckBox.setVisible(true);
+                // Show the ASK card (search checkbox)
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+                }
                 searchProjectCheckBox.setEnabled(true);
-                codeCheckBox.setVisible(false);
+                // Plan options are only relevant for CODE mode
                 planOptionsLink.setVisible(false);
                 // Checked => Search, Unchecked => Answer
                 storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
-                codeCheckBox.setVisible(true);
+                // Show the CODE card (plan/code checkbox)
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+                }
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
-                searchProjectCheckBox.setVisible(false);
                 planOptionsLink.setVisible(codeCheckBox.isSelected());
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
@@ -313,10 +324,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Initial checkbox visibility
-        codeCheckBox.setVisible(true);
-        planOptionsLink.setVisible(codeCheckBox.isSelected());
-        searchProjectCheckBox.setVisible(false);
+        // Initial checkbox visibility is handled by the optionsPanel (CardLayout) in buildBottomPanel().
 
         // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
         actionButton = new JButton() {
@@ -915,11 +923,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(this.actionGroupPanel);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-        // Dynamic options depending on toggle selection
-        bottomPanel.add(codeCheckBox);
-        bottomPanel.add(Box.createHorizontalStrut(10));
-        // Size planOptionsLink to match the height of the actionButton, but avoid forcing excessive width.
-        int planFixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
+        // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
+        optionsPanel = new JPanel(new CardLayout());
+
+        // Create a CODE card that contains both the Plan First checkbox and the Plan Options button,
+        // so the Plan Options button stays visually adjacent to the checkbox only in CODE mode.
+        JPanel codeOptionsPanel = new JPanel();
+        codeOptionsPanel.setOpaque(false);
+        codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
+        codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        codeOptionsPanel.add(codeCheckBox);
+        codeOptionsPanel.add(Box.createHorizontalStrut(6));
+        codeOptionsPanel.add(planOptionsLink);
+
+        optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
+        optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
+
+        // Group the card panel so it stays aligned with other toolbar controls.
+        Box optionGroup = Box.createHorizontalBox();
+        optionGroup.setOpaque(false);
+        optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
+        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Size planOptionsLink to match the height of the actionButton and actionGroupPanel, avoid excessive width.
+        int planFixedHeight = Math.max(
+                Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
         var planPrefSize = planOptionsLink.getPreferredSize();
         // Limit the button width to a reasonable maximum to prevent it from being too wide
         int maxPlanWidth = 160;
@@ -929,9 +957,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         planOptionsLink.setMinimumSize(new Dimension(40, planFixedHeight));
         // Allow some flexibility while preventing extreme growth
         planOptionsLink.setMaximumSize(new Dimension(maxPlanWidth, planFixedHeight));
-        bottomPanel.add(planOptionsLink);
-        bottomPanel.add(searchProjectCheckBox);
+        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Constrain the card panel so it won't stretch horizontally and create a gap between the checkbox and the plan
+        // button.
+        var optPanelPref = optionsPanel.getPreferredSize();
+        optionsPanel.setPreferredSize(new Dimension(optPanelPref.width, planFixedHeight));
+        optionsPanel.setMaximumSize(new Dimension(optPanelPref.width, planFixedHeight));
+        optionsPanel.setMinimumSize(new Dimension(0, planFixedHeight));
+        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Add the composite card panel; the PLAN button lives inside the CODE card now.
+        optionGroup.add(optionsPanel);
+
+        bottomPanel.add(optionGroup);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Ensure the initial visible card matches the current mode
+        if (optionsPanel != null) {
+            ((CardLayout) optionsPanel.getLayout())
+                    .show(optionsPanel, modeSwitch.isSelected() ? OPTIONS_CARD_ASK : OPTIONS_CARD_CODE);
+        }
 
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
@@ -1995,14 +2041,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Checkbox visibility and enablement
         if (!modeSwitch.isSelected()) {
-            codeCheckBox.setVisible(true);
+            // Show the CODE card
+            if (optionsPanel != null) {
+                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+            }
             planOptionsLink.setVisible(codeCheckBox.isSelected());
-            searchProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
         } else {
-            codeCheckBox.setVisible(false);
+            // Show the ASK card
+            if (optionsPanel != null) {
+                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+            }
             planOptionsLink.setVisible(false);
-            searchProjectCheckBox.setVisible(true);
             searchProjectCheckBox.setEnabled(true);
         }
 
@@ -2425,7 +2475,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (analyzer == null) {
                     return List.of();
                 }
-                var symbols = Completions.completeSymbols(text, analyzer);
+                var symbols = Completions.completeSymbols(text, analyzer, NameType.SHORT_NAME);
                 completions = symbols.stream()
                         .limit(50)
                         .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))

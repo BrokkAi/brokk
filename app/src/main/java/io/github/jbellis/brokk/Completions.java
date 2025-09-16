@@ -16,7 +16,7 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
 
-    public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
+    public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer, CodeUnit.NameType nameType) {
         String query = input.trim();
         if (query.length() < 2) {
             return List.of();
@@ -35,21 +35,18 @@ public class Completions {
         }
 
         var matcher = new FuzzyMatcher(query);
-        boolean hierarchicalQuery = query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
 
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
-        record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
-        }
+        record ScoredCU(CodeUnit cu, int score) {}
         return candidates.stream()
                 .map(cu -> {
-                    int score;
-                    if (hierarchicalQuery) {
-                        // query includes hierarchy separators -> match against full FQN
-                        score = matcher.score(cu.fqName());
-                    } else {
-                        // otherwise match ONLY the trailing symbol (class, method, field)
-                        score = matcher.score(cu.identifier());
-                    }
+                    String valueToMatch =
+                            switch (nameType) {
+                                case SHORT_NAME -> cu.shortName();
+                                case FQ_NAME -> cu.fqName();
+                                case IDENTIFIER -> cu.identifier();
+                            };
+                    int score = matcher.score(valueToMatch);
                     return new ScoredCU(cu, score);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
@@ -194,6 +191,23 @@ public class Completions {
                 && Character.isLetter(s.charAt(0))
                 && s.charAt(1) == ':'
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
+    }
+
+    /**
+     * Infers the preferred name type for symbol matching from a user-entered pattern. If the pattern contains '.' or
+     * '$', prefer fully-qualified names; otherwise, identifiers.
+     */
+    public static CodeUnit.NameType nameTypeForPattern(String pattern) {
+        var p = pattern;
+        return (p.indexOf('.') >= 0 || p.indexOf('$') >= 0) ? CodeUnit.NameType.FQ_NAME : CodeUnit.NameType.IDENTIFIER;
+    }
+
+    /**
+     * Returns the appropriate name from the given CodeUnit based on the pattern, selecting fqName() when the pattern
+     * appears qualified, otherwise identifier().
+     */
+    public static String nameForPattern(String pattern, CodeUnit cu) {
+        return nameTypeForPattern(pattern) == CodeUnit.NameType.FQ_NAME ? cu.fqName() : cu.identifier();
     }
 
     private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict

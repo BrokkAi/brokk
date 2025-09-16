@@ -5,14 +5,17 @@ import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterJava;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
+    private final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+
     public JavaTreeSitterAnalyzer(IProject project) {
-        super(project, Language.JAVA, project.getExcludedDirectories());
+        super(project, Languages.JAVA, project.getExcludedDirectories());
     }
 
     @Override
@@ -160,5 +163,17 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return "}";
+    }
+
+    @Override
+    protected String nearestMethodName(String fqName) {
+        // Lambdas from LSP look something like `package.Class.Method$anon$357:32`, and we want `package.Class.Method`
+        var matcher = LAMBDA_REGEX.matcher(fqName);
+        if (matcher.find()) {
+            var match = matcher.group(1);
+            return fqName.substring(0, fqName.indexOf(match));
+        } else {
+            return fqName;
+        }
     }
 }

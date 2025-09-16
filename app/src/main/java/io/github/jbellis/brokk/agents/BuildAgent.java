@@ -20,7 +20,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -473,7 +473,7 @@ public class BuildAgent {
             return command;
         }
         // Only prefix for Java projects
-        if (project.getBuildLanguage() != Language.JAVA) {
+        if (project.getBuildLanguage() != Languages.JAVA) {
             return command;
         }
         var trimmed = command.stripLeading();

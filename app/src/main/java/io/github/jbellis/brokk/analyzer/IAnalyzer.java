@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import org.jetbrains.annotations.Nullable;
 
 public interface IAnalyzer {
     /** Record representing a code unit relevance result with a code unit and its score. */
@@ -90,7 +91,7 @@ public interface IAnalyzer {
             compiledPattern = Pattern.compile(ciPattern);
         } catch (PatternSyntaxException e) {
             // Fallback to simple case-insensitive substring matching
-            var fallbackPattern = pattern.toLowerCase();
+            var fallbackPattern = pattern.toLowerCase(Locale.ROOT);
             return searchDefinitionsImpl(pattern, fallbackPattern, null);
         }
 
@@ -123,15 +124,19 @@ public interface IAnalyzer {
      * @return List of matching CodeUnits
      */
     default List<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, String fallbackPattern, Pattern compiledPattern) {
+            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // Default implementation using getAllDeclarations
         if (fallbackPattern != null) {
             return getAllDeclarations().stream()
-                    .filter(cu -> cu.fqName().toLowerCase().contains(fallbackPattern))
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
+                    .toList();
+        } else if (compiledPattern != null) {
+            return getAllDeclarations().stream()
+                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
                     .toList();
         } else {
             return getAllDeclarations().stream()
-                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
                     .toList();
         }
     }

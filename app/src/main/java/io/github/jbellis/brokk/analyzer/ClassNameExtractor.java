@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk.analyzer;
 
+import com.google.common.base.Splitter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility for extracting and normalizing class/module names from textual references such as "MyClass.myMethod" or
@@ -21,10 +23,10 @@ public final class ClassNameExtractor {
 
     /* Java heuristics ----------------------------------------------------- */
 
-    public static Optional<String> extractForJava(String reference) {
+    public static Optional<String> extractForJava(@Nullable String reference) {
         if (reference == null) return Optional.empty();
         var trimmed = reference.trim();
-        if (trimmed.isEmpty() || !trimmed.contains(".")) return Optional.empty();
+        if (!trimmed.contains(".")) return Optional.empty();
 
         // Find the last dot that's not inside parentheses
         var lastDot = -1;
@@ -82,7 +84,7 @@ public final class ClassNameExtractor {
      *   <li>Be conservative; return empty when uncertain (e.g., console.log).
      * </ul>
      */
-    public static Optional<String> extractForJsTs(String reference) {
+    public static Optional<String> extractForJsTs(@Nullable String reference) {
         if (reference == null) return Optional.empty();
         var trimmed = reference.trim();
         if (trimmed.isEmpty()) return Optional.empty();
@@ -106,10 +108,10 @@ public final class ClassNameExtractor {
         if (!lastPart.matches("[a-zA-Z_$][a-zA-Z0-9_$]*(?:\\(.*\\))?")) return Optional.empty();
 
         var beforeLast = normalized.substring(0, lastDot);
-        var segments = beforeLast.split("\\.");
+        var segments = Splitter.on('.').splitToList(beforeLast);
 
-        for (int i = segments.length - 1; i >= 0; i--) {
-            var seg = segments[i].trim();
+        for (int i = segments.size() - 1; i >= 0; i--) {
+            var seg = segments.get(i).trim();
             if (seg.isEmpty() || "prototype".equals(seg)) continue;
             // Only accept PascalCase "class-like" tokens
             if (seg.matches("[A-Z][a-zA-Z0-9_$]*")) {
@@ -190,25 +192,18 @@ public final class ClassNameExtractor {
         for (int i = s.length() - 1; i >= 0; i--) {
             char c = s.charAt(i);
             switch (c) {
-                case ')':
-                    parenDepth++;
-                    break;
-                case '(':
-                    parenDepth = Math.max(0, parenDepth - 1);
-                    break;
-                case ']':
-                    bracketDepth++;
-                    break;
-                case '[':
-                    bracketDepth = Math.max(0, bracketDepth - 1);
-                    break;
-                case '.':
+                case ')' -> parenDepth++;
+                case '(' -> parenDepth = Math.max(0, parenDepth - 1);
+                case ']' -> bracketDepth++;
+                case '[' -> bracketDepth = Math.max(0, bracketDepth - 1);
+                case '.' -> {
                     if (parenDepth == 0 && bracketDepth == 0) {
                         return i;
                     }
-                    break;
-                default:
-                    // ignore
+                }
+                default -> {
+                    /* ignore */
+                }
             }
         }
         return -1;
@@ -216,10 +211,10 @@ public final class ClassNameExtractor {
 
     /* Python heuristics --------------------------------------------------- */
 
-    public static Optional<String> extractForPython(String reference) {
+    public static Optional<String> extractForPython(@Nullable String reference) {
         if (reference == null) return Optional.empty();
         var trimmed = reference.trim();
-        if (trimmed.isEmpty() || !trimmed.contains(".")) return Optional.empty();
+        if (!trimmed.contains(".")) return Optional.empty();
 
         var lastDot = trimmed.lastIndexOf('.');
         if (lastDot <= 0 || lastDot == trimmed.length() - 1) return Optional.empty();
@@ -235,10 +230,10 @@ public final class ClassNameExtractor {
 
     /* C++ heuristics ------------------------------------------------------ */
 
-    public static Optional<String> extractForCpp(String reference) {
+    public static Optional<String> extractForCpp(@Nullable String reference) {
         if (reference == null) return Optional.empty();
         var trimmed = reference.trim();
-        if (trimmed.isEmpty() || !trimmed.contains("::")) return Optional.empty();
+        if (!trimmed.contains("::")) return Optional.empty();
 
         var lastDoubleColon = trimmed.lastIndexOf("::");
         if (lastDoubleColon <= 0 || lastDoubleColon >= trimmed.length() - 2) return Optional.empty();
@@ -271,7 +266,7 @@ public final class ClassNameExtractor {
      * <p>Note: This helper performs lightweight normalization only (template parameter stripping, simple separator
      * swaps). More advanced canonicalization should be performed by callers if required.
      */
-    public static List<String> normalizeVariants(String extracted) {
+    public static List<String> normalizeVariants(@Nullable String extracted) {
         var variants = new LinkedHashSet<String>();
         if (extracted == null || extracted.isBlank()) return List.of();
 

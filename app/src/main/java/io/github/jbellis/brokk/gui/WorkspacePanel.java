@@ -1138,29 +1138,31 @@ public class WorkspacePanel extends JPanel {
         locSummaryPanel.add(costLabel);
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
 
-        // Add button to show Add popup (same menu as table's Add)
-        MaterialButton addButton = new MaterialButton();
-        addButton.setIcon(Icons.ATTACH_FILE);
-        addButton.setToolTipText("Add content to workspace");
-        addButton.setFocusable(false);
-        addButton.setOpaque(false);
-        addButton.addActionListener(e -> {
-            JPopupMenu popup = AddMenuFactory.buildAddPopup(WorkspacePanel.this);
-            chrome.themeManager.registerPopupMenu(popup);
-            popup.show(addButton, 0, addButton.getHeight());
-        });
-
         // Container to hold the summary labels and the add button
-        JPanel summaryWithAdd = new JPanel(new BorderLayout());
+        var summaryWithAdd = new JPanel(new BorderLayout());
         summaryWithAdd.setOpaque(false);
         summaryWithAdd.add(locSummaryPanel, BorderLayout.CENTER);
 
-        // Wrap the button so it vertically centers nicely with the labels
-        JPanel buttonWrapper = new JPanel(new GridBagLayout());
-        buttonWrapper.setOpaque(false);
-        buttonWrapper.add(addButton);
+        if (popupMenuMode == PopupMenuMode.FULL) {
+            // Add button to show Add popup (same menu as table's Add)
+            var addButton = new MaterialButton();
+            addButton.setIcon(Icons.ATTACH_FILE);
+            addButton.setToolTipText("Add content to workspace");
+            addButton.setFocusable(false);
+            addButton.setOpaque(false);
+            addButton.addActionListener(e -> {
+                JPopupMenu popup = AddMenuFactory.buildAddPopup(WorkspacePanel.this);
+                chrome.themeManager.registerPopupMenu(popup);
+                popup.show(addButton, 0, addButton.getHeight());
+            });
 
-        summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+            // Wrap the button so it vertically centers nicely with the labels
+            var buttonWrapper = new JPanel(new GridBagLayout());
+            buttonWrapper.setOpaque(false);
+            buttonWrapper.add(addButton);
+
+            summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+        }
 
         contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
 
@@ -1325,6 +1327,14 @@ public class WorkspacePanel extends JPanel {
                 },
                 List.of());
         return castNonNull(v);
+    }
+
+    /** Returns the set of selected project files that are part of the current context (editable or read-only). */
+    public Set<ProjectFile> getSelectedProjectFiles() {
+        return getSelectedFragments().stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
     }
 
     /** Populates the context table from a Context object. */

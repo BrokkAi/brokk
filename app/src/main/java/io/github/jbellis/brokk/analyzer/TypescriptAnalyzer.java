@@ -109,7 +109,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     ));
 
     public TypescriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.TYPESCRIPT, excludedFiles);
+        super(project, Languages.TYPESCRIPT, excludedFiles);
     }
 
     public TypescriptAnalyzer(IProject project) {

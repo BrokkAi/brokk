@@ -249,9 +249,9 @@ public abstract class TreeSitterAnalyzer
                         return false;
                     }
 
-                    // Check extension
-                    var pathStr = filePath.toString();
-                    return validExtensions.stream().anyMatch(pathStr::endsWith);
+                    // Check extension using proper file extension matching
+                    var extension = pf.extension();
+                    return validExtensions.contains(extension);
                 })
                 .parallel()
                 .forEach(pf -> {
@@ -384,7 +384,13 @@ public abstract class TreeSitterAnalyzer
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return uniqueCodeUnitList().stream()
-                .filter(cu -> cu.fqName().equals(fqName))
+                .filter(cu -> {
+                    if (cu.isFunction()) {
+                        return cu.fqName().equals(nearestMethodName(fqName));
+                    } else {
+                        return cu.fqName().equals(fqName);
+                    }
+                })
                 .findFirst();
     }
 
@@ -399,7 +405,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public List<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, @Nullable String fallbackPattern, Pattern compiledPattern) {
+            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // an explicit search for everything should return everything, not just classes
         if (originalPattern.equals(".*")) {
             return uniqueCodeUnitList();
@@ -410,10 +416,14 @@ public abstract class TreeSitterAnalyzer
             return uniqueCodeUnitList().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
                     .toList();
-        } else {
+        } else if (compiledPattern != null) {
             // Primary search using compiled regex pattern
             return uniqueCodeUnitList().stream()
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                    .toList();
+        } else {
+            return uniqueCodeUnitList().stream()
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
                     .toList();
         }
     }
@@ -517,6 +527,11 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        // Only process files relevant to this analyzer's language
+        if (!isRelevantFile(file)) {
+            return Map.of();
+        }
+
         List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
         if (topCUs.isEmpty()) return Map.of();
 
@@ -536,6 +551,11 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
+        // Only process files relevant to this analyzer's language
+        if (!isRelevantFile(file)) {
+            return Set.of();
+        }
+
         List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
         if (topCUs.isEmpty()) return Set.of();
 
@@ -630,6 +650,18 @@ public abstract class TreeSitterAnalyzer
             log.trace("getSkeleton: fqName='{}', found=false", fqName);
             return Optional.empty();
         });
+    }
+
+    /**
+     * Assuming the fqName is an entity nested within a method, or is a method itself, will return the fqName of the
+     * method. This is mostly useful with escaping lambdas to their parent method.
+     *
+     * @param fqName the fqName of a method.
+     * @return the surrounding method, or the given fqName otherwise.
+     */
+    protected String nearestMethodName(String fqName) {
+        // Should be overridden by the subclasses
+        return fqName;
     }
 
     @Override
@@ -1055,7 +1087,7 @@ public abstract class TreeSitterAnalyzer
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
             // Adjust simpleName and classChain for Go methods to correctly include the receiver type
-            if (language == Language.GO && "method.definition".equals(primaryCaptureName)) {
+            if (language == Languages.GO && "method.definition".equals(primaryCaptureName)) {
                 // The SCM query for Go methods captures `@method.receiver.type` and `@method.identifier`
                 // `simpleName` at this point is from `@method.identifier` (e.g., "MyMethod")
                 // We need to find the receiver type from the original captures for this match
@@ -1175,7 +1207,7 @@ public abstract class TreeSitterAnalyzer
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
-                    && (language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)) {
+                    && (language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)) {
                 List<String> existingSignatures =
                         localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
                 boolean newIsExported = signature.trim().startsWith("export");
@@ -1329,7 +1361,7 @@ public abstract class TreeSitterAnalyzer
 
         // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
         // For JAVASCRIPT/TYPESCRIPT: unwrap for processing but keep original for signature
-        if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                 && "export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
@@ -1342,12 +1374,12 @@ public abstract class TreeSitterAnalyzer
                         typeMatch = profile.functionLikeNodeTypes().contains(innerType)
                                 ||
                                 // Special case for TypeScript/JavaScript arrow functions in lexical declarations
-                                ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+                                ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                                         && ("lexical_declaration".equals(innerType)
                                                 || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
                     case ALIAS_LIKE ->
-                        typeMatch = (project.getAnalyzerLanguages().contains(Language.TYPESCRIPT)
+                        typeMatch = (project.getAnalyzerLanguages().contains(Languages.TYPESCRIPT)
                                 && "type_alias_declaration".equals(innerType));
                     default -> {}
                 }
@@ -1367,7 +1399,7 @@ public abstract class TreeSitterAnalyzer
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
-        if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                 && ("lexical_declaration".equals(nodeForContent.getType())
                         || "variable_declaration".equals(nodeForContent.getType()))
                 && (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
@@ -1412,7 +1444,7 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        if (language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
+        if (language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
             // Python's decorated_definition: decorators and actual def are children.
             // Process decorators directly here and identify the actual content node.
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
@@ -1427,7 +1459,7 @@ public abstract class TreeSitterAnalyzer
         }
         // 2. Handle decorators for languages where they precede the definition
         //    (Skip if Python already handled its specific decorator structure)
-        if (!(language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
+        if (!(language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
             List<TSNode> decorators =
                     getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
             for (TSNode decoratorNode : decorators) {
@@ -2090,6 +2122,29 @@ public abstract class TreeSitterAnalyzer
         return withReadLock(() -> childrenByParent.getOrDefault(cu, List.of()));
     }
 
+    /* ---------- file filtering helpers ---------- */
+
+    /**
+     * Checks if a file is relevant to this analyzer based on its language extensions.
+     *
+     * @param file the file to check
+     * @return true if the file extension matches this analyzer's language extensions
+     */
+    private boolean isRelevantFile(ProjectFile file) {
+        var languageExtensions = this.language.getExtensions();
+        return languageExtensions.contains(file.extension());
+    }
+
+    /**
+     * Filters a set of files to only include those relevant to this analyzer.
+     *
+     * @param files the files to filter
+     * @return a new set containing only files with extensions matching this analyzer's language
+     */
+    private Set<ProjectFile> filterRelevantFiles(Set<ProjectFile> files) {
+        return files.stream().filter(this::isRelevantFile).collect(Collectors.toSet());
+    }
+
     /* ---------- incremental updates ---------- */
 
     @Override
@@ -2098,10 +2153,17 @@ public abstract class TreeSitterAnalyzer
             return this;
         }
 
+        // Filter files by language extensions - only process files this analyzer can understand
+        var relevantFiles = filterRelevantFiles(changedFiles);
+
+        if (relevantFiles.isEmpty()) {
+            return this; // No relevant files to process
+        }
+
         var writeLock = stateRwLock.writeLock();
         writeLock.lock();
         try {
-            for (var file : changedFiles) {
+            for (var file : relevantFiles) {
                 // -------- cleanup ----------
                 parsedTreeCache.remove(file);
                 topLevelDeclarations.remove(file);

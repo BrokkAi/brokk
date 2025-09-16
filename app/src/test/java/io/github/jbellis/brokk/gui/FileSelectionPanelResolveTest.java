@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
-import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
@@ -55,7 +55,7 @@ class FileSelectionPanelResolveTest {
         Files.writeString(externalRoot.resolve("ext1.txt"), "E1");
         Files.writeString(externalRoot.resolve("exdir/e2.txt"), "E2");
 
-        project = new TestProject(projectRoot, Language.JAVA);
+        project = new TestProject(projectRoot, Languages.JAVA);
     }
 
     private FileSelectionPanel panel(boolean allowExternal, boolean multi) {

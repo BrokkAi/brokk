@@ -17,7 +17,7 @@ public class JavaAnalyzerTest {
     void testLintFilesWithoutJdtAnalyzer_ShouldNotCauseStackOverflow() {
         // Create a test project with a temporary directory
         Path tempDir = Path.of(System.getProperty("java.io.tmpdir"), "brokk-test");
-        TestProject testProject = new TestProject(tempDir, Language.JAVA);
+        TestProject testProject = new TestProject(tempDir, Languages.JAVA);
 
         // Create JavaAnalyzer with a failing JDT future to ensure jdtAnalyzer is null
         CompletableFuture<JdtAnalyzer> failingFuture = CompletableFuture.supplyAsync(() -> {

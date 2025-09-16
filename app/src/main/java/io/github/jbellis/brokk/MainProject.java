@@ -6,10 +6,12 @@ import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
@@ -67,6 +69,7 @@ public final class MainProject extends AbstractProject {
     // Keys for Architect Options persistence
     private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
+    private static final String MCP_CONFIG_JSON_KEY = "mcpConfigJson";
 
     // Keys for Plan First and Search First workspace preferences
     private static final String PLAN_FIRST_KEY = "planFirst";
@@ -517,19 +520,19 @@ public final class MainProject extends AbstractProject {
      * the most frequently occurring language. Falls back to Language.NONE if none detected.
      */
     private static Language detectLanguageForDependency(ProjectFile depDir) {
-        var counts = new IProject.Dependency(depDir, Language.NONE)
+        var counts = new IProject.Dependency(depDir, Languages.NONE)
                 .files().stream()
                         .map(pf -> com.google.common.io.Files.getFileExtension(
                                 pf.absPath().toString()))
                         .filter(ext -> !ext.isEmpty())
-                        .map(Language::fromExtension)
-                        .filter(lang -> lang != Language.NONE)
+                        .map(Languages::fromExtension)
+                        .filter(lang -> lang != Languages.NONE)
                         .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
 
         return counts.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
-                .orElse(Language.NONE);
+                .orElse(Languages.NONE);
     }
 
     @Override
@@ -541,7 +544,7 @@ public final class MainProject extends AbstractProject {
                     .filter(s -> !s.isEmpty())
                     .map(langName -> {
                         try {
-                            return Language.valueOf(langName.toUpperCase(Locale.ROOT));
+                            return Languages.valueOf(langName.toUpperCase(Locale.ROOT));
                         } catch (IllegalArgumentException e) {
                             logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
                             return null;
@@ -552,15 +555,15 @@ public final class MainProject extends AbstractProject {
         }
 
         Map<Language, Long> languageSizes = repo.getTrackedFiles().stream() // repo from AbstractProject
-                .filter(pf -> Language.fromExtension(pf.extension()) != Language.NONE)
+                .filter(pf -> Languages.fromExtension(pf.extension()) != Languages.NONE)
                 .collect(Collectors.groupingBy(
-                        pf -> Language.fromExtension(pf.extension()),
+                        pf -> Languages.fromExtension(pf.extension()),
                         Collectors.summingLong(MainProject::getFileSize)));
 
         if (languageSizes.isEmpty()) {
             logger.debug(
                     "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
-            return Set.of(Language.NONE);
+            return Set.of(Languages.NONE);
         }
 
         long totalRecognizedBytes =
@@ -581,8 +584,8 @@ public final class MainProject extends AbstractProject {
                     root, mostCommonEntry.getKey().name());
         }
 
-        if (languageSizes.containsKey(Language.SQL)) {
-            boolean addedByThisRule = detectedLanguages.add(Language.SQL);
+        if (languageSizes.containsKey(Languages.SQL)) {
+            boolean addedByThisRule = detectedLanguages.add(Languages.SQL);
             if (addedByThisRule) {
                 logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
             }
@@ -596,7 +599,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
-        if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Language.NONE))) {
+        if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
             String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
@@ -785,19 +788,19 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public CpgRefresh getAnalyzerRefresh() {
+    public AnalyzerRefresh getAnalyzerRefresh() {
         String value = projectProps.getProperty("code_intelligence_refresh");
-        if (value == null) return CpgRefresh.UNSET;
+        if (value == null) return AnalyzerRefresh.UNSET;
         try {
-            return CpgRefresh.valueOf(value.toUpperCase(Locale.ROOT));
+            return AnalyzerRefresh.valueOf(value.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            return CpgRefresh.UNSET;
+            return AnalyzerRefresh.UNSET;
         }
     }
 
     @Override
-    public void setAnalyzerRefresh(CpgRefresh value) {
-        projectProps.setProperty("code_intelligence_refresh", value.name());
+    public void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {
+        projectProps.setProperty("code_intelligence_refresh", analyzerRefresh.name());
         saveProjectProperties();
     }
 
@@ -960,6 +963,41 @@ public final class MainProject extends AbstractProject {
     public void setSearchFirst(boolean v) {
         workspaceProps.setProperty(SEARCH_FIRST_KEY, String.valueOf(v));
         saveWorkspaceProperties();
+    }
+
+    @Override
+    public McpConfig getMcpConfig() {
+        var props = loadGlobalProperties();
+        String json = props.getProperty(MCP_CONFIG_JSON_KEY);
+        if (json == null || json.isBlank()) {
+            return McpConfig.EMPTY;
+        }
+        logger.info("Deserializing McpConfig from JSON: {}", json);
+        try {
+            return objectMapper.readValue(json, McpConfig.class);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize McpConfig from JSON. JSON: {}", json, e);
+            return McpConfig.EMPTY;
+        }
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {
+        var props = loadGlobalProperties();
+        try {
+            if (config.servers().isEmpty()) {
+                props.remove(MCP_CONFIG_JSON_KEY);
+            } else {
+                String newJson = objectMapper.writeValueAsString(config);
+                logger.info("Serialized McpConfig to JSON: {}", newJson);
+                props.setProperty(MCP_CONFIG_JSON_KEY, newJson);
+            }
+            saveGlobalProperties(props);
+            logger.debug("Saved MCP configuration to global properties.");
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize McpConfig to JSON: {}. Settings not saved.", config, e);
+            throw new RuntimeException(e);
+        }
     }
 
     @Override

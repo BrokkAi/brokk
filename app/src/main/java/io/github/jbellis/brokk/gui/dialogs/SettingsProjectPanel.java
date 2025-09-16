@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -38,6 +39,9 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.SwingWorker;
+import javax.swing.UIManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -54,8 +58,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // UI Components managed by this panel
-    private JComboBox<MainProject.CpgRefresh> cpgRefreshComboBox = new JComboBox<>(new MainProject.CpgRefresh[] {
-        IProject.CpgRefresh.AUTO, IProject.CpgRefresh.ON_RESTART, IProject.CpgRefresh.MANUAL
+    private JComboBox<IProject.AnalyzerRefresh> cpgRefreshComboBox = new JComboBox<>(new IProject.AnalyzerRefresh[] {
+        IProject.AnalyzerRefresh.AUTO, IProject.AnalyzerRefresh.ON_RESTART, IProject.AnalyzerRefresh.MANUAL
     });
     private JTextField buildCleanCommandField = new JTextField();
     private JTextField allTestsCommandField = new JTextField();
@@ -75,6 +79,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
     private JButton addExcludedDirButton = new JButton("Add");
     private JButton removeExcludedDirButton = new JButton("Remove");
+
     private JTextField languagesDisplayField = new JTextField(20);
     private JButton editLanguagesButton = new JButton("Edit");
     private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
@@ -157,9 +162,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var msg = new JLabel(
                 """
-            Build Agent has completed inspecting your project, \
-            please review the build configuration.
-        """);
+                            Build Agent has completed inspecting your project, \
+                            please review the build configuration.
+                        """);
         p.add(msg, BorderLayout.CENTER);
 
         var close = new JButton("×");
@@ -770,7 +775,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         primaryLanguageComboBox.addActionListener(e -> {
             var sel = (Language) primaryLanguageComboBox.getSelectedItem();
             updateJdkControlsVisibility(sel);
-            if (sel == Language.JAVA) {
+            if (sel == Languages.JAVA) {
                 populateJdkControlsFromProject();
             }
         });
@@ -1208,8 +1213,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             String extension =
                     com.google.common.io.Files.getFileExtension(pf.absPath().toString());
             if (!extension.isEmpty()) {
-                var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
-                if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) languagesInProject.add(lang);
+                var lang = Languages.fromExtension(extension);
+                if (lang != Languages.NONE) languagesInProject.add(lang);
             }
         }
 
@@ -1336,14 +1341,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var currentRefresh = project.getAnalyzerRefresh();
         cpgRefreshComboBox.setSelectedItem(
-                currentRefresh == IProject.CpgRefresh.UNSET ? IProject.CpgRefresh.AUTO : currentRefresh);
+                currentRefresh == IProject.AnalyzerRefresh.UNSET ? IProject.AnalyzerRefresh.AUTO : currentRefresh);
 
         // Primary language
         populatePrimaryLanguageComboBox();
         var selectedLang = project.getBuildLanguage();
         primaryLanguageComboBox.setSelectedItem(selectedLang);
         updateJdkControlsVisibility(selectedLang);
-        if (selectedLang == Language.JAVA) {
+        if (selectedLang == Languages.JAVA) {
             populateJdkControlsFromProject();
         }
 
@@ -1436,7 +1441,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             logger.debug("Applied Run Command Timeout: {} seconds", timeout);
         }
 
-        var selectedRefresh = (MainProject.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
+        var selectedRefresh = (IProject.AnalyzerRefresh) cpgRefreshComboBox.getSelectedItem();
         if (selectedRefresh != project.getAnalyzerRefresh()) {
             project.setAnalyzerRefresh(selectedRefresh);
             logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
@@ -1456,7 +1461,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         // JDK Controls (only for Java)
-        if (selectedPrimaryLang == Language.JAVA) {
+        if (selectedPrimaryLang == Languages.JAVA) {
             if (setJavaHomeCheckbox.isSelected()) {
                 var sel = (JdkItem) jdkComboBox.getSelectedItem();
                 if (sel != null && !sel.path.isBlank()) {
@@ -1612,7 +1617,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
-        boolean isJava = selected == Language.JAVA;
+        boolean isJava = selected == Languages.JAVA;
         setJavaHomeCheckbox.setVisible(isJava);
         jdkComboBox.setVisible(isJava);
     }
@@ -1637,8 +1642,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             String extension =
                     com.google.common.io.Files.getFileExtension(pf.absPath().toString());
             if (!extension.isEmpty()) {
-                var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
-                if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) {
+                var lang = Languages.fromExtension(extension);
+                if (lang != Languages.NONE) {
                     langs.add(lang);
                 }
             }
