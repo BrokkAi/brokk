@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.context;
 
+import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
@@ -105,7 +106,7 @@ public class Context {
             @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action) {
         this(
-                UUID.randomUUID(),
+                newContextId(),
                 contextManager,
                 editableFiles,
                 readonlyFiles,
@@ -192,6 +193,10 @@ public class Context {
                 frozen.getTaskHistory(),
                 frozen.getParsedOutput(),
                 frozen.action);
+    }
+
+    public static UUID newContextId() {
+        return UuidCreator.getTimeOrderedEpoch();
     }
 
     /** Creates a new Context with an additional set of editable files. Rebuilds autoContext if toggled on. */
@@ -658,7 +663,7 @@ public class Context {
 
         // New ID for the reset point
         return new Context(
-                UUID.randomUUID(),
+                newContextId(),
                 currentContext.contextManager,
                 unfrozenEditableFiles,
                 unfrozenReadonlyFiles,

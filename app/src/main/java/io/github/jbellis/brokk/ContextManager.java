@@ -260,7 +260,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 () -> LowMemoryWatcherManager.LowMemoryWarningManager.alertUser(this.io),
                 LowMemoryWatcher.LowMemoryWatcherType.ONLY_AFTER_GC);
 
-        this.currentSessionId = UUID.randomUUID(); // Initialize currentSessionId
+        this.currentSessionId = SessionManager.newSessionId();
     }
 
     /**

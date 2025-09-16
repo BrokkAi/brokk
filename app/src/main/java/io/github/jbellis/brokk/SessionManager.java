@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.github.f4b6a3.uuid.UuidCreator;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
@@ -83,7 +84,7 @@ public class SessionManager implements AutoCloseable {
     }
 
     public SessionInfo newSession(String name) {
-        var sessionId = UUID.randomUUID();
+        var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
         var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime);
         sessionsCache.put(sessionId, newSessionInfo);
@@ -105,6 +106,10 @@ public class SessionManager implements AutoCloseable {
             }
         });
         return newSessionInfo;
+    }
+
+    static UUID newSessionId() {
+        return UuidCreator.getTimeOrderedEpoch();
     }
 
     public void renameSession(UUID sessionId, String newName) {
@@ -226,7 +231,7 @@ public class SessionManager implements AutoCloseable {
     }
 
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
-        var newSessionId = UUID.randomUUID();
+        var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
         var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
 
@@ -477,7 +482,7 @@ public class SessionManager implements AutoCloseable {
         }
         UUID sessionId;
         try {
-            sessionId = UUID.fromString(sessionIdStr.trim());
+            sessionId = java.util.UUID.fromString(sessionIdStr.trim());
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid session UUID '{}' in workspace properties at {}", sessionIdStr, wsPropsPath);
             return Optional.empty();
