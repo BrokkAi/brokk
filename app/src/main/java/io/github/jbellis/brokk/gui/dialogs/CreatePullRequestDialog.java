@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
