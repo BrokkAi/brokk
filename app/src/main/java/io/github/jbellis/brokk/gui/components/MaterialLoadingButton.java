@@ -67,6 +67,9 @@ public class MaterialLoadingButton extends MaterialButton {
             super.setToolTipText(idleTooltip);
             super.setCursor(Cursor.getDefaultCursor());
             super.setEnabled(true); // Re-enable the button
+
+            // Restore themed primary styling after loading completes so callers don't need to reapply.
+            io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(this);
         }
     }
 

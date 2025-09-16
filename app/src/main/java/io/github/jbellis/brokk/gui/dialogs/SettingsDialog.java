@@ -45,9 +45,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         cancelButton = new MaterialButton("Cancel");
         applyButton = new MaterialButton("Apply");
 
-        // Style OK button as blue
-        okButton.setBackground(new Color(0x1F6FEB));
-        okButton.setForeground(Color.WHITE);
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
 
         // Global Settings Panel
         globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
@@ -274,8 +272,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         contentPanel.add(tempProjectPanelForRetention, BorderLayout.CENTER);
 
         var okButtonDialog = new MaterialButton("OK");
-        okButtonDialog.setBackground(new Color(0x1F6FEB)); // blue styling
-        okButtonDialog.setForeground(Color.WHITE);
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButtonDialog);
         var cancelButtonDialog = new MaterialButton("Cancel");
         var buttonPanelDialog = new JPanel(new FlowLayout(FlowLayout.CENTER));
         buttonPanelDialog.add(okButtonDialog);

@@ -482,8 +482,7 @@ public class CreatePullRequestDialog extends JDialog {
         this.createPrButton.addActionListener(e -> createPullRequest());
 
         // Style Create PR button as primary action (bright blue with white text)
-        this.createPrButton.setBackground(new Color(0x1F6FEB));
-        this.createPrButton.setForeground(Color.WHITE);
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(this.createPrButton);
         buttonPanel.add(this.createPrButton);
 
         var cancelButton = new MaterialButton("Cancel");

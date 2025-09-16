@@ -161,7 +161,25 @@ public class SwingUtil {
      * Icon wrapper that always fetches the current value from UIManager. By delegating on every call we ensure the
      * image really changes after a theme switch without recreating every component that uses it.
      */
-    public static class ThemedIcon implements Icon {
+    public static void applyPrimaryButtonStyle(javax.swing.AbstractButton b) {
+    boolean isDark = UIManager.getBoolean("laf.dark");
+    java.awt.Color bg;
+    try {
+        // Use theme's link color (exists for both light & dark maps)
+        bg = io.github.jbellis.brokk.gui.mop.ThemeColors.getColor(isDark, "link_color_hex");
+    } catch (Exception e) {
+        // Defensive fallback to the same hex used in ThemeColors
+        bg = new Color(0x678CB1);
+    }
+
+    b.setOpaque(true);
+    b.setBackground(bg);
+    b.setForeground(Color.WHITE);
+    b.setBorderPainted(false);
+    b.setFocusPainted(false);
+}
+
+public static class ThemedIcon implements Icon {
 
         private final String uiKey;
         private final int displaySize;

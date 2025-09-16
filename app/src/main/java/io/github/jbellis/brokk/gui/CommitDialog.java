@@ -59,9 +59,7 @@ public class CommitDialog extends JDialog {
         commitButton = new MaterialButton("Commit");
         commitButton.setEnabled(false); // Initially disabled until message is ready or user types
         commitButton.addActionListener(e -> performCommit());
-        // Style commit as primary: bright blue background + white text
-        commitButton.setBackground(new Color(0x1F6FEB));
-        commitButton.setForeground(Color.WHITE);
+        SwingUtil.applyPrimaryButtonStyle(commitButton);
 
         cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
