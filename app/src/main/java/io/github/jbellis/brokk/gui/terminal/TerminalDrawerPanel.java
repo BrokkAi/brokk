@@ -92,6 +92,10 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 }
             }
         });
+
+        // Ensure drawer is initially collapsed (hides the split divider and reserves space for the toolbar).
+        // Use invokeLater so parentSplitPane has valid size when collapseIfEmpty() runs.
+        SwingUtilities.invokeLater(this::collapseIfEmpty);
     }
 
     /** Opens the terminal in the drawer. If already open, ensures it has focus. */
@@ -192,9 +196,11 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     final int MIN_COLLAPSE_WIDTH = Math.max(32, toolbarWidth + 8);
 
                     int totalWidth = parentSplitPane.getWidth();
-                    if (totalWidth <= 0) {
-                        return;
-                    }
+                if (totalWidth <= 0) {
+                    // Not laid out yet; try again on the next event cycle
+                    SwingUtilities.invokeLater(this::collapseIfEmpty);
+                    return;
+                }
 
                     // Set resize weight so left panel gets all extra space
                     parentSplitPane.setResizeWeight(1.0);
