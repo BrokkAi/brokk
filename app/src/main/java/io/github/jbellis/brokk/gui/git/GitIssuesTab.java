@@ -50,9 +50,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     /** Panel that shows the selected issue’s description; hidden until needed. */
     private final JPanel issueDetailPanel;
 
-    private JButton copyIssueDescriptionButton;
-    private JButton openInBrowserButton;
-    private JButton captureButton;
+    private MaterialButton copyIssueDescriptionButton;
+    private MaterialButton openInBrowserButton;
+    private MaterialButton captureButton;
 
     private FilterBox statusFilter;
 
@@ -445,6 +445,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         openInBrowserButton.setIcon(browserIcon);
         openInBrowserButton.setText("");
         openInBrowserButton.setMargin(new Insets(2, 2, 2, 2));
+
+        final Icon captureIcon = Icons.CONTENT_CAPTURE;
+        captureButton.setIcon(captureIcon);
+        captureButton.setText("");
+        captureButton.setMargin(new Insets(2, 2, 2, 2));
 
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
