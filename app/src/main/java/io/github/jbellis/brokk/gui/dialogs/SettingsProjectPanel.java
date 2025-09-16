@@ -643,10 +643,22 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         projectRoot,
                         chrome.getContextManager().getIo());
                 analyzerSettingsPanels.add(panel);
+
                 final var languageLabel = new JLabel(language.name());
                 languageLabel.setHorizontalAlignment(SwingConstants.LEFT);
+                // Ensure the label aligns to the left in a BoxLayout container
+                languageLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+                languageLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
                 container.add(languageLabel);
+
+                // Ensure the analyzer panel aligns left and can expand horizontally
+                panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+                var pref = panel.getPreferredSize();
+                panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(pref.height, 24)));
                 container.add(panel);
+
+                // Small spacing between analyzers for readability
+                container.add(Box.createVerticalStrut(8));
             });
 
             final JScrollPane scrollPane = new JScrollPane(container);
