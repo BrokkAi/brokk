@@ -10,6 +10,8 @@ import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
+import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePathCacheStore';
+import {setSupportedExtensions} from './lib/filePathDetection';
 
 const mainLog = createLogger('main');
 
@@ -17,6 +19,7 @@ let searchCtrl: SearchController | null = null;
 
  // Initialization calls at the top
 checkWorkerSupport();
+initializeFilePathExtensions();
 initializeApp();
 const buffer = setupBrokkInterface();
 replayBufferedItems(buffer);
@@ -29,6 +32,28 @@ function checkWorkerSupport(): void {
         alert('This version of Brokk requires a newer runtime with Web Worker support.');
         throw new Error('Web Workers unsupported');
     }
+}
+
+// Initialize supported file extensions for file path detection
+function initializeFilePathExtensions(): void {
+    // TODO: This should be communicated from the backend via Java bridge
+    // For now, use common extensions for testing
+    const commonExtensions = [
+        'java', 'kt', 'kts', 'scala', 'sc',  // JVM languages
+        'js', 'ts', 'jsx', 'tsx', 'mjs',     // JavaScript/TypeScript
+        'py', 'pyi',                         // Python
+        'rs',                                // Rust
+        'cpp', 'cxx', 'cc', 'c', 'h', 'hpp', // C/C++
+        'cs',                                // C#
+        'go',                                // Go
+        'rb',                                // Ruby
+        'php',                               // PHP
+        'swift',                             // Swift
+        'html', 'htm', 'css', 'scss', 'sass', 'less', // Web
+        'json', 'xml', 'yaml', 'yml',        // Config
+        'md', 'txt'                          // Documentation
+    ];
+    setSupportedExtensions(commonExtensions);
 }
 
 function initializeApp(): void {
@@ -65,6 +90,10 @@ function setupBrokkInterface(): any[] {
         // Symbol lookup API
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
+
+        // File path lookup API
+        refreshFilePathLookup: refreshFilePathLookup,
+        onFilePathLookupResponse: onFilePathResolutionResponse,
 
         // Debug API
         toggleWrapStatus: () => typeof window !== 'undefined' && window.toggleWrapStatus ? window.toggleWrapStatus() : undefined,
@@ -162,6 +191,22 @@ function refreshSymbolLookup(contextId: string = 'main-context'): void {
     clearSymbolCache(contextId);
 
     // Trigger symbol lookup for visible symbols to highlight them
+    reparseAll(contextId);
+}
+
+/**
+ * Refresh file path lookup by clearing the cache and triggering a fresh lookup for all visible file paths.
+ * This is called when the analyzer becomes ready or when context switches.
+ *
+ * @param contextId - The context ID to refresh file paths for (defaults to 'main-context')
+ */
+function refreshFilePathLookup(contextId: string = 'main-context'): void {
+    mainLog.debug(`[file-path-refresh] Refreshing file paths for context: ${contextId}, clearing cache and triggering UI refresh`);
+
+    // Clear file path cache to ensure fresh lookups
+    clearFilePathCache(contextId);
+
+    // Trigger file path lookup for visible file paths to highlight them
     reparseAll(contextId);
 }
 

@@ -8,8 +8,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskEntry;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
+import io.github.jbellis.brokk.gui.mop.FilePathLookupService;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.UncheckedIOException;
@@ -394,6 +396,131 @@ public final class MOPBridge {
         } catch (Exception e) {
             logger.warn("Failed to send empty symbol lookup response", e);
         }
+    }
+
+    public void lookupFilePathsAsync(String filePathsJson, int seq, String contextId) {
+        // Assert we're not blocking the EDT with this call
+        assert !SwingUtilities.isEventDispatchThread() : "File path lookup should not be called on EDT";
+
+        // Parse file paths
+        Set<String> filePaths;
+        try {
+            filePaths = MAPPER.readValue(filePathsJson, new TypeReference<Set<String>>() {});
+        } catch (Exception e) {
+            logger.warn("Failed to parse file paths JSON: {}", filePathsJson, e);
+            sendEmptyFilePathResponse(seq, contextId);
+            return;
+        }
+
+        if (filePaths.isEmpty()) {
+            sendEmptyFilePathResponse(seq, contextId);
+            return;
+        }
+
+        if (contextManager == null) {
+            logger.warn("No context manager available for file path lookup");
+            sendEmptyFilePathResponse(seq, contextId);
+            return;
+        }
+
+        // Use Chrome's background task system for file path lookup
+        contextManager.submitBackgroundTask("File path lookup for " + filePaths.size() + " paths", () -> {
+            // Assert background task is not running on EDT
+            assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
+
+            try {
+                logger.debug("Starting file path lookup for {} paths in context {}", filePaths.size(), contextId);
+
+                // Use file path lookup service
+                FilePathLookupService.lookupFilePaths(
+                        filePaths,
+                        contextManager,
+                        // Result callback - called for each individual file path result
+                        (filePath, filePathResult) -> {
+                            // Send individual result immediately on UI thread
+                            Platform.runLater(() -> {
+                                try {
+                                    var singleResult = java.util.Map.of(filePath, filePathResult);
+                                    var resultsJson = toJson(singleResult);
+
+                                    var js = "if (window.brokk && window.brokk.onFilePathLookupResponse) { "
+                                            + "window.brokk.onFilePathLookupResponse(" + resultsJson + ", " + seq + ", "
+                                            + toJson(contextId) + "); }";
+                                    engine.executeScript(js);
+                                } catch (Exception e) {
+                                    logger.warn("Failed to send file path lookup result for '{}'", filePath, e);
+                                }
+                            });
+                        },
+                        // Completion callback - called when all file paths are processed
+                        () -> {
+                            logger.debug(
+                                    "File path lookup completed for {} paths in context {}",
+                                    filePaths.size(),
+                                    contextId);
+                        });
+
+            } catch (Exception e) {
+                logger.warn("File path lookup failed for seq={}, contextId={}", seq, contextId, e);
+                Platform.runLater(() -> {
+                    sendEmptyFilePathResponse(seq, contextId);
+                });
+            }
+            return null;
+        });
+    }
+
+    private void sendEmptyFilePathResponse(int seq, String contextId) {
+        try {
+            var js = "if (window.brokk && window.brokk.onFilePathLookupResponse) { "
+                    + "window.brokk.onFilePathLookupResponse({}, " + seq + ", " + toJson(contextId) + "); }";
+            engine.executeScript(js);
+        } catch (Exception e) {
+            logger.warn("Failed to send empty file path lookup response", e);
+        }
+    }
+
+    public void onFilePathClick(String filePath, boolean exists, String matchesJson, int x, int y) {
+        logger.debug("File path clicked: {}, exists: {} at ({}, {})", filePath, exists, x, y);
+
+        SwingUtilities.invokeLater(() -> {
+            var component = hostComponent != null
+                    ? hostComponent
+                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                            .getFocusOwner();
+
+            if (component != null && contextManager != null) {
+                if (chrome != null) {
+                    try {
+                        // Parse the matches JSON to get ProjectFile list
+                        var matches = MAPPER.readValue(matchesJson, new TypeReference<List<Map<String, Object>>>() {});
+                        var projectFiles = new ArrayList<ProjectFile>();
+
+                        var project = contextManager.getProject();
+                        if (project != null) {
+                            for (var match : matches) {
+                                String relativePath = (String) match.get("relativePath");
+                                if (relativePath != null) {
+                                    projectFiles.add(new ProjectFile(project.getRoot(), relativePath));
+                                }
+                            }
+                        }
+
+                        if (!projectFiles.isEmpty()) {
+                            ContextMenuBuilder.forFiles(projectFiles, chrome, (io.github.jbellis.brokk.ContextManager)
+                                            contextManager)
+                                    .show(component, x, y);
+                        }
+                    } catch (Exception e) {
+                        logger.error("Failed to show file path context menu", e);
+                    }
+                } else {
+                    logger.warn("File path click handler not set, ignoring click on file path: {}", filePath);
+                }
+            } else {
+                logger.warn("Cannot show file path context menu - missing dependencies");
+            }
+        });
     }
 
     public void onSymbolClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
