@@ -120,6 +120,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
+
+    // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
+    private @Nullable JPanel optionsPanel;
+    private static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
+    private static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
     private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
     private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
@@ -270,17 +275,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.addItemListener(e2 -> {
             boolean askMode = modeSwitch.isSelected();
             if (askMode) {
-                searchProjectCheckBox.setVisible(true);
+                // Show the ASK card (search checkbox)
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+                }
                 searchProjectCheckBox.setEnabled(true);
-                codeCheckBox.setVisible(false);
+                // Plan options are only relevant for CODE mode
                 planOptionsLink.setVisible(false);
                 // Checked => Search, Unchecked => Answer
                 storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
-                codeCheckBox.setVisible(true);
+                // Show the CODE card (plan/code checkbox)
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+                }
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
-                searchProjectCheckBox.setVisible(false);
                 planOptionsLink.setVisible(codeCheckBox.isSelected());
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
@@ -311,10 +321,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Initial checkbox visibility
-        codeCheckBox.setVisible(true);
-        planOptionsLink.setVisible(codeCheckBox.isSelected());
-        searchProjectCheckBox.setVisible(false);
+        // Initial checkbox visibility is handled by the optionsPanel (CardLayout) in buildBottomPanel().
 
         // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
         actionButton = new JButton() {
@@ -908,9 +915,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(this.actionGroupPanel);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-        // Dynamic options depending on toggle selection
-        bottomPanel.add(codeCheckBox);
+        // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
+        optionsPanel = new JPanel(new CardLayout());
+        optionsPanel.add(codeCheckBox, OPTIONS_CARD_CODE);
+        optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
+        bottomPanel.add(optionsPanel);
         bottomPanel.add(Box.createHorizontalStrut(10));
+
         // Size planOptionsLink to match the height of the actionButton, but avoid forcing excessive width.
         int planFixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
         var planPrefSize = planOptionsLink.getPreferredSize();
@@ -923,8 +934,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Allow some flexibility while preventing extreme growth
         planOptionsLink.setMaximumSize(new Dimension(maxPlanWidth, planFixedHeight));
         bottomPanel.add(planOptionsLink);
-        bottomPanel.add(searchProjectCheckBox);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Ensure the initial visible card matches the current mode
+        if (optionsPanel != null) {
+            ((CardLayout) optionsPanel.getLayout()).show(
+                    optionsPanel, modeSwitch.isSelected() ? OPTIONS_CARD_ASK : OPTIONS_CARD_CODE);
+        }
 
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
@@ -1986,14 +2002,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Checkbox visibility and enablement
         if (!modeSwitch.isSelected()) {
-            codeCheckBox.setVisible(true);
+            // Show the CODE card
+            if (optionsPanel != null) {
+                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+            }
             planOptionsLink.setVisible(codeCheckBox.isSelected());
-            searchProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
         } else {
-            codeCheckBox.setVisible(false);
+            // Show the ASK card
+            if (optionsPanel != null) {
+                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+            }
             planOptionsLink.setVisible(false);
-            searchProjectCheckBox.setVisible(true);
             searchProjectCheckBox.setEnabled(true);
         }
 
