@@ -200,7 +200,16 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
             } else if (currentDeviceCodeResponse != null && !connected) {
                 gitHubStatusLabel.setText("Status: Waiting for you to authorize in browser");
             } else {
-                gitHubStatusLabel.setText(connected ? "Status: Connected" : "Status: Not connected");
+                if (connected) {
+                    String username = GitHubAuth.getAuthenticatedUsername();
+                    if (username != null) {
+                        gitHubStatusLabel.setText("Status: Connected as @" + username);
+                    } else {
+                        gitHubStatusLabel.setText("Status: Connected");
+                    }
+                } else {
+                    gitHubStatusLabel.setText("Status: Not connected");
+                }
             }
             gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.ITALIC));
         }

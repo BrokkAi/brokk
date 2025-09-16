@@ -223,6 +223,21 @@ public class GitHubAuth {
         }
     }
 
+    public static @Nullable String getAuthenticatedUsername() {
+        String token = MainProject.getGitHubToken();
+        if (token.isEmpty()) {
+            return null;
+        }
+
+        try {
+            var github = new GitHubBuilder().withOAuthToken(token).build();
+            return github.getMyself().getLogin();
+        } catch (Exception e) {
+            // Silently ignore all errors for this nice-to-have feature
+            return null;
+        }
+    }
+
     public String getOwner() {
         return owner;
     }
