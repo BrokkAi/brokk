@@ -95,7 +95,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
-    private static final Color ACTION_GO_BLUE = new Color(0x1F6FEB);
     private final Color defaultActionButtonBg;
 
     private final Chrome chrome;
@@ -380,10 +379,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setRolloverEnabled(true);
         actionButton.addActionListener(e -> onActionButtonPressed());
 
-        // Initialize default background color and set initial blue color
-        Color uiDefault = UIManager.getColor("Button.background");
-        this.defaultActionButtonBg = (uiDefault != null) ? uiDefault : actionButton.getBackground();
-        actionButton.setBackground(getActionButtonColor());
+         SwingUtilities.invokeLater(() -> {
+            SwingUtil.applyPrimaryButtonStyle(actionButton);
+         });
+
+        // this is when the button is in the blocking state
+        this.defaultActionButtonBg = UIManager.getColor("Button.background");
+        // Apply primary style so the button is marked and will be re-styled after theme changes
 
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
@@ -909,31 +911,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (Exception e) {
             return ks.toString();
         }
-    }
-
-    /**
-     * Returns the Color to use for the primary action (Go) button.
-     *
-     * Preference order:
-     * 1. UIManager's "Component.linkColor" (used by applyPrimaryButtonStyle)
-     * 2. ThemeColors "link_color_hex"
-     * 3. Hard-coded ACTION_GO_BLUE fallback
-     */
-    private Color getActionButtonColor() {
-        boolean isDark = UIManager.getBoolean("laf.dark");
-
-        // Prefer the UIManager link color to match applyPrimaryButtonStyle
-        Color uiLink = UIManager.getColor("Component.linkColor");
-        if (uiLink != null) {
-            return uiLink;
-        }
-
-        try {
-            return ThemeColors.getColor(isDark, "link_color_hex");
-        } catch (Exception ignored) {
-            // Fall through to fallback
-        }
-        return ACTION_GO_BLUE;
     }
 
     private JPanel buildBottomPanel() {
@@ -2050,7 +2027,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             // If there is no running action, keep the action button enabled so the user can start an action.
             actionButton.setEnabled(true);
-            actionButton.setBackground(getActionButtonColor());
+            SwingUtil.applyPrimaryButtonStyle(actionButton);
         }
     }
 
@@ -2093,7 +2070,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setIcon(Icons.ARROW_WARM_UP);
             actionButton.setText(null);
             actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
-            actionButton.setBackground(getActionButtonColor());
+            SwingUtil.applyPrimaryButtonStyle(actionButton);
         }
         actionButton.setEnabled(true);
 
