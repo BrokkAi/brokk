@@ -14,7 +14,7 @@ public interface BrokkFile extends Comparable<BrokkFile> {
 
     default Optional<String> read() {
         try {
-            return Optional.of(Files.readString(absPath()));
+            return Optional.of(Files.readString(absPath(), java.nio.charset.StandardCharsets.UTF_8));
         } catch (IOException e) {
             return Optional.empty();
         }

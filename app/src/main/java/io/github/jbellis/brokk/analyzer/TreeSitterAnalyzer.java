@@ -904,19 +904,8 @@ public abstract class TreeSitterAnalyzer
     /** Analyzes a single file and extracts declaration information. */
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
-        byte[] fileBytes = Files.readAllBytes(file.absPath());
-        // Strip UTF-8 BOM if present (EF BB BF)
-        if (fileBytes.length >= 3
-                && (fileBytes[0] & 0xFF) == 0xEF
-                && (fileBytes[1] & 0xFF) == 0xBB
-                && (fileBytes[2] & 0xFF) == 0xBF) {
-            byte[] bytesWithoutBom = new byte[fileBytes.length - 3];
-            System.arraycopy(fileBytes, 3, bytesWithoutBom, 0, fileBytes.length - 3);
-            fileBytes = bytesWithoutBom;
-            log.trace("Stripped UTF-8 BOM from file: {}", file);
-        }
-
-        String src = new String(fileBytes, StandardCharsets.UTF_8);
+        String src = Files.readString(file.absPath(), StandardCharsets.UTF_8);
+        byte[] fileBytes = src.getBytes(StandardCharsets.UTF_8);
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
         // record (or refresh) the file content hash
