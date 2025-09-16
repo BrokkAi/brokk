@@ -671,6 +671,9 @@ public class WorkspacePanel extends JPanel {
     @Nullable
     private JMenuItem dropAllMenuItem = null;
 
+    // Observers for bottom-controls height changes
+    private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
+
     // Buttons
     // Table popup menu (when no row is selected)
     private JPopupMenu tablePopupMenu;
@@ -1494,6 +1497,9 @@ public class WorkspacePanel extends JPanel {
 
         revalidate();
         repaint();
+
+        // Notify listeners that bottom controls height may have changed
+        fireBottomControlsHeightChanged();
     }
 
     /** Called by Chrome to refresh the table if context changes */
@@ -2196,6 +2202,31 @@ public class WorkspacePanel extends JPanel {
         return h;
     }
 
+    // --- Bottom controls height observer API ---
+
+    public interface BottomControlsListener {
+        void bottomControlsHeightChanged(int newHeight);
+    }
+
+    public void addBottomControlsListener(BottomControlsListener l) {
+        bottomControlsListeners.add(l);
+    }
+
+    public void removeBottomControlsListener(BottomControlsListener l) {
+        bottomControlsListeners.remove(l);
+    }
+
+    private void fireBottomControlsHeightChanged() {
+        int h = getBottomControlsPreferredHeight();
+        for (var l : bottomControlsListeners) {
+            try {
+                l.bottomControlsHeightChanged(h);
+            } catch (Exception ignore) {
+                // Listener exceptions should not affect UI flow
+            }
+        }
+    }
+
     /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(int inputTokens, Service service) {
         var instructionsPanel = chrome.getInstructionsPanel();
@@ -2291,6 +2322,9 @@ public class WorkspacePanel extends JPanel {
             analyzerRebuildPanel.setVisible(true);
             analyzerRebuildPanel.revalidate();
             analyzerRebuildPanel.repaint();
+
+            // Notify listeners about layout change
+            fireBottomControlsHeightChanged();
         });
     }
 
@@ -2300,6 +2334,9 @@ public class WorkspacePanel extends JPanel {
             analyzerRebuildPanel.setVisible(false);
             analyzerRebuildPanel.revalidate();
             analyzerRebuildPanel.repaint();
+
+            // Notify listeners about layout change
+            fireBottomControlsHeightChanged();
         });
     }
 

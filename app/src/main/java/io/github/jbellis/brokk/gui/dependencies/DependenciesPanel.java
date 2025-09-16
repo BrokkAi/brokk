@@ -345,6 +345,14 @@ public final class DependenciesPanel extends JPanel {
                     updateBottomSpacer();
                 }
             });
+
+            // Listen for explicit bottom-controls height changes from WorkspacePanel
+            workspacePanel.addBottomControlsListener(new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
+                @Override
+                public void bottomControlsHeightChanged(int newHeight) {
+                    updateBottomSpacer();
+                }
+            });
         }
     }
 
