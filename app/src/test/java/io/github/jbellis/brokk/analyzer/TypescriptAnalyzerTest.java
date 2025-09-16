@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -1179,5 +1180,41 @@ public class TypescriptAnalyzerTest {
         Set<String> analyzerExtensions = Set.copyOf(Languages.TYPESCRIPT.getExtensions());
 
         assertEquals(tsExtensions, analyzerExtensions, "TypeScript analyzer should only handle TS/TSX file extensions");
+    }
+
+    @Test
+    void testLanguageValueOfBackwardCompatibility() {
+        // Test that valueOf works with both the old "TYPESCRIPT" name and new "TypeScript" name
+        Language tsFromOldName = Languages.valueOf("TYPESCRIPT");
+        Language tsFromNewName = Languages.valueOf("TypeScript");
+        Language tsFromConstant = Languages.TYPESCRIPT;
+
+        // All three should return the same Language instance
+        assertSame(
+                tsFromConstant,
+                tsFromOldName,
+                "valueOf('TYPESCRIPT') should return the same instance as Languages.TYPESCRIPT");
+        assertSame(
+                tsFromConstant,
+                tsFromNewName,
+                "valueOf('TypeScript') should return the same instance as Languages.TYPESCRIPT");
+        assertSame(tsFromOldName, tsFromNewName, "valueOf should return same instance for both old and new names");
+
+        // Verify the display name is the new capitalized version
+        assertEquals("TypeScript", tsFromConstant.name(), "Language name should be properly capitalized");
+        assertEquals(
+                "TypeScript",
+                tsFromOldName.name(),
+                "Language name should be properly capitalized when accessed via old name");
+        assertEquals(
+                "TypeScript",
+                tsFromNewName.name(),
+                "Language name should be properly capitalized when accessed via new name");
+
+        // Test the specific MainProject.java scenario where names are converted to uppercase
+        String savedName = tsFromConstant.name(); // "TypeScript"
+        String upperCaseName = savedName.toUpperCase(Locale.ROOT); // "TYPESCRIPT"
+        Language tsFromUppercase = Languages.valueOf(upperCaseName);
+        assertSame(tsFromConstant, tsFromUppercase, "valueOf should work with uppercase conversion of the new name");
     }
 }
