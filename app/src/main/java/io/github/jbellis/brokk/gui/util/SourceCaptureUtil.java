@@ -39,11 +39,10 @@ public class SourceCaptureUtil {
             return false;
         }
 
-        // Use a lightweight check - try the source capture and catch any exceptions
         return analyzer.as(SourceCodeProvider.class)
                 .map(provider -> {
                     try {
-                        return provider.getSourceForCodeUnit(codeUnit).isPresent();
+                        return provider.getSourceForCodeUnit(codeUnit, true).isPresent();
                     } catch (Exception e) {
                         logger.warn("Unable to obtain source code for {}", codeUnit.fqName(), e);
                         return false;

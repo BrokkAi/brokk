@@ -69,6 +69,11 @@ public class JavaLanguage implements Language {
     }
 
     @Override
+    public ImportSupport getDependencyImportSupport() {
+        return ImportSupport.BASIC;
+    }
+
+    @Override
     public boolean providesInterproceduralAnalysis() {
         return !shouldDisableLsp();
     }

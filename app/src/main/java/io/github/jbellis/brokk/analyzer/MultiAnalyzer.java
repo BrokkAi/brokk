@@ -87,15 +87,17 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName)));
+    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
+        return findFirst(analyzer ->
+                analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName, includeComments)));
     }
 
     @Override
-    public Optional<String> getClassSource(String fqcn) {
+    public Optional<String> getClassSource(String fqcn, boolean includeComments) {
         for (var delegate : delegates.values()) {
             try {
-                final var maybeSource = delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn));
+                final var maybeSource =
+                        delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
                 if (maybeSource.isPresent()) {
                     return maybeSource;
                 }
@@ -107,9 +109,9 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit) {
-        return findFirst(
-                analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSourceForCodeUnit(codeUnit)));
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
+        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
+                .flatMap(scp -> scp.getSourceForCodeUnit(codeUnit, includeComments)));
     }
 
     @Override
@@ -162,6 +164,11 @@ public class MultiAnalyzer
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return findFirst(analyzer -> analyzer.getDefinition(fqName));
+    }
+
+    @Override
+    public boolean isDefinitionAvailable(String fqName) {
+        return delegates.values().stream().anyMatch(analyzer -> analyzer.isDefinitionAvailable(fqName));
     }
 
     @Override

@@ -119,7 +119,8 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
 
                     int startLine = countLines(content, statementStartOffsetInChars);
                     int endLine = countLines(content, statementEndOffsetInChars);
-                    var range = new TreeSitterAnalyzer.Range(statementStartByte, statementEndByte, startLine, endLine);
+                    var range = new TreeSitterAnalyzer.Range(
+                            statementStartByte, statementEndByte, startLine, endLine, statementStartByte);
                     rangesByCodeUnit.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
 
                     searchOffset = statementEndOffsetInChars + 1; // Continue search after this statement

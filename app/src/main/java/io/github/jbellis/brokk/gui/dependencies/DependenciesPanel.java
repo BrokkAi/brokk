@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui.dependencies;
 
 import static java.util.Objects.requireNonNull;
 
-import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.NodeJsDependencyHelper;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.BorderUtils;
@@ -31,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.TableModelEvent;
@@ -251,7 +251,7 @@ public final class DependenciesPanel extends JPanel {
 
                 @Override
                 public void dependencyImportFinished(String name) {
-                    loadDependencies();
+                    loadDependenciesAsync();
                     // Persist changes after a dependency import completes.
                     saveChangesAsync();
                 }
@@ -325,8 +325,12 @@ public final class DependenciesPanel extends JPanel {
                 }
             }
         });
+    }
 
-        loadDependencies();
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        loadDependenciesAsync();
 
         // Ensure spacer size is set after initial layout
         SwingUtilities.invokeLater(this::updateBottomSpacer);
@@ -361,29 +365,56 @@ public final class DependenciesPanel extends JPanel {
         tableModel.addRow(new Object[] {true, name, 0L});
     }
 
-    public void loadDependencies() {
-        isProgrammaticChange = true;
-        tableModel.setRowCount(0);
-        dependencyProjectFileMap.clear();
+    private void loadDependenciesAsync() {
+        new DependenciesLoaderWorker().execute();
+    }
 
-        var project = chrome.getProject();
-        var allDeps = project.getAllOnDiskDependencies();
-        Set<IProject.Dependency> liveDeps = new HashSet<>(project.getLiveDependencies());
+    private static record AsyncLoadResult(Map<String, ProjectFile> map, List<Object[]> rows) {}
 
-        for (var dep : allDeps) {
-            String folderName = dep.getRelPath().getFileName().toString();
-            var pkg = NodeJsDependencyHelper.readPackageJsonFromDir(dep.absPath());
-            String displayName = (pkg != null) ? NodeJsDependencyHelper.displayNameFrom(pkg) : folderName;
-            if (displayName == null || displayName.isEmpty()) displayName = folderName;
+    private class DependenciesLoaderWorker extends SwingWorker<AsyncLoadResult, Void> {
+        @Override
+        protected AsyncLoadResult doInBackground() {
+            var project = chrome.getProject();
+            var allDeps = project.getAllOnDiskDependencies();
+            var liveDeps = new HashSet<>(project.getLiveDependencies());
 
-            dependencyProjectFileMap.put(displayName, dep);
-            boolean isLive = liveDeps.stream().anyMatch(d -> d.root().equals(dep));
-            tableModel.addRow(new Object[] {isLive, displayName, 0L});
+            var map = new HashMap<String, ProjectFile>();
+            var rows = new ArrayList<Object[]>();
+
+            for (var dep : allDeps) {
+                String folderName = dep.getRelPath().getFileName().toString();
+                var pkg = NodeJsDependencyHelper.readPackageJsonFromDir(dep.absPath());
+                String displayName = (pkg != null) ? NodeJsDependencyHelper.displayNameFrom(pkg) : folderName;
+                if (displayName.isEmpty()) displayName = folderName;
+
+                map.put(displayName, dep);
+                boolean isLive = liveDeps.stream().anyMatch(d -> d.root().equals(dep));
+                rows.add(new Object[] {Boolean.valueOf(isLive), displayName, Long.valueOf(0L)});
+            }
+
+            return new AsyncLoadResult(map, rows);
         }
-        isProgrammaticChange = false;
 
-        // count files in background
-        new FileCountingWorker().execute();
+        @Override
+        protected void done() {
+            isProgrammaticChange = true;
+            try {
+                var result = get();
+                tableModel.setRowCount(0);
+                dependencyProjectFileMap.clear();
+                dependencyProjectFileMap.putAll(result.map());
+                for (var row : result.rows()) {
+                    tableModel.addRow(row);
+                }
+            } catch (ExecutionException | InterruptedException e) {
+                throw new RuntimeException(e);
+            } finally {
+                isProgrammaticChange = false;
+            }
+
+            // count files in background
+            new FileCountingWorker().execute();
+        }
     }
 
     public CompletableFuture<Void> saveChangesAsync() {
@@ -559,7 +590,7 @@ public final class DependenciesPanel extends JPanel {
             if (pf != null) {
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
-                    loadDependencies();
+                    loadDependenciesAsync();
                     // Persist changes after successful deletion and reload.
                     saveChangesAsync();
                 } catch (IOException ex) {

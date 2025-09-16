@@ -70,6 +70,11 @@ public class PythonLanguage implements Language {
         return false;
     }
 
+    @Override
+    public ImportSupport getDependencyImportSupport() {
+        return ImportSupport.BASIC;
+    }
+
     private List<Path> findVirtualEnvs(@Nullable Path root) {
         if (root == null) return List.of();
         List<Path> envs = new ArrayList<>();

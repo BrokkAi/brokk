@@ -425,7 +425,7 @@ public class SearchTools {
             if (!className.isBlank()) {
                 getAnalyzer()
                         .as(SourceCodeProvider.class)
-                        .flatMap(scp -> scp.getClassSource(className))
+                        .flatMap(scp -> scp.getClassSource(className, true))
                         .filter(source -> !source.isEmpty())
                         .filter(processedSources::add)
                         .ifPresent(classSource -> {
@@ -475,7 +475,7 @@ public class SearchTools {
 
         for (String methodName : methodNames) {
             if (!methodName.isBlank()) {
-                var methodSourceOpt = ((SourceCodeProvider) getAnalyzer()).getMethodSource(methodName);
+                var methodSourceOpt = ((SourceCodeProvider) getAnalyzer()).getMethodSource(methodName, true);
                 if (methodSourceOpt.isPresent()) {
                     String methodSource = methodSourceOpt.get();
                     if (!processedMethodSources.contains(methodSource)) {

@@ -116,8 +116,7 @@ public class ImportDependencyDialog {
             var project = chrome.getProject();
             for (var lang : project.getAnalyzerLanguages()) {
                 try {
-                    var candidates = lang.getDependencyCandidates(project);
-                    if (candidates.isEmpty()) continue; // requirement: skip languages with no candidates
+                    if (lang.getDependencyImportSupport() == Language.ImportSupport.NONE) continue;
 
                     var lp = new ImportLanguagePanel(chrome, lang);
                     lp.setLifecycleListener(listener);

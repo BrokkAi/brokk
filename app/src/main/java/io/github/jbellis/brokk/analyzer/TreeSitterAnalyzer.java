@@ -185,7 +185,7 @@ public abstract class TreeSitterAnalyzer
         }
     }
 
-    public record Range(int startByte, int endByte, int startLine, int endLine) {}
+    public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -392,6 +392,11 @@ public abstract class TreeSitterAnalyzer
                     }
                 })
                 .findFirst();
+    }
+
+    @Override
+    public boolean isDefinitionAvailable(String fqName) {
+        return withReadLock(() -> allCodeUnits().anyMatch(cu -> cu.fqName().equals(fqName)));
     }
 
     @Override
@@ -665,7 +670,7 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public Optional<String> getClassSource(String fqName) {
+    public Optional<String> getClassSource(String fqName, boolean includeComments) {
         var cu = getDefinition(fqName)
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
@@ -676,7 +681,7 @@ public abstract class TreeSitterAnalyzer
             throw new SymbolNotFoundException("Source range not found for class: " + fqName);
         }
 
-        // For classes, expect one primary definition range.
+        // For classes, expect one primary definition range (already expanded with comments)
         var range = ranges.getFirst();
 
         var srcOpt = cu.source().read();
@@ -685,13 +690,15 @@ public abstract class TreeSitterAnalyzer
         }
         String src = srcOpt.get();
 
-        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
+        // Choose start byte based on includeComments parameter
+        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, extractStartByte, range.endByte());
 
         return Optional.of(extractedSource);
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
+    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
         return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
                 // overloads)
                 .filter(CodeUnit::isFunction)
@@ -714,14 +721,16 @@ public abstract class TreeSitterAnalyzer
 
                     List<String> individualMethodSources = new ArrayList<>();
                     for (Range range : rangesForOverloads) {
+                        // Choose start byte based on includeComments parameter
+                        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
                         String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, range.startByte(), range.endByte());
+                                fileContent, extractStartByte, range.endByte());
                         if (!methodSource.isEmpty()) {
                             individualMethodSources.add(methodSource);
                         } else {
                             log.warn(
                                     "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    range.startByte(),
+                                    extractStartByte,
                                     range.endByte(),
                                     cu,
                                     fqName);
@@ -740,11 +749,11 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit) {
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            return getMethodSource(codeUnit.fqName());
+            return getMethodSource(codeUnit.fqName(), includeComments);
         } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit.fqName());
+            return getClassSource(codeUnit.fqName(), includeComments);
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }
@@ -754,6 +763,27 @@ public abstract class TreeSitterAnalyzer
     public boolean isTypeAlias(CodeUnit cu) {
         // Default: languages that don't support or expose type aliases return false.
         return false;
+    }
+
+    /**
+     * Calculates the line number (1-based) from a byte offset in the source text. This is used for on-demand line
+     * calculation when needed.
+     *
+     * @param source the source text
+     * @param byteOffset the byte offset to calculate line for
+     * @return the line number (1-based)
+     */
+    protected int calculateLineFromByteOffset(String source, int byteOffset) {
+        if (byteOffset <= 0) {
+            return 1;
+        }
+
+        int clampedOffset = Math.min(byteOffset, source.length());
+        return (int) source.substring(0, clampedOffset)
+                        .chars()
+                        .filter(c -> c == '\n')
+                        .count()
+                + 1;
     }
 
     /* ---------- abstract hooks ---------- */
@@ -1239,12 +1269,18 @@ public abstract class TreeSitterAnalyzer
                     sigsForCu.add(signature);
                 }
             }
-            var currentRange = new Range(
+            var originalRange = new Range(
                     node.getStartByte(),
                     node.getEndByte(),
                     node.getStartPoint().getRow(),
-                    node.getEndPoint().getRow());
-            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(currentRange);
+                    node.getEndPoint().getRow(),
+                    node.getStartByte()); // commentStartByte initially same as startByte
+
+            // Pre-expand range to include preceding comments for classes and functions
+            var finalRange =
+                    (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(file, originalRange) : originalRange;
+
+            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
             localChildren.putIfAbsent(cu, new ArrayList<>()); // Ensure every CU can be a parent
 
@@ -1293,13 +1329,16 @@ public abstract class TreeSitterAnalyzer
                 // Add a general range for the module CU (e.g. entire file or first import to last)
                 // For simplicity, can use the range of the root node or skip detailed range for module CU.
                 // Here, we'll use the root node's range as a placeholder.
+                var moduleRange = new Range(
+                        rootNode.getStartByte(),
+                        rootNode.getEndByte(),
+                        rootNode.getStartPoint().getRow(),
+                        rootNode.getEndPoint().getRow(),
+                        rootNode.getStartByte()); // commentStartByte same as startByte for module
+                // Module CUs typically don't need comment expansion as they represent the whole file
                 localSourceRanges
                         .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(new Range(
-                                rootNode.getStartByte(),
-                                rootNode.getEndByte(),
-                                rootNode.getStartPoint().getRow(),
-                                rootNode.getEndPoint().getRow()));
+                        .add(moduleRange);
                 log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
             } else {
                 log.warn(
@@ -2315,5 +2354,151 @@ public abstract class TreeSitterAnalyzer
                     merged.addAll(newRanges);
                     return List.copyOf(merged);
                 }));
+    }
+
+    /* ---------- comment detection for source expansion ---------- */
+
+    /** Checks if a Tree-Sitter node represents a comment. Supports common comment node types across languages. */
+    protected boolean isCommentNode(TSNode node) {
+        if (node.isNull()) {
+            return false;
+        }
+        String nodeType = node.getType();
+        return nodeType.equals("comment")
+                || nodeType.equals("line_comment")
+                || nodeType.equals("block_comment")
+                || nodeType.equals("doc_comment")
+                || nodeType.equals("documentation_comment");
+    }
+
+    /** Finds a Tree-Sitter node by its byte range within the given tree. */
+    protected Optional<TSNode> findNodeByRange(TSTree tree, int startByte, int endByte) {
+        TSNode root = tree.getRootNode();
+        return findNodeByRangeRecursive(root, startByte, endByte);
+    }
+
+    private Optional<TSNode> findNodeByRangeRecursive(TSNode node, int targetStartByte, int targetEndByte) {
+        // Check if this node matches the target range
+        if (node.getStartByte() == targetStartByte && node.getEndByte() == targetEndByte) {
+            return Optional.of(node);
+        }
+
+        // Check children
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null && !child.isNull()) {
+                // Only recurse if the target range could be within this child
+                if (child.getStartByte() <= targetStartByte && child.getEndByte() >= targetEndByte) {
+                    Optional<TSNode> result = findNodeByRangeRecursive(child, targetStartByte, targetEndByte);
+                    if (result.isPresent()) {
+                        return result;
+                    }
+                }
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Finds all comment nodes that directly precede the given declaration node. Returns comments in source order
+     * (earliest first).
+     */
+    protected List<TSNode> findPrecedingComments(TSNode declarationNode) {
+        List<TSNode> comments = new ArrayList<>();
+        TSNode current = declarationNode.getPrevSibling();
+
+        while (current != null && !current.isNull()) {
+            if (isCommentNode(current)) {
+                comments.add(current);
+            } else if (!isWhitespaceOnlyNode(current)) {
+                // Stop at first non-comment, non-whitespace node
+                break;
+            }
+            current = current.getPrevSibling();
+        }
+
+        // Reverse to get source order (earliest first)
+        Collections.reverse(comments);
+        return comments;
+    }
+
+    /** Checks if a node contains only whitespace (spaces, tabs, newlines). */
+    protected boolean isWhitespaceOnlyNode(TSNode node) {
+        if (node.isNull()) {
+            return false;
+        }
+        // Common whitespace node types in Tree-Sitter grammars
+        String nodeType = node.getType();
+        return nodeType.equals("whitespace")
+                || nodeType.equals("newline")
+                || nodeType.equals("\n")
+                || nodeType.equals(" ");
+    }
+
+    /**
+     * Expands a source range to include preceding comments. Re-parses the source file to get AST for comment detection.
+     */
+    protected Range expandRangeWithComments(ProjectFile file, Range originalRange) {
+        try {
+            // Re-parse the source file
+            var srcOpt = file.read();
+            if (srcOpt.isEmpty()) {
+                log.warn("Unable to read source file for comment expansion: {}", file);
+                return originalRange;
+            }
+            String src = srcOpt.get();
+
+            TSParser parser = new TSParser();
+            if (!parser.setLanguage(getTSLanguage())) {
+                log.warn("Failed to set language for comment expansion in file {}", file);
+                return originalRange;
+            }
+
+            TSTree tree = parser.parseString(null, src);
+
+            // Find the declaration node by its range
+            Optional<TSNode> declarationNode =
+                    findNodeByRange(tree, originalRange.startByte(), originalRange.endByte());
+            if (declarationNode.isEmpty()) {
+                log.debug(
+                        "Could not find declaration node for range [{}, {}] in file {}",
+                        originalRange.startByte(),
+                        originalRange.endByte(),
+                        file);
+                return originalRange;
+            }
+
+            // Find preceding comments
+            List<TSNode> precedingComments = findPrecedingComments(declarationNode.get());
+            if (precedingComments.isEmpty()) {
+                return originalRange;
+            }
+
+            // Calculate new start byte from earliest comment
+            int newStartByte = precedingComments.get(0).getStartByte();
+
+            Range expandedRange = new Range(
+                    originalRange.startByte(),
+                    originalRange.endByte(),
+                    originalRange.startLine(),
+                    originalRange.endLine(),
+                    newStartByte);
+
+            log.trace(
+                    "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} comment nodes)",
+                    file,
+                    originalRange.startByte(),
+                    originalRange.endByte(),
+                    expandedRange.startByte(),
+                    expandedRange.endByte(),
+                    precedingComments.size());
+
+            return expandedRange;
+
+        } catch (Exception e) {
+            log.warn("Error during comment expansion for file {}: {}", file, e.getMessage());
+            return originalRange;
+        }
     }
 }

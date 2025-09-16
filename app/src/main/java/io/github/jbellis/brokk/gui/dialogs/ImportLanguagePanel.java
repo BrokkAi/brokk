@@ -138,8 +138,8 @@ public class ImportLanguagePanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder());
         add(scroll, BorderLayout.CENTER);
 
-        // Hide "Kind" column if the language does not support dependency kinds
-        if (!language.supportesDependencyKinds()) {
+        // Show "Kind" column only for fine-grained support
+        if (language.getDependencyImportSupport() != Language.ImportSupport.FINE_GRAINED) {
             var cm = table.getColumnModel();
             var kindCol = cm.getColumn(1);
             kindCol.setMinWidth(0);

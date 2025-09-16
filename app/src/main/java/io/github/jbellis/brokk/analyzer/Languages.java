@@ -133,8 +133,8 @@ public class Languages {
         }
 
         @Override
-        public boolean supportesDependencyKinds() {
-            return NodeJsDependencyHelper.supportsDependencyKinds();
+        public Language.ImportSupport getDependencyImportSupport() {
+            return Language.ImportSupport.FINE_GRAINED;
         }
 
         @Override
@@ -489,12 +489,12 @@ public class Languages {
 
         @Override
         public String name() {
-            return "TYPESCRIPT";
+            return "Typescript";
         }
 
         @Override
         public String internalName() {
-            return name();
+            return "TYPESCRIPT";
         }
 
         @Override
@@ -546,8 +546,8 @@ public class Languages {
         }
 
         @Override
-        public boolean supportesDependencyKinds() {
-            return NodeJsDependencyHelper.supportsDependencyKinds();
+        public Language.ImportSupport getDependencyImportSupport() {
+            return Language.ImportSupport.FINE_GRAINED;
         }
 
         @Override

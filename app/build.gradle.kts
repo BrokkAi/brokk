@@ -75,6 +75,7 @@ dependencies {
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
     implementation(libs.disklrucache)
+    implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)

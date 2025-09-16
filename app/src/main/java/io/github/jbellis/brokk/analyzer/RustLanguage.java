@@ -86,8 +86,8 @@ public class RustLanguage implements Language {
     }
 
     @Override
-    public boolean supportesDependencyKinds() {
-        return true;
+    public ImportSupport getDependencyImportSupport() {
+        return ImportSupport.FINE_GRAINED;
     }
 
     @Override

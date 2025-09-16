@@ -71,14 +71,20 @@ public interface Language {
     }
 
     /**
-     * Whether this language supports classifying dependencies by kind (normal, build, dev, test, etc). If false, the
-     * Import panel will hide the "Kind" column for this language.
+     * Indicates the level of dependency import support: - NONE: no import support - BASIC: import supported but without
+     * dependency kind classification - FINE_GRAINED: import supported with accurate dependency kinds classification
      */
-    default boolean supportesDependencyKinds() {
-        return false;
+    default ImportSupport getDependencyImportSupport() {
+        return ImportSupport.NONE;
     }
 
     // --- Unified dependency discovery/import ---
+
+    enum ImportSupport {
+        NONE,
+        BASIC,
+        FINE_GRAINED
+    }
 
     /**
      * High-level classification of a dependency for unified display. NORMAL/BUILD/DEV/TEST mirror Cargo kinds;
@@ -218,14 +224,12 @@ public interface Language {
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
-            return languages.stream()
-                    .flatMap(l -> l.getDependencyCandidates(project).stream())
-                    .toList();
+            throw new UnsupportedOperationException(); // should only be called on single languages
         }
 
         @Override
-        public boolean supportesDependencyKinds() {
-            return languages.stream().anyMatch(Language::supportesDependencyKinds);
+        public ImportSupport getDependencyImportSupport() {
+            throw new UnsupportedOperationException(); // should only be called on single languages
         }
 
         @Override

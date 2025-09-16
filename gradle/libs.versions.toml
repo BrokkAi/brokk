@@ -63,6 +63,7 @@ jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
 mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
+uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 
 # Terminal
 jediterm-ui = { module = "org.jetbrains.jediterm:jediterm-ui", version.ref = "jediterm" }

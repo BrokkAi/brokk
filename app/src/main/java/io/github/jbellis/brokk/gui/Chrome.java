@@ -1793,6 +1793,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return historyOutputPanel;
     }
 
+    public TerminalDrawerPanel getTerminalDrawer() {
+        return terminalDrawer;
+    }
+
     public Action getGlobalUndoAction() {
         return globalUndoAction;
     }
