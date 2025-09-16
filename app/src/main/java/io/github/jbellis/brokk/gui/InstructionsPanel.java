@@ -919,11 +919,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         optionsPanel = new JPanel(new CardLayout());
         optionsPanel.add(codeCheckBox, OPTIONS_CARD_CODE);
         optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
-        bottomPanel.add(optionsPanel);
-        bottomPanel.add(Box.createHorizontalStrut(10));
 
-        // Size planOptionsLink to match the height of the actionButton, but avoid forcing excessive width.
-        int planFixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
+        // Group the checkbox card and the Plan Options button so they stay adjacent.
+        // Use a horizontal Box so the group lives in the same BoxLayout context as the bottom bar,
+        // improving vertical centering relative to other toolbar controls.
+        Box optionGroup = Box.createHorizontalBox();
+        optionGroup.setOpaque(false);
+        optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
+        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Size planOptionsLink to match the height of the actionButton and actionGroupPanel, avoid excessive width.
+        int planFixedHeight =
+                Math.max(Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
         var planPrefSize = planOptionsLink.getPreferredSize();
         // Limit the button width to a reasonable maximum to prevent it from being too wide
         int maxPlanWidth = 160;
@@ -933,7 +940,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         planOptionsLink.setMinimumSize(new Dimension(40, planFixedHeight));
         // Allow some flexibility while preventing extreme growth
         planOptionsLink.setMaximumSize(new Dimension(maxPlanWidth, planFixedHeight));
-        bottomPanel.add(planOptionsLink);
+        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Constrain the card panel so it won't stretch horizontally and create a gap between the checkbox and the plan button.
+        var optPanelPref = optionsPanel.getPreferredSize();
+        optionsPanel.setPreferredSize(new Dimension(optPanelPref.width, planFixedHeight));
+        optionsPanel.setMaximumSize(new Dimension(optPanelPref.width, planFixedHeight));
+        optionsPanel.setMinimumSize(new Dimension(0, planFixedHeight));
+        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        optionGroup.add(optionsPanel);
+        // Small, fixed spacing between checkbox card and Plan Options
+        optionGroup.add(Box.createHorizontalStrut(6));
+        optionGroup.add(planOptionsLink);
+
+        bottomPanel.add(optionGroup);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Ensure the initial visible card matches the current mode
