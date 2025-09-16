@@ -53,7 +53,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void extractMethodSource() {
-        final var sourceOpt = analyzer.getMethodSource("A.method2");
+        final var sourceOpt = analyzer.getMethodSource("A.method2", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
         final String expected =
@@ -75,7 +75,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void extractMethodSourceNested() {
-        final var sourceOpt = analyzer.getMethodSource("A$AInner$AInnerInner.method7");
+        final var sourceOpt = analyzer.getMethodSource("A$AInner$AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
 
@@ -93,7 +93,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void extractMethodSourceConstructor() {
-        final var sourceOpt = analyzer.getMethodSource("B.B"); // TODO: Should we handle <init>?
+        final var sourceOpt = analyzer.getMethodSource("B.B", true); // TODO: Should we handle <init>?
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
 
@@ -111,7 +111,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceTest() {
-        final var sourceOpt = analyzer.getClassSource("A");
+        final var sourceOpt = analyzer.getClassSource("A", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get();
         // Verify the source contains class definition and methods
@@ -122,7 +122,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A$AInner");
+        final var sourceOpt = analyzer.getClassSource("A$AInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
@@ -143,7 +143,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceTwiceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A$AInner$AInnerInner");
+        final var sourceOpt = analyzer.getClassSource("A$AInner$AInnerInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
@@ -162,12 +162,12 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceNotFoundTest() {
-        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("A$NonExistent"));
+        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("A$NonExistent", true));
     }
 
     @Test
     public void getClassSourceNonexistentTest() {
-        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("NonExistentClass"));
+        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("NonExistentClass", true));
     }
 
     @Test
@@ -454,7 +454,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void debugAnnotatedClassSourceTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass");
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
 
@@ -468,7 +468,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceWithJavadocsTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass");
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
         System.out.println(source);
@@ -499,7 +499,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceWithAnnotationsTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass");
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass");
         final var source = sourceOpt.get();
 
@@ -531,7 +531,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceWithInnerClassJavadocsTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass$InnerHelper");
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass$InnerHelper", true);
         assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass$InnerHelper");
         final var source = sourceOpt.get();
 
@@ -552,7 +552,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getMethodSourceWithJavadocsTest() {
-        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.toString");
+        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.toString", true);
         assertTrue(sourceOpt.isPresent(), "Should find toString method");
         final var source = sourceOpt.get();
 
@@ -573,7 +573,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getMethodSourceWithGenericJavadocsTest() {
-        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.processValue");
+        final var sourceOpt = analyzer.getMethodSource("AnnotatedClass.processValue", true);
         assertTrue(sourceOpt.isPresent(), "Should find processValue method");
         final var source = sourceOpt.get();
 
@@ -596,7 +596,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceCustomAnnotationTest() {
-        final var sourceOpt = analyzer.getClassSource("CustomAnnotation");
+        final var sourceOpt = analyzer.getClassSource("CustomAnnotation", true);
         assertTrue(sourceOpt.isPresent(), "Should find CustomAnnotation");
         final var source = sourceOpt.get();
 

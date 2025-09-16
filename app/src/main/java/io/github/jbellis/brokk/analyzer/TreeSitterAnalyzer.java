@@ -185,7 +185,7 @@ public abstract class TreeSitterAnalyzer
         }
     }
 
-    public record Range(int startByte, int endByte, int startLine, int endLine) {}
+    public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -670,7 +670,7 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public Optional<String> getClassSource(String fqName) {
+    public Optional<String> getClassSource(String fqName, boolean includeComments) {
         var cu = getDefinition(fqName)
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
@@ -690,13 +690,15 @@ public abstract class TreeSitterAnalyzer
         }
         String src = srcOpt.get();
 
-        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
+        // Choose start byte based on includeComments parameter
+        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, extractStartByte, range.endByte());
 
         return Optional.of(extractedSource);
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
+    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
         return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
                 // overloads)
                 .filter(CodeUnit::isFunction)
@@ -719,15 +721,16 @@ public abstract class TreeSitterAnalyzer
 
                     List<String> individualMethodSources = new ArrayList<>();
                     for (Range range : rangesForOverloads) {
-                        // Range is already expanded with comments during parsing
+                        // Choose start byte based on includeComments parameter
+                        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
                         String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, range.startByte(), range.endByte());
+                                fileContent, extractStartByte, range.endByte());
                         if (!methodSource.isEmpty()) {
                             individualMethodSources.add(methodSource);
                         } else {
                             log.warn(
                                     "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    range.startByte(),
+                                    extractStartByte,
                                     range.endByte(),
                                     cu,
                                     fqName);
@@ -746,11 +749,11 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit) {
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            return getMethodSource(codeUnit.fqName());
+            return getMethodSource(codeUnit.fqName(), includeComments);
         } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit.fqName());
+            return getClassSource(codeUnit.fqName(), includeComments);
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }
@@ -760,6 +763,27 @@ public abstract class TreeSitterAnalyzer
     public boolean isTypeAlias(CodeUnit cu) {
         // Default: languages that don't support or expose type aliases return false.
         return false;
+    }
+
+    /**
+     * Calculates the line number (1-based) from a byte offset in the source text. This is used for on-demand line
+     * calculation when needed.
+     *
+     * @param source the source text
+     * @param byteOffset the byte offset to calculate line for
+     * @return the line number (1-based)
+     */
+    protected int calculateLineFromByteOffset(String source, int byteOffset) {
+        if (byteOffset <= 0) {
+            return 1;
+        }
+
+        int clampedOffset = Math.min(byteOffset, source.length());
+        return (int) source.substring(0, clampedOffset)
+                        .chars()
+                        .filter(c -> c == '\n')
+                        .count()
+                + 1;
     }
 
     /* ---------- abstract hooks ---------- */
@@ -1249,7 +1273,8 @@ public abstract class TreeSitterAnalyzer
                     node.getStartByte(),
                     node.getEndByte(),
                     node.getStartPoint().getRow(),
-                    node.getEndPoint().getRow());
+                    node.getEndPoint().getRow(),
+                    node.getStartByte()); // commentStartByte initially same as startByte
 
             // Pre-expand range to include preceding comments for classes and functions
             var finalRange =
@@ -1308,7 +1333,8 @@ public abstract class TreeSitterAnalyzer
                         rootNode.getStartByte(),
                         rootNode.getEndByte(),
                         rootNode.getStartPoint().getRow(),
-                        rootNode.getEndPoint().getRow());
+                        rootNode.getEndPoint().getRow(),
+                        rootNode.getStartByte()); // commentStartByte same as startByte for module
                 // Module CUs typically don't need comment expansion as they represent the whole file
                 localSourceRanges
                         .computeIfAbsent(moduleCU, k -> new ArrayList<>())
@@ -2451,10 +2477,13 @@ public abstract class TreeSitterAnalyzer
 
             // Calculate new start byte from earliest comment
             int newStartByte = precedingComments.get(0).getStartByte();
-            int newStartLine = precedingComments.get(0).getStartPoint().getRow();
 
-            Range expandedRange =
-                    new Range(newStartByte, originalRange.endByte(), newStartLine, originalRange.endLine());
+            Range expandedRange = new Range(
+                    originalRange.startByte(),
+                    originalRange.endByte(),
+                    originalRange.startLine(),
+                    originalRange.endLine(),
+                    newStartByte);
 
             log.trace(
                     "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} comment nodes)",

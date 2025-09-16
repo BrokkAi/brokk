@@ -1163,7 +1163,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         try {
             sourceCode = getAnalyzer()
                     .as(SourceCodeProvider.class)
-                    .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit))
+                    .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
                     .orElse(null);
         } catch (InterruptedException e) {
             logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
@@ -1220,7 +1220,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
             for (var element : stacktrace.getFrames()) {
                 var methodFullName = element.getClassName() + "." + element.getMethodName();
-                var methodSource = sourceCodeProvider.getMethodSource(methodFullName);
+                var methodSource = sourceCodeProvider.getMethodSource(methodFullName, true);
                 if (methodSource.isPresent()) {
                     String className = ContextFragment.toClassname(methodFullName);
                     localAnalyzer

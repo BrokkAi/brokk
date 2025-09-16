@@ -429,7 +429,9 @@ public interface LspAnalyzer
     }
 
     @Override
-    default @NotNull Optional<String> getClassSource(@NotNull String classFullName) {
+    default @NotNull Optional<String> getClassSource(@NotNull String classFullName, boolean includeComments) {
+        // Note: LSP analyzers don't currently support comment inclusion granularity
+        // This parameter is ignored for now, but included for interface compliance
         final var futureTypeSymbols =
                 LspAnalyzerHelper.findTypesInWorkspace(classFullName, getWorkspace(), getServer(), false);
         final var exactMatch = getClassSource(futureTypeSymbols);
@@ -503,7 +505,9 @@ public interface LspAnalyzer
     }
 
     @Override
-    default @NotNull Optional<String> getMethodSource(@NotNull String fqName) {
+    default @NotNull Optional<String> getMethodSource(@NotNull String fqName, boolean includeComments) {
+        // Note: LSP analyzers don't currently support comment inclusion granularity
+        // This parameter is ignored for now, but included for interface compliance
         return LspAnalyzerHelper.determineMethodName(fqName, this::resolveMethodName)
                 .map(qualifiedMethodInfo -> LspAnalyzerHelper.findMethodSymbol(
                                 qualifiedMethodInfo.containerFullName(),
@@ -795,11 +799,11 @@ public interface LspAnalyzer
     }
 
     @Override
-    default @NotNull Optional<String> getSourceForCodeUnit(@NotNull CodeUnit codeUnit) {
+    default @NotNull Optional<String> getSourceForCodeUnit(@NotNull CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            return getMethodSource(codeUnit.fqName());
+            return getMethodSource(codeUnit.fqName(), includeComments);
         } else if (codeUnit.isClass()) {
-            return getClassSource(codeUnit.fqName());
+            return getClassSource(codeUnit.fqName(), includeComments);
         } else {
             return Optional.empty(); // Fields and other types not supported by LSP analyzers
         }

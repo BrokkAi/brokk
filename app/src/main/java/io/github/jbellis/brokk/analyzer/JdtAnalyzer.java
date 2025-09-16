@@ -153,10 +153,10 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
     }
 
     @Override
-    public Optional<String> getClassSource(String classFullName) {
+    public Optional<String> getClassSource(String classFullName, boolean includeComments) {
         // JSP containers are dot-delimited and get rid of the '$'
         final String cleanedName = classFullName.replace('$', '.');
-        return LspAnalyzer.super.getClassSource(cleanedName);
+        return LspAnalyzer.super.getClassSource(cleanedName, includeComments);
     }
 
     @Override
