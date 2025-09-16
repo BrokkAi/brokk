@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import eu.hansolo.fx.jdkmon.tools.Distro;
-import eu.hansolo.fx.jdkmon.tools.Finder;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IssueProvider;
 import io.github.jbellis.brokk.MainProject;
@@ -12,7 +10,6 @@ import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.gui.dialogs.analyzer.AnalyzerSettingsPanel;
 import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
@@ -22,7 +19,6 @@ import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.ExecutorValidator;
 import java.awt.*;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -42,6 +38,8 @@ import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
 import javax.swing.UIManager;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -90,7 +88,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JProgressBar buildProgressBar = new JProgressBar();
     private JButton inferBuildDetailsButton = new JButton("Infer Build Details");
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
-    private JComboBox<JdkItem> jdkComboBox = new JComboBox<>();
+    private JdkSelector jdkSelector = new JdkSelector();
     private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
 
     // Executor configuration UI
@@ -138,7 +136,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final JPanel bannerPanel;
 
     // Holds the analyzer configuration panels so we can persist their settings when the user clicks Apply/OK.
-    private final List<AnalyzerSettingsPanel> analyzerSettingsPanels = new ArrayList<>();
+    private final LinkedHashMap<Language, AnalyzerSettingsPanel> analyzerSettingsCache = new LinkedHashMap<>();
 
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
@@ -193,9 +191,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var issuesPanel = createIssuesPanel();
         projectSubTabbedPane.addTab("Issues", null, issuesPanel, "Issue tracker integration settings");
 
-        // Analyzers Tab (New)
-        var analyzersPanel = createAnalyzersPanel();
-        projectSubTabbedPane.addTab("Analyzers", null, analyzersPanel, "Code analyzers configured for this project");
+        // Code Intelligence Tab (replaces old Analyzers tab)
+        var codeIntPanel = createCodeIntelligencePanel();
+        projectSubTabbedPane.addTab(
+                "Code Intelligence", null, codeIntPanel, "Code intelligence settings and analyzers");
 
         // Data Retention Tab
         dataRetentionPanelInner = new DataRetentionPanel(project, this);
@@ -618,42 +617,304 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
      * Creates the Analyzers tab that lists the languages for which analyzers are currently configured in the project.
      * This is read-only for now but provides a foundation for adding per-analyzer options in the future.
      */
-    private JPanel createAnalyzersPanel() {
-        final var analyzersPanel = new JPanel(new BorderLayout(5, 5));
-        analyzersPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+    private JPanel createCodeIntelligencePanel() {
+        var panel = new JPanel(new BorderLayout(5, 5));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        final Set<Language> analyzerLanguages = chrome.getProject().getAnalyzerLanguages();
-        final Path projectRoot = chrome.getProject().getRoot();
+        var project = chrome.getProject();
+        var projectRoot = project.getRoot();
 
-        if (analyzerLanguages.isEmpty()) {
-            final var noneLabel = new JLabel("No analyzers configured for this project.");
-            noneLabel.setHorizontalAlignment(SwingConstants.CENTER);
-            analyzersPanel.add(noneLabel, BorderLayout.CENTER);
-        } else {
-            /* Build a vertical list of sub-panels – one per analyzer */
-            final var container = new JPanel();
-            container.setLayout(new BoxLayout(container, BoxLayout.PAGE_AXIS));
-            container.setBorder(BorderFactory.createEmptyBorder());
+        // Determine the languages to show: union of detected languages and currently enabled analyzers
+        var detected = findLanguagesInProject(project);
+        var configured = new ArrayList<>(project.getAnalyzerLanguages());
+        // Merge into a single ordered list (alphabetical by name)
+        var langSet = new HashSet<Language>();
+        langSet.addAll(detected);
+        langSet.addAll(configured);
+        var languagesToShow = new ArrayList<>(langSet);
+        languagesToShow.sort(Comparator.comparing(Language::name));
 
-            analyzerLanguages.forEach(language -> {
-                final AnalyzerSettingsPanel panel = AnalyzerSettingsPanel.createAnalyzersPanel(
-                        SettingsProjectPanel.this,
-                        language,
-                        projectRoot,
-                        chrome.getContextManager().getIo());
-                analyzerSettingsPanels.add(panel);
-                final var languageLabel = new JLabel(language.name());
-                languageLabel.setHorizontalAlignment(SwingConstants.LEFT);
-                container.add(languageLabel);
-                container.add(panel);
-            });
-
-            final JScrollPane scrollPane = new JScrollPane(container);
-            scrollPane.setBorder(BorderFactory.createEmptyBorder());
-            analyzersPanel.add(scrollPane, BorderLayout.CENTER);
+        // Ensure currentAnalyzerLanguagesForDialog has initial values if empty
+        if (currentAnalyzerLanguagesForDialog.isEmpty()) {
+            currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         }
 
-        return analyzersPanel;
+        // Table model for languages
+        class LanguagesTableModel extends AbstractTableModel {
+            private final List<Language> rows;
+
+            LanguagesTableModel(List<Language> rows) {
+                this.rows = rows;
+            }
+
+            @Override
+            public int getRowCount() {
+                return rows.size();
+            }
+
+            @Override
+            public int getColumnCount() {
+                return 2; // Live, Language
+            }
+
+            @Override
+            public String getColumnName(int column) {
+                return switch (column) {
+                    case 0 -> "Live";
+                    case 1 -> "Language";
+                    default -> "";
+                };
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return switch (columnIndex) {
+                    case 0 -> Boolean.class;
+                    default -> String.class;
+                };
+            }
+
+            @Override
+            public boolean isCellEditable(int rowIndex, int columnIndex) {
+                return columnIndex == 0; // only the checkbox is editable
+            }
+
+            @Override
+            public Object getValueAt(int rowIndex, int columnIndex) {
+                var lang = rows.get(rowIndex);
+                return switch (columnIndex) {
+                    case 0 -> currentAnalyzerLanguagesForDialog.contains(lang);
+                    case 1 -> lang.name();
+                    default -> "";
+                };
+            }
+
+            @Override
+            public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+                if (columnIndex != 0) return;
+                var lang = rows.get(rowIndex);
+                boolean live = Boolean.TRUE.equals(aValue);
+                if (live) currentAnalyzerLanguagesForDialog.add(lang);
+                else currentAnalyzerLanguagesForDialog.remove(lang);
+                fireTableCellUpdated(rowIndex, 0);
+            }
+        }
+
+        var tableModel = new LanguagesTableModel(languagesToShow);
+        var table = new JTable(tableModel);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setFillsViewportHeight(true);
+        table.setRowHeight(24);
+        table.setAutoCreateRowSorter(true);
+
+        // Simple renderer for language column (center-left)
+        var langRenderer = new DefaultTableCellRenderer();
+        langRenderer.setHorizontalAlignment(SwingConstants.LEFT);
+        table.getColumnModel().getColumn(1).setCellRenderer(langRenderer);
+
+        // Keep the checkbox column narrow; compute a tight preferred width for the Language column and cap it.
+        table.getColumnModel().getColumn(0).setMaxWidth(60);
+
+        // Compute preferred width for Language column based on content and header, then cap it
+        var headerRenderer = table.getTableHeader().getDefaultRenderer();
+        var langCol = table.getColumnModel().getColumn(1);
+        int pref = 0;
+
+        // Header width
+        var headerComp =
+                headerRenderer.getTableCellRendererComponent(table, langCol.getHeaderValue(), false, false, -1, 1);
+        pref = Math.max(pref, headerComp.getPreferredSize().width);
+
+        // Cells width
+        for (int r = 0; r < tableModel.getRowCount(); r++) {
+            var comp = table.getCellRenderer(r, 1)
+                    .getTableCellRendererComponent(table, tableModel.getValueAt(r, 1), false, false, r, 1);
+            pref = Math.max(pref, comp.getPreferredSize().width);
+        }
+
+        // Add some padding
+        pref += 16;
+        langCol.setPreferredWidth(pref);
+        langCol.setMaxWidth(pref);
+
+        var leftScroll = new JScrollPane(table);
+        // Size viewport to table's preferred size so WEST honors content-based sizing
+        table.setPreferredScrollableViewportSize(table.getPreferredSize());
+        // Titled border + inner horizontal padding to match Language Details panel
+        leftScroll.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Detected Languages"), BorderFactory.createEmptyBorder(0, 8, 0, 8)));
+
+        // Right detail panel
+        var rightPanel = new JPanel(new BorderLayout());
+        rightPanel.setBorder(BorderFactory.createTitledBorder("Language Details"));
+        var noSelectionLabel = new JLabel("Select a language to view settings.");
+        noSelectionLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        noSelectionLabel.setVerticalAlignment(SwingConstants.TOP);
+        rightPanel.add(noSelectionLabel, BorderLayout.NORTH);
+
+        // Toolbar with global controls (refresh controls)
+        var toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        toolbar.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+
+        toolbar.add(new JLabel("Analyzer Refresh:"));
+        toolbar.add(cpgRefreshComboBox);
+
+        var refreshBtn = new JButton("Refresh Now");
+        refreshBtn.addActionListener(e -> {
+            chrome.systemOutput("Requesting analyzer refresh...");
+            try {
+                chrome.getContextManager().requestRebuild();
+            } catch (Exception ex) {
+                logger.error("Failed to request rebuild", ex);
+                chrome.toolError("Failed to request rebuild: " + ex.getMessage());
+            }
+        });
+        toolbar.add(refreshBtn);
+
+        // CI Exclusions panel (moved here from Build tab)
+        var ciPanel = new JPanel(new GridBagLayout());
+        var gbcCi = new GridBagConstraints();
+        gbcCi.insets = new Insets(2, 2, 2, 2);
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        int ciRow = 0;
+
+        gbcCi.gridx = 0;
+        gbcCi.gridy = ciRow;
+        gbcCi.weightx = 0.0;
+        gbcCi.anchor = GridBagConstraints.NORTHWEST;
+        ciPanel.add(new JLabel("CI Exclusions:"), gbcCi);
+        excludedDirectoriesList.setVisibleRowCount(3);
+        gbcCi.gridx = 1;
+        gbcCi.gridy = ciRow++;
+        gbcCi.weightx = 1.0;
+        gbcCi.weighty = 0.5;
+        gbcCi.fill = GridBagConstraints.BOTH;
+        ciPanel.add(this.excludedScrollPane, gbcCi);
+
+        var excludedButtonsPanel2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        excludedButtonsPanel2.add(this.addExcludedDirButton);
+        excludedButtonsPanel2.add(Box.createHorizontalStrut(5));
+        excludedButtonsPanel2.add(this.removeExcludedDirButton);
+        gbcCi.gridy = ciRow++;
+        gbcCi.weighty = 0.0;
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        gbcCi.anchor = GridBagConstraints.WEST;
+        ciPanel.add(excludedButtonsPanel2, gbcCi);
+
+        // Wire add/remove actions for the exclusions buttons (moved here)
+        this.addExcludedDirButton.addActionListener(e -> {
+            String newDir = JOptionPane.showInputDialog(
+                    parentDialog,
+                    "Enter directory to exclude (e.g., target/, build/):",
+                    "Add Excluded Directory",
+                    JOptionPane.PLAIN_MESSAGE);
+            if (newDir != null && !newDir.trim().isEmpty()) {
+                String trimmedNewDir = newDir.trim();
+                List<String> currentElements = Collections.list(excludedDirectoriesListModel.elements());
+                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates if user adds same dir again
+                    currentElements.add(trimmedNewDir);
+                }
+                currentElements.sort(String::compareToIgnoreCase);
+
+                excludedDirectoriesListModel.clear();
+                currentElements.forEach(excludedDirectoriesListModel::addElement);
+            }
+        });
+        this.removeExcludedDirButton.addActionListener(e -> {
+            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
+            for (int i = selectedIndices.length - 1; i >= 0; i--)
+                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
+        });
+
+        // Compose a north container that holds toolbar only
+        var northContainer = new JPanel(new BorderLayout());
+        northContainer.add(toolbar, BorderLayout.NORTH);
+
+        // Place the north container; exclusions panel will be shown below the languages split
+        panel.add(northContainer, BorderLayout.NORTH);
+
+        // Selection listener for table -> show right panel content
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting()) return;
+            int sel = table.getSelectedRow();
+            rightPanel.removeAll();
+
+            if (sel < 0) {
+                // No selection: show the default text at the top
+                rightPanel.add(noSelectionLabel, BorderLayout.NORTH);
+                rightPanel.revalidate();
+                rightPanel.repaint();
+                return;
+            }
+
+            // Convert view index to model index when sorter is active
+            int modelRow = table.convertRowIndexToModel(sel);
+            var lang = languagesToShow.get(modelRow);
+
+            // Create (or reuse) analyzer settings panel for this language
+            AnalyzerSettingsPanel settingsPanel = analyzerSettingsCache.computeIfAbsent(
+                    lang,
+                    l -> AnalyzerSettingsPanel.createAnalyzersPanel(
+                            SettingsProjectPanel.this,
+                            l,
+                            projectRoot,
+                            chrome.getContextManager().getIo()));
+            // ensure zero margin for embedded analyzer panels
+            settingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+
+            // File count label above per-language settings (formatted with commas and padded to match details panel)
+            int fileCount = project.getFiles(lang).size();
+            var fileCountLabel = new JLabel("Files: " + String.format("%,d", fileCount));
+            fileCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
+            fileCountLabel.setFont(
+                    fileCountLabel.getFont().deriveFont(fileCountLabel.getFont().getSize() * 0.95f));
+
+            var wrapper = new JPanel(new BorderLayout());
+            // Add horizontal padding to match the Files label's spacing; keep analyzer panel itself borderless
+            wrapper.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+            wrapper.add(fileCountLabel, BorderLayout.NORTH);
+            wrapper.add(settingsPanel, BorderLayout.CENTER);
+            rightPanel.add(wrapper, BorderLayout.NORTH);
+
+            rightPanel.revalidate();
+            rightPanel.repaint();
+        });
+
+        // Side-by-side layout: left list, right details (no JSplitPane)
+        var centerPanel = new JPanel(new BorderLayout(8, 0));
+        // Let the WEST scroll pane size itself based on the table's preferred size
+        centerPanel.add(leftScroll, BorderLayout.WEST);
+        centerPanel.add(rightPanel, BorderLayout.CENTER);
+
+        panel.add(centerPanel, BorderLayout.CENTER);
+
+        // Preselect the language with the most associated files so details show immediately.
+        // Perform selection on the EDT so we don't inadvertently trigger other side-effects.
+        if (tableModel.getRowCount() > 0) {
+            int maxModelIdx = 0;
+            int maxCount = -1;
+            for (int i = 0; i < languagesToShow.size(); i++) {
+                int cnt = project.getFiles(languagesToShow.get(i)).size();
+                if (cnt > maxCount) {
+                    maxCount = cnt;
+                    maxModelIdx = i;
+                }
+            }
+            int viewIdx = table.convertRowIndexToView(maxModelIdx);
+            if (viewIdx >= 0) {
+                SwingUtilities.invokeLater(() -> {
+                    table.getSelectionModel().setSelectionInterval(viewIdx, viewIdx);
+                    // Ensure selected row is visible
+                    table.scrollRectToVisible(table.getCellRect(viewIdx, 0, true));
+                });
+            }
+        }
+
+        // Add excluded directories panel below the languages configuration
+        ciPanel.setBorder(BorderFactory.createTitledBorder("Excluded directories"));
+        panel.add(ciPanel, BorderLayout.SOUTH);
+
+        return panel;
     }
 
     private void testJiraConnectionAction() {
@@ -765,12 +1026,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         buildPanel.add(setJavaHomeCheckbox, gbc);
 
-        jdkComboBox.setEnabled(false);
+        jdkSelector.setEnabled(false);
+        jdkSelector.setBrowseParent(parentDialog);
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(jdkComboBox, gbc);
+        buildPanel.add(jdkSelector, gbc);
 
         primaryLanguageComboBox.addActionListener(e -> {
             var sel = (Language) primaryLanguageComboBox.getSelectedItem();
@@ -783,7 +1045,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Initial visibility based on current project setting
         updateJdkControlsVisibility(project.getBuildLanguage());
 
-        setJavaHomeCheckbox.addActionListener(e -> jdkComboBox.setEnabled(setJavaHomeCheckbox.isSelected()));
+        setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         // Build/Lint Command (moved below primary language)
         gbc.gridx = 0;
@@ -912,85 +1174,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(executorTestPanel, gbc);
 
-        // Removed Build Instructions Area and its ScrollPane
-
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.weighty = 0.0; // Ensure weighty is reset before this
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-        buildPanel.add(new JLabel("CI Refresh:"), gbc);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        buildPanel.add(cpgRefreshComboBox, gbc);
-
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.WEST;
-        buildPanel.add(new JLabel("CI Languages:"), gbc);
-        languagesDisplayField.setEditable(false);
-        // currentAnalyzerLanguagesForDialog is initialized at declaration and populated in loadBuildPanelSettings
-        this.editLanguagesButton.addActionListener(e -> showLanguagesDialog(project));
-        var languagesPanel = new JPanel(new BorderLayout(5, 0));
-        languagesPanel.add(languagesDisplayField, BorderLayout.CENTER);
-        languagesPanel.add(this.editLanguagesButton, BorderLayout.EAST);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(languagesPanel, gbc);
-
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        buildPanel.add(new JLabel("CI Exclusions:"), gbc);
-        excludedDirectoriesList.setVisibleRowCount(3);
-        // excludedScrollPane is initialized at declaration with excludedDirectoriesList
-        gbc.gridx = 1;
-        gbc.gridy = row;
-        gbc.weightx = 1.0;
-        gbc.weighty = 0.5;
-        gbc.fill = GridBagConstraints.BOTH;
-        buildPanel.add(this.excludedScrollPane, gbc);
-
-        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        excludedButtonsPanel.add(this.addExcludedDirButton);
-        excludedButtonsPanel.add(Box.createHorizontalStrut(5));
-        excludedButtonsPanel.add(this.removeExcludedDirButton);
-        gbc.gridy = row + 1;
-        gbc.weighty = 0.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-        buildPanel.add(excludedButtonsPanel, gbc);
+        // CI exclusions moved to Code Intelligence tab above; preserve layout spacing
         row += 2;
-
-        this.addExcludedDirButton.addActionListener(e -> {
-            String newDir = JOptionPane.showInputDialog(
-                    parentDialog,
-                    "Enter directory to exclude (e.g., target/, build/):",
-                    "Add Excluded Directory",
-                    JOptionPane.PLAIN_MESSAGE);
-            if (newDir != null && !newDir.trim().isEmpty()) {
-                String trimmedNewDir = newDir.trim();
-                List<String> currentElements = Collections.list(excludedDirectoriesListModel.elements());
-                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates if user adds same dir again
-                    currentElements.add(trimmedNewDir);
-                }
-                currentElements.sort(String::compareToIgnoreCase);
-
-                excludedDirectoriesListModel.clear();
-                currentElements.forEach(excludedDirectoriesListModel::addElement);
-            }
-        });
-        this.removeExcludedDirButton.addActionListener(e -> {
-            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
-            for (int i = selectedIndices.length - 1; i >= 0; i--)
-                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
-        });
 
         gbc.gridx = 1;
         gbc.gridy = row++;
@@ -1195,59 +1380,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 .sorted()
                 .collect(Collectors.joining(", "));
         languagesDisplayField.setText(cdl.isEmpty() ? "None" : cdl);
-    }
-
-    private void showLanguagesDialog(IProject project) {
-        var dialog = new JDialog(parentDialog, "Select Languages for Analysis", true);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        dialog.setLayout(new BorderLayout(10, 10));
-        dialog.setSize(300, 400);
-        dialog.setLocationRelativeTo(parentDialog);
-
-        var languageCheckBoxMapLocal = new LinkedHashMap<Language, JCheckBox>();
-        var languagesInProject = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
-        project.getRoot();
-        Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan =
-                project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
-        for (var pf : filesToScan) {
-            String extension =
-                    com.google.common.io.Files.getFileExtension(pf.absPath().toString());
-            if (!extension.isEmpty()) {
-                var lang = Languages.fromExtension(extension);
-                if (lang != Languages.NONE) languagesInProject.add(lang);
-            }
-        }
-
-        var checkBoxesPanel = new JPanel();
-        checkBoxesPanel.setLayout(new BoxLayout(checkBoxesPanel, BoxLayout.PAGE_AXIS));
-        checkBoxesPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        var sortedLanguagesToShow = languagesInProject.stream()
-                .sorted(Comparator.comparing(io.github.jbellis.brokk.analyzer.Language::name))
-                .toList();
-        for (var lang : sortedLanguagesToShow) {
-            var checkBox = new JCheckBox(lang.name());
-            checkBox.setSelected(currentAnalyzerLanguagesForDialog.contains(lang));
-            languageCheckBoxMapLocal.put(lang, checkBox);
-            checkBoxesPanel.add(checkBox);
-        }
-        if (sortedLanguagesToShow.isEmpty()) checkBoxesPanel.add(new JLabel("No analyzable languages detected."));
-
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var okBtn = new JButton("OK");
-        var cancelBtn = new JButton("Cancel");
-        buttonPanel.add(okBtn);
-        buttonPanel.add(cancelBtn);
-        okBtn.addActionListener(e -> {
-            currentAnalyzerLanguagesForDialog.clear();
-            for (var entry : languageCheckBoxMapLocal.entrySet())
-                if (entry.getValue().isSelected()) currentAnalyzerLanguagesForDialog.add(entry.getKey());
-            updateLanguagesDisplayField();
-            dialog.dispose();
-        });
-        cancelBtn.addActionListener(e -> dialog.dispose());
-        dialog.add(new JScrollPane(checkBoxesPanel), BorderLayout.CENTER);
-        dialog.add(buttonPanel, BorderLayout.SOUTH);
-        dialog.setVisible(true);
     }
 
     public void loadSettings() {
@@ -1463,9 +1595,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // JDK Controls (only for Java)
         if (selectedPrimaryLang == Languages.JAVA) {
             if (setJavaHomeCheckbox.isSelected()) {
-                var sel = (JdkItem) jdkComboBox.getSelectedItem();
-                if (sel != null && !sel.path.isBlank()) {
-                    project.setJdk(sel.path);
+                var selPath = jdkSelector.getSelectedJdkPath();
+                if (selPath != null && !selPath.isBlank()) {
+                    project.setJdk(selPath);
                 }
             } else {
                 project.setJdk(BuildAgent.JAVA_HOME_SENTINEL);
@@ -1496,7 +1628,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (dataRetentionPanelInner != null) dataRetentionPanelInner.applyPolicy();
 
         /* Persist any analyzer-specific settings (currently only the Java JDK home). */
-        for (AnalyzerSettingsPanel panel : analyzerSettingsPanels) {
+        for (AnalyzerSettingsPanel panel : analyzerSettingsCache.values()) {
             panel.saveSettings();
         }
 
@@ -1529,97 +1661,22 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
     }
 
-    private static class JdkItem {
-        final String display;
-        final String path;
-
-        JdkItem(String display, String path) {
-            this.display = display;
-            this.path = path;
-        }
-
-        @Override
-        public String toString() {
-            return display;
-        }
-    }
-
-    private List<JdkItem> discoverInstalledJdks() {
-        try {
-            var finder = new Finder();
-            var distros = finder.getDistributions();
-            var items = new ArrayList<JdkItem>();
-            for (Distro d : distros) {
-                var name = d.getName();
-                var ver = d.getVersion();
-                var arch = d.getArchitecture();
-                var path = d.getPath() != null && !d.getPath().isBlank() ? d.getPath() : d.getLocation();
-                if (path == null || path.isBlank()) continue;
-                var label = String.format("%s %s (%s)", name, ver, arch);
-                items.add(new JdkItem(label, path));
-            }
-            items.sort(Comparator.comparing(it -> it.display));
-            return items;
-        } catch (Throwable t) {
-            logger.warn("Failed to discover installed JDKs", t);
-            return List.of();
-        }
-    }
-
     private void populateJdkControlsFromProject() {
         var project = chrome.getProject();
         var desired = project.getJdk();
 
-        // Initialize controls immediately on EDT without blocking
         boolean useCustomJdk = desired != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(desired);
         setJavaHomeCheckbox.setSelected(useCustomJdk);
-        jdkComboBox.setEnabled(useCustomJdk);
+        jdkSelector.setEnabled(useCustomJdk);
 
-        // Perform discovery asynchronously to avoid blocking the UI
-        CompletableFuture.supplyAsync(this::discoverInstalledJdks, ForkJoinPool.commonPool())
-                .whenComplete((List<JdkItem> items, @Nullable Throwable ex) -> {
-                    if (ex != null) {
-                        logger.warn("JDK discovery failed: {}", ex.getMessage(), ex);
-                        items = List.of();
-                    }
-                    var finalItems = items;
-                    SwingUtilities.invokeLater(() -> {
-                        jdkComboBox.setModel(new DefaultComboBoxModel<>(finalItems.toArray(JdkItem[]::new)));
-
-                        // Only try to select if user intends to set JAVA_HOME
-                        if (setJavaHomeCheckbox.isSelected()) {
-                            boolean matched = false;
-                            for (int i = 0; i < jdkComboBox.getItemCount(); i++) {
-                                var it = jdkComboBox.getItemAt(i);
-                                if (desired != null && desired.equals(it.path)) {
-                                    jdkComboBox.setSelectedIndex(i);
-                                    matched = true;
-                                    break;
-                                }
-                            }
-                            if (!matched
-                                    && desired != null
-                                    && !desired.isBlank()
-                                    && !BuildAgent.JAVA_HOME_SENTINEL.equals(desired)) {
-                                var custom = new JdkItem("Custom JDK: " + desired, desired);
-                                jdkComboBox.addItem(custom);
-                                jdkComboBox.setSelectedItem(custom);
-                            }
-                            jdkComboBox.setEnabled(true);
-                        } else {
-                            jdkComboBox.setEnabled(false);
-                        }
-                        logger.trace(
-                                "JDK discovery completed; combo box populated with {} items",
-                                jdkComboBox.getItemCount());
-                    });
-                });
+        // Always populate the selector; it will select 'desired' if provided
+        jdkSelector.loadJdksAsync(desired);
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
         boolean isJava = selected == Languages.JAVA;
         setJavaHomeCheckbox.setVisible(isJava);
-        jdkComboBox.setVisible(isJava);
+        jdkSelector.setVisible(isJava);
     }
 
     private void populatePrimaryLanguageComboBox() {

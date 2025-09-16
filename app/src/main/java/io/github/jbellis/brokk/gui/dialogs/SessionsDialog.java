@@ -491,9 +491,12 @@ public class SessionsDialog extends JDialog {
                 }
                 java.util.concurrent.CompletableFuture.allOf(
                                 futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                        .thenRun(() -> {
+                        .whenComplete((Void v, @Nullable Throwable t) -> {
                             SwingUtilities.invokeLater(this::refreshSessionsTable);
                             contextManager.getProject().getMainProject().sessionsListChanged();
+                            if (t != null) {
+                                chrome.toolError("Error deleting session:\n" + t.getMessage());
+                            }
                         });
             }
         });

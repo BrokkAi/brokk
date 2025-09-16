@@ -75,7 +75,7 @@ public class DtoMapper {
                 : null;
 
         var actionFuture = CompletableFuture.completedFuture(dto.action());
-        var ctxId = dto.id() != null ? java.util.UUID.fromString(dto.id()) : java.util.UUID.randomUUID();
+        var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         return Context.createWithId(
                 ctxId,

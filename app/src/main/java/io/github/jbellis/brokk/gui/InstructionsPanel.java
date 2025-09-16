@@ -38,8 +38,6 @@ import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -1612,56 +1610,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /**
-     * Executes the core logic for the "Run in Shell" command. This runs inside the Runnable passed to
-     * contextManager.submitAction.
-     */
-    private void executeRunCommand(String action, String input) {
-        assert !SwingUtilities.isEventDispatchThread();
-
-        var contextManager = chrome.getContextManager();
-
-        String historyTitle;
-        try {
-            chrome.showOutputSpinner("Executing command...");
-            String shellLang = ExecutorConfig.getShellLanguageFromProject(chrome.getProject());
-            chrome.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
-            long timeoutSecs;
-            if (chrome.getProject() instanceof MainProject mainProject) {
-                timeoutSecs = mainProject.getRunCommandTimeoutSeconds();
-            } else {
-                timeoutSecs = Environment.DEFAULT_TIMEOUT.toSeconds();
-            }
-            Environment.instance.runShellCommand(
-                    input,
-                    contextManager.getRoot(),
-                    line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    java.time.Duration.ofSeconds(timeoutSecs),
-                    chrome.getProject());
-            chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
-            chrome.systemOutput("Run command complete!");
-            historyTitle = action;
-        } catch (Environment.SubprocessException e) {
-            chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Ensure markdown block is closed on error
-            historyTitle = action + "(failed: " + e.getMessage() + ")";
-            chrome.systemOutput("Run command completed with errors -- see Output");
-            logger.warn("Run command '{}' failed: {}", input, e.getMessage(), e);
-            chrome.llmOutput("\n**Command Failed**", ChatMessageType.CUSTOM);
-        } catch (InterruptedException e) {
-            throw new CancellationException(e.getMessage());
-        } finally {
-            chrome.hideOutputSpinner();
-        }
-
-        // Add to context history with the action message (which includes success/failure)
-        String finalHistoryTitle = historyTitle;
-        contextManager.pushContext(ctx -> {
-            var parsed = new TaskFragment(
-                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalHistoryTitle);
-            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalHistoryTitle));
-        });
-    }
-
     // --- Action Handlers ---
 
     public void runArchitectCommand() {
@@ -1959,12 +1907,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
         // Submit the action, calling the private execute method inside the lambda
         var future = submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(modelToUse, input));
-        setActionRunning(future);
-    }
-
-    public void runRunCommand(String action, String input) {
-        clearCommandInput();
-        var future = submitAction(action, input, () -> executeRunCommand(action, input));
         setActionRunning(future);
     }
 

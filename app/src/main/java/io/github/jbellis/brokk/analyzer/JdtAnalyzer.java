@@ -143,13 +143,8 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
         final var cleanedName = methodName.replace('$', '.');
         int parenIndex = cleanedName.indexOf('(');
 
-        // If a parenthesis is found, return the part of the string before it.
-        if (parenIndex != -1) {
-            return cleanedName.substring(0, parenIndex);
-        }
-
-        // Otherwise, return the original string.
-        return cleanedName;
+        // Remove any parameter signature (e.g., "myMethod(int)" -> "myMethod")
+        return (parenIndex != -1) ? cleanedName.substring(0, parenIndex) : cleanedName;
     }
 
     @Override

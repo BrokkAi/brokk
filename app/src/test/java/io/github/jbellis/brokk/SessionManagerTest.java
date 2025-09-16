@@ -399,7 +399,7 @@ public class SessionManagerTest {
         assertEventually(() -> assertFalse(Files.exists(historyFileToDelete)));
 
         // Test deleting non-existent, should not throw
-        sessionManager.deleteSession(UUID.randomUUID());
+        sessionManager.deleteSession(SessionManager.newSessionId());
 
         project.close();
     }
