@@ -15,6 +15,7 @@ import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
+import java.util.concurrent.CompletableFuture;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -77,12 +78,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         // Wire the toggle to create/show/hide a TerminalPanel
         terminalToggle.addActionListener(ev -> {
             if (terminalToggle.isSelected()) {
-                if (activeTerminal == null) {
-                    createTerminal();
-                } else {
-                    showDrawer();
-                    activeTerminal.requestFocusInTerminal();
-                }
+                openTerminal();
             } else {
                 if (activeTerminal != null) {
                     hideTerminalDrawer();
@@ -93,22 +89,50 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     /** Opens the terminal in the drawer. If already open, ensures it has focus. */
     public void openTerminal() {
-        SwingUtilities.invokeLater(() -> {
-            if (!terminalToggle.isSelected()) {
-                terminalToggle.doClick();
-                return;
-            }
-
-            if (activeTerminal == null) {
-                createTerminal();
-            } else {
-                showDrawer();
-                activeTerminal.requestFocusInTerminal();
-            }
+        openTerminalAsync().exceptionally(ex -> {
+            logger.debug("Failed to open terminal", ex);
+            return null;
         });
     }
 
     /** Closes the terminal and collapses the drawer if empty. */
+    public CompletableFuture<TerminalPanel> openTerminalAsync() {
+        var promise = new CompletableFuture<TerminalPanel>();
+        SwingUtilities.invokeLater(() -> {
+            try {
+                if (activeTerminal == null) {
+                    createTerminal();
+                } else {
+                    showDrawer();
+                    terminalToggle.setSelected(true);
+                }
+                var term = activeTerminal;
+                if (term == null) {
+                    promise.completeExceptionally(new IllegalStateException("Terminal not available"));
+                    return;
+                }
+
+                if (term.isReady()) {
+                    term.requestFocusInTerminal();
+                    promise.complete(term);
+                } else {
+                    term.whenReady()
+                            .thenAccept(t -> SwingUtilities.invokeLater(() -> {
+                                t.requestFocusInTerminal();
+                                promise.complete(t);
+                            }))
+                            .exceptionally(ex -> {
+                                promise.completeExceptionally(ex);
+                                return null;
+                            });
+                }
+            } catch (Exception ex) {
+                promise.completeExceptionally(ex);
+            }
+        });
+        return promise;
+    }
+
     public void closeTerminal() {
         SwingUtilities.invokeLater(() -> {
             if (activeTerminal != null) {
@@ -216,6 +240,20 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         });
     }
 
+    public void openTerminalAndPasteText(String text) {
+        openTerminalAsync().thenAccept(tp -> {
+            try {
+                tp.pasteText(text);
+            } catch (Exception e) {
+                logger.debug("Error pasting text into terminal", e);
+            }
+        }).exceptionally(ex -> {
+            logger.debug("Failed to open terminal and paste text", ex);
+            return null;
+        });
+    }
+
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         // Apply theme to active terminal if present
@@ -243,7 +281,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             drawerContentPanel.repaint();
             showDrawer();
             terminalToggle.setSelected(true);
-            terminal.requestFocusInTerminal();
         } catch (Exception ex) {
             logger.warn("Failed to create terminal in drawer: {}", ex.getMessage());
             terminalToggle.setSelected(false);

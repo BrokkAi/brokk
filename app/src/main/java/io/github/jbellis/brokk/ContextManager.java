@@ -93,8 +93,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             getIo().toolError("Run in Shell: build commands are unknown; run Build Setup first");
             return;
         }
-
-        getIo().getInstructionsPanel().runRunCommand(InstructionsPanel.ACTION_RUN_TESTS, cmd);
+        var io = getIo();
+        if (io instanceof Chrome chrome) {
+            chrome.getTerminalDrawer().openTerminalAndPasteText(cmd);
+        }
     }
 
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
