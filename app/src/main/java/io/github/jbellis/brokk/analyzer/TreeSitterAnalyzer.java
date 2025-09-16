@@ -904,12 +904,14 @@ public abstract class TreeSitterAnalyzer
     /** Analyzes a single file and extracts declaration information. */
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
-        String src = Files.readString(file.absPath(), StandardCharsets.UTF_8);
-        byte[] fileBytes = src.getBytes(StandardCharsets.UTF_8);
-        final byte[] finalFileBytes = fileBytes; // For use in lambdas
+
+        // Read file with consistent BOM stripping to ensure TreeSitter and source extraction use identical content
+        var fileContent = io.github.jbellis.brokk.util.FileUtil.readFileWithBomStripping(file.absPath());
+        String src = fileContent.getContent();
+        final byte[] finalFileBytes = fileContent.getBytes();
 
         // record (or refresh) the file content hash
-        fileHashes.put(file, sha1Hex(fileBytes));
+        fileHashes.put(file, sha1Hex(finalFileBytes));
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
@@ -960,7 +962,7 @@ public abstract class TreeSitterAnalyzer
                                 "  Decorator: '{}', Node: {} '{}'",
                                 captureName,
                                 node.getType(),
-                                textSlice(node, fileBytes)
+                                textSlice(node, finalFileBytes)
                                         .lines()
                                         .findFirst()
                                         .orElse("")
@@ -972,7 +974,7 @@ public abstract class TreeSitterAnalyzer
                                 "  Capture: '{}', Node: {} '{}'",
                                 captureName,
                                 node.getType(),
-                                textSlice(node, fileBytes)
+                                textSlice(node, finalFileBytes)
                                         .lines()
                                         .findFirst()
                                         .orElse("")
@@ -993,7 +995,7 @@ public abstract class TreeSitterAnalyzer
             // Handle module-level import statements first if present in this match
             TSNode importNode = capturedNodesForMatch.get("module.import_statement");
             if (importNode != null && !importNode.isNull()) {
-                String importText = textSlice(importNode, fileBytes).strip();
+                String importText = textSlice(importNode, finalFileBytes).strip();
                 if (!importText.isEmpty()) {
                     localImportStatements.add(importText);
                 }
@@ -1013,14 +1015,14 @@ public abstract class TreeSitterAnalyzer
                     TSNode nameNode = capturedNodesForMatch.get(expectedNameCapture);
 
                     if (nameNode != null && !nameNode.isNull()) {
-                        simpleName = textSlice(nameNode, fileBytes);
+                        simpleName = textSlice(nameNode, finalFileBytes);
                         if (simpleName.isBlank()) {
                             log.debug(
                                     "Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
                                     expectedNameCapture,
                                     captureName,
                                     file,
-                                    textSlice(nameNode, fileBytes),
+                                    textSlice(nameNode, finalFileBytes),
                                     nameNode.getType());
                             simpleName = extractSimpleName(definitionNode, src).orElse(null);
                         }
@@ -1141,7 +1143,8 @@ public abstract class TreeSitterAnalyzer
                 receiverNode = localCaptures.get("method.receiver.type");
 
                 if (receiverNode != null && !receiverNode.isNull()) {
-                    String receiverTypeText = textSlice(receiverNode, fileBytes).trim();
+                    String receiverTypeText =
+                            textSlice(receiverNode, finalFileBytes).trim();
                     if (receiverTypeText.startsWith("*")) {
                         receiverTypeText = receiverTypeText.substring(1).trim();
                     }
@@ -1152,7 +1155,7 @@ public abstract class TreeSitterAnalyzer
                     } else {
                         log.warn(
                                 "Go method: Receiver type text was empty for node {}. FQN might be incorrect.",
-                                textSlice(receiverNode, fileBytes));
+                                textSlice(receiverNode, finalFileBytes));
                     }
                 } else {
                     log.warn(
@@ -1179,7 +1182,7 @@ public abstract class TreeSitterAnalyzer
             }
 
             String signature =
-                    buildSignatureString(node, simpleName, fileBytes, primaryCaptureName, modifierKeywords, file);
+                    buildSignatureString(node, simpleName, finalFileBytes, primaryCaptureName, modifierKeywords, file);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
