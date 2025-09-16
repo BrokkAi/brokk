@@ -9,6 +9,7 @@ export interface MockJavaBridge {
     lookupSymbolsAsync: (symbolNamesJson: string, seq: number, contextId: string) => void;
     jsLog: (level: string, message: string) => void;
     onSymbolClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
+    onZoomChanged: (zoom: number) => void;
     _mockSymbolsSet: Set<string>;
 }
 
@@ -50,6 +51,16 @@ export function createMockJavaBridge(): MockJavaBridge {
             const stateDisplay = document.getElementById('search-state-display');
             if (stateDisplay) {
                 stateDisplay.textContent = `Total: ${total}, Current: ${current}`;
+            }
+        },
+
+        onZoomChanged: function(zoom: number) {
+            console.log(`[Mock JavaBridge] Zoom changed to: ${zoom}`);
+            // Store the zoom value in localStorage for persistence
+            try {
+                localStorage.setItem('brokk.zoom', String(zoom));
+            } catch (e) {
+                // ignore localStorage errors
             }
         },
 

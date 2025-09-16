@@ -5,6 +5,7 @@
   import CacheStatsDebug from './dev/components/CacheStatsDebug.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
+  import { zoomStore } from './stores/zoomStore';
   import { historyStore } from './stores/historyStore';
   import ThreadBlock from './components/ThreadBlock.svelte';
   import EmptyState from './components/EmptyState.svelte';
@@ -60,6 +61,8 @@
     left: 0.5em;
     overflow-y: auto;
     overflow-x: hidden;
+    font-size: calc(14px * var(--zoom-level, 1));
+    transition: font-size 0.2s ease;
   }
 
   .chat-container > :global(.thread-block) {
@@ -80,6 +83,7 @@
 <div
   class="chat-container"
   id="chat-container"
+  style="--zoom-level: {$zoomStore}"
 >
   {#if $historyStore.some(task => task.entries.length > 0) || $bubblesStore.length > 0}
     <!-- History tasks -->

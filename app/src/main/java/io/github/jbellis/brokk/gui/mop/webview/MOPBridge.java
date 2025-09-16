@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
@@ -32,6 +33,8 @@ import org.jetbrains.annotations.Nullable;
 public final class MOPBridge {
     private static final Logger logger = LogManager.getLogger(MOPBridge.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final double MIN_ZOOM = 0.5;
+    private static final double MAX_ZOOM = 2.0;
 
     public record SearchState(int totalMatches, int currentDisplayIndex) {}
 
@@ -103,6 +106,33 @@ public final class MOPBridge {
                 "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
     }
 
+    public void zoomIn() {
+        Platform.runLater(
+                () -> engine.executeScript("if (window.brokk && window.brokk.zoomIn) { window.brokk.zoomIn(); }"));
+    }
+
+    public void zoomOut() {
+        Platform.runLater(
+                () -> engine.executeScript("if (window.brokk && window.brokk.zoomOut) { window.brokk.zoomOut(); }"));
+    }
+
+    public void resetZoom() {
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.resetZoom) { window.brokk.resetZoom(); }"));
+    }
+
+    public void onZoomChanged(double zoom) {
+        double clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+        logger.debug("onZoomChanged from JS: {} (clamped: {})", zoom, clamped);
+        MainProject.setMopZoom(clamped);
+    }
+
+    public void setZoom(double zoom) {
+        double clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+        var js = "if (window.brokk && window.brokk.setZoom) { window.brokk.setZoom(" + clamped + "); }";
+        Platform.runLater(() -> engine.executeScript(js));
+    }
+
     public void onAnalyzerReadyResponse(String contextId) {
         logger.debug("Notifying frontend that analyzer is ready for context: {}", contextId);
         var js = "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup("
@@ -119,9 +149,11 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
+    public void setTheme(boolean isDark, boolean isDevMode, boolean wrapMode, double zoom) {
+        double clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
         var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
-                + ", " + wrapMode + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
+                + ", " + wrapMode + ", " + clamped
+                + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
