@@ -167,7 +167,7 @@ public class DependenciesDrawerPanel extends JPanel {
 
                     // Calculate the minimum width needed for the toolbar
                     int toolbarWidth = drawerToolBar.getPreferredSize().width;
-                    final int MIN_COLLAPSE_WIDTH = Math.max(32, toolbarWidth + 8);
+                    final int MIN_COLLAPSE_WIDTH = toolbarWidth;
 
                     int totalWidth = parentSplitPane.getWidth();
                     if (totalWidth <= 0) {
