@@ -42,6 +42,8 @@ import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
 import javax.swing.UIManager;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.util.Icons;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -77,8 +79,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
     private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-    private JButton addExcludedDirButton = new JButton("Add");
-    private JButton removeExcludedDirButton = new JButton("Remove");
+    private MaterialButton addExcludedDirButton = new MaterialButton();
+    private MaterialButton removeExcludedDirButton = new MaterialButton();
 
     private JTextField languagesDisplayField = new JTextField(20);
     private JButton editLanguagesButton = new JButton("Edit");
@@ -958,6 +960,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         buildPanel.add(this.excludedScrollPane, gbc);
 
         var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // Use material icon buttons for add/remove exclusions
+        this.addExcludedDirButton.setIcon(Icons.ADD);
+        this.addExcludedDirButton.setToolTipText("Add excluded directory");
+        this.removeExcludedDirButton.setIcon(Icons.REMOVE);
+        this.removeExcludedDirButton.setToolTipText("Remove selected excluded directory");
         excludedButtonsPanel.add(this.addExcludedDirButton);
         excludedButtonsPanel.add(Box.createHorizontalStrut(5));
         excludedButtonsPanel.add(this.removeExcludedDirButton);
