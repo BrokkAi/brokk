@@ -85,12 +85,7 @@ public class DependenciesDrawerPanel extends JPanel {
             }
         });
 
-        // Start with dependencies panel open
-        SwingUtilities.invokeLater(() -> {
-            if (!dependenciesToggle.isSelected()) {
-                dependenciesToggle.doClick();
-            }
-        });
+        
     }
 
     /** Opens the panel in the drawer */
@@ -107,6 +102,35 @@ public class DependenciesDrawerPanel extends JPanel {
                 showDrawer();
             }
         });
+    }
+
+    /** Opens the drawer synchronously before first layout to avoid startup motion. */
+    public void openInitially() {
+        if (activeDependenciesPanel == null) {
+            activeDependenciesPanel = new DependenciesPanel(chrome);
+            drawerContentPanel.add(activeDependenciesPanel, BorderLayout.CENTER);
+        }
+        // Ensure divider visible and set initial proportions
+        if (originalDividerSize > 0) {
+            parentSplitPane.setDividerSize(originalDividerSize);
+        }
+        // Prefer workspace side but leave drawer visible
+        parentSplitPane.setResizeWeight(0.67);
+        // Remove any minimum width constraint for collapsed state
+        setMinimumSize(null);
+
+        // Use a proportional divider for the first layout
+        double loc = lastDividerLocation;
+        if (loc <= 0.0 || loc >= 1.0 || Math.abs(loc - 0.5) < 1e-6) {
+            loc = 0.67;
+        }
+        parentSplitPane.setDividerLocation(loc);
+
+        // Reflect toggle selected state without firing the action listener
+        dependenciesToggle.setSelected(true);
+
+        revalidate();
+        repaint();
     }
 
     private void hideDepedenciesDrawer() {
