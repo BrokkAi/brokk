@@ -13,7 +13,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.DiffWindowManager;
-import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
@@ -45,8 +45,8 @@ public class GitCommitTab extends JPanel {
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
     private FileStatusTable fileStatusPane;
-    private MaterialButton commitButton;
-    private MaterialButton stashButton;
+    private JButton commitButton;
+    private JButton stashButton;
     private JPanel buttonPanel;
 
     @Nullable
@@ -202,7 +202,8 @@ public class GitCommitTab extends JPanel {
         buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         // Commit Button
-        commitButton = new MaterialButton("Commit All..."); // Default label with ellipsis
+        commitButton = new JButton("Commit All..."); // Default label with ellipsis
+        SwingUtil.applyPrimaryButtonStyle(commitButton);
         commitButton.setToolTipText("Commit files...");
         commitButton.setEnabled(false);
         commitButton.addActionListener(e -> {
@@ -237,7 +238,7 @@ public class GitCommitTab extends JPanel {
         buttonPanel.add(commitButton);
 
         // Stash Button
-        stashButton = new MaterialButton("Stash All"); // Default label
+        stashButton = new JButton("Stash All"); // Default label
         stashButton.setToolTipText("Save your changes to the stash");
         stashButton.setEnabled(false);
         stashButton.addActionListener(e -> {
