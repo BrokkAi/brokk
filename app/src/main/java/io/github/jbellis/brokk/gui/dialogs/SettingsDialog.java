@@ -26,7 +26,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
     private final MaterialButton okButton;
     private final javax.swing.JButton cancelButton;
-    private final MaterialButton applyButton;
+    private final JButton applyButton;
 
     private boolean proxySettingsChanged = false; // Track if proxy needs restart
     private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
@@ -43,7 +43,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         // Create buttons first, as they might be passed to panels
         okButton = new MaterialButton("OK");
         cancelButton = new JButton("Cancel");
-        applyButton = new MaterialButton("Apply");
+        applyButton = new JButton("Apply");
 
         io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
 
