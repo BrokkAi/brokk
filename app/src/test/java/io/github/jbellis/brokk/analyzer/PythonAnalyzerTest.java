@@ -287,20 +287,13 @@ public final class PythonAnalyzerTest {
 
         // With comments should include the preceding comment
         assertTrue(
-                normalizedWithComments.contains("# Comment before class"),
-                "Class source with comments should include preceding comment");
+                normalizedWithComments.startsWith("# Comment before class"),
+                "Class source with comments should start with preceding comment");
 
-        // Debug: Print both sources to understand the difference
-        System.out.println("=== CLASS SOURCE WITH COMMENTS ===");
-        System.out.println(normalizedWithComments);
-        System.out.println("=== CLASS SOURCE WITHOUT COMMENTS ===");
-        System.out.println(normalizedWithoutComments);
-        System.out.println("=== END DEBUG ===");
-
-        // Without comments should NOT include the preceding comment
-        assertFalse(
-                normalizedWithoutComments.contains("# Comment before class"),
-                "Class source without comments should NOT include preceding comment");
+        // Without comments should NOT include the preceding comment (should start with class definition)
+        assertTrue(
+                normalizedWithoutComments.startsWith("class DocumentedClass:"),
+                "Class source without comments should start with class definition, not comment");
 
         // Both should include the class definition itself
         assertTrue(
@@ -320,17 +313,16 @@ public final class PythonAnalyzerTest {
         String normalizedMethodWithComments = normalize.apply(methodSourceWithComments.get());
         String normalizedMethodWithoutComments = normalize.apply(methodSourceWithoutComments.get());
 
-        // With comments should include the preceding comment
+        // With comments should include the preceding comment at the start
         assertTrue(
-                normalizedMethodWithComments.contains("# Comment before instance method")
-                        || normalizedMethodWithComments.contains("Comment before instance method"),
-                "Method source with comments should include preceding comment");
+                normalizedMethodWithComments.startsWith("# Comment before instance method")
+                        || normalizedMethodWithComments.startsWith("Comment before instance method"),
+                "Method source with comments should start with preceding comment");
 
-        // Without comments should NOT include the preceding comment
-        assertFalse(
-                normalizedMethodWithoutComments.contains("# Comment before instance method")
-                        && normalizedMethodWithoutComments.contains("Comment before instance method"),
-                "Method source without comments should NOT include preceding comment");
+        // Without comments should start with the method definition itself
+        assertTrue(
+                normalizedMethodWithoutComments.startsWith("def get_value(self):"),
+                "Method source without comments should start with method definition, not comment");
 
         // Both should include the method definition itself
         assertTrue(
