@@ -178,7 +178,7 @@ public class SwingUtil {
         b.putClientProperty("brokk.primaryButton", true);
     }
 
-public static class ThemedIcon implements Icon {
+    public static class ThemedIcon implements Icon {
 
         private final String uiKey;
         private final int displaySize;

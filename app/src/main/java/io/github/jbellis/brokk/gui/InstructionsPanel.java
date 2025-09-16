@@ -54,7 +54,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
@@ -99,7 +98,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private final Color defaultActionButtonBg;
     private final Color secondaryActionButtonBg;
-    
+
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
@@ -328,16 +327,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initial checkbox visibility is handled by the optionsPanel (CardLayout) in buildBottomPanel().
 
-
         this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
         // this is when the button is in the blocking state
         this.secondaryActionButtonBg = UIManager.getColor("Button.background");
         // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
         actionButton = new ThemeAwareRoundedButton(
-                ()-> isActionRunning(),
-                this.secondaryActionButtonBg,
-                this.defaultActionButtonBg
-                );
+                () -> isActionRunning(), this.secondaryActionButtonBg, this.defaultActionButtonBg);
 
         KeyStroke submitKs = KeyStroke.getKeyStroke(
                 KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
@@ -461,7 +456,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public JTextArea getInstructionsArea() {
         return instructionsArea;
     }
-    
+
     private JTextArea buildCommandInputField() {
         var area = new JTextArea(3, 40);
         // The BorderUtils will now handle the border, including focus behavior and padding.
@@ -2286,7 +2281,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private final Color secondaryActionButtonBg;
         private final Color defaultActionButtonBg;
 
-        public ThemeAwareRoundedButton(Supplier<Boolean> isActionRunning, Color secondaryActionButtonBg, Color defaultActionButtonBg){
+        public ThemeAwareRoundedButton(
+                Supplier<Boolean> isActionRunning, Color secondaryActionButtonBg, Color defaultActionButtonBg) {
             super();
             this.isActionRunning = isActionRunning;
             this.secondaryActionButtonBg = secondaryActionButtonBg;
@@ -2340,17 +2336,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 setBackground(this.defaultActionButtonBg);
             }
             // Mark for any global reapply mechanism
-            //putClientProperty("brokk.primaryButton", true);
+            // putClientProperty("brokk.primaryButton", true);
 
             // Update visuals
-            //revalidate();
-            //repaint();
+            // revalidate();
+            // repaint();
         }
 
         /**
          * Backwards-compatible single-argument applyTheme method.
          *
-         * Some ThemeAware interface variants (depending on codebase versions) declare a single-argument
+         * <p>Some ThemeAware interface variants (depending on codebase versions) declare a single-argument
          * applyTheme(GuiTheme). Provide this overload so the class fulfills that contract as well.
          */
         @Override

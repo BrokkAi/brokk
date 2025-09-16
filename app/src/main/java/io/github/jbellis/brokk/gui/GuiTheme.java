@@ -102,23 +102,22 @@ public class GuiTheme {
         // Re-apply primary button styling for buttons that were explicitly styled earlier.
         // We do this after updateComponentTreeUI so the components re-adopt UIManager colors.
         SwingUtilities.invokeLater(() -> {
-            java.util.function.Consumer<Component> recurse =
-                    new java.util.function.Consumer<Component>() {
-                        @Override
-                        public void accept(Component c) {
-                            if (c instanceof javax.swing.AbstractButton b) {
-                                Object prop = b.getClientProperty("brokk.primaryButton");
-                                if (Boolean.TRUE.equals(prop)) {
-                                    io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(b);
-                                }
-                            }
-                            if (c instanceof Container container) {
-                                for (Component child : container.getComponents()) {
-                                    accept(child);
-                                }
-                            }
+            java.util.function.Consumer<Component> recurse = new java.util.function.Consumer<Component>() {
+                @Override
+                public void accept(Component c) {
+                    if (c instanceof javax.swing.AbstractButton b) {
+                        Object prop = b.getClientProperty("brokk.primaryButton");
+                        if (Boolean.TRUE.equals(prop)) {
+                            io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(b);
                         }
-                    };
+                    }
+                    if (c instanceof Container container) {
+                        for (Component child : container.getComponents()) {
+                            accept(child);
+                        }
+                    }
+                }
+            };
 
             // Apply to the main frame content
             recurse.accept(frame.getContentPane());
