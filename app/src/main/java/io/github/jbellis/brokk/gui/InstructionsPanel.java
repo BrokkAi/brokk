@@ -912,11 +912,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Returns the Color to use for the primary action (Go) button. Uses the theme's `link_color_hex` when available,
-     * falling back to the hard-coded ACTION_GO_BLUE.
+     * Returns the Color to use for the primary action (Go) button.
+     *
+     * Preference order:
+     * 1. UIManager's "Component.linkColor" (used by applyPrimaryButtonStyle)
+     * 2. ThemeColors "link_color_hex"
+     * 3. Hard-coded ACTION_GO_BLUE fallback
      */
     private Color getActionButtonColor() {
         boolean isDark = UIManager.getBoolean("laf.dark");
+
+        // Prefer the UIManager link color to match applyPrimaryButtonStyle
+        Color uiLink = UIManager.getColor("Component.linkColor");
+        if (uiLink != null) {
+            return uiLink;
+        }
+
         try {
             return ThemeColors.getColor(isDark, "link_color_hex");
         } catch (Exception ignored) {
@@ -2085,6 +2096,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setBackground(getActionButtonColor());
         }
         actionButton.setEnabled(true);
+
+        // Ensure the action button is the root pane's default button so Enter triggers it by default.
+        // This mirrors the intended "default" behavior for the Go action.
+        var root = chrome.getFrame().getRootPane();
+        if (root != null) {
+            root.setDefaultButton(actionButton);
+        }
 
         // Ensure storedAction is consistent with current UI
         if (!modeSwitch.isSelected()) {

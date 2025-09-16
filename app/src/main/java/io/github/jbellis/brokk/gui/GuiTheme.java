@@ -67,9 +67,9 @@ public class GuiTheme {
 
             // Apply the theme to the Look and Feel
             if (isDark) {
-                com.formdev.flatlaf.FlatDarkLaf.setup();
+                com.formdev.flatlaf.FlatDarculaLaf.setup();
             } else {
-                com.formdev.flatlaf.FlatLightLaf.setup();
+                com.formdev.flatlaf.FlatIntelliJLaf.setup();
             }
 
             // Register custom icons for this theme
