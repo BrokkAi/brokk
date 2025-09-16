@@ -10,6 +10,6 @@ public class EmptyAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
     public EmptyAnalyzerSettingsPanel(Language language, Path projectRoot, IConsoleIO io) {
         super(new BorderLayout(), language, projectRoot, io);
-        this.add(new JLabel(language.name() + " analyzer (no configurable settings)"), BorderLayout.CENTER);
+        this.add(new JLabel("No configurable settings"), BorderLayout.CENTER);
     }
 }
