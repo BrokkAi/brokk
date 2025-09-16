@@ -9,13 +9,13 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
-import java.util.concurrent.CompletableFuture;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -241,18 +241,19 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     public void openTerminalAndPasteText(String text) {
-        openTerminalAsync().thenAccept(tp -> {
-            try {
-                tp.pasteText(text);
-            } catch (Exception e) {
-                logger.debug("Error pasting text into terminal", e);
-            }
-        }).exceptionally(ex -> {
-            logger.debug("Failed to open terminal and paste text", ex);
-            return null;
-        });
+        openTerminalAsync()
+                .thenAccept(tp -> {
+                    try {
+                        tp.pasteText(text);
+                    } catch (Exception e) {
+                        logger.debug("Error pasting text into terminal", e);
+                    }
+                })
+                .exceptionally(ex -> {
+                    logger.debug("Failed to open terminal and paste text", ex);
+                    return null;
+                });
     }
-
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
