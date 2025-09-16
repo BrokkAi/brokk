@@ -57,10 +57,6 @@
 
 <style>
     .edit-block-wrapper {
-        --diff-add: #28a745;
-        --diff-del: #dc3545;
-        --diff-add-bg: rgba(40, 167, 69, 0.1);
-        --diff-del-bg: rgba(220, 53, 69, 0.1);
         border: 1px solid var(--message-border-custom);
         border-radius: 8px;
         margin: 1em 0;

@@ -19,6 +19,28 @@
     $: defaults = getBubbleDisplayDefaults(firstBubble.type);
     $: bubbleDisplay = { tag: defaults.title, hlVar: defaults.hlVar };
 
+    // Aggregate diff metrics across all bubbles in this thread
+    $: threadTotals = bubbles.reduce(
+        (acc, b) => {
+            const s = (b.hast as any)?.data?.diffSummary;
+            if (s) {
+                acc.adds += s.adds || 0;
+                acc.dels += s.dels || 0;
+            }
+            return acc;
+        },
+        { adds: 0, dels: 0 }
+    );
+
+    // Lines count: total lines across all messages in this thread
+    $: totalLinesAll = bubbles.reduce((acc, b) => acc + ((b.markdown ?? '').split(/\r?\n/).length), 0);
+
+    // Message count label
+    $: msgLabel = bubbles.length === 1 ? '1 msg' : `${bubbles.length} msgs`;
+
+    // Show edits only if any adds/dels present
+    $: showEdits = threadTotals.adds > 0 || threadTotals.dels > 0;
+
     function toggle() {
         threadStore.toggleThread(threadId);
     }
@@ -45,9 +67,14 @@
                 <span>...</span>
             {/if}
         </div>
-        {#if bubbles.length > 1}
-            <span class="message-count">{bubbles.length} msgs</span>
-        {/if}
+        <span class="thread-meta">
+            {#if showEdits}
+                <span class="adds">+{threadTotals.adds}</span>
+                <span class="dels">-{threadTotals.dels}</span>
+                <span class="sep">•</span>
+            {/if}
+            {msgLabel} • {totalLinesAll} lines
+        </span>
     </header>
 
     <!-- Thread body (always rendered; visually collapsed via CSS when data-collapsed="true") -->
@@ -89,7 +116,7 @@
     /* --- Collapsed Header Preview --- */
     .header-preview {
         display: grid;
-        grid-template-columns: auto auto 1fr auto;
+        grid-template-columns: auto auto 1fr auto auto;
         align-items: center;
         gap: 0.8em;
         cursor: pointer;
@@ -129,9 +156,22 @@
         margin: 0;
         font-weight: normal;
     }
-    .message-count {
+    .thread-meta {
         font-size: 0.9em;
         color: var(--badge-foreground);
+        white-space: nowrap;
+    }
+    .thread-meta .adds {
+        color: var(--diff-add);
+        margin-right: 0.25em;
+    }
+    .thread-meta .dels {
+        color: var(--diff-del);
+        margin-right: 0.45em;
+    }
+    .thread-meta .sep {
+        color: var(--badge-foreground);
+        margin-right: 0.45em;
     }
 
     /* --- Expanded View --- */
