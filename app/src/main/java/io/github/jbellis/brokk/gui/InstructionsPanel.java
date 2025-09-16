@@ -938,8 +938,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Ensure the initial visible card matches the current mode
         if (optionsPanel != null) {
-            ((CardLayout) optionsPanel.getLayout()).show(
-                    optionsPanel, modeSwitch.isSelected() ? OPTIONS_CARD_ASK : OPTIONS_CARD_CODE);
+            ((CardLayout) optionsPanel.getLayout())
+                    .show(optionsPanel, modeSwitch.isSelected() ? OPTIONS_CARD_ASK : OPTIONS_CARD_CODE);
         }
 
         // Flexible space between action controls and Go/Stop
