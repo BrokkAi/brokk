@@ -656,6 +656,7 @@ public class WorkspacePanel extends JPanel {
 
     private final PopupMenuMode popupMenuMode;
     private JPanel locSummaryPanel;
+    private JPanel summaryWithAdd;
     private JPanel warningPanel; // Panel for warning messages
     private JPanel analyzerRebuildPanel;
     private @Nullable JLabel analyzerRebuildSpinner;
@@ -1139,7 +1140,7 @@ public class WorkspacePanel extends JPanel {
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
 
         // Container to hold the summary labels and the add button
-        var summaryWithAdd = new JPanel(new BorderLayout());
+        summaryWithAdd = new JPanel(new BorderLayout());
         summaryWithAdd.setOpaque(false);
         summaryWithAdd.add(locSummaryPanel, BorderLayout.CENTER);
 
@@ -2175,6 +2176,24 @@ public class WorkspacePanel extends JPanel {
             case JLabel lbl -> lbl;
             default -> throw new IllegalStateException("Expected JLabel at locSummaryPanel index " + index);
         };
+    }
+
+    /**
+     * Return the combined preferred height of the bottom controls (summary, warnings, analyzer rebuild panel)
+     * so other panels can align to it.
+     */
+    public int getBottomControlsPreferredHeight() {
+        int h = 0;
+        // Use the overall summary container (includes the add-button wrapper).
+        h += summaryWithAdd.getPreferredSize().height;
+        // Only include warning and analyzer panels when they are visible.
+        if (warningPanel.isVisible()) {
+            h += warningPanel.getPreferredSize().height;
+        }
+        if (analyzerRebuildPanel.isVisible()) {
+            h += analyzerRebuildPanel.getPreferredSize().height;
+        }
+        return h;
     }
 
     /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
