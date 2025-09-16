@@ -489,7 +489,7 @@ public class Languages {
 
         @Override
         public String name() {
-            return "TYPESCRIPT";
+            return "Typescript";
         }
 
         @Override
