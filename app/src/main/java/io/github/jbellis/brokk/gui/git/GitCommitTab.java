@@ -55,6 +55,10 @@ public class GitCommitTab extends JPanel {
     // Thread-safe cached count for badge updates
     private volatile int cachedModifiedFileCount = 0;
 
+    // Minimum height (in pixels) for the changes list area so it remains readable.
+    // Adjust this value as desired; 250 gives a taller, easier-to-read area.
+    private static final int MIN_CHANGES_PANEL_HEIGHT = 250;
+
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
@@ -794,8 +798,14 @@ public class GitCommitTab extends JPanel {
         int headerHeight = header == null ? 0 : header.getPreferredSize().height;
         int height = tablePref.height + headerHeight;
         int width = Math.max(tablePref.width, fileStatusPane.getPreferredSize().width);
+
+        // Ensure we don't make the changes area smaller than the configured minimum
+        int finalHeight = Math.max(height, MIN_CHANGES_PANEL_HEIGHT);
+
         table.setPreferredScrollableViewportSize(tablePref);
-        fileStatusPane.setPreferredSize(new Dimension(width, height));
+        fileStatusPane.setPreferredSize(new Dimension(width, finalHeight));
+        // Also set a minimum size so layout managers respect the minimum height
+        fileStatusPane.setMinimumSize(new Dimension(width, MIN_CHANGES_PANEL_HEIGHT));
         fileStatusPane.revalidate();
         fileStatusPane.repaint();
     }
