@@ -190,13 +190,26 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             // Remove minimum size constraint from this drawer panel
             setMinimumSize(null);
 
-            // Use saved location if reasonable, otherwise default to 50/50 split
-            double loc = lastDividerLocation;
-            if (loc <= 0.0 || loc >= 1.0) {
-                loc = 0.5;
-            }
+            // Use pixel-precise divider positioning for the initial 50/50 case to avoid rounding bias
+            parentSplitPane.revalidate();
+            parentSplitPane.repaint();
 
-            parentSplitPane.setDividerLocation(loc);
+            int totalWidth = parentSplitPane.getWidth();
+            int dividerSize = parentSplitPane.getDividerSize();
+            double locProp = lastDividerLocation;
+
+            if (totalWidth > 0 && Math.abs(locProp - 0.5) < 1e-6) {
+                // Ensure the two sides are exactly equal (excluding divider)
+                int half = (totalWidth - dividerSize) / 2;
+                parentSplitPane.setDividerLocation(half);
+            } else {
+                // Use the stored proportion if available, otherwise default to 0.5
+                if (locProp > 0.0 && locProp < 1.0) {
+                    parentSplitPane.setDividerLocation(locProp);
+                } else {
+                    parentSplitPane.setDividerLocation(0.5);
+                }
+            }
         });
     }
 
