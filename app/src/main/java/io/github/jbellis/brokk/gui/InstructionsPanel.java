@@ -929,8 +929,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Size planOptionsLink to match the height of the actionButton and actionGroupPanel, avoid excessive width.
-        int planFixedHeight =
-                Math.max(Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
+        int planFixedHeight = Math.max(
+                Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
         var planPrefSize = planOptionsLink.getPreferredSize();
         // Limit the button width to a reasonable maximum to prevent it from being too wide
         int maxPlanWidth = 160;
@@ -942,7 +942,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         planOptionsLink.setMaximumSize(new Dimension(maxPlanWidth, planFixedHeight));
         planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        // Constrain the card panel so it won't stretch horizontally and create a gap between the checkbox and the plan button.
+        // Constrain the card panel so it won't stretch horizontally and create a gap between the checkbox and the plan
+        // button.
         var optPanelPref = optionsPanel.getPreferredSize();
         optionsPanel.setPreferredSize(new Dimension(optPanelPref.width, planFixedHeight));
         optionsPanel.setMaximumSize(new Dimension(optPanelPref.width, planFixedHeight));
