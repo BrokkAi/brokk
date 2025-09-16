@@ -83,7 +83,7 @@
     transform: translateY(0);
 }
 
-.font-size {
+.zoom-widget-font-size {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-weight: 600;
     color: var(--chat-text, #333);
@@ -91,15 +91,15 @@
     transition: color 0.2s ease;
 }
 
-.font-size.small {
+.zoom-widget-font-size.small {
     font-size: 11px;
 }
 
-.font-size.medium {
+.zoom-widget-font-size.medium {
     font-size: 16px;
 }
 
-.font-size.large {
+.zoom-widget-font-size.large {
     font-size: 20px;
 }
 

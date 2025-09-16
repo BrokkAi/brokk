@@ -15,13 +15,13 @@ export function createZoomWidget(): HTMLElement {
             </div>
             <div class="zoom-controls">
                 <button class="zoom-btn" onclick="window.brokk.zoomOut()" title="Zoom Out (Ctrl/Cmd + -)">
-                    <span class="font-size small">A</span>
+                    <span class="zoom-widget-font-size small">A</span>
                 </button>
                 <button class="zoom-btn reset" onclick="window.brokk.resetZoom()" title="Reset Zoom (Ctrl/Cmd + 0)">
-                    <span class="font-size medium">A</span>
+                    <span class="zoom-widget-font-size medium">A</span>
                 </button>
                 <button class="zoom-btn" onclick="window.brokk.zoomIn()" title="Zoom In (Ctrl/Cmd + +)">
-                    <span class="font-size large">A</span>
+                    <span class="zoom-widget-font-size large">A</span>
                 </button>
             </div>
         </div>

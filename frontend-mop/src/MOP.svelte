@@ -45,6 +45,7 @@
     }
     bubblesUnsubscribe();
   });
+
 </script>
 
 <style>
