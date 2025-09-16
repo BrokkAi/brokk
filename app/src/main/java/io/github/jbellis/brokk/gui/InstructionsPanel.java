@@ -383,7 +383,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Initialize default background color and set initial blue color
         Color uiDefault = UIManager.getColor("Button.background");
         this.defaultActionButtonBg = (uiDefault != null) ? uiDefault : actionButton.getBackground();
-        actionButton.setBackground(ACTION_GO_BLUE);
+        actionButton.setBackground(getActionButtonColor());
 
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
@@ -909,6 +909,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (Exception e) {
             return ks.toString();
         }
+    }
+
+    /**
+     * Returns the Color to use for the primary action (Go) button. Uses the theme's `link_color_hex` when available,
+     * falling back to the hard-coded ACTION_GO_BLUE.
+     */
+    private Color getActionButtonColor() {
+        boolean isDark = UIManager.getBoolean("laf.dark");
+        try {
+            return ThemeColors.getColor(isDark, "link_color_hex");
+        } catch (Exception ignored) {
+            // Fall through to fallback
+        }
+        return ACTION_GO_BLUE;
     }
 
     private JPanel buildBottomPanel() {
@@ -2025,7 +2039,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             // If there is no running action, keep the action button enabled so the user can start an action.
             actionButton.setEnabled(true);
-            actionButton.setBackground(ACTION_GO_BLUE);
+            actionButton.setBackground(getActionButtonColor());
         }
     }
 
@@ -2068,7 +2082,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setIcon(Icons.ARROW_WARM_UP);
             actionButton.setText(null);
             actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
-            actionButton.setBackground(ACTION_GO_BLUE);
+            actionButton.setBackground(getActionButtonColor());
         }
         actionButton.setEnabled(true);
 
