@@ -144,20 +144,7 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
         int parenIndex = cleanedName.indexOf('(');
 
         // Remove any parameter signature (e.g., "myMethod(int)" -> "myMethod")
-        final String base = (parenIndex != -1) ? cleanedName.substring(0, parenIndex) : cleanedName;
-
-        // If the name ends with the same token twice (e.g., "package.Foo.Foo"),
-        // collapse the duplicate to "package.Foo".
-        final var parts = base.split("\\.");
-        if (parts.length >= 2) {
-            final String last = parts[parts.length - 1];
-            final String secondLast = parts[parts.length - 2];
-            if (last.equals(secondLast)) {
-                return String.join(".", Arrays.copyOf(parts, parts.length - 1));
-            }
-        }
-
-        return base;
+        return (parenIndex != -1) ? cleanedName.substring(0, parenIndex) : cleanedName;
     }
 
     @Override

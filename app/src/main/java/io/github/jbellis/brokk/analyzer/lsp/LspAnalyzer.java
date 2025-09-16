@@ -281,7 +281,18 @@ public interface LspAnalyzer
             final var reason = "Symbol '" + rawFqName + "' not found as a method, field, or class";
             throw new IllegalArgumentException(reason);
         }
-        var fqName = resolveMethodName(rawFqName);
+        var resolvedFqName = resolveMethodName(rawFqName);
+        // If the name ends with the same token twice (e.g., "package.Foo.Foo"),
+        // collapse the duplicate to "package.Foo".
+        final var parts = resolvedFqName.split("\\.");
+        if (parts.length >= 2) {
+            final String last = parts[parts.length - 1];
+            final String secondLast = parts[parts.length - 2];
+            if (last.equals(secondLast)) {
+                resolvedFqName = String.join(".", Arrays.copyOf(parts, parts.length - 1));
+            }
+        }
+        final String fqName = resolvedFqName;
 
         // Start with the normal lookup
         var definitions = getDefinitionsInWorkspace(fqName);
