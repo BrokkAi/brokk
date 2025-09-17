@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.util.TextCanonicalizer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -383,15 +384,25 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        return uniqueCodeUnitList().stream()
-                .filter(cu -> {
-                    if (cu.isFunction()) {
-                        return cu.fqName().equals(nearestMethodName(fqName));
-                    } else {
-                        return cu.fqName().equals(fqName);
-                    }
-                })
-                .findFirst();
+        final String methodTarget = nearestMethodName(fqName);
+
+        List<CodeUnit> matches = uniqueCodeUnitList().stream()
+                .filter(cu -> cu.isFunction()
+                        ? cu.fqName().equals(methodTarget)
+                        : cu.fqName().equals(fqName))
+                .toList();
+
+        if (matches.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Comparator<CodeUnit> comparator = Comparator.comparingInt((CodeUnit cu) -> definitionOverridePriority(cu))
+                .thenComparingInt(this::firstStartByteForSelection)
+                .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(cu -> cu.kind().name());
+
+        return matches.stream().sorted(comparator).findFirst();
     }
 
     @Override
@@ -669,6 +680,22 @@ public abstract class TreeSitterAnalyzer
         return fqName;
     }
 
+    /**
+     * Hook for language-specific preference when multiple CodeUnits share the same FQN. Lower values are preferred.
+     * Default is 0 (no preference).
+     */
+    protected int definitionOverridePriority(CodeUnit cu) {
+        return 0;
+    }
+
+    /** Returns the earliest startByte among recorded ranges for deterministic ordering. */
+    private int firstStartByteForSelection(CodeUnit cu) {
+        return withReadLock(() -> sourceRanges.getOrDefault(cu, List.of()).stream()
+                .mapToInt(Range::startByte)
+                .min()
+                .orElse(Integer.MAX_VALUE));
+    }
+
     @Override
     public Optional<String> getClassSource(String fqName, boolean includeComments) {
         var cu = getDefinition(fqName)
@@ -688,7 +715,7 @@ public abstract class TreeSitterAnalyzer
         if (srcOpt.isEmpty()) {
             return Optional.empty();
         }
-        String src = srcOpt.get();
+        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
 
         // Choose start byte based on includeComments parameter
         int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
@@ -717,7 +744,7 @@ public abstract class TreeSitterAnalyzer
                         log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
                         return Optional.empty();
                     }
-                    String fileContent = fileContentOpt.get();
+                    String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
 
                     List<String> individualMethodSources = new ArrayList<>();
                     for (Range range : rangesForOverloads) {
@@ -905,16 +932,7 @@ public abstract class TreeSitterAnalyzer
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
         byte[] fileBytes = Files.readAllBytes(file.absPath());
-        // Strip UTF-8 BOM if present (EF BB BF)
-        if (fileBytes.length >= 3
-                && (fileBytes[0] & 0xFF) == 0xEF
-                && (fileBytes[1] & 0xFF) == 0xBB
-                && (fileBytes[2] & 0xFF) == 0xBF) {
-            byte[] bytesWithoutBom = new byte[fileBytes.length - 3];
-            System.arraycopy(fileBytes, 3, bytesWithoutBom, 0, fileBytes.length - 3);
-            fileBytes = bytesWithoutBom;
-            log.trace("Stripped UTF-8 BOM from file: {}", file);
-        }
+        fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
@@ -1276,9 +1294,13 @@ public abstract class TreeSitterAnalyzer
                     node.getEndPoint().getRow(),
                     node.getStartByte()); // commentStartByte initially same as startByte
 
-            // Pre-expand range to include preceding comments for classes and functions
-            var finalRange =
-                    (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(file, originalRange) : originalRange;
+            // Pre-expand range to include preceding comments for classes and functions.
+            // For classes/interfaces/enums, include only documentation-like comments (JSDoc/triple-slash).
+            // For functions, include any immediately preceding comments (including single-line // headings).
+            boolean docOnlyForClass = cu.isClass();
+            var finalRange = (cu.isClass() || cu.isFunction())
+                    ? expandRangeWithComments(file, originalRange, docOnlyForClass)
+                    : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
@@ -2371,6 +2393,21 @@ public abstract class TreeSitterAnalyzer
                 || nodeType.equals("documentation_comment");
     }
 
+    /** Determines if a comment node is documentation-like (e.g., JSDoc) based on node type or text content. */
+    private boolean isDocLikeCommentNode(TSNode node, String src) {
+        if (!isCommentNode(node)) {
+            return false;
+        }
+        String t = node.getType();
+        // Prefer explicit doc comment node types if grammar provides them
+        if ("doc_comment".equals(t) || "documentation_comment".equals(t)) {
+            return true;
+        }
+        // Fallback to content-based detection: JSDoc block (/** ... */) or triple-slash docs (///)
+        String text = textSlice(node, src).stripLeading();
+        return text.startsWith("/**") || text.startsWith("///");
+    }
+
     /** Finds a Tree-Sitter node by its byte range within the given tree. */
     protected Optional<TSNode> findNodeByRange(TSTree tree, int startByte, int endByte) {
         TSNode root = tree.getRootNode();
@@ -2438,8 +2475,10 @@ public abstract class TreeSitterAnalyzer
 
     /**
      * Expands a source range to include preceding comments. Re-parses the source file to get AST for comment detection.
+     * If includeOnlyDocLike is true, only include documentation-like comments (e.g., JSDoc, ///). Otherwise, include
+     * any immediately preceding comments.
      */
-    protected Range expandRangeWithComments(ProjectFile file, Range originalRange) {
+    protected Range expandRangeWithComments(ProjectFile file, Range originalRange, boolean includeOnlyDocLike) {
         try {
             // Re-parse the source file
             var srcOpt = file.read();
@@ -2447,7 +2486,7 @@ public abstract class TreeSitterAnalyzer
                 log.warn("Unable to read source file for comment expansion: {}", file);
                 return originalRange;
             }
-            String src = srcOpt.get();
+            String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
 
             TSParser parser = new TSParser();
             if (!parser.setLanguage(getTSLanguage())) {
@@ -2471,12 +2510,18 @@ public abstract class TreeSitterAnalyzer
 
             // Find preceding comments
             List<TSNode> precedingComments = findPrecedingComments(declarationNode.get());
-            if (precedingComments.isEmpty()) {
+            // Either include only documentation-like comments, or all immediately preceding comments.
+            List<TSNode> selectedComments = includeOnlyDocLike
+                    ? precedingComments.stream()
+                            .filter(n -> isDocLikeCommentNode(n, src))
+                            .toList()
+                    : precedingComments;
+            if (selectedComments.isEmpty()) {
                 return originalRange;
             }
 
-            // Calculate new start byte from earliest comment
-            int newStartByte = precedingComments.get(0).getStartByte();
+            // Calculate new start byte from earliest selected comment
+            int newStartByte = selectedComments.get(0).getStartByte();
 
             Range expandedRange = new Range(
                     originalRange.startByte(),
@@ -2486,13 +2531,13 @@ public abstract class TreeSitterAnalyzer
                     newStartByte);
 
             log.trace(
-                    "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} comment nodes)",
+                    "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} preceding comment nodes)",
                     file,
                     originalRange.startByte(),
                     originalRange.endByte(),
                     expandedRange.startByte(),
                     expandedRange.endByte(),
-                    precedingComments.size());
+                    selectedComments.size());
 
             return expandedRange;
 
