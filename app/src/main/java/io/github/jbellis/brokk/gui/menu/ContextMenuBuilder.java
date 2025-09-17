@@ -235,17 +235,14 @@ public class ContextMenuBuilder {
             summarizeAllItem.addActionListener(e -> summarizeFiles(fileContext));
             menu.add(summarizeAllItem);
 
-            menu.addSeparator();
-
-            // Run Tests (if all files are test files)
-            var runTestsItem = new JMenuItem("Run All Tests");
+            // Run Tests (only show if all files are test files)
             boolean hasTestFiles = files.stream().allMatch(ContextManager::isTestFile);
-            runTestsItem.setEnabled(hasTestFiles);
-            if (!hasTestFiles) {
-                runTestsItem.setToolTipText("Non-test files in selection");
+            if (hasTestFiles) {
+                menu.addSeparator();
+                var runTestsItem = new JMenuItem("Run All Tests");
+                runTestsItem.addActionListener(e -> runTests(fileContext));
+                menu.add(runTestsItem);
             }
-            runTestsItem.addActionListener(e -> runTests(fileContext));
-            menu.add(runTestsItem);
         }
     }
 
