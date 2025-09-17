@@ -2326,10 +2326,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 java.awt.event.KeyEvent.VK_F);
     }
 
+    @SuppressWarnings("UnusedMethod")
     private static KeyStroke defaultFor(String id) {
         return switch (id) {
             // Instructions panel
-            case "instructions.submit" -> defaultSubmit();
+            case "instructions.submit" ->
+                KeyStroke.getKeyStroke(
+                        java.awt.event.KeyEvent.VK_ENTER,
+                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
             case "instructions.toggleMode" -> defaultToggleMode();
             case "instructions.togglePlanOrSearch" -> defaultTogglePlanOrSearch();
             case "instructions.openPlanOptions" -> defaultOpenPlanOptions();
@@ -2355,11 +2359,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.closeWindow" -> defaultCloseWindow();
             case "global.focusSearch" -> defaultFocusSearch();
 
-            default -> defaultSubmit();
+            default ->
+                KeyStroke.getKeyStroke(
+                        java.awt.event.KeyEvent.VK_ENTER,
+                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         };
-    @Override
-    public void removeNotify() {
-        super.removeNotify();
-        MainProject.removeSettingsChangeListener(this);
     }
 }

@@ -965,9 +965,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // Window management shortcuts
-        var closeWindowKeyStroke = MainProject.getShortcut(
-                "global.closeWindow",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        KeyStroke closeWindowKeyStroke =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
         // Never allow bare ESC to be used as a global close shortcut
         if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
             closeWindowKeyStroke =
@@ -975,15 +974,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(closeWindowKeyStroke, "closeWindow");
         rootPane.getActionMap().put("closeWindow", new AbstractAction() {
-          
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
+            }
+        });
+
         // Zoom shortcuts: Ctrl/Cmd + Plus, Minus, 0
-        var zoomInKeyStroke = KeyStroke.getKeyStroke(
+        KeyStroke zoomInKeyStroke = KeyStroke.getKeyStroke(
                 KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        var zoomInEqualsKeyStroke = KeyStroke.getKeyStroke(
+        KeyStroke zoomInEqualsKeyStroke = KeyStroke.getKeyStroke(
                 KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        var zoomOutKeyStroke = KeyStroke.getKeyStroke(
+        KeyStroke zoomOutKeyStroke = KeyStroke.getKeyStroke(
                 KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        var resetZoomKeyStroke = KeyStroke.getKeyStroke(
+        KeyStroke resetZoomKeyStroke = KeyStroke.getKeyStroke(
                 KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
 
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInKeyStroke, "zoomIn");
