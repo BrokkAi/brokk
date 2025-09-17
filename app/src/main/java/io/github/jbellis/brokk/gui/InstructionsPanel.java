@@ -599,24 +599,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var branchSplitButton = new SplitButton("No Git");
         branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
 
-        // Make the split button visually similar to MaterialButton (borderless, link-styled)
-        branchSplitButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        branchSplitButton.setBorderPainted(false);
-        branchSplitButton.setContentAreaFilled(false);
-        branchSplitButton.setFocusPainted(false);
-        branchSplitButton.putClientProperty("JButton.buttonType", "borderless");
-        branchSplitButton.setOpaque(false);
-        branchSplitButton.setBorder(BorderFactory.createEmptyBorder());
-        branchSplitButton.setMargin(new Insets(0, 0, 0, 0));
-        Color linkColor = UIManager.getColor("Label.linkForeground");
-        if (linkColor == null) {
-            linkColor = UIManager.getColor("Label.foreground");
-        }
-        if (linkColor == null) {
-            linkColor = Color.BLUE;
-        }
-        branchSplitButton.setForeground(linkColor);
-
         int branchWidth = 210;
         var branchDim = new Dimension(branchWidth, controlHeight);
         branchSplitButton.setPreferredSize(branchDim);
@@ -1169,24 +1151,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var dropdown = new SplitButton(placeholder);
         dropdown.setToolTipText("Select a previous instruction from history");
-
-        // Make history control visually match MaterialButton (borderless, minimal margins)
-        dropdown.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        dropdown.setBorderPainted(false);
-        dropdown.setContentAreaFilled(false);
-        dropdown.setFocusPainted(false);
-        dropdown.putClientProperty("JButton.buttonType", "borderless");
-        dropdown.setOpaque(false);
-        dropdown.setBorder(BorderFactory.createEmptyBorder());
-        dropdown.setMargin(new Insets(0, 0, 0, 0));
-        Color historyLinkColor = UIManager.getColor("Label.linkForeground");
-        if (historyLinkColor == null) {
-            historyLinkColor = UIManager.getColor("Label.foreground");
-        }
-        if (historyLinkColor == null) {
-            historyLinkColor = Color.BLUE;
-        }
-        dropdown.setForeground(historyLinkColor);
 
         // Build popup menu on demand, same pattern as branch button
         Supplier<JPopupMenu> historyMenuSupplier = () -> {
