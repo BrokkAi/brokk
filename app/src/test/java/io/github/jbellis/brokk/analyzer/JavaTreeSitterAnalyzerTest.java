@@ -75,7 +75,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void extractMethodSourceNested() {
-        final var sourceOpt = analyzer.getMethodSource("A$AInner$AInnerInner.method7", true);
+        final var sourceOpt = analyzer.getMethodSource("A.AInner.AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
 
@@ -122,7 +122,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A$AInner", true);
+        final var sourceOpt = analyzer.getClassSource("A.AInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
@@ -143,7 +143,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceTwiceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A$AInner$AInnerInner", true);
+        final var sourceOpt = analyzer.getClassSource("A.AInner.AInnerInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
@@ -162,7 +162,7 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceNotFoundTest() {
-        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("A$NonExistent", true));
+        assertThrows(SymbolNotFoundException.class, () -> analyzer.getClassSource("A.NonExistent", true));
     }
 
     @Test
@@ -253,23 +253,23 @@ public class JavaTreeSitterAnalyzerTest {
                 .toList();
         final var expected = List.of(
                 "A",
-                "A$AInner",
-                "A$AInner$AInnerInner",
-                "A$AInnerStatic",
+                "A.AInner",
+                "A.AInner.AInnerInner",
+                "A.AInnerStatic",
                 "AnnotatedClass",
-                "AnnotatedClass$InnerHelper",
+                "AnnotatedClass.InnerHelper",
                 "AnonymousUsage",
-                "AnonymousUsage$NestedClass",
+                "AnonymousUsage.NestedClass",
                 "B",
                 "BaseClass",
                 "C",
-                "C$Foo",
+                "C.Foo",
                 "CamelClass",
                 "CustomAnnotation",
                 "CyclicMethods",
                 "D",
-                "D$DSub",
-                "D$DSubStatic",
+                "D.DSub",
+                "D.DSubStatic",
                 "E",
                 "F",
                 "Interface",
@@ -293,8 +293,8 @@ public class JavaTreeSitterAnalyzerTest {
         final var expected = Set.of(
                 // Classes
                 CodeUnit.cls(file, "", "D"),
-                CodeUnit.cls(file, "", "D$DSub"),
-                CodeUnit.cls(file, "", "D$DSubStatic"),
+                CodeUnit.cls(file, "", "D.DSub"),
+                CodeUnit.cls(file, "", "D.DSubStatic"),
                 // Methods
                 CodeUnit.fn(file, "", "D.methodD1"),
                 CodeUnit.fn(file, "", "D.methodD2"),
@@ -364,8 +364,8 @@ public class JavaTreeSitterAnalyzerTest {
                         CodeUnit.field(file, "", "D.field1"),
                         CodeUnit.field(file, "", "D.field2"),
                         // Classes
-                        CodeUnit.cls(file, "", "D$DSubStatic"),
-                        CodeUnit.cls(file, "", "D$DSub"))
+                        CodeUnit.cls(file, "", "D.DSubStatic"),
+                        CodeUnit.cls(file, "", "D.DSub"))
                 .sorted()
                 .toList();
         assertEquals(expected, members);
@@ -384,8 +384,8 @@ public class JavaTreeSitterAnalyzerTest {
 
         final var expected = Stream.of(
                         // Classes
-                        CodeUnit.cls(file, "", "D$DSub"),
-                        CodeUnit.cls(file, "", "D$DSubStatic"),
+                        CodeUnit.cls(file, "", "D.DSub"),
+                        CodeUnit.cls(file, "", "D.DSubStatic"),
                         // Methods
                         CodeUnit.fn(file, "", "D.methodD1"),
                         CodeUnit.fn(file, "", "D.methodD2"),
@@ -447,9 +447,9 @@ public class JavaTreeSitterAnalyzerTest {
         // method with anon class (just digits)
         assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method$1"));
         // method in nested class
-        assertEquals("package.A$AInner.method", analyzer.nearestMethodName("package.A$AInner.method"));
+        assertEquals("package.A.AInner.method", analyzer.nearestMethodName("package.A.AInner.method"));
         // method with lambda in nested class
-        assertEquals("package.A$AInner.method", analyzer.nearestMethodName("package.A$AInner.method$anon$1"));
+        assertEquals("package.A.AInner.method", analyzer.nearestMethodName("package.A.AInner.method$anon$1"));
     }
 
     @Test
@@ -531,8 +531,8 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceWithInnerClassJavadocsTest() {
-        final var sourceOpt = analyzer.getClassSource("AnnotatedClass$InnerHelper", true);
-        assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass$InnerHelper");
+        final var sourceOpt = analyzer.getClassSource("AnnotatedClass.InnerHelper", true);
+        assertTrue(sourceOpt.isPresent(), "Should find AnnotatedClass.InnerHelper");
         final var source = sourceOpt.get();
 
         // Verify inner class Javadocs are captured

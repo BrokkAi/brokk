@@ -78,3 +78,13 @@ export interface EditBlockProperties {
     headerOk: boolean;
     isGitDiff?: boolean;
 }
+
+/* Augment unist.Data so tree.data is strongly typed for our rehype pipeline */
+import 'unist';
+
+declare module 'unist' {
+  interface Data {
+    diffSummary?: { adds: number; dels: number };
+    detectedDiffLangs?: Set<string>;
+  }
+}

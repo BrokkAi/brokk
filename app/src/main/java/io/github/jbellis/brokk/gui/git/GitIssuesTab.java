@@ -768,6 +768,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
+
         searchBox.setLoading(true, "Searching issues");
         currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<IssueHeader> fetchedIssueHeaders;

@@ -1,5 +1,6 @@
 import './styles/global.scss';
 import {mount, tick} from 'svelte';
+import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {onHistoryEvent} from './stores/historyStore';
@@ -10,6 +11,8 @@ import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
+import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
+import './components/ZoomWidget.ts';
 
 const mainLog = createLogger('main');
 
@@ -22,6 +25,7 @@ const buffer = setupBrokkInterface();
 replayBufferedItems(buffer);
 void initSearchController();
 setupSearchRehighlight();
+setupZoomDisplayObserver();
 
 // Function definitions below
 function checkWorkerSupport(): void {
@@ -66,6 +70,20 @@ function setupBrokkInterface(): any[] {
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
+        // Zoom API
+        zoomIn: () => {
+            zoomIn();
+        },
+        zoomOut: () => {
+            zoomOut();
+        },
+        resetZoom: () => {
+            resetZoom();
+        },
+        setZoom: (value: number) => {
+            setZoom(value);
+        },
+
         // Debug API
         toggleWrapStatus: () => typeof window !== 'undefined' && window.toggleWrapStatus ? window.toggleWrapStatus() : undefined,
 
@@ -102,8 +120,8 @@ function clearChat(): void {
     onHistoryEvent({type: 'history-reset', epoch: 0});
 }
 
-function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean): void {
-    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode);
+function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
+    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode + ', wrapMode=' + wrapMode + ', zoom=' + zoom);
     themeStore.set(dark);
     const html = document.querySelector('html')!;
 
@@ -111,6 +129,11 @@ function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean): vo
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
+
+    // Set zoom if provided
+    if (zoom !== undefined) {
+        setZoom(zoom);
+    }
 
     // Handle wrap mode classes - default to wrap mode enabled
     const shouldWrap = wrapMode !== undefined ? wrapMode : true;
@@ -213,4 +236,24 @@ function setupSearchRehighlight(): void {
     };
     bubblesStore.subscribe(trigger);
     threadStore.subscribe(trigger);
+}
+
+function setupZoomDisplayObserver(): void {
+    const render = (zoom: number) => {
+        const el = document.getElementById('zoom-display');
+        if (el) {
+            el.textContent = getZoomPercentage(zoom);
+        }
+    };
+
+    // Initial render and ongoing updates
+    render(get(zoomStore));
+    zoomStore.subscribe((zoom) => {
+        render(zoom);
+        try {
+            (window as any).javaBridge?.onZoomChanged?.(zoom);
+        } catch (e) {
+            // ignore when bridge not ready or in dev
+        }
+    });
 }

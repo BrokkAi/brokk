@@ -963,6 +963,42 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
         }
+
+        // Zoom shortcuts: Ctrl/Cmd + Plus, Minus, 0
+        var zoomInKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var zoomInEqualsKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var zoomOutKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var resetZoomKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInKeyStroke, "zoomIn");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInEqualsKeyStroke, "zoomIn");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomOutKeyStroke, "zoomOut");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(resetZoomKeyStroke, "resetZoom");
+
+        rootPane.getActionMap().put("zoomIn", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().zoomIn();
+            }
+        });
+
+        rootPane.getActionMap().put("zoomOut", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().zoomOut();
+            }
+        });
+
+        rootPane.getActionMap().put("resetZoom", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().resetZoom();
+            }
+        });
     }
 
     @Override

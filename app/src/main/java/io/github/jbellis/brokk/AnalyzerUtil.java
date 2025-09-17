@@ -35,6 +35,8 @@ public class AnalyzerUtil {
                                 .computeIfAbsent(classname, k -> new ArrayList<>())
                                 .add(source.get());
                         sources.add(cu);
+                    } else {
+                        logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
                     }
                 }
                 if (!groupedMethods.isEmpty()) {
