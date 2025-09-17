@@ -2,16 +2,13 @@ package io.github.jbellis.brokk.gui.mop;
 
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.mop.FilePathResult.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -125,8 +122,6 @@ public class FilePathLookupService {
 
         return new ParsedFilePath(input.trim(), null, null, input);
     }
-
-
 
     /** Find all files matching the given path in the project */
     private static List<ProjectFileMatch> findMatchingFiles(
@@ -257,5 +252,4 @@ public class FilePathLookupService {
             @Nullable LineRange lineRange) {
         return new ProjectFileMatch(relativePath, absolutePath, isDirectory, lineNumber, lineRange);
     }
-
 }
