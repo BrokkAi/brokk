@@ -438,7 +438,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoStruct() {
         // MyStruct in declarations.go
-        final var sourceOpt = analyzer.getClassSource("declpkg.MyStruct");
+        final var sourceOpt = analyzer.getClassSource("declpkg.MyStruct", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         assertNotNull(source, "Source for declpkg.MyStruct should not be null");
@@ -449,7 +449,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoInterface() {
         // MyInterface in declarations.go
-        final var sourceOpt = analyzer.getClassSource("declpkg.MyInterface");
+        final var sourceOpt = analyzer.getClassSource("declpkg.MyInterface", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         assertNotNull(source, "Source for declpkg.MyInterface should not be null");
@@ -460,7 +460,7 @@ public class GoAnalyzerTest {
     @Test
     void testGetMethodSource_GoFunction() {
         // MyTopLevelFunction in declarations.go
-        java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyTopLevelFunction");
+        java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyTopLevelFunction", true);
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyTopLevelFunction should be present.");
         String expectedSource = "func MyTopLevelFunction(param int) string {\n\treturn \"hello\"\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(sourceOpt.get()));
@@ -470,22 +470,23 @@ public class GoAnalyzerTest {
     void testGetMethodSource_GoMethod() {
         // GetFieldA method of MyStruct in declarations.go
         // FQN is now declpkg.MyStruct.GetFieldA
-        java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyStruct.GetFieldA");
+        java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyStruct.GetFieldA", true);
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyStruct.GetFieldA method should be present.");
-        String expectedSource = "func (s MyStruct) GetFieldA() int {\n\treturn s.FieldA\n}";
+        String expectedSource =
+                "// Add this method for MyStruct\nfunc (s MyStruct) GetFieldA() int {\n\treturn s.FieldA\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(sourceOpt.get()));
     }
 
     @Test
     void testGetClassSource_NonExistent() {
         assertThrows(SymbolNotFoundException.class, () -> {
-            analyzer.getClassSource("declpkg.NonExistentClass");
+            analyzer.getClassSource("declpkg.NonExistentClass", true);
         });
     }
 
     @Test
     void testGetMethodSource_NonExistent() {
-        java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.NonExistentFunction");
+        java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.NonExistentFunction", true);
         assertFalse(sourceOpt.isPresent(), "Source for a non-existent function should be empty.");
     }
 

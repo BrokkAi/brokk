@@ -69,12 +69,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        final char delimiter =
-                Optional.ofNullable(JAVA_SYNTAX_PROFILE.captureConfiguration().get(captureName)).stream()
-                                .anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE))
-                        ? '$'
-                        : '.';
-        final String fqName = classChain.isEmpty() ? simpleName : classChain + delimiter + simpleName;
+        final String fqName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
         var type =

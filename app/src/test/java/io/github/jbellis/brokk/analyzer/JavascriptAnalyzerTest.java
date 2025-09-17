@@ -593,7 +593,7 @@ public final class JavascriptAnalyzerTest {
     @Test
     void testGetClassSource_Js() {
         // Test case 1: Valid class from Hello.js
-        final var helloSourceOpt = jsAnalyzer.getClassSource("Hello");
+        final var helloSourceOpt = jsAnalyzer.getClassSource("Hello", true);
         assertTrue(helloSourceOpt.isPresent());
         final var helloClassSource = helloSourceOpt.get().stripIndent();
         String expectedHelloClassSource =
@@ -606,7 +606,7 @@ public final class JavascriptAnalyzerTest {
                 helloClassSource.stripIndent().trim());
 
         // Test case 2: Valid class from Hello.jsx
-        final var jsxClassSourceOpt = jsAnalyzer.getClassSource("JsxClass");
+        final var jsxClassSourceOpt = jsAnalyzer.getClassSource("JsxClass", true);
         assertTrue(jsxClassSourceOpt.isPresent());
         final var jsxClassSource = jsxClassSourceOpt.get().stripIndent();
         String expectedJsxClassSource =
@@ -623,26 +623,26 @@ public final class JavascriptAnalyzerTest {
         // Test case 3: Non-existent class
         assertThrows(
                 SymbolNotFoundException.class,
-                () -> jsAnalyzer.getClassSource("NonExistentClass"),
+                () -> jsAnalyzer.getClassSource("NonExistentClass", true),
                 "Requesting source for a non-existent class should throw SymbolNotFoundException.");
 
         // Test case 4: Existing symbol that is a function, not a class
         assertThrows(
                 SymbolNotFoundException.class,
-                () -> jsAnalyzer.getClassSource("util"),
+                () -> jsAnalyzer.getClassSource("util", true),
                 "Requesting class source for a function symbol should throw SymbolNotFoundException.");
 
         // Test case 5: Existing symbol that is a field, not a class
         assertThrows(
                 SymbolNotFoundException.class,
-                () -> jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS"),
+                () -> jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS", true),
                 "Requesting class source for a field symbol should throw SymbolNotFoundException.");
     }
 
     @Test
     void testGetMethodSource_Js() {
         // Test case 1: Method in Hello.js
-        Optional<String> greetMethodSourceOpt = jsAnalyzer.getMethodSource("Hello.greet");
+        Optional<String> greetMethodSourceOpt = jsAnalyzer.getMethodSource("Hello.greet", true);
         assertTrue(greetMethodSourceOpt.isPresent(), "Source for 'Hello.greet' should be found.");
         String expectedGreetMethodSource = """
         greet() { console.log("hi"); }""";
@@ -651,7 +651,7 @@ public final class JavascriptAnalyzerTest {
                 greetMethodSourceOpt.get().stripIndent().trim());
 
         // Test case 2: Method in Hello.jsx
-        Optional<String> renderMethodSourceOpt = jsAnalyzer.getMethodSource("JsxClass.render");
+        Optional<String> renderMethodSourceOpt = jsAnalyzer.getMethodSource("JsxClass.render", true);
         assertTrue(renderMethodSourceOpt.isPresent(), "Source for 'JsxClass.render' should be found.");
         String expectedRenderMethodSource =
                 """
@@ -663,7 +663,7 @@ public final class JavascriptAnalyzerTest {
                 renderMethodSourceOpt.get().stripIndent().trim());
 
         // Test case 3: Exported function in Hello.js
-        Optional<String> utilFuncSourceOpt = jsAnalyzer.getMethodSource("util");
+        Optional<String> utilFuncSourceOpt = jsAnalyzer.getMethodSource("util", true);
         assertTrue(utilFuncSourceOpt.isPresent(), "Source for 'util' function should be found.");
         String expectedUtilFuncSource = """
         export function util() { return 42; }""";
@@ -672,7 +672,7 @@ public final class JavascriptAnalyzerTest {
                 utilFuncSourceOpt.get().stripIndent().trim());
 
         // Test case 4: Exported arrow function in Hello.jsx
-        Optional<String> jsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("JsxArrowFnComponent");
+        Optional<String> jsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("JsxArrowFnComponent", true);
         assertTrue(jsxArrowFnSourceOpt.isPresent(), "Source for 'JsxArrowFnComponent' should be found.");
         // Note: The source for an arrow function assigned to a const/let is just the arrow function part.
         String expectedJsxArrowFnSource =
@@ -689,7 +689,7 @@ public final class JavascriptAnalyzerTest {
                 jsxArrowFnSourceOpt.get().stripIndent().trim());
 
         // Test case 5: Local (non-exported) arrow function in Hello.jsx
-        Optional<String> localJsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("LocalJsxArrowFn");
+        Optional<String> localJsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("LocalJsxArrowFn", true);
         assertTrue(localJsxArrowFnSourceOpt.isPresent(), "Source for 'LocalJsxArrowFn' should be found.");
         String expectedLocalJsxArrowFnSource = """
         () => <button>Click Me</button>""";
@@ -698,7 +698,7 @@ public final class JavascriptAnalyzerTest {
                 localJsxArrowFnSourceOpt.get().stripIndent().trim());
 
         // Test case 6: Local (non-exported) plain function in Hello.jsx
-        Optional<String> plainJsxFuncSourceOpt = jsAnalyzer.getMethodSource("PlainJsxFunc");
+        Optional<String> plainJsxFuncSourceOpt = jsAnalyzer.getMethodSource("PlainJsxFunc", true);
         assertTrue(plainJsxFuncSourceOpt.isPresent(), "Source for 'PlainJsxFunc' should be found.");
         String expectedPlainJsxFuncSource =
                 """
@@ -710,19 +710,19 @@ public final class JavascriptAnalyzerTest {
                 plainJsxFuncSourceOpt.get().stripIndent().trim());
 
         // Test case 7: Non-existent method
-        Optional<String> nonExistentMethodSourceOpt = jsAnalyzer.getMethodSource("NonExistent.method");
+        Optional<String> nonExistentMethodSourceOpt = jsAnalyzer.getMethodSource("NonExistent.method", true);
         assertTrue(
                 nonExistentMethodSourceOpt.isEmpty(),
                 "Requesting source for a non-existent method should return Option.empty().");
 
         // Test case 8: Existing symbol that is a class, not a function
-        Optional<String> classAsMethodSourceOpt = jsAnalyzer.getMethodSource("Hello");
+        Optional<String> classAsMethodSourceOpt = jsAnalyzer.getMethodSource("Hello", true);
         assertTrue(
                 classAsMethodSourceOpt.isEmpty(),
                 "Requesting method source for a class symbol should return Option.empty().");
 
         // Test case 9: Existing symbol that is a field, not a function
-        Optional<String> fieldAsMethodSourceOpt = jsAnalyzer.getMethodSource("Vars.js.TOP_CONST_JS");
+        Optional<String> fieldAsMethodSourceOpt = jsAnalyzer.getMethodSource("Vars.js.TOP_CONST_JS", true);
         assertTrue(
                 fieldAsMethodSourceOpt.isEmpty(),
                 "Requesting method source for a field symbol should return Option.empty().");

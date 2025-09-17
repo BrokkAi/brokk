@@ -142,9 +142,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         String finalShortName;
         SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
 
+        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
         switch (skeletonType) {
             case CLASS_LIKE -> {
-                finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
+                finalShortName = shortName;
                 return CodeUnit.cls(file, packageName, finalShortName);
             }
             case FUNCTION_LIKE -> {
@@ -157,7 +158,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name
                     // found
                 }
-                finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+                finalShortName = shortName;
                 return CodeUnit.fn(file, packageName, finalShortName);
             }
             case FIELD_LIKE -> {

@@ -7,52 +7,26 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
-import io.github.jbellis.brokk.analyzer.CallGraphProvider;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Languages;
-import io.github.jbellis.brokk.analyzer.UsagesProvider;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.util.Environment;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.GridLayout;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.*;
+import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.KeyStroke;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** A modal dialog to configure the tools available to the Architect agent. */
 public class ArchitectOptionsDialog {
-
-    private static final Logger log = LoggerFactory.getLogger(ArchitectOptionsDialog.class);
 
     private static boolean isCodeIntelConfigured(IProject project) {
         var langs = project.getAnalyzerLanguages();
@@ -75,15 +49,8 @@ public class ArchitectOptionsDialog {
         SwingUtil.runOnEdt(() -> {
             var project = chrome.getProject();
 
-            var tmpBool = false;
-            IAnalyzer currentAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (currentAnalyzer != null) {
-                tmpBool = currentAnalyzer.as(UsagesProvider.class).isPresent()
-                        || currentAnalyzer.as(CallGraphProvider.class).isPresent();
-            } else {
-                log.warn("Interrupted while determining analyzer capabilities.");
-            }
-            final var supportsInterproceduralAnalysis = tmpBool;
+            final var supportsInterproceduralAnalysis =
+                    contextManager.getAnalyzerWrapper().providesInterproceduralAnalysis();
 
             boolean codeIntelConfigured = isCodeIntelConfigured(project);
 
@@ -163,13 +130,19 @@ public class ArchitectOptionsDialog {
             workspaceCb.setSelected(currentOptions.includeWorkspaceTools());
 
             // External tools
-            var shellCb = addCheckboxRow(
-                    externalToolsPanel, "Sandboxed Shell Command", "Allow executing shell commands inside a sandbox");
-            boolean sandboxAvailable = Environment.isSandboxAvailable();
-            shellCb.setEnabled(sandboxAvailable);
-            shellCb.setSelected(currentOptions.includeShellCommand() && sandboxAvailable);
-            if (!sandboxAvailable) {
-                shellCb.setToolTipText("Sandbox execution is not available on this platform.");
+            var shellCbRef = new AtomicReference<JCheckBox>();
+            if (Boolean.getBoolean("brokk.architectshell")) {
+                var shellCb = addCheckboxRow(
+                        externalToolsPanel,
+                        "Sandboxed Shell Command",
+                        "Allow executing shell commands inside a sandbox");
+                boolean sandboxAvailable = Environment.isSandboxAvailable();
+                shellCb.setEnabled(sandboxAvailable);
+                shellCb.setSelected(currentOptions.includeShellCommand() && sandboxAvailable);
+                if (!sandboxAvailable) {
+                    shellCb.setToolTipText("Sandbox execution is not available on this platform.");
+                }
+                shellCbRef.set(shellCb);
             }
 
             var askHumanCb = addCheckboxRow(
@@ -338,6 +311,8 @@ public class ArchitectOptionsDialog {
                     }
                 }
 
+                var shellCheckbox = shellCbRef.get();
+
                 var selectedOptions = new ArchitectAgent.ArchitectOptions(
                         selectedPlanning,
                         selectedCode,
@@ -350,7 +325,7 @@ public class ArchitectOptionsDialog {
                         askHumanCb.isSelected(),
                         commitCb.isSelected(),
                         prCb.isSelected(),
-                        shellCb.isSelected(),
+                        shellCheckbox != null && shellCheckbox.isSelected(),
                         selectedMcpTools);
 
                 boolean runInWorktreeSelected = worktreeCb.isSelected();

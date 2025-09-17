@@ -8,7 +8,7 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.components.LoadingButton;
+import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.git.GitCommitBrowserPanel;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
@@ -45,7 +45,7 @@ public class CreatePullRequestDialog extends JDialog {
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
-    private LoadingButton createPrButton; // Field for the Create PR button
+    private MaterialLoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
 
@@ -477,8 +477,11 @@ public class CreatePullRequestDialog extends JDialog {
     private JPanel createButtonPanel() {
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 
-        this.createPrButton = new LoadingButton("Create PR", null, chrome, null); // Assign to field
+        this.createPrButton = new MaterialLoadingButton("Create PR", null, chrome, null); // Assign to field
         this.createPrButton.addActionListener(e -> createPullRequest());
+
+        // Style Create PR button as primary action (bright blue with white text)
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(this.createPrButton);
         buttonPanel.add(this.createPrButton);
 
         var cancelButton = new JButton("Cancel");

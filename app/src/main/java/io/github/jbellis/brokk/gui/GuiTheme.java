@@ -67,9 +67,9 @@ public class GuiTheme {
 
             // Apply the theme to the Look and Feel
             if (isDark) {
-                com.formdev.flatlaf.FlatDarkLaf.setup();
+                com.formdev.flatlaf.FlatDarculaLaf.setup();
             } else {
-                com.formdev.flatlaf.FlatLightLaf.setup();
+                com.formdev.flatlaf.FlatIntelliJLaf.setup();
             }
 
             // Register custom icons for this theme
@@ -98,6 +98,42 @@ public class GuiTheme {
         if (mainScrollPane != null) {
             mainScrollPane.revalidate();
         }
+
+        // Re-apply primary button styling for buttons that were explicitly styled earlier.
+        // We do this after updateComponentTreeUI so the components re-adopt UIManager colors.
+        SwingUtilities.invokeLater(() -> {
+            java.util.function.Consumer<Component> recurse = new java.util.function.Consumer<Component>() {
+                @Override
+                public void accept(Component c) {
+                    if (c instanceof javax.swing.AbstractButton b) {
+                        Object prop = b.getClientProperty("brokk.primaryButton");
+                        if (Boolean.TRUE.equals(prop)) {
+                            io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(b);
+                        }
+                    }
+                    if (c instanceof Container container) {
+                        for (Component child : container.getComponents()) {
+                            accept(child);
+                        }
+                    }
+                }
+            };
+
+            // Apply to the main frame content
+            recurse.accept(frame.getContentPane());
+
+            // Apply to any displayable dialogs (so buttons in dialogs also re-style)
+            for (Window w : Window.getWindows()) {
+                if (w instanceof JDialog d && d.isDisplayable()) {
+                    recurse.accept(d.getContentPane());
+                }
+            }
+
+            // Apply to tracked popup menus as well
+            for (JPopupMenu menu : popupMenus) {
+                recurse.accept(menu);
+            }
+        });
     }
 
     private static String getThemeName(boolean isDark) {

@@ -175,6 +175,7 @@ pre {
   overflow-x: scroll;
   overflow-y: hidden;
   scrollbar-width: thin; /* Firefox */
+  font-size: inherit; /* Ensure pre elements inherit font-size from parent */
 }
 
 /* WebKit scrollbar styling for horizontal scrollbars */

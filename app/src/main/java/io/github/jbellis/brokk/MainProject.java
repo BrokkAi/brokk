@@ -35,7 +35,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1107,6 +1106,7 @@ public final class MainProject extends AbstractProject {
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
     //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
     private static final String UI_SCALE_KEY = "uiScale";
+    private static final String MOP_ZOOM_KEY = "mopZoom";
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
 
     public static String getUiScalePref() {
@@ -1123,6 +1123,27 @@ public final class MainProject extends AbstractProject {
     public static void setUiScalePrefCustom(double scale) {
         var props = loadGlobalProperties();
         props.setProperty(UI_SCALE_KEY, Double.toString(scale));
+        saveGlobalProperties(props);
+    }
+
+    public static double getMopZoom() {
+        var props = loadGlobalProperties();
+        String s = props.getProperty(MOP_ZOOM_KEY, "1.0");
+        double z;
+        try {
+            z = Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            z = 1.0;
+        }
+        if (z < 0.5) z = 0.5;
+        if (z > 2.0) z = 2.0;
+        return z;
+    }
+
+    public static void setMopZoom(double zoom) {
+        double clamped = Math.max(0.5, Math.min(2.0, zoom));
+        var props = loadGlobalProperties();
+        props.setProperty(MOP_ZOOM_KEY, Double.toString(clamped));
         saveGlobalProperties(props);
     }
 
@@ -1184,41 +1205,6 @@ public final class MainProject extends AbstractProject {
 
     public static void addSettingsChangeListener(SettingsChangeListener listener) {
         settingsChangeListeners.add(listener);
-    }
-
-    // --- Keyboard Shortcuts (Global) ---
-    private static final String SHORTCUT_PREFIX = "shortcut.";
-
-    public static KeyStroke getShortcut(String id, KeyStroke defaultKeyStroke) {
-        var props = loadGlobalProperties();
-        String raw = props.getProperty(SHORTCUT_PREFIX + id);
-        if (raw == null || raw.isBlank()) return defaultKeyStroke;
-        try {
-            String[] parts = raw.split(",", 2);
-            int keyCode = Integer.parseInt(parts[0]);
-            int modifiers = Integer.parseInt(parts[1]);
-            return KeyStroke.getKeyStroke(keyCode, modifiers);
-        } catch (Exception e) {
-            logger.warn("Invalid shortcut format for {}: {}", id, raw);
-            return defaultKeyStroke;
-        }
-    }
-
-    public static void setShortcut(String id, KeyStroke keyStroke) {
-        var props = loadGlobalProperties();
-        props.setProperty(SHORTCUT_PREFIX + id, keyStroke.getKeyCode() + "," + keyStroke.getModifiers());
-        saveGlobalProperties(props);
-        notifyShortcutsChanged();
-    }
-
-    private static void notifyShortcutsChanged() {
-        for (SettingsChangeListener listener : settingsChangeListeners) {
-            try {
-                listener.shortcutsChanged();
-            } catch (Exception e) {
-                logger.error("Error notifying listener of shortcuts change", e);
-            }
-        }
     }
 
     public static void removeSettingsChangeListener(SettingsChangeListener listener) {

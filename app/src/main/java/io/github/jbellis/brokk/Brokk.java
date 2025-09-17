@@ -198,9 +198,9 @@ public class Brokk {
             SwingUtilities.invokeAndWait(() -> {
                 try {
                     if (isDark) {
-                        com.formdev.flatlaf.FlatDarkLaf.setup();
+                        com.formdev.flatlaf.FlatDarculaLaf.setup();
                     } else {
-                        com.formdev.flatlaf.FlatLightLaf.setup();
+                        com.formdev.flatlaf.FlatIntelliJLaf.setup();
                     }
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);

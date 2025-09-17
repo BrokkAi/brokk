@@ -24,7 +24,9 @@ java {
 application {
     mainClass.set("io.github.jbellis.brokk.Brokk")
     applicationDefaultJvmArgs = listOf(
-        "-Dbrokk.servicetiers=true"  // Feature flag; JavaExec baseline supplies other args
+        // enable feature flags; JavaExec baseline supplies other args
+        "-Dbrokk.servicetiers=true",
+        "-Dbrokk.architectshell=true"
     )
 }
 
@@ -75,6 +77,7 @@ dependencies {
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
     implementation(libs.disklrucache)
+    implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)

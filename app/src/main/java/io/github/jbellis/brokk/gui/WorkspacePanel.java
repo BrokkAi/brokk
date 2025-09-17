@@ -656,6 +656,7 @@ public class WorkspacePanel extends JPanel {
 
     private final PopupMenuMode popupMenuMode;
     private JPanel locSummaryPanel;
+    private JPanel summaryWithAdd;
     private JPanel warningPanel; // Panel for warning messages
     private JPanel analyzerRebuildPanel;
     private @Nullable JLabel analyzerRebuildSpinner;
@@ -669,6 +670,9 @@ public class WorkspacePanel extends JPanel {
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
+
+    // Observers for bottom-controls height changes
+    private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
 
     // Buttons
     // Table popup menu (when no row is selected)
@@ -1138,29 +1142,31 @@ public class WorkspacePanel extends JPanel {
         locSummaryPanel.add(costLabel);
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
 
-        // Add button to show Add popup (same menu as table's Add)
-        MaterialButton addButton = new MaterialButton();
-        addButton.setIcon(Icons.ATTACH_FILE);
-        addButton.setToolTipText("Add content to workspace");
-        addButton.setFocusable(false);
-        addButton.setOpaque(false);
-        addButton.addActionListener(e -> {
-            JPopupMenu popup = AddMenuFactory.buildAddPopup(WorkspacePanel.this);
-            chrome.themeManager.registerPopupMenu(popup);
-            popup.show(addButton, 0, addButton.getHeight());
-        });
-
         // Container to hold the summary labels and the add button
-        JPanel summaryWithAdd = new JPanel(new BorderLayout());
+        summaryWithAdd = new JPanel(new BorderLayout());
         summaryWithAdd.setOpaque(false);
         summaryWithAdd.add(locSummaryPanel, BorderLayout.CENTER);
 
-        // Wrap the button so it vertically centers nicely with the labels
-        JPanel buttonWrapper = new JPanel(new GridBagLayout());
-        buttonWrapper.setOpaque(false);
-        buttonWrapper.add(addButton);
+        if (popupMenuMode == PopupMenuMode.FULL) {
+            // Add button to show Add popup (same menu as table's Add)
+            var addButton = new MaterialButton();
+            addButton.setIcon(Icons.ATTACH_FILE);
+            addButton.setToolTipText("Add content to workspace");
+            addButton.setFocusable(false);
+            addButton.setOpaque(false);
+            addButton.addActionListener(e -> {
+                JPopupMenu popup = AddMenuFactory.buildAddPopup(WorkspacePanel.this);
+                chrome.themeManager.registerPopupMenu(popup);
+                popup.show(addButton, 0, addButton.getHeight());
+            });
 
-        summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+            // Wrap the button so it vertically centers nicely with the labels
+            var buttonWrapper = new JPanel(new GridBagLayout());
+            buttonWrapper.setOpaque(false);
+            buttonWrapper.add(addButton);
+
+            summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+        }
 
         contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
 
@@ -1327,6 +1333,14 @@ public class WorkspacePanel extends JPanel {
         return castNonNull(v);
     }
 
+    /** Returns the set of selected project files that are part of the current context (editable or read-only). */
+    public Set<ProjectFile> getSelectedProjectFiles() {
+        return getSelectedFragments().stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
+    }
+
     /** Populates the context table from a Context object. */
     public void populateContextTable(@Nullable Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "Not on EDT";
@@ -1483,6 +1497,9 @@ public class WorkspacePanel extends JPanel {
 
         revalidate();
         repaint();
+
+        // Notify listeners that bottom controls height may have changed
+        fireBottomControlsHeightChanged();
     }
 
     /** Called by Chrome to refresh the table if context changes */
@@ -2167,6 +2184,49 @@ public class WorkspacePanel extends JPanel {
         };
     }
 
+    /**
+     * Return the combined preferred height of the bottom controls (summary, warnings, analyzer rebuild panel) so other
+     * panels can align to it.
+     */
+    public int getBottomControlsPreferredHeight() {
+        int h = 0;
+        // Use the overall summary container (includes the add-button wrapper).
+        h += summaryWithAdd.getPreferredSize().height;
+        // Only include warning and analyzer panels when they are visible.
+        if (warningPanel.isVisible()) {
+            h += warningPanel.getPreferredSize().height;
+        }
+        if (analyzerRebuildPanel.isVisible()) {
+            h += analyzerRebuildPanel.getPreferredSize().height;
+        }
+        return h;
+    }
+
+    // --- Bottom controls height observer API ---
+
+    public interface BottomControlsListener {
+        void bottomControlsHeightChanged(int newHeight);
+    }
+
+    public void addBottomControlsListener(BottomControlsListener l) {
+        bottomControlsListeners.add(l);
+    }
+
+    public void removeBottomControlsListener(BottomControlsListener l) {
+        bottomControlsListeners.remove(l);
+    }
+
+    private void fireBottomControlsHeightChanged() {
+        int h = getBottomControlsPreferredHeight();
+        for (var l : bottomControlsListeners) {
+            try {
+                l.bottomControlsHeightChanged(h);
+            } catch (Exception ignore) {
+                // Listener exceptions should not affect UI flow
+            }
+        }
+    }
+
     /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(int inputTokens, Service service) {
         var instructionsPanel = chrome.getInstructionsPanel();
@@ -2262,6 +2322,9 @@ public class WorkspacePanel extends JPanel {
             analyzerRebuildPanel.setVisible(true);
             analyzerRebuildPanel.revalidate();
             analyzerRebuildPanel.repaint();
+
+            // Notify listeners about layout change
+            fireBottomControlsHeightChanged();
         });
     }
 
@@ -2271,6 +2334,9 @@ public class WorkspacePanel extends JPanel {
             analyzerRebuildPanel.setVisible(false);
             analyzerRebuildPanel.revalidate();
             analyzerRebuildPanel.repaint();
+
+            // Notify listeners about layout change
+            fireBottomControlsHeightChanged();
         });
     }
 

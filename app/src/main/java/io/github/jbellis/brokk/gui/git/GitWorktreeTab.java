@@ -8,7 +8,10 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
+import java.awt.event.ItemEvent;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,10 +38,10 @@ public class GitWorktreeTab extends JPanel {
 
     private JTable worktreeTable = new JTable();
     private DefaultTableModel worktreeTableModel = new DefaultTableModel();
-    private JButton addButton = new JButton();
-    private JButton removeButton = new JButton();
-    private JButton openButton = new JButton(); // Added
-    private JButton refreshButton = new JButton(); // Added
+    private MaterialButton addButton = new MaterialButton();
+    private MaterialButton removeButton = new MaterialButton();
+    private MaterialButton openButton = new MaterialButton(); // Added
+    private MaterialButton refreshButton = new MaterialButton(); // Added
 
     @org.jetbrains.annotations.Nullable
     private JButton mergeButton = null; // Added for worktree merge functionality
@@ -210,16 +213,19 @@ public class GitWorktreeTab extends JPanel {
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS));
 
         // Initialize field buttons (their properties like text, tooltip, listener)
-        addButton = new JButton("+");
+        addButton = new MaterialButton();
+        addButton.setIcon(Icons.ADD);
         addButton.setToolTipText("Add new worktree");
         addButton.addActionListener(e -> addWorktree());
 
-        removeButton = new JButton("-");
+        removeButton = new MaterialButton();
+        removeButton.setIcon(Icons.REMOVE);
         removeButton.setToolTipText("Remove selected worktree(s)");
         removeButton.setEnabled(false); // Initially disabled
         removeButton.addActionListener(e -> removeWorktree());
 
-        openButton = new JButton("Open");
+        openButton = new MaterialButton();
+        openButton.setIcon(Icons.OPEN_NEW_WINDOW);
         openButton.setToolTipText("Open selected worktree(s)");
         openButton.setEnabled(false); // Initially disabled
         openButton.addActionListener(e -> {
@@ -229,7 +235,8 @@ public class GitWorktreeTab extends JPanel {
             }
         });
 
-        refreshButton = new JButton("Refresh");
+        refreshButton = new MaterialButton();
+        refreshButton.setIcon(Icons.REFRESH);
         refreshButton.setToolTipText("Refresh the list of worktrees");
         refreshButton.addActionListener(e -> refresh());
 
@@ -638,22 +645,20 @@ public class GitWorktreeTab extends JPanel {
                 JOptionPane optionPane =
                         new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
                 JDialog dialog = optionPane.createDialog(GitWorktreeTab.this, "Add Worktree");
-                JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
+                MaterialButton okButton = new MaterialButton(UIManager.getString("OptionPane.okButtonText"));
                 okButton.addActionListener(e -> {
                     optionPane.setValue(JOptionPane.OK_OPTION);
                     dialog.dispose();
                 });
-                optionPane.setOptions(new Object[] {
-                    okButton,
-                    new JButton(UIManager.getString("OptionPane.cancelButtonText")) {
-                        {
-                            addActionListener(e -> {
-                                optionPane.setValue(JOptionPane.CANCEL_OPTION);
-                                dialog.dispose();
-                            });
-                        }
-                    }
+                io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
+
+                JButton cancelButton = new JButton(UIManager.getString("OptionPane.cancelButtonText"));
+                cancelButton.addActionListener(e -> {
+                    optionPane.setValue(JOptionPane.CANCEL_OPTION);
+                    dialog.dispose();
                 });
+
+                optionPane.setOptions(new Object[] {okButton, cancelButton});
                 dialog.getRootPane().setDefaultButton(okButton);
                 newBranchNameField.requestFocusInWindow(); // Focus the new branch name field
                 dialog.setVisible(true);
@@ -1134,63 +1139,59 @@ public class GitWorktreeTab extends JPanel {
 
         String dialogTitle = "Merge branch '" + finalWorktreeBranchName + "'";
         JOptionPane optionPane = new JOptionPane(dialogPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+
+        // Create explicit OK and Cancel buttons so we have a reliable reference to the OK button
+        JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
+        JButton cancelButton = new JButton(UIManager.getString("OptionPane.cancelButtonText"));
+
+        okButton.addActionListener(e -> {
+            optionPane.setValue(JOptionPane.OK_OPTION);
+            Window w = SwingUtilities.getWindowAncestor(okButton);
+            if (w instanceof JDialog d) d.dispose();
+        });
+        cancelButton.addActionListener(e -> {
+            optionPane.setValue(JOptionPane.CANCEL_OPTION);
+            Window w = SwingUtilities.getWindowAncestor(cancelButton);
+            if (w instanceof JDialog d) d.dispose();
+        });
+
+        optionPane.setOptions(new Object[] {okButton, cancelButton});
+        okButton.setEnabled(false); // Initially disabled until conflict check completes successfully
+
         JDialog dialog = optionPane.createDialog(this, dialogTitle);
+        dialog.getRootPane().setDefaultButton(okButton);
 
-        JButton okButton = null;
-        // Attempt to find the OK button
-        // This relies on the internal structure of JOptionPane, which can vary by Look and Feel
-        // A more robust solution might involve iterating deeper or custom button components.
-        for (Component comp : optionPane.getComponents()) {
-            if (comp instanceof JPanel buttonBar) { // JPanel often contains buttons
-                for (Component btnComp : buttonBar.getComponents()) {
-                    if (btnComp instanceof JButton jButton
-                            && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                        okButton = jButton;
-                        break;
-                    }
-                }
-                if (okButton != null) break;
-            }
-        }
-        if (okButton == null) {
-            // Fallback: Try a simpler structure if the above fails
-            Component[] components = optionPane.getComponents();
-            // Typically, buttons are at the end, in a JPanel, or directly.
-            // This is a simplified search and might need adjustment based on L&F.
-            for (int i = components.length - 1; i >= 0; i--) {
-                if (components[i] instanceof JPanel panel) {
-                    for (Component c : panel.getComponents()) {
-                        if (c instanceof JButton jButton
-                                && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                            okButton = jButton;
-                            break;
-                        }
-                    }
-                } else if (components[i] instanceof JButton jButton
-                        && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                    okButton = jButton;
-                }
-                if (okButton != null) break;
-            }
-        }
-
-        // Add ActionListeners to combo boxes
+        // Add listeners to re-check conflicts on selection changes (both Action and Item to be robust)
         final JButton finalOkButton = okButton; // effectively final for lambda
         targetBranchComboBox.addActionListener(e -> checkConflictsAsync(
                 targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
         mergeModeComboBox.addActionListener(e -> checkConflictsAsync(
                 targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
 
-        if (okButton != null) {
-            // Initial conflict check, now passing the button
-            checkConflictsAsync(
-                    targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, okButton);
-        } else {
-            logger.warn("Could not find the OK button in the merge dialog. OK button state will not be managed.");
-            // Fallback: perform an initial check without button control if OK button not found
-            checkConflictsAsync(
-                    targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, null);
-        }
+        targetBranchComboBox.addItemListener(e -> {
+            if (e.getStateChange() == ItemEvent.SELECTED) {
+                checkConflictsAsync(
+                        targetBranchComboBox,
+                        mergeModeComboBox,
+                        conflictStatusLabel,
+                        finalWorktreeBranchName,
+                        finalOkButton);
+            }
+        });
+        mergeModeComboBox.addItemListener(e -> {
+            if (e.getStateChange() == ItemEvent.SELECTED) {
+                checkConflictsAsync(
+                        targetBranchComboBox,
+                        mergeModeComboBox,
+                        conflictStatusLabel,
+                        finalWorktreeBranchName,
+                        finalOkButton);
+            }
+        });
+
+        // Initial conflict check with the explicit OK button reference
+        checkConflictsAsync(
+                targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton);
 
         dialog.setVisible(true);
         Object selectedValue = optionPane.getValue();

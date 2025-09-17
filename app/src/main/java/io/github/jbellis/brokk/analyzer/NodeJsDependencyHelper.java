@@ -100,7 +100,7 @@ public final class NodeJsDependencyHelper {
 
             var display = meta.name.isEmpty()
                     ? dir.getFileName().toString()
-                    : (meta.version.isEmpty() ? meta.name : meta.name + " " + meta.version);
+                    : (meta.version.isEmpty() ? meta.name : meta.name + "@" + meta.version);
 
             long files = countNodeFiles(dir);
             var kind = pickKind(meta.name, deps, devDeps, peerDeps);
@@ -129,11 +129,15 @@ public final class NodeJsDependencyHelper {
             return false;
         }
 
+        var meta = readPackageJson(sourceRoot.resolve("package.json"));
+        var folderName = (meta != null && !meta.name.isEmpty())
+                ? toSafeFolderName(meta.name, meta.version)
+                : pkg.displayName().replace("/", "__");
         var targetRoot = chrome.getProject()
                 .getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
                 .resolve(AbstractProject.DEPENDENCIES_DIR)
-                .resolve(pkg.displayName());
+                .resolve(folderName);
 
         final var currentListener = lifecycle;
         if (currentListener != null) {
@@ -270,6 +274,32 @@ public final class NodeJsDependencyHelper {
     }
 
     // ---- helpers ----
+
+    private static String toSafeFolderName(String name, String version) {
+        var base = version.isEmpty() ? name : name + "@" + version;
+        return base.replace("/", "__");
+    }
+
+    /**
+     * Reads a package.json located inside the given directory.
+     *
+     * @param packageDir directory that may contain a package.json
+     * @return NodePackage metadata if present and parsable; null otherwise
+     */
+    public static @Nullable NodePackage readPackageJsonFromDir(Path packageDir) {
+        return readPackageJson(packageDir.resolve("package.json"));
+    }
+
+    /**
+     * Builds a human-friendly display name ("name version") from NodePackage metadata. If version is empty, returns
+     * just the name. Returns empty string if name is empty.
+     */
+    public static String displayNameFrom(NodePackage pkg) {
+        var name = pkg.name;
+        var version = pkg.version;
+        if (name.isEmpty()) return "";
+        return version.isEmpty() ? name : name + "@" + version;
+    }
 
     private static @Nullable NodePackage readPackageJson(Path pkgJsonPath) {
         try {

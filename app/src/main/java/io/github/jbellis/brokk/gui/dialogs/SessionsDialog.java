@@ -356,11 +356,24 @@ public class SessionsDialog extends JDialog {
         // Update workspace panel with selected context
         workspacePanel.populateContextTable(context);
 
-        // Update MOP with parsed output if available
-        if (context.getParsedOutput() != null) {
-            markdownOutputPanel.setText(context.getParsedOutput());
+        // Update MOP with task history if available
+        var taskHistory = context.getTaskHistory();
+        if (taskHistory.isEmpty()) {
+            // Fall back to parsed output for contexts that are not part of a task history
+            if (context.getParsedOutput() != null) {
+                markdownOutputPanel.replaceHistory(List.of()); // explicit history clear
+                markdownOutputPanel.setText(context.getParsedOutput());
+            } else {
+                markdownOutputPanel.clear(); // clears main view and history
+            }
         } else {
-            markdownOutputPanel.clear();
+            var history = taskHistory.subList(0, taskHistory.size() - 1);
+            var main = taskHistory.getLast();
+            // render first the last message, then the history
+            markdownOutputPanel.setText(main);
+            SwingUtilities.invokeLater(() -> {
+                markdownOutputPanel.replaceHistory(history);
+            });
         }
     }
 
@@ -478,9 +491,12 @@ public class SessionsDialog extends JDialog {
                 }
                 java.util.concurrent.CompletableFuture.allOf(
                                 futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                        .thenRun(() -> {
+                        .whenComplete((Void v, @Nullable Throwable t) -> {
                             SwingUtilities.invokeLater(this::refreshSessionsTable);
                             contextManager.getProject().getMainProject().sessionsListChanged();
+                            if (t != null) {
+                                chrome.toolError("Error deleting session:\n" + t.getMessage());
+                            }
                         });
             }
         });

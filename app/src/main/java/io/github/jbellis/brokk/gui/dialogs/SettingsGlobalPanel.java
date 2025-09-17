@@ -1,13 +1,14 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.McpToolTable;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -35,7 +36,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
-import javax.swing.KeyStroke;
 import javax.swing.border.Border;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
@@ -46,10 +46,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class SettingsGlobalPanel extends JPanel implements ThemeAware {
+public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
     public static final String MODELS_TAB_TITLE = "Favorite Models"; // Used for targeting this tab
-    public static final String SHORTCUTS_TAB_TITLE = "Keyboard Shortcuts"; // Targeting title
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh
@@ -72,7 +71,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
 
     @Nullable
-    private JTextField gitHubTokenField; // Null if GitHub tab not shown
+    private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
@@ -89,7 +88,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
-    private JPanel shortcutsPanel;
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
         this.chrome = chrome;
@@ -97,6 +95,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
         loadSettings();
+
+        // Register for settings change notifications
+        MainProject.addSettingsChangeListener(this);
     }
 
     private void initComponents() {
@@ -114,18 +115,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         var quickModelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, quickModelsPanel, "Define model aliases (shortcuts)");
 
-        // Keyboard Shortcuts Tab
-        shortcutsPanel = createShortcutsPanel();
-        globalSubTabbedPane.addTab(SHORTCUTS_TAB_TITLE, null, shortcutsPanel, "Customize keyboard shortcuts");
-
         // GitHub Tab (conditionally added)
         var project = chrome.getProject();
         boolean shouldShowGitHubTab = project.isGitHubRepo();
 
         if (shouldShowGitHubTab) {
-            var gitHubPanel = createGitHubPanel();
+            gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
             globalSubTabbedPane.addTab(
-                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubPanel, "GitHub integration settings");
+                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
         }
 
         // MCP Servers Tab
@@ -241,47 +238,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         servicePanel.add(Box.createVerticalGlue(), gbc);
 
         return servicePanel;
-    }
-
-    private JPanel createGitHubPanel() {
-        var gitHubPanel = new JPanel(new GridBagLayout());
-        gitHubPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 5, 2, 5);
-        gbc.anchor = GridBagConstraints.WEST;
-        int row = 0;
-
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gitHubPanel.add(new JLabel("GitHub Token:"), gbc);
-
-        gitHubTokenField = new JTextField(20);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gitHubPanel.add(gitHubTokenField, gbc);
-
-        var explanationLabel = new JLabel(
-                "<html>This token is used to access GitHub APIs. It should have read and write access to Pull Requests and Issues.</html>");
-        explanationLabel.setFont(explanationLabel
-                .getFont()
-                .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-        gbc.insets = new Insets(2, 5, 8, 5);
-        gitHubPanel.add(explanationLabel, gbc);
-        gbc.insets = new Insets(2, 5, 2, 5);
-
-        gbc.gridy = row;
-        gbc.weighty = 1.0;
-        gbc.fill = GridBagConstraints.VERTICAL;
-        gitHubPanel.add(Box.createVerticalGlue(), gbc);
-
-        return gitHubPanel;
     }
 
     private void updateSignupLabelVisibility() {
@@ -476,8 +432,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        var addButton = new JButton("Add");
-        var removeButton = new JButton("Remove");
+        var addButton = new MaterialButton();
+        addButton.setIcon(Icons.ADD);
+        addButton.setToolTipText("Add favorite model");
+        var removeButton = new MaterialButton();
+        removeButton.setIcon(Icons.REMOVE);
+        removeButton.setToolTipText("Remove selected favorite model");
         buttonPanel.add(addButton);
         buttonPanel.add(removeButton);
 
@@ -594,12 +554,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
         // GitHub Tab
-        if (gitHubTokenField != null) { // Only if panel was created
-            gitHubTokenField.setText(MainProject.getGitHubToken());
+        if (gitHubSettingsPanel != null) {
+            gitHubSettingsPanel.loadSettings();
         }
-
-        // Shortcuts Tab
-        refreshShortcutsPanel();
 
         // MCP Servers Tab
         mcpServersListModel.clear();
@@ -724,17 +681,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
-        // GitHub Tab
-        if (gitHubTokenField != null) {
-            String newToken = gitHubTokenField.getText().trim();
-            if (!newToken.equals(MainProject.getGitHubToken())) {
-                MainProject.setGitHubToken(newToken);
-                GitHubAuth.invalidateInstance();
-                logger.debug("Applied GitHub Token");
-            }
+        // GitHub Tab - managed via Connect/Disconnect flow
+        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+            return false;
         }
-
-        // Shortcuts Tab has no staged edits; changes are persisted immediately on edit
 
         // MCP Servers Tab
         var servers = new ArrayList<McpServer>();
@@ -2266,228 +2216,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
     }
 
-    // --- Shortcuts Tab (minimal read/edit UI) ---
-    private JPanel createShortcutsPanel() {
-        var panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        var tableModel = new javax.swing.table.DefaultTableModel(new Object[] {"Action", "Shortcut", ""}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return column == 2; // Only Edit button column
-            }
-        };
-        var table = new JTable(tableModel);
-        table.setRowHeight(table.getRowHeight() + 4);
-
-        var editRenderer = new javax.swing.table.TableCellRenderer() {
-            private final JButton button = new JButton("Edit");
-
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable t, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
-                return button;
-            }
-        };
-        var editEditor = new DefaultCellEditor(new JCheckBox()) {
-            private final JButton button = new JButton("Edit");
-
-            {
-                button.addActionListener(e -> {
-                    int row = table.getEditingRow();
-                    if (row < 0) return;
-                    String id = (String) table.getValueAt(row, 0);
-                    KeyStroke current = resolveShortcut(id, defaultFor(id));
-                    KeyStroke captured = captureKeyStroke(panel, current);
-                    MainProject.setShortcut(id, captured);
-                    table.setValueAt(formatKeyStroke(captured), row, 1);
-                    fireEditingStopped();
-                });
-            }
-
-            @Override
-            public Component getTableCellEditorComponent(JTable t, Object value, boolean isSelected, int row, int col) {
-                return button;
-            }
-        };
-
-        table.getColumnModel().getColumn(2).setCellRenderer(editRenderer);
-        table.getColumnModel().getColumn(2).setCellEditor(editEditor);
-
-        var restoreButton = new JButton("Restore Defaults");
-        restoreButton.addActionListener(e -> {
-            for (int i = 0; i < tableModel.getRowCount(); i++) {
-                String id = (String) tableModel.getValueAt(i, 0);
-                KeyStroke def = defaultFor(id);
-                MainProject.setShortcut(id, def);
-                tableModel.setValueAt(formatKeyStroke(def), i, 1);
-            }
-        });
-
-        panel.add(new JScrollPane(table), BorderLayout.CENTER);
-        var south = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        south.add(restoreButton);
-        panel.add(south, BorderLayout.SOUTH);
-
-        // Populate initially
-        Runnable populate = () -> {
-            tableModel.setRowCount(0);
-            Object[][] rows = new Object[][] {
-                // Instructions panel shortcuts
-                {"instructions.submit", formatKeyStroke(resolveShortcut("instructions.submit", defaultSubmit())), "Edit"
-                },
-                {
-                    "instructions.toggleMode",
-                    formatKeyStroke(resolveShortcut("instructions.toggleMode", defaultToggleMode())),
-                    "Edit"
-                },
-                {
-                    "instructions.togglePlanOrSearch",
-                    formatKeyStroke(resolveShortcut("instructions.togglePlanOrSearch", defaultTogglePlanOrSearch())),
-                    "Edit"
-                },
-                {
-                    "instructions.openPlanOptions",
-                    formatKeyStroke(resolveShortcut("instructions.openPlanOptions", defaultOpenPlanOptions())),
-                    "Edit"
-                },
-
-                // Global text editing shortcuts
-                {"global.undo", formatKeyStroke(resolveShortcut("global.undo", defaultUndo())), "Edit"},
-                {"global.redo", formatKeyStroke(resolveShortcut("global.redo", defaultRedo())), "Edit"},
-                {"global.copy", formatKeyStroke(resolveShortcut("global.copy", defaultCopy())), "Edit"},
-                {"global.paste", formatKeyStroke(resolveShortcut("global.paste", defaultPaste())), "Edit"},
-
-                // Voice and interface
-                {
-                    "global.toggleMicrophone",
-                    formatKeyStroke(resolveShortcut("global.toggleMicrophone", defaultToggleMicrophone())),
-                    "Edit"
-                },
-
-                // Panel navigation
-                {
-                    "panel.switchToProjectFiles",
-                    formatKeyStroke(resolveShortcut("panel.switchToProjectFiles", defaultSwitchToProjectFiles())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToChanges",
-                    formatKeyStroke(resolveShortcut("panel.switchToChanges", defaultSwitchToChanges())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToWorktrees",
-                    formatKeyStroke(resolveShortcut("panel.switchToWorktrees", defaultSwitchToWorktrees())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToLog",
-                    formatKeyStroke(resolveShortcut("panel.switchToLog", defaultSwitchToLog())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToPullRequests",
-                    formatKeyStroke(resolveShortcut("panel.switchToPullRequests", defaultSwitchToPullRequests())),
-                    "Edit"
-                },
-                {
-                    "panel.switchToIssues",
-                    formatKeyStroke(resolveShortcut("panel.switchToIssues", defaultSwitchToIssues())),
-                    "Edit"
-                },
-
-                // General navigation
-                {
-                    "global.closeWindow",
-                    formatKeyStroke(resolveShortcut("global.closeWindow", defaultCloseWindow())),
-                    "Edit"
-                },
-                {
-                    "global.focusSearch",
-                    formatKeyStroke(resolveShortcut("global.focusSearch", defaultFocusSearch())),
-                    "Edit"
-                }
-            };
-            for (Object[] r : rows) tableModel.addRow(r);
-        };
-        populate.run();
-
-        // Keep a handle to refresh from loadSettings
-        panel.putClientProperty("populateShortcutsTable", populate);
-        return panel;
-    }
-
-    private void refreshShortcutsPanel() {
-        Object r = shortcutsPanel.getClientProperty("populateShortcutsTable");
-        if (r instanceof Runnable run) run.run();
-    }
-
-    private static KeyStroke resolveShortcut(String id, KeyStroke def) {
-        return MainProject.getShortcut(id, def);
-    }
-
-    private static String formatKeyStroke(KeyStroke ks) {
-        return java.awt.event.InputEvent.getModifiersExText(ks.getModifiers())
-                + (ks.getModifiers() == 0 ? "" : "+")
-                + java.awt.event.KeyEvent.getKeyText(ks.getKeyCode());
-    }
-
-    private static KeyStroke captureKeyStroke(Component parent, KeyStroke current) {
-        final KeyStroke[] captured = {current};
-        java.awt.Frame owner = javax.swing.JOptionPane.getFrameForComponent(parent);
-        JDialog dlg = new JDialog(owner, "Press new shortcut", true);
-        dlg.setLayout(new BorderLayout());
-        var label = new JLabel(
-                "Press a key combination with at least one modifier (Ctrl/Alt/Shift). Esc to cancel.",
-                SwingConstants.CENTER);
-        label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        dlg.add(label, BorderLayout.CENTER);
-        dlg.setSize(420, 120);
-        dlg.setLocationRelativeTo(parent);
-
-        java.awt.KeyEventDispatcher dispatcher = e -> {
-            if (e.getID() != java.awt.event.KeyEvent.KEY_PRESSED) return false;
-            if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
-                captured[0] = current;
-                dlg.dispose();
-                return true;
-            }
-            // Ignore pure modifier keys
-            if (e.getKeyCode() == java.awt.event.KeyEvent.VK_SHIFT
-                    || e.getKeyCode() == java.awt.event.KeyEvent.VK_CONTROL
-                    || e.getKeyCode() == java.awt.event.KeyEvent.VK_ALT
-                    || e.getKeyCode() == java.awt.event.KeyEvent.VK_META) {
-                return true; // consume but keep dialog open
-            }
-            int mods = e.getModifiersEx();
-            int requiredMask = java.awt.event.InputEvent.SHIFT_DOWN_MASK
-                    | java.awt.event.InputEvent.CTRL_DOWN_MASK
-                    | java.awt.event.InputEvent.ALT_DOWN_MASK
-                    | java.awt.event.InputEvent.META_DOWN_MASK;
-            // Require at least one modifier; if none, keep dialog open
-            if ((mods & requiredMask) == 0) {
-                return true;
-            }
-            captured[0] = KeyStroke.getKeyStroke(e.getKeyCode(), mods);
-            dlg.dispose();
-            return true;
-        };
-
-        java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher);
-        try {
-            dlg.setVisible(true);
-        } finally {
-            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher);
+    // SettingsChangeListener implementation
+    @Override
+    public void gitHubTokenChanged() {
+        if (gitHubSettingsPanel != null) {
+            gitHubSettingsPanel.gitHubTokenChanged();
         }
-        return captured[0];
-    }
-
-    // Instructions panel defaults
-    private static KeyStroke defaultSubmit() {
-        return KeyStroke.getKeyStroke(
-                java.awt.event.KeyEvent.VK_ENTER,
-                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
     }
 
     private static KeyStroke defaultToggleMode() {
@@ -2623,5 +2357,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
             default -> defaultSubmit();
         };
+    @Override
+    public void removeNotify() {
+        super.removeNotify();
+        MainProject.removeSettingsChangeListener(this);
     }
 }

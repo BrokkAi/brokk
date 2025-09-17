@@ -8,6 +8,13 @@ import java.util.Optional;
 /** Represents a named code element (class, function, field, or module). */
 public class CodeUnit implements Comparable<CodeUnit> {
 
+    /** Controls which name to use when matching or displaying symbols. */
+    public enum NameType {
+        SHORT_NAME,
+        FQ_NAME,
+        IDENTIFIER
+    }
+
     @JsonProperty("source")
     private final ProjectFile source;
 

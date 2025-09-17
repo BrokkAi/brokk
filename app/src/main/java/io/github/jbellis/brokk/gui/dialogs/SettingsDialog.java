@@ -3,9 +3,11 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
+import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -23,8 +25,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private SettingsGlobalPanel globalSettingsPanel;
     private SettingsProjectPanel projectSettingsPanel;
 
-    private final JButton okButton;
-    private final JButton cancelButton;
+    private final MaterialButton okButton;
+    private final javax.swing.JButton cancelButton;
     private final JButton applyButton;
 
     private boolean proxySettingsChanged = false; // Track if proxy needs restart
@@ -40,9 +42,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
 
         // Create buttons first, as they might be passed to panels
-        okButton = new JButton("OK");
+        okButton = new MaterialButton("OK");
         cancelButton = new JButton("Cancel");
         applyButton = new JButton("Apply");
+
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
 
         // Global Settings Panel
         globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
@@ -68,6 +72,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
         cancelButton.addActionListener(e -> {
+            // Cancel any ongoing background GitHub authentication
+            BackgroundGitHubAuth.cancelCurrentAuth();
             dispose();
             // No restart needed if cancelled
         });
@@ -88,6 +94,15 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
                 cancelButton.doClick();
+            }
+        });
+
+        // Add window listener to handle window close events
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                // Cancel any ongoing background GitHub authentication when window closes
+                BackgroundGitHubAuth.cancelCurrentAuth();
             }
         });
 
@@ -268,8 +283,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         contentPanel.add(tempProjectPanelForRetention, BorderLayout.CENTER);
 
-        var okButtonDialog = new JButton("OK");
-        var cancelButtonDialog = new JButton("Cancel");
+        var okButtonDialog = new MaterialButton("OK");
+        io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButtonDialog);
+        var cancelButtonDialog = new MaterialButton("Cancel");
         var buttonPanelDialog = new JPanel(new FlowLayout(FlowLayout.CENTER));
         buttonPanelDialog.add(okButtonDialog);
         buttonPanelDialog.add(cancelButtonDialog);

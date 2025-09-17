@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -89,6 +90,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
     private @Nullable TtyConnector connector;
     private final @Nullable BrokkJediTermWidget widget;
     private final @Nullable MutableSettingsProvider terminalSettings;
+    private final CompletableFuture<TerminalPanel> readyFuture = new CompletableFuture<>();
 
     /**
      * New constructor that optionally omits the built-in header and sets initial working directory.
@@ -268,6 +270,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         if (w != null) {
             w.setTtyConnector(connector);
             w.start();
+            readyFuture.complete(this);
         }
 
         // Focus the terminal after startup
@@ -320,6 +323,25 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         if (w != null) {
             w.requestFocusInWindow();
         }
+    }
+
+    public void pasteText(String text) {
+        var c = connector;
+        if (c != null && !text.isEmpty()) {
+            try {
+                c.write(text.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception ex) {
+                logger.debug("Error pasting text into terminal", ex);
+            }
+        }
+    }
+
+    public boolean isReady() {
+        return readyFuture.isDone();
+    }
+
+    public CompletableFuture<TerminalPanel> whenReady() {
+        return readyFuture;
     }
 
     @Override

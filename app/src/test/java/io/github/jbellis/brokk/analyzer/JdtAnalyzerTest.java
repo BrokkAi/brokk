@@ -87,7 +87,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void extractMethodSource() {
-        final var sourceOpt = analyzer.getMethodSource("A.method2");
+        final var sourceOpt = analyzer.getMethodSource("A.method2", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
         final String expected =
@@ -109,7 +109,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void extractMethodSourceNested() {
-        final var sourceOpt = analyzer.getMethodSource("A$AInner$AInnerInner.method7");
+        final var sourceOpt = analyzer.getMethodSource("A$AInner$AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
 
@@ -127,7 +127,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void extractMethodSourceConstructor() {
-        final var sourceOpt = analyzer.getMethodSource("B.B"); // TODO: Should we handle <init>?
+        final var sourceOpt = analyzer.getMethodSource("B.B", true); // TODO: Should we handle <init>?
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
 
@@ -145,7 +145,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void getClassSourceTest() {
-        final var sourceOpt = analyzer.getClassSource("A");
+        final var sourceOpt = analyzer.getClassSource("A", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains class definition and methods
@@ -156,7 +156,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void getClassSourceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A$AInner");
+        final var sourceOpt = analyzer.getClassSource("A$AInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
@@ -177,7 +177,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void getClassSourceTwiceNestedTest() {
-        final var sourceOpt = analyzer.getClassSource("A$AInner$AInnerInner");
+        final var sourceOpt = analyzer.getClassSource("A$AInner$AInnerInner", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
@@ -196,7 +196,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void getClassSourceFallbackTest() {
-        final var sourceOpt = analyzer.getClassSource("A$NonExistent");
+        final var sourceOpt = analyzer.getClassSource("A$NonExistent", true);
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().stripIndent();
         // Verify that the class fallback works if subclasses (or anonymous classes) aren't resolved
@@ -207,7 +207,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void getClassSourceNonexistentTest() {
-        final var maybeSource = analyzer.getClassSource("NonExistentClass");
+        final var maybeSource = analyzer.getClassSource("NonExistentClass", true);
         assertTrue(maybeSource.isEmpty());
     }
 
@@ -325,6 +325,8 @@ public class JdtAnalyzerTest {
                 "A.AInner",
                 "A.AInner.AInnerInner",
                 "A.AInnerStatic",
+                "AnnotatedClass",
+                "AnnotatedClass.InnerHelper",
                 "AnonymousUsage",
                 "AnonymousUsage.NestedClass",
                 "B",
@@ -332,6 +334,7 @@ public class JdtAnalyzerTest {
                 "C",
                 "C.Foo",
                 "CamelClass",
+                "CustomAnnotation",
                 "CyclicMethods",
                 "D",
                 "D.DSub",
@@ -419,6 +422,16 @@ public class JdtAnalyzerTest {
         // Expect references in B.callsIntoA() because it calls a.method2("test")
         final var actualRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertEquals(Set.of("B.callsIntoA", "AnonymousUsage.foo$anon$5:12"), actualRefs);
+    }
+
+    @Test
+    public void getUsesNestedClassConstructorTest() {
+        final var symbol = "A$AInner.AInner";
+        final var usages = analyzer.getUses(symbol);
+
+        // Expect references in B.callsIntoA() because it calls a.method2("test")
+        final var actualRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(Set.of("A.usesInnerClass"), actualRefs);
     }
 
     @Test

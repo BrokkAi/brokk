@@ -50,7 +50,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener, SettingsChangeListener {
+public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Used as the default text for the background tasks label
@@ -398,9 +398,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Create a right-hand Dependencies drawer beside the Workspace
         workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
-        workspaceDependenciesSplit.setResizeWeight(1.0); // Give priority to workspace on resize
+        workspaceDependenciesSplit.setResizeWeight(0.67); // Give more space to workspace by default
         workspaceDependenciesSplit.setLeftComponent(workspacePanel);
         workspaceDependenciesSplit.setRightComponent(dependenciesDrawerPanel);
+        // Open dependencies drawer before first layout to avoid initial motion
+        dependenciesDrawerPanel.openInitially();
 
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
@@ -509,9 +511,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Register global keyboard shortcuts now that actions are fully initialized
         registerGlobalKeyboardShortcuts();
-
-        // Register for settings changes to update shortcuts
-        MainProject.addSettingsChangeListener(this);
 
         // Show the window
         frame.setVisible(true);
@@ -830,47 +829,68 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void registerGlobalKeyboardShortcuts() {
         var rootPane = frame.getRootPane();
 
-        // Text editing shortcuts with customizable keys
-        var undoKeyStroke = MainProject.getShortcut(
-                "global.undo",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_Z));
+        // Cmd/Ctrl+Z => undo
+        var undoKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(undoKeyStroke, "globalUndo");
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
-        var redoKeyStroke = MainProject.getShortcut(
-                "global.redo",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_Z));
+        // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
+        var redoKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+        // For Windows/Linux, Ctrl+Y is also common for redo
+        var redoYKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(redoKeyStroke, "globalRedo");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(redoYKeyStroke, "globalRedo");
         rootPane.getActionMap().put("globalRedo", globalRedoAction);
 
-        var copyKeyStroke = MainProject.getShortcut(
-                "global.copy",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_C));
+        // Cmd/Ctrl+C => global copy
+        var copyKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(copyKeyStroke, "globalCopy");
         rootPane.getActionMap().put("globalCopy", globalCopyAction);
 
-        var pasteKeyStroke = MainProject.getShortcut(
-                "global.paste",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_V));
+        // Cmd/Ctrl+V => global paste
+        var pasteKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(pasteKeyStroke, "globalPaste");
         rootPane.getActionMap().put("globalPaste", globalPasteAction);
 
-        // Voice interface shortcut
-        var toggleMicKeyStroke = MainProject.getShortcut(
-                "global.toggleMicrophone",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L));
+        // Cmd/Ctrl+L => toggle microphone
+        var toggleMicKeyStroke =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
-        // Panel navigation shortcuts with customizable keys
-        int defaultModifier =
+        // Cmd/Ctrl+M => toggle Code/Answer mode
+        var toggleModeKeyStroke =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleModeKeyStroke, "toggleCodeAnswer");
+        rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        instructionsPanel.toggleCodeAnswerMode();
+                        systemOutput("Toggled Code/Answer mode");
+                    } catch (Exception ex) {
+                        logger.warn("Error toggling Code/Answer mode via shortcut", ex);
+                    }
+                });
+            }
+        });
+
+        // Register IntelliJ-style shortcuts for switching sidebar panels
+        // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
+        int modifier =
                 System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
                         ? KeyEvent.META_DOWN_MASK
                         : KeyEvent.ALT_DOWN_MASK;
 
         // Alt/Cmd+1 for Project Files
-        var switchToProjectFiles = MainProject.getShortcut(
-                "panel.switchToProjectFiles", KeyStroke.getKeyStroke(KeyEvent.VK_1, defaultModifier));
+        var switchToProjectFiles = KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToProjectFiles, "switchToProjectFiles");
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
             @Override
@@ -881,8 +901,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+2 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
-            var switchToChanges = MainProject.getShortcut(
-                    "panel.switchToChanges", KeyStroke.getKeyStroke(KeyEvent.VK_2, defaultModifier));
+            var switchToChanges = KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToChanges, "switchToChanges");
             rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
                 @Override
@@ -895,8 +914,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+3 for Worktrees
         if (gitWorktreeTab != null) {
-            var switchToWorktrees = MainProject.getShortcut(
-                    "panel.switchToWorktrees", KeyStroke.getKeyStroke(KeyEvent.VK_3, defaultModifier));
+            var switchToWorktrees = KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
@@ -909,8 +927,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+4 for Log
         if (gitLogTab != null) {
-            var switchToLog = MainProject.getShortcut(
-                    "panel.switchToLog", KeyStroke.getKeyStroke(KeyEvent.VK_4, defaultModifier));
+            var switchToLog = KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
@@ -923,8 +940,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+5 for Pull Requests panel (if available)
         if (pullRequestsPanel != null) {
-            var switchToPR = MainProject.getShortcut(
-                    "panel.switchToPullRequests", KeyStroke.getKeyStroke(KeyEvent.VK_5, defaultModifier));
+            var switchToPR = KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
@@ -937,8 +953,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+6 for Issues panel (if available)
         if (issuesPanel != null) {
-            var switchToIssues = MainProject.getShortcut(
-                    "panel.switchToIssues", KeyStroke.getKeyStroke(KeyEvent.VK_6, defaultModifier));
+            var switchToIssues = KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
@@ -960,60 +975,41 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(closeWindowKeyStroke, "closeWindow");
         rootPane.getActionMap().put("closeWindow", new AbstractAction() {
+          
+        // Zoom shortcuts: Ctrl/Cmd + Plus, Minus, 0
+        var zoomInKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var zoomInEqualsKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var zoomOutKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var resetZoomKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInKeyStroke, "zoomIn");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInEqualsKeyStroke, "zoomIn");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomOutKeyStroke, "zoomOut");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(resetZoomKeyStroke, "resetZoom");
+
+        rootPane.getActionMap().put("zoomIn", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
+                historyOutputPanel.getLlmStreamArea().zoomIn();
             }
         });
-    }
 
-    private void clearGlobalShortcuts() {
-        var rootPane = frame.getRootPane();
-        var inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        var actionMap = rootPane.getActionMap();
-
-        // Clear existing customizable shortcuts
-        String[] actionNames = {
-            "globalUndo",
-            "globalRedo",
-            "globalCopy",
-            "globalPaste",
-            "globalToggleMic",
-            "switchToProjectFiles",
-            "switchToChanges",
-            "switchToWorktrees",
-            "switchToLog",
-            "switchToPullRequests",
-            "switchToIssues",
-            "closeWindow"
-        };
-
-        // Remove old keystroke mappings for these actions
-        KeyStroke[] keysToRemove = inputMap.keys();
-        if (keysToRemove != null) {
-            for (KeyStroke ks : keysToRemove) {
-                Object actionKey = inputMap.get(ks);
-                for (String actionName : actionNames) {
-                    if (actionName.equals(actionKey)) {
-                        inputMap.remove(ks);
-                        break;
-                    }
-                }
+        rootPane.getActionMap().put("zoomOut", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().zoomOut();
             }
-        }
+        });
 
-        // Remove the actions
-        for (String actionName : actionNames) {
-            actionMap.remove(actionName);
-        }
-    }
-
-    @Override
-    public void shortcutsChanged() {
-        SwingUtilities.invokeLater(() -> {
-            // Clear old shortcuts and re-register with updated values
-            clearGlobalShortcuts();
-            registerGlobalKeyboardShortcuts();
+        rootPane.getActionMap().put("resetZoom", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().resetZoom();
+            }
         });
     }
 
@@ -1843,6 +1839,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public HistoryOutputPanel getHistoryOutputPanel() {
         return historyOutputPanel;
+    }
+
+    public TerminalDrawerPanel getTerminalDrawer() {
+        return terminalDrawer;
     }
 
     public Action getGlobalUndoAction() {

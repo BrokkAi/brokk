@@ -20,8 +20,10 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.VoiceInputButton;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import io.github.jbellis.brokk.util.Messages;
@@ -63,13 +65,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private final GenericSearchBar searchBar;
 
     @Nullable
-    private JButton editButton;
+    private MaterialButton editButton;
 
     @Nullable
-    private JButton captureButton;
+    private MaterialButton captureButton;
 
     @Nullable
-    private JButton saveButton;
+    private MaterialButton saveButton;
 
     private final ContextManager contextManager;
 
@@ -124,7 +126,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Save button (conditionally added for ProjectFile)
         if (file != null) {
             // Use the field saveButton directly
-            saveButton = new JButton("Save");
+            saveButton = new MaterialButton("Save");
+            SwingUtilities.invokeLater(() -> requireNonNull(saveButton).setIcon(Icons.SAVE));
             saveButton.setEnabled(false); // Initially disabled
             saveButton.addActionListener(e -> {
                 performSave(saveButton); // Call the extracted save method, passing the button itself
@@ -135,7 +138,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Capture button (conditionally added for GitHistoryFragment)
         if (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
             var ghf = (ContextFragment.GitFileFragment) fragment;
-            captureButton = new JButton("Capture this Revision");
+            captureButton = new MaterialButton("Capture this Revision");
+            SwingUtilities.invokeLater(() -> requireNonNull(captureButton).setIcon(Icons.CONTENT_CAPTURE));
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
@@ -151,7 +155,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             var text = (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE)
                     ? "Edit Current Version"
                     : "Edit File";
-            editButton = new JButton(text);
+            editButton = new MaterialButton(text);
+            SwingUtilities.invokeLater(() -> requireNonNull(editButton).setIcon(Icons.EDIT_DOCUMENT));
             var finalEditButton = editButton; // Final reference for lambda
             if (contextManager.getEditableFiles().contains(file)) {
                 finalEditButton.setEnabled(false);
@@ -174,7 +179,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Add document listener to enable/disable save button based on changes
         if (saveButton != null) {
             // Use the final reference created for the ActionListener
-            final JButton finalSaveButtonRef = saveButton;
+            final MaterialButton finalSaveButtonRef = saveButton;
             textArea.getDocument().addDocumentListener(new DocumentListener() {
                 @Override
                 public void insertUpdate(DocumentEvent e) {

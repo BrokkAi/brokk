@@ -116,7 +116,7 @@ public class SymbolSelectionPanel extends JPanel {
             }
 
             // Get completions using the brokk Completions utility
-            var completions = Completions.completeSymbols(text, analyzer);
+            var completions = Completions.completeSymbols(text, analyzer, Completions.nameTypeForPattern(text));
 
             // Convert to RSTA completions, filtering by the requested types
             var L = completions.stream()

@@ -226,10 +226,11 @@ public class PhpAnalyzerTest {
 
     @Test
     void testGetMethodSource() {
-        Optional<String> sourceOpt = analyzer.getMethodSource("My.Lib.Foo.getValue");
+        Optional<String> sourceOpt = analyzer.getMethodSource("My.Lib.Foo.getValue", true);
         assertTrue(sourceOpt.isPresent());
         String expectedSource =
                 """
+        /** Some doc */
         public function getValue(): int {
                 return $this->value;
             }"""; // Keep original indentation from test file
@@ -238,7 +239,7 @@ public class PhpAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
         assertEquals(normalize.apply(expectedSource), normalize.apply(sourceOpt.get()));
 
-        Optional<String> constructorSourceOpt = analyzer.getMethodSource("My.Lib.Foo.__construct");
+        Optional<String> constructorSourceOpt = analyzer.getMethodSource("My.Lib.Foo.__construct", true);
         assertTrue(constructorSourceOpt.isPresent());
         String expectedConstructorSource =
                 """
@@ -254,7 +255,7 @@ public class PhpAnalyzerTest {
     void testGetClassSource() {
         Optional<CodeUnit> fooClassCUOpt = analyzer.getDefinition("My.Lib.Foo");
         assertTrue(fooClassCUOpt.isPresent());
-        final var sourceOpt = analyzer.getClassSource("My.Lib.Foo");
+        final var sourceOpt = analyzer.getClassSource("My.Lib.Foo", true);
         assertTrue(sourceOpt.isPresent());
         final var classSource = sourceOpt.get().stripIndent();
         String expectedSourceStart = "#[Attribute1]\nclass Foo extends BaseFoo implements IFoo, IBar {";

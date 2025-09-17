@@ -28,13 +28,15 @@ public class AnalyzerUtil {
             if (!methodUses.isEmpty()) {
                 Map<String, List<String>> groupedMethods = new LinkedHashMap<>();
                 for (var cu : methodUses) {
-                    var source = sourceCodeProvider.getMethodSource(cu.fqName());
+                    var source = sourceCodeProvider.getMethodSource(cu.fqName(), true);
                     if (source.isPresent()) {
                         String classname = ContextFragment.toClassname(cu.fqName());
                         groupedMethods
                                 .computeIfAbsent(classname, k -> new ArrayList<>())
                                 .add(source.get());
                         sources.add(cu);
+                    } else {
+                        logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
                     }
                 }
                 if (!groupedMethods.isEmpty()) {
@@ -210,7 +212,7 @@ public class AnalyzerUtil {
             if (!methodName.isBlank()) {
                 // Attempt to get the source code for the method
                 analyzer.as(SourceCodeProvider.class)
-                        .flatMap(scp -> scp.getMethodSource(methodName))
+                        .flatMap(scp -> scp.getMethodSource(methodName, true))
                         // If source is found, add it to the map with a header comment
                         .ifPresent(methodSource ->
                                 sources.put(methodName, "// Source for " + methodName + "\n" + methodSource));
@@ -242,7 +244,7 @@ public class AnalyzerUtil {
             if (!className.isBlank()) {
                 // Attempt to get the source code for the class
                 analyzer.as(SourceCodeProvider.class)
-                        .flatMap(scp -> scp.getClassSource(className))
+                        .flatMap(scp -> scp.getClassSource(className, true))
                         .filter(classSource -> !classSource.isEmpty())
                         .ifPresent(classSource -> {
                             // If source is found, format it with a header and add to the map

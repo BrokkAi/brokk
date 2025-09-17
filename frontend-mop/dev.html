@@ -12,6 +12,8 @@
     #dev-tools {
         margin: 1em;
     }
+
+    /* Zoom Widget styles are now in global.scss */
 </style>
 <body>
 <div id="dev-tools">
@@ -724,12 +726,20 @@ window.brokk = {
   clear: () => {
     eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
   },
-  setTheme: (dark) => {
+  setTheme: (dark, isDevMode, zoom) => {
     themeStore.set(dark);
     if (dark) {
       document.body.classList.add('theme-dark');
     } else {
       document.body.classList.remove('theme-dark');
+    }
+    if (zoom !== undefined) {
+      console.log('[Mock setTheme] Setting zoom:', zoom);
+      try {
+        localStorage.setItem('brokk.zoom', String(zoom));
+      } catch (e) {
+        // ignore
+      }
     }
   },
   showSpinner: (message) => {
@@ -784,12 +794,20 @@ window.brokk = {
   clear: () => {
     eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
   },
-  setTheme: (dark) => {
+  setTheme: (dark, isDevMode, zoom) => {
     themeStore.set(dark);
     if (dark) {
       document.body.classList.add('theme-dark');
     } else {
       document.body.classList.remove('theme-dark');
+    }
+    if (zoom !== undefined) {
+      console.log('[Mock setTheme] Setting zoom:', zoom);
+      try {
+        localStorage.setItem('brokk.zoom', String(zoom));
+      } catch (e) {
+        // ignore
+      }
     }
   },
   showSpinner: (message) => {

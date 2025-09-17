@@ -426,7 +426,7 @@ class CodeAgentTest {
         codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
 
-        var result = codeAgent.runTask("A request that results in no edits", false);
+        var result = codeAgent.runTask("A request that results in no edits", Set.of());
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertTrue(result.changedFiles().isEmpty());
@@ -473,7 +473,7 @@ class CodeAgentTest {
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
-        var result = codeAgent.runTask("change hello to goodbye", false);
+        var result = codeAgent.runTask("change hello to goodbye", Set.of());
 
         assertEquals(TaskResult.StopReason.BUILD_ERROR, result.stopDetails().reason());
         assertTrue(result.stopDetails().explanation().contains("Compiler error on line 5"));

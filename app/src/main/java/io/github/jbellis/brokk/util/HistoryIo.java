@@ -412,51 +412,44 @@ public final class HistoryIo {
         private final Map<String, ContentMetadataDto> contentMetadata = new HashMap<>();
         private final Map<String, byte[]> contentBytes = new HashMap<>();
         private final Map<String, String> fileKeyToLastContentId = new HashMap<>();
-        private final Map<String, String> fullContentToId = new HashMap<>();
         private final Map<String, String> idToFullContent = new HashMap<>();
 
         public String writeContent(String content, @Nullable String fileKey) {
+            byte[] fullContentBytes = content.getBytes(StandardCharsets.UTF_8);
+            var contentId = UUID.nameUUIDFromBytes(fullContentBytes).toString();
+
+            if (idToFullContent.containsKey(contentId)) {
+                if (fileKey != null) {
+                    fileKeyToLastContentId.put(fileKey, contentId);
+                }
+                return contentId;
+            }
+
+            idToFullContent.put(contentId, content);
+
             int revision = 1;
             if (fileKey != null) {
                 var lastContentId = fileKeyToLastContentId.get(fileKey);
+                fileKeyToLastContentId.put(fileKey, contentId);
                 if (lastContentId != null) {
                     var lastContent = idToFullContent.get(lastContentId);
                     var lastMetadata = contentMetadata.get(lastContentId);
                     if (lastContent != null && lastMetadata != null) {
-                        if (content.equals(lastContent)) {
-                            return lastContentId;
-                        }
                         revision = lastMetadata.revision() + 1;
                         var diff = ContentDiffUtils.diff(lastContent, content);
                         var diffRatio = (double) diff.length() / content.length();
                         if (diffRatio < 0.75) {
-                            // Make sure not to take diff bytes for UUID generation, because two diffs can be
-                            // the same but apply to different contents
-                            var contentId = UUID.nameUUIDFromBytes(content.getBytes(StandardCharsets.UTF_8))
-                                    .toString();
                             contentMetadata.put(contentId, new DiffContentMetadataDto(revision, lastContentId));
                             contentBytes.put(contentId, diff.getBytes(StandardCharsets.UTF_8));
-                            fileKeyToLastContentId.put(fileKey, contentId);
-                            idToFullContent.put(contentId, content);
                             return contentId;
                         }
                     }
                 }
             }
 
-            var existingId = fullContentToId.get(content);
-            if (existingId != null) {
-                if (fileKey != null) fileKeyToLastContentId.put(fileKey, existingId);
-                return existingId;
-            }
-
-            byte[] fullContentBytes = content.getBytes(StandardCharsets.UTF_8);
-            var contentId = UUID.nameUUIDFromBytes(fullContentBytes).toString();
             contentMetadata.put(contentId, new FullContentMetadataDto(revision));
             contentBytes.put(contentId, fullContentBytes);
-            fullContentToId.put(content, contentId);
-            if (fileKey != null) fileKeyToLastContentId.put(fileKey, contentId);
-            idToFullContent.put(contentId, content);
+
             return contentId;
         }
 

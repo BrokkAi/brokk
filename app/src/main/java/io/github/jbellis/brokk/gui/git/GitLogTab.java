@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -193,8 +194,16 @@ public class GitLogTab extends JPanel {
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var fetchButton = new LoadingButton(
-                "Fetch", null, // no idle icon
-                chrome, null); // ActionListener added below
+                "",
+                Icons.DOWNLOAD, // icon-only button
+                chrome,
+                null); // ActionListener added below
+        fetchButton.setText(""); // icon-only
+        fetchButton.setMargin(new Insets(2, 2, 2, 2)); // small padding to match other material buttons
+        // More descriptive tooltip and accessible description
+        fetchButton.setToolTipText("<html><b>Fetch (all remotes)</b><br/>"
+                + "Download updates from all remotes. This fetches objects and refs but does not merge or modify "
+                + "local branches. Use to update remote refs, discover new branches or tags.</html>");
         branchButtonPanel.add(fetchButton);
         branchesPanel.add(branchButtonPanel, BorderLayout.SOUTH);
 

@@ -226,26 +226,26 @@ public class SearchAgent {
         // System role: similar to Architect, with stronger emphasis on pruning
         var sys = new SystemMessage(
                 """
-            You are the Search Agent.
-            Your job:
-              - find and organize code relevant to the user's question or implementation goal,
-              - aggressively curate the Workspace so a Code Agent can implement next without confusion,
-              - never write code yourself.
+                        You are the Search Agent.
+                        Your job:
+                          - find and organize code relevant to the user's question or implementation goal,
+                          - aggressively curate the Workspace so a Code Agent can implement next without confusion,
+                          - never write code yourself.
 
-            Critical rules:
-              1) At EVERY TURN, drop irrelevant fragments from the Workspace.
-                 Prefer summaries over full files. Replace long fragments with concise summaries of content related to the goal first,
-                 then drop the originals.
-              2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-              3) The symbol-based tools only have visibility into the following file types: %s
-                 Use text-based tools if you need to search other file types.
-              4) Group related lookups into a single call when possible.
-              5) Make multiple tool calls at once when searching for different types of code.
+                        Critical rules:
+                          1) At EVERY TURN, drop irrelevant fragments from the Workspace.
+                             Prefer summaries over full files. Replace long fragments with concise summaries of content related to the goal first,
+                             then drop the originals.
+                          2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                          3) The symbol-based tools only have visibility into the following file types: %s
+                             Use text-based tools if you need to search other file types.
+                          4) Group related lookups into a single call when possible.
+                          5) Make multiple tool calls at once when searching for different types of code.
 
-            Output discipline:
-              - Think before calling tools.
-              - If you already know what to add, use Workspace tools directly; do not search redundantly.
-            """
+                        Output discipline:
+                          - Think before calling tools.
+                          - If you already know what to add, use Workspace tools directly; do not search redundantly.
+                        """
                         .formatted(cm.getProject().getAnalyzerLanguages().stream()
                                 .map(Language::name)
                                 .collect(Collectors.joining(", "))));
@@ -260,13 +260,13 @@ public class SearchAgent {
         if (!ac.isBlank()) {
             messages.add(new UserMessage(
                     """
-                <related_classes>
-                These MAY be relevant. They are NOT in the Workspace yet.
-                Add summaries or sources if needed; otherwise ignore them.
+                            <related_classes>
+                            These MAY be relevant. They are NOT in the Workspace yet.
+                            Add summaries or sources if needed; otherwise ignore them.
 
-                %s
-                </related_classes>
-                """
+                            %s
+                            </related_classes>
+                            """
                             .stripIndent()
                             .formatted(ac)));
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
@@ -283,18 +283,18 @@ public class SearchAgent {
             if (pct > 90.0) {
                 warning =
                         """
-                    CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                    You MUST reduce Workspace size immediately before any further exploration.
-                    Replace full text with summaries and drop non-essential fragments first.
-                    """
+                                CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                                You MUST reduce Workspace size immediately before any further exploration.
+                                Replace full text with summaries and drop non-essential fragments first.
+                                """
                                 .stripIndent()
                                 .formatted(pct, workspaceTokens, minInputLimit);
             } else if (pct > 60.0) {
                 warning =
                         """
-                    NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
-                    Prefer summaries and prune aggressively before expanding further.
-                    """
+                                NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
+                                Prefer summaries and prune aggressively before expanding further.
+                                """
                                 .stripIndent()
                                 .formatted(pct, workspaceTokens, minInputLimit);
             }
@@ -302,19 +302,19 @@ public class SearchAgent {
 
         String directive =
                 """
-            <goal>
-            %s
-            </goal>
+                        <goal>
+                        %s
+                        </goal>
 
-            Decide the next tool action(s) to make progress toward answering the question and preparing the Workspace
-            for follow-on code changes. If you already have enough to answer, use answerSearch. If we cannot answer,
-            use abortSearch with a clear explanation.
+                        Decide the next tool action(s) to make progress toward answering the question and preparing the Workspace
+                        for follow-on code changes. If you already have enough to answer, use answerSearch. If we cannot answer,
+                        use abortSearch with a clear explanation.
 
-            You can call multiple tools in a single turn. To do so, provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
-            Do NOT invoke multiple answer/abort actions. Do NOT write code.
+                        You can call multiple tools in a single turn. To do so, provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
+                        Do NOT invoke multiple answer/abort actions. Do NOT write code.
 
-            %s
-            """
+                        %s
+                        """
                         .stripIndent()
                         .formatted(goal, warning);
 
@@ -322,12 +322,12 @@ public class SearchAgent {
         if (beastMode) {
             directive = directive
                     + """
-                <beast-mode>
-                The Workspace is full or execution was interrupted.
-                Finalize now using the best available information.
-                Prefer answerSearch; otherwise use abortSearch with reasons.
-                </beast-mode>
-                """
+                    <beast-mode>
+                    The Workspace is full or execution was interrupted.
+                    Finalize now using the best available information.
+                    Prefer answerSearch; otherwise use abortSearch with reasons.
+                    </beast-mode>
+                    """
                             .stripIndent();
         }
 
@@ -345,29 +345,22 @@ public class SearchAgent {
 
         // Analyzer-backed exploration
         names.add("searchSymbols");
-        try {
-            var currentAnalyzer = cm.getAnalyzerWrapper().get();
+        var analyzerWrapper = cm.getAnalyzerWrapper();
 
-            if (currentAnalyzer.as(UsagesProvider.class).isPresent()) {
-                names.add("getUsages");
-                names.add("getRelatedClasses");
-            }
+        if (analyzerWrapper.providesSummaries()) {
+            names.add("getClassSkeletons");
+        }
 
-            if (currentAnalyzer.as(SkeletonProvider.class).isPresent()) {
-                names.add("getClassSkeletons");
-            }
+        if (analyzerWrapper.providesSourceCode()) {
+            names.add("getClassSources");
+            names.add("getMethodSources");
+        }
 
-            if (currentAnalyzer.as(SourceCodeProvider.class).isPresent()) {
-                names.add("getClassSources");
-                names.add("getMethodSources");
-            }
-
-            if (currentAnalyzer.as(CallGraphProvider.class).isPresent()) {
-                names.add("getCallGraphTo");
-                names.add("getCallGraphFrom");
-            }
-        } catch (InterruptedException e) {
-            logger.warn("Interrupted while determining analyzer capabilities.");
+        if (analyzerWrapper.providesInterproceduralAnalysis()) {
+            names.add("getUsages");
+            names.add("getRelatedClasses");
+            names.add("getCallGraphTo");
+            names.add("getCallGraphFrom");
         }
 
         // Text-based search
@@ -576,27 +569,27 @@ public class SearchAgent {
             throws RuntimeException {
         var sys = new SystemMessage(
                 """
-            You are a code expert extracting ALL information relevant to the given goal
-            from the provided tool call result.
+                        You are a code expert extracting ALL information relevant to the given goal
+                        from the provided tool call result.
 
-            Your output will be given to the agent running the search, and replaces the raw result.
-            Thus, you must include every relevant class/method name and any
-            relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
-            """
+                        Your output will be given to the agent running the search, and replaces the raw result.
+                        Thus, you must include every relevant class/method name and any
+                        relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
+                        """
                         .stripIndent());
 
         var user = new UserMessage(
                 """
-            <goal>
-            %s
-            </goal>
-            <reasoning>
-            %s
-            </reasoning>
-            <tool name="%s">
-            %s
-            </tool>
-            """
+                        <goal>
+                        %s
+                        </goal>
+                        <reasoning>
+                        %s
+                        </reasoning>
+                        <tool name="%s">
+                        %s
+                        </tool>
+                        """
                         .stripIndent()
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
         Llm.StreamingResult sr;
@@ -617,6 +610,9 @@ public class SearchAgent {
     // =======================
 
     private ToolExecutionRequest handleDuplicateRequestIfNeeded(ToolExecutionRequest request) {
+        if (!cm.getAnalyzerWrapper().providesInterproceduralAnalysis()) {
+            return request;
+        }
         var requestSignatures = createToolCallSignatures(request);
         if (toolCallSignatures.stream().anyMatch(requestSignatures::contains)) {
             logger.debug("Duplicate call detected for {}; forging getRelatedClasses", request.name());
@@ -642,15 +638,15 @@ public class SearchAgent {
         var mapper = new ObjectMapper();
         try {
             return """
-                   { "%s": %s }
-                   """
+                    { "%s": %s }
+                    """
                     .stripIndent()
                     .formatted(param, mapper.writeValueAsString(values));
         } catch (JsonProcessingException e) {
             logger.error("Error serializing array for {}", param, e);
             return """
-                   { "%s": [] }
-                   """
+                    { "%s": [] }
+                    """
                     .stripIndent()
                     .formatted(param);
         }

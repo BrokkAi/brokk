@@ -116,8 +116,7 @@ public class ImportDependencyDialog {
             var project = chrome.getProject();
             for (var lang : project.getAnalyzerLanguages()) {
                 try {
-                    var candidates = lang.getDependencyCandidates(project);
-                    if (candidates.isEmpty()) continue; // requirement: skip languages with no candidates
+                    if (lang.getDependencyImportSupport() == Language.ImportSupport.NONE) continue;
 
                     var lp = new ImportLanguagePanel(chrome, lang);
                     lp.setLifecycleListener(listener);
@@ -206,30 +205,42 @@ public class ImportDependencyDialog {
             gbc.gridx = 1;
             gbc.gridy = 0;
             gbc.weightx = 1.0;
-            gbc.gridwidth = 2;
+            gbc.gridwidth = 1;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             panel.add(gitUrlField, gbc);
 
-            // Row 1: Button
-            gbc.gridx = 1;
-            gbc.gridy = 1;
+            // Row 0: Load Tags & Branches Button
+            gbc.gridx = 2;
+            gbc.gridy = 0;
+            gbc.weightx = 0;
+            gbc.gridwidth = 1;
+            gbc.fill = GridBagConstraints.NONE;
             panel.add(validateGitRepoButton, gbc);
 
-            // Row 2: Branch/Tag Label
+            // Row 1: Branch/Tag Label
             gbc.gridx = 0;
-            gbc.gridy = 2;
+            gbc.gridy = 1;
             gbc.weightx = 0;
             gbc.gridwidth = 1;
             gbc.fill = GridBagConstraints.NONE;
             panel.add(new JLabel("Branch/Tag:"), gbc);
 
-            // Row 2: Branch/Tag Combo
+            // Row 1: Branch/Tag Combo
             gbc.gridx = 1;
-            gbc.gridy = 2;
+            gbc.gridy = 1;
             gbc.weightx = 1.0;
             gbc.gridwidth = 2;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             panel.add(gitRefComboBox, gbc);
+
+            // Spacer to push content to top
+            gbc.gridx = 0;
+            gbc.gridy = 2;
+            gbc.weightx = 0;
+            gbc.weighty = 1.0;
+            gbc.gridwidth = 3;
+            gbc.fill = GridBagConstraints.VERTICAL;
+            panel.add(new JPanel(), gbc);
 
             panel.setBorder(new EmptyBorder(5, 5, 5, 5));
 

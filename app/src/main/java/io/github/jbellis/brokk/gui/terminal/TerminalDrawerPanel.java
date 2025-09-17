@@ -4,16 +4,17 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
-import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,7 +30,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     // Core components
     private final JPanel drawerContentPanel;
     private final JPanel drawerToolBar;
-    private final JToggleButton terminalToggle;
+    private final MaterialToggleButton terminalToggle;
     private @Nullable TerminalPanel activeTerminal;
 
     // Drawer state management
@@ -60,12 +61,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         drawerToolBar.setOpaque(false);
         drawerToolBar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        terminalToggle = new JToggleButton(Icons.TERMINAL);
+        terminalToggle = new MaterialToggleButton(Icons.TERMINAL);
         terminalToggle.setToolTipText("Toggle Terminal");
-        terminalToggle.setContentAreaFilled(false);
+        terminalToggle.setBorderHighlightOnly(true);
         terminalToggle.setFocusPainted(false);
         terminalToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         terminalToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // Edge selection highlight is applied by MaterialToggleButton; LAF handles hover background.
+
         drawerToolBar.add(terminalToggle);
 
         add(drawerToolBar, BorderLayout.EAST);
@@ -77,38 +81,65 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         // Wire the toggle to create/show/hide a TerminalPanel
         terminalToggle.addActionListener(ev -> {
             if (terminalToggle.isSelected()) {
-                if (activeTerminal == null) {
-                    createTerminal();
-                } else {
-                    showDrawer();
-                    activeTerminal.requestFocusInTerminal();
-                }
+                openTerminal();
             } else {
                 if (activeTerminal != null) {
                     hideTerminalDrawer();
                 }
             }
         });
+
+        // Ensure drawer is initially collapsed (hides the split divider and reserves space for the toolbar).
+        // Use invokeLater so parentSplitPane has valid size when collapseIfEmpty() runs.
+        SwingUtilities.invokeLater(this::collapseIfEmpty);
     }
 
     /** Opens the terminal in the drawer. If already open, ensures it has focus. */
     public void openTerminal() {
-        SwingUtilities.invokeLater(() -> {
-            if (!terminalToggle.isSelected()) {
-                terminalToggle.doClick();
-                return;
-            }
-
-            if (activeTerminal == null) {
-                createTerminal();
-            } else {
-                showDrawer();
-                activeTerminal.requestFocusInTerminal();
-            }
+        openTerminalAsync().exceptionally(ex -> {
+            logger.debug("Failed to open terminal", ex);
+            return null;
         });
     }
 
     /** Closes the terminal and collapses the drawer if empty. */
+    public CompletableFuture<TerminalPanel> openTerminalAsync() {
+        var promise = new CompletableFuture<TerminalPanel>();
+        SwingUtilities.invokeLater(() -> {
+            try {
+                if (activeTerminal == null) {
+                    createTerminal();
+                } else {
+                    showDrawer();
+                    terminalToggle.setSelected(true);
+                }
+                var term = activeTerminal;
+                if (term == null) {
+                    promise.completeExceptionally(new IllegalStateException("Terminal not available"));
+                    return;
+                }
+
+                if (term.isReady()) {
+                    term.requestFocusInTerminal();
+                    promise.complete(term);
+                } else {
+                    term.whenReady()
+                            .thenAccept(t -> SwingUtilities.invokeLater(() -> {
+                                t.requestFocusInTerminal();
+                                promise.complete(t);
+                            }))
+                            .exceptionally(ex -> {
+                                promise.completeExceptionally(ex);
+                                return null;
+                            });
+                }
+            } catch (Exception ex) {
+                promise.completeExceptionally(ex);
+            }
+        });
+        return promise;
+    }
+
     public void closeTerminal() {
         SwingUtilities.invokeLater(() -> {
             if (activeTerminal != null) {
@@ -159,13 +190,26 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             // Remove minimum size constraint from this drawer panel
             setMinimumSize(null);
 
-            // Use saved location if reasonable, otherwise default to 50/50 split
-            double loc = lastDividerLocation;
-            if (loc <= 0.0 || loc >= 1.0) {
-                loc = 0.5;
-            }
+            // Use pixel-precise divider positioning for the initial 50/50 case to avoid rounding bias
+            parentSplitPane.revalidate();
+            parentSplitPane.repaint();
 
-            parentSplitPane.setDividerLocation(loc);
+            int totalWidth = parentSplitPane.getWidth();
+            int dividerSize = parentSplitPane.getDividerSize();
+            double locProp = lastDividerLocation;
+
+            if (totalWidth > 0 && Math.abs(locProp - 0.5) < 1e-6) {
+                // Ensure the two sides are exactly equal (excluding divider)
+                int half = (totalWidth - dividerSize) / 2;
+                parentSplitPane.setDividerLocation(half);
+            } else {
+                // Use the stored proportion if available, otherwise default to 0.5
+                if (locProp > 0.0 && locProp < 1.0) {
+                    parentSplitPane.setDividerLocation(locProp);
+                } else {
+                    parentSplitPane.setDividerLocation(0.5);
+                }
+            }
         });
     }
 
@@ -186,10 +230,12 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
                     // Calculate the minimum width needed for the toolbar
                     int toolbarWidth = drawerToolBar.getPreferredSize().width;
-                    final int MIN_COLLAPSE_WIDTH = Math.max(32, toolbarWidth + 8);
+                    final int MIN_COLLAPSE_WIDTH = toolbarWidth;
 
                     int totalWidth = parentSplitPane.getWidth();
                     if (totalWidth <= 0) {
+                        // Not laid out yet; try again on the next event cycle
+                        SwingUtilities.invokeLater(this::collapseIfEmpty);
                         return;
                     }
 
@@ -214,6 +260,21 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 }
             }
         });
+    }
+
+    public void openTerminalAndPasteText(String text) {
+        openTerminalAsync()
+                .thenAccept(tp -> {
+                    try {
+                        tp.pasteText(text);
+                    } catch (Exception e) {
+                        logger.debug("Error pasting text into terminal", e);
+                    }
+                })
+                .exceptionally(ex -> {
+                    logger.debug("Failed to open terminal and paste text", ex);
+                    return null;
+                });
     }
 
     @Override
@@ -243,7 +304,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             drawerContentPanel.repaint();
             showDrawer();
             terminalToggle.setSelected(true);
-            terminal.requestFocusInTerminal();
         } catch (Exception ex) {
             logger.warn("Failed to create terminal in drawer: {}", ex.getMessage());
             terminalToggle.setSelected(false);

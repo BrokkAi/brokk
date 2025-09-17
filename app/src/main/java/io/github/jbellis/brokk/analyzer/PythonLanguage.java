@@ -55,6 +55,26 @@ public class PythonLanguage implements Language {
         return createAnalyzer(project);
     }
 
+    @Override
+    public boolean providesSummaries() {
+        return true;
+    }
+
+    @Override
+    public boolean providesSourceCode() {
+        return true;
+    }
+
+    @Override
+    public boolean providesInterproceduralAnalysis() {
+        return false;
+    }
+
+    @Override
+    public ImportSupport getDependencyImportSupport() {
+        return ImportSupport.BASIC;
+    }
+
     private List<Path> findVirtualEnvs(@Nullable Path root) {
         if (root == null) return List.of();
         List<Path> envs = new ArrayList<>();

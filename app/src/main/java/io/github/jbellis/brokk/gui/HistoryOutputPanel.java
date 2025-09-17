@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
@@ -50,8 +51,8 @@ public class HistoryOutputPanel extends JPanel {
     private final ContextManager contextManager;
     private final JTable historyTable;
     private final DefaultTableModel historyModel;
-    private final JButton undoButton;
-    private final JButton redoButton;
+    private final MaterialButton undoButton;
+    private final MaterialButton redoButton;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
@@ -72,7 +73,7 @@ public class HistoryOutputPanel extends JPanel {
     @Nullable
     private JTextArea captureDescriptionArea; // This one seems to be intentionally nullable or less strictly managed
 
-    private final JButton copyButton;
+    private final MaterialButton copyButton;
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
@@ -96,7 +97,10 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
-        this.copyButton = new JButton("Copy");
+        this.copyButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            this.copyButton.setIcon(Icons.CONTENT_COPY);
+        });
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
 
@@ -109,8 +113,8 @@ public class HistoryOutputPanel extends JPanel {
         };
         this.historyTable = new JTable(this.historyModel);
         this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
-        this.undoButton = new JButton("Undo");
-        this.redoButton = new JButton("Redo");
+        this.undoButton = new MaterialButton();
+        this.redoButton = new MaterialButton();
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("New");
         this.manageSessionsButton = new SplitButton("Manage");
@@ -171,7 +175,7 @@ public class HistoryOutputPanel extends JPanel {
         sessionSwitchPanel.add(contentPanel, BorderLayout.NORTH);
     }
 
-    private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, JButton copyButton) {
+    private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, MaterialButton copyButton) {
         // Build capture output panel (copyButton is passed in)
         var capturePanel = buildCaptureOutputPanel(copyButton);
 
@@ -365,17 +369,7 @@ public class HistoryOutputPanel extends JPanel {
                     int row = historyTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
                         Context context = (Context) requireNonNull(historyModel.getValueAt(row, 2));
-                        var output = context.getParsedOutput();
-                        if (output != null) {
-                            // Open in new window
-                            String titleHint = context.getAction();
-                            new OutputWindow(
-                                    HistoryOutputPanel.this,
-                                    output,
-                                    titleHint,
-                                    chrome.themeManager.isDarkTheme(),
-                                    false);
-                        }
+                        openOutputWindowFromContext(context);
                     }
                 }
             }
@@ -432,11 +426,17 @@ public class HistoryOutputPanel extends JPanel {
         undoButton.addActionListener(e -> {
             contextManager.undoContextAsync();
         });
+        SwingUtilities.invokeLater(() -> {
+            undoButton.setIcon(Icons.UNDO);
+        });
 
         redoButton.setMnemonic(KeyEvent.VK_Y);
         redoButton.setToolTipText("Redo the most recently undone entry");
         redoButton.addActionListener(e -> {
             contextManager.redoContextAsync();
+        });
+        SwingUtilities.invokeLater(() -> {
+            redoButton.setIcon(Icons.REDO);
         });
 
         buttonPanel.add(undoButton);
@@ -616,7 +616,7 @@ public class HistoryOutputPanel extends JPanel {
     // buildCommandResultLabel removed
 
     /** Builds the "Capture Output" panel with a horizontal layout: [Capture Text] */
-    private JPanel buildCaptureOutputPanel(JButton copyButton) {
+    private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 
@@ -649,7 +649,10 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new JButton("Capture");
+        var captureButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            captureButton.setIcon(Icons.CONTENT_CAPTURE);
+        });
         captureButton.setMnemonic(KeyEvent.VK_C);
         captureButton.setToolTipText("Add the output to context");
         captureButton.addActionListener(e -> {
@@ -660,39 +663,22 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new JButton("Open in New Window");
+        var openWindowButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
+        });
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
             if (llmStreamArea.isBlocking()) {
-                // show all = grab all messages, including reasoning for preview window
-                List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
-                var tempFragment =
-                        new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-                String titleHint = lastSpinnerMessage;
-                OutputWindow newStreamingWindow =
-                        new OutputWindow(this, tempFragment, titleHint, chrome.themeManager.isDarkTheme(), true);
-                if (lastSpinnerMessage != null) {
-                    newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
-                }
-                activeStreamingWindows.add(newStreamingWindow);
-                newStreamingWindow.addWindowListener(new WindowAdapter() {
-                    @Override
-                    public void windowClosed(WindowEvent evt) {
-                        activeStreamingWindows.remove(newStreamingWindow);
-                    }
-                });
+                openOutputWindowStreaming();
             } else {
                 var context = contextManager.selectedContext();
                 if (context == null) {
                     logger.warn("Cannot open output in new window: current context is null.");
                     return;
                 }
-                var output = context.getParsedOutput();
-                if (output != null) {
-                    String titleHint = context.getAction();
-                    new OutputWindow(this, output, titleHint, chrome.themeManager.isDarkTheme(), false);
-                }
+                openOutputWindowFromContext(context);
             }
         });
         // Set minimum size
@@ -728,7 +714,7 @@ public class HistoryOutputPanel extends JPanel {
         // prioritize rendering live area, then history
         setLlmOutput(main);
         SwingUtilities.invokeLater(() -> {
-            llmStreamArea.syncHistory(history);
+            llmStreamArea.replaceHistory(history);
         });
     }
 
@@ -812,22 +798,65 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
+    private void openOutputWindowFromContext(Context context) {
+        var taskHistory = context.getTaskHistory();
+        TaskEntry mainTask = null;
+        List<TaskEntry> historyTasks = List.of();
+        if (!taskHistory.isEmpty()) {
+            historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+            mainTask = taskHistory.getLast();
+        } else {
+            var output = context.getParsedOutput();
+            if (output != null) {
+                mainTask = new TaskEntry(-1, output, null);
+            }
+        }
+        if (mainTask != null) {
+            String titleHint = context.getAction();
+            new OutputWindow(this, historyTasks, mainTask, titleHint, chrome.themeManager.isDarkTheme(), false);
+        }
+    }
+
+    private void openOutputWindowStreaming() {
+        // show all = grab all messages, including reasoning for preview window
+        List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
+        var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var history = contextManager.topContext().getTaskHistory();
+        var mainTask = new TaskEntry(-1, tempFragment, null);
+        String titleHint = lastSpinnerMessage;
+        OutputWindow newStreamingWindow =
+                new OutputWindow(this, history, mainTask, titleHint, chrome.themeManager.isDarkTheme(), true);
+        if (lastSpinnerMessage != null) {
+            newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
+        }
+        activeStreamingWindows.add(newStreamingWindow);
+        newStreamingWindow.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent evt) {
+                activeStreamingWindows.remove(newStreamingWindow);
+            }
+        });
+    }
+
     /** Inner class representing a detached window for viewing output text */
     private static class OutputWindow extends JFrame {
         private final IProject project;
         private final MarkdownOutputPanel outputPanel;
 
         /**
-         * Creates a new output window with the given text content
+         * Creates a new output window with the given content and optional history.
          *
          * @param parentPanel The parent HistoryOutputPanel
-         * @param output The messages (ai, user, ...) to display
+         * @param history The conversation tasks to display in the history section (all but the main task)
+         * @param main The main/last task to display in the live area
          * @param titleHint A hint for the window title (e.g., task summary or spinner message)
          * @param isDark Whether to use dark theme
+         * @param isBlockingMode Whether the window shows a streaming (in-progress) output
          */
         public OutputWindow(
                 HistoryOutputPanel parentPanel,
-                ContextFragment.TaskFragment output,
+                List<TaskEntry> history,
+                TaskEntry main,
                 @Nullable String titleHint,
                 boolean isDark,
                 boolean isBlockingMode) {
@@ -852,7 +881,11 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
             outputPanel.updateTheme(isDark);
             outputPanel.setBlocking(isBlockingMode);
-            outputPanel.setText(output);
+            // Seed main content first, then history
+            outputPanel.setText(main);
+            SwingUtilities.invokeLater(() -> {
+                outputPanel.replaceHistory(history);
+            });
 
             // Create toolbar panel with capture button if not in blocking mode
             JPanel toolbarPanel = null;
@@ -860,7 +893,7 @@ public class HistoryOutputPanel extends JPanel {
                 toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
                 toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
 
-                JButton captureButton = new JButton("Capture");
+                MaterialButton captureButton = new MaterialButton("Capture");
                 captureButton.setToolTipText("Add the output to context");
                 captureButton.addActionListener(e -> {
                     parentPanel.contextManager.captureTextFromContextAsync();

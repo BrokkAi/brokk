@@ -122,13 +122,8 @@ public class MultiFileSelectionDialog extends JDialog {
         }
 
         // --- Create Classes Tab (if requested) ---
-        if (modes.contains(SelectionMode.CLASSES)) {
-            var analyzer = analyzerWrapper.getNonBlocking();
-            if (analyzer != null && analyzer.as(SkeletonProvider.class).isPresent()) {
-                tabbedPane.addTab("Classes", createClassSelectionPanel());
-            } else {
-                logger.warn("Analyzer either not yet ready, or does not support providing summaries.");
-            }
+        if (modes.contains(SelectionMode.CLASSES) && analyzerWrapper.providesSummaries()) {
+            tabbedPane.addTab("Classes", createClassSelectionPanel());
         }
 
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
@@ -489,9 +484,10 @@ public class MultiFileSelectionDialog extends JDialog {
                     logger.warn("Analyzer not ready for class completion, returning no completions");
                     return List.of();
                 }
-                availableCompletions = Completions.completeSymbols(pattern, analyzer).stream()
-                        .filter(CodeUnit::isClass)
-                        .toList();
+                availableCompletions =
+                        Completions.completeSymbols(pattern, analyzer, Completions.nameTypeForPattern(pattern)).stream()
+                                .filter(CodeUnit::isClass)
+                                .toList();
             } catch (Exception e) {
                 logger.error("Error loading symbol completions", e);
                 return List.of();

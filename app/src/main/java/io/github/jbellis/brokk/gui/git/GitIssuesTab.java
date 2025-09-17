@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.*;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -49,9 +50,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     /** Panel that shows the selected issue’s description; hidden until needed. */
     private final JPanel issueDetailPanel;
 
-    private JButton copyIssueDescriptionButton;
-    private JButton openInBrowserButton;
-    private JButton captureButton;
+    private MaterialButton copyIssueDescriptionButton;
+    private MaterialButton openInBrowserButton;
+    private MaterialButton captureButton;
 
     private FilterBox statusFilter;
 
@@ -160,7 +161,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // ── Refresh button ──────────────────────────────────────────────────────
         // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        JButton refreshButton = new JButton(); // Unicode clockwise arrow
+        MaterialButton refreshButton = new MaterialButton(); // Unicode clockwise arrow
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
@@ -427,9 +428,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // No separate bottom-button panel needed after redesign
 
-        copyIssueDescriptionButton = new JButton(copyDescriptionAction);
-        openInBrowserButton = new JButton(openInBrowserAction);
-        captureButton = new JButton(captureAction);
+        copyIssueDescriptionButton = new MaterialButton();
+        copyIssueDescriptionButton.setAction(copyDescriptionAction);
+        openInBrowserButton = new MaterialButton();
+        openInBrowserButton.setAction(openInBrowserAction);
+        captureButton = new MaterialButton();
+        captureButton.setAction(captureAction);
 
         // ── compact icon-style buttons ───────────────────────────────────────
         final Icon copyIcon = Icons.CONTENT_COPY;
@@ -441,6 +445,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         openInBrowserButton.setIcon(browserIcon);
         openInBrowserButton.setText("");
         openInBrowserButton.setMargin(new Insets(2, 2, 2, 2));
+
+        final Icon captureIcon = Icons.CONTENT_CAPTURE;
+        captureButton.setIcon(captureIcon);
+        captureButton.setText("");
+        captureButton.setMargin(new Insets(2, 2, 2, 2));
 
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
@@ -759,6 +768,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
+
         searchBox.setLoading(true, "Searching issues");
         currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<IssueHeader> fetchedIssueHeaders;

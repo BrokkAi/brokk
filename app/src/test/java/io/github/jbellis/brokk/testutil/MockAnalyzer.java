@@ -24,8 +24,8 @@ public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider
         this.mockFile = new ProjectFile(rootDir, "MockFile.java");
         this.allClasses = List.of(
                 CodeUnit.cls(mockFile, "a.b", "Do"),
-                CodeUnit.cls(mockFile, "a.b", "Do$Re"),
-                CodeUnit.cls(mockFile, "a.b", "Do$Re$Sub"), // nested inside Re
+                CodeUnit.cls(mockFile, "a.b", "Do.Re"),
+                CodeUnit.cls(mockFile, "a.b", "Do.Re.Sub"), // nested inside Re
                 CodeUnit.cls(mockFile, "x.y", "Zz"),
                 CodeUnit.cls(mockFile, "w.u", "Zz"),
                 CodeUnit.cls(mockFile, "test", "CamelClass"),
@@ -34,8 +34,8 @@ public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider
                 Map.entry(
                         "a.b.Do",
                         List.of(CodeUnit.fn(mockFile, "a.b", "Do.foo"), CodeUnit.fn(mockFile, "a.b", "Do.bar"))),
-                Map.entry("a.b.Do$Re", List.of(CodeUnit.fn(mockFile, "a.b", "Do$Re.baz"))),
-                Map.entry("a.b.Do$Re$Sub", List.of(CodeUnit.fn(mockFile, "a.b", "Do$Re$Sub.qux"))),
+                Map.entry("a.b.Do.Re", List.of(CodeUnit.fn(mockFile, "a.b", "Do.Re.baz"))),
+                Map.entry("a.b.Do.Re.Sub", List.of(CodeUnit.fn(mockFile, "a.b", "Do.Re.Sub.qux"))),
                 Map.entry("x.y.Zz", List.of()),
                 Map.entry("w.u.Zz", List.of()),
                 Map.entry("test.CamelClass", List.of(CodeUnit.fn(mockFile, "test", "CamelClass.someMethod"))));

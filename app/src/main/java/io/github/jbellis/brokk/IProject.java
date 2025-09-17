@@ -53,6 +53,20 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
+    /**
+     * Gets all files in the project that match the given language's extensions. This is a convenience method that
+     * filters getAllFiles() by the language's file extensions.
+     *
+     * @param language The language to filter files for
+     * @return Set of ProjectFiles that match the language's extensions
+     */
+    default Set<ProjectFile> getFiles(Language language) {
+        var extensions = language.getExtensions();
+        return getAllFiles().stream()
+                .filter(pf -> extensions.contains(pf.extension()))
+                .collect(Collectors.toSet());
+    }
+
     default void invalidateAllFiles() {}
 
     /**

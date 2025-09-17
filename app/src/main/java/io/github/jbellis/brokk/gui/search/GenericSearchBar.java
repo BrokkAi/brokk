@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.search;
 
+import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.ArrayList;
@@ -84,7 +85,7 @@ public class GenericSearchBar extends JPanel {
 
         // Adjust text field right margin to make room for the clear button
         searchField.setMargin(new Insets(2, 2, 2, 20));
-        caseSensitiveButton = new JToggleButton("Cc");
+        caseSensitiveButton = new MaterialToggleButton("Cc");
         caseSensitiveButton.setToolTipText("Case sensitive search");
         caseSensitiveButton.setMargin(new Insets(2, 4, 2, 4));
         nextButton = new JButton();

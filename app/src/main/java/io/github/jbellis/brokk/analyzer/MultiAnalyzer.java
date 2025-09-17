@@ -87,15 +87,17 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName)));
+    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
+        return findFirst(analyzer ->
+                analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName, includeComments)));
     }
 
     @Override
-    public Optional<String> getClassSource(String fqcn) {
+    public Optional<String> getClassSource(String fqcn, boolean includeComments) {
         for (var delegate : delegates.values()) {
             try {
-                final var maybeSource = delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn));
+                final var maybeSource =
+                        delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
                 if (maybeSource.isPresent()) {
                     return maybeSource;
                 }
@@ -107,9 +109,9 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit) {
-        return findFirst(
-                analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getSourceForCodeUnit(codeUnit)));
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
+        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
+                .flatMap(scp -> scp.getSourceForCodeUnit(codeUnit, includeComments)));
     }
 
     @Override
@@ -165,6 +167,11 @@ public class MultiAnalyzer
     }
 
     @Override
+    public boolean isDefinitionAvailable(String fqName) {
+        return delegates.values().stream().anyMatch(analyzer -> analyzer.isDefinitionAvailable(fqName));
+    }
+
+    @Override
     public List<CodeUnit> searchDefinitions(String pattern) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.searchDefinitions(pattern).stream())
@@ -205,9 +212,26 @@ public class MultiAnalyzer
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-        for (var an : delegates.values()) {
-            an.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> incAnalyzer.update(changedFiles));
+
+        for (var entry : delegates.entrySet()) {
+            var delegateKey = entry.getKey();
+            var analyzer = entry.getValue();
+
+            // Filter files by language extensions
+            var languageExtensions = delegateKey.getExtensions();
+            var relevantFiles = changedFiles.stream()
+                    .filter(pf -> languageExtensions.contains(pf.extension()))
+                    .collect(Collectors.toSet());
+
+            if (relevantFiles.isEmpty()) {
+                continue;
+            }
+
+            analyzer.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> {
+                incAnalyzer.update(relevantFiles);
+            });
         }
+
         return this;
     }
 

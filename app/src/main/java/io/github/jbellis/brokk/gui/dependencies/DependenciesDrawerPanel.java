@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dependencies;
 
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -9,7 +10,6 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
-import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -22,7 +22,7 @@ public class DependenciesDrawerPanel extends JPanel {
     // Core components
     private final JPanel drawerContentPanel;
     private final JPanel drawerToolBar;
-    private final JToggleButton dependenciesToggle;
+    private final MaterialToggleButton dependenciesToggle;
     private @Nullable DependenciesPanel activeDependenciesPanel;
 
     // Drawer state management
@@ -53,12 +53,15 @@ public class DependenciesDrawerPanel extends JPanel {
         drawerToolBar.setOpaque(false);
         drawerToolBar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        dependenciesToggle = new JToggleButton(Icons.MANAGE_DEPENDENCIES);
+        dependenciesToggle = new MaterialToggleButton(Icons.MANAGE_DEPENDENCIES);
         dependenciesToggle.setToolTipText("Toggle Manage Dependencies");
-        dependenciesToggle.setContentAreaFilled(false);
+        dependenciesToggle.setBorderHighlightOnly(true);
         dependenciesToggle.setFocusPainted(false);
         dependenciesToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         dependenciesToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // Edge selection highlight is applied by MaterialToggleButton; LAF handles hover background.
+
         drawerToolBar.add(dependenciesToggle);
 
         add(drawerToolBar, BorderLayout.EAST);
@@ -81,13 +84,6 @@ public class DependenciesDrawerPanel extends JPanel {
                 }
             }
         });
-
-        // Start with dependencies panel open
-        SwingUtilities.invokeLater(() -> {
-            if (!dependenciesToggle.isSelected()) {
-                dependenciesToggle.doClick();
-            }
-        });
     }
 
     /** Opens the panel in the drawer */
@@ -104,6 +100,35 @@ public class DependenciesDrawerPanel extends JPanel {
                 showDrawer();
             }
         });
+    }
+
+    /** Opens the drawer synchronously before first layout to avoid startup motion. */
+    public void openInitially() {
+        if (activeDependenciesPanel == null) {
+            activeDependenciesPanel = new DependenciesPanel(chrome);
+            drawerContentPanel.add(activeDependenciesPanel, BorderLayout.CENTER);
+        }
+        // Ensure divider visible and set initial proportions
+        if (originalDividerSize > 0) {
+            parentSplitPane.setDividerSize(originalDividerSize);
+        }
+        // Prefer workspace side but leave drawer visible
+        parentSplitPane.setResizeWeight(0.67);
+        // Remove any minimum width constraint for collapsed state
+        setMinimumSize(null);
+
+        // Use a proportional divider for the first layout
+        double loc = lastDividerLocation;
+        if (loc <= 0.0 || loc >= 1.0 || Math.abs(loc - 0.5) < 1e-6) {
+            loc = 0.67;
+        }
+        parentSplitPane.setDividerLocation(loc);
+
+        // Reflect toggle selected state without firing the action listener
+        dependenciesToggle.setSelected(true);
+
+        revalidate();
+        repaint();
     }
 
     private void hideDepedenciesDrawer() {
@@ -164,7 +189,7 @@ public class DependenciesDrawerPanel extends JPanel {
 
                     // Calculate the minimum width needed for the toolbar
                     int toolbarWidth = drawerToolBar.getPreferredSize().width;
-                    final int MIN_COLLAPSE_WIDTH = Math.max(32, toolbarWidth + 8);
+                    final int MIN_COLLAPSE_WIDTH = toolbarWidth;
 
                     int totalWidth = parentSplitPane.getWidth();
                     if (totalWidth <= 0) {
