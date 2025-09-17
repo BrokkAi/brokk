@@ -450,10 +450,10 @@ public class TypescriptAnalyzerTest {
         assertTrue(declarations.contains(doWorkFunc), "ThirdPartyLib.doWork should be captured as a function member");
 
         // Verify ambient namespace interface member
-        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib$LibOptions");
+        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib.LibOptions");
         assertTrue(
                 declarations.contains(libOptionsInterface),
-                "ThirdPartyLib$LibOptions should be captured as an interface member");
+                "ThirdPartyLib.LibOptions should be captured as an interface member");
 
         // Verify no duplicate captures for ambient declarations
         long dollarVarCount =
@@ -693,7 +693,7 @@ public class TypescriptAnalyzerTest {
                 declarations.contains(doWorkFunc),
                 "Function inside ambient namespace should be captured as separate CodeUnit");
 
-        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib$LibOptions");
+        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib.LibOptions");
         assertTrue(
                 declarations.contains(libOptionsInterface),
                 "Interface inside ambient namespace should be captured as separate CodeUnit");
