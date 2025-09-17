@@ -439,8 +439,17 @@ function updateResolvedFilePaths(cache: Map<string, FilePathCacheEntry>,
 
     for (const [filePath, filePathResult] of Object.entries(results)) {
         const cacheKey = `${contextId}:${filePath}`;
+
+        // Normalize by ignoring directory matches; only file matches count
+        const filteredMatches = (filePathResult.matches || []).filter(m => !m.isDirectory);
+        const normalizedResult: FilePathLookupResult = {
+            ...filePathResult,
+            exists: filteredMatches.length > 0,
+            matches: filteredMatches
+        };
+
         const resolvedEntry: FilePathCacheEntry = {
-            result: filePathResult,
+            result: normalizedResult,
             status: 'resolved',
             contextId,
             timestamp: Date.now(),
@@ -453,10 +462,10 @@ function updateResolvedFilePaths(cache: Map<string, FilePathCacheEntry>,
             updatedCount++;
 
             // Log performance metrics for streaming analysis
-            if (filePathResult.processingTimeMs) {
-                const found = filePathResult.exists ? 'found' : 'not found';
-                const matchCount = filePathResult.matches.length;
-                log.debug(`[PERF][FRONTEND] FilePath '${filePath}' ${found} (${matchCount} matches, ${filePathResult.confidence}% confidence, ${filePathResult.processingTimeMs}ms)`);
+            if (normalizedResult.processingTimeMs) {
+                const found = normalizedResult.exists ? 'found' : 'not found';
+                const matchCount = filteredMatches.length;
+                log.debug(`[PERF][FRONTEND] FilePath '${filePath}' ${found} (${matchCount} matches, ${normalizedResult.confidence}% confidence, ${normalizedResult.processingTimeMs}ms)`);
             }
         }
     }

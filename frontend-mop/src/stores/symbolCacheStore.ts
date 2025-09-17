@@ -411,12 +411,19 @@ function evictCacheEntriesIfNeeded(cache: Map<string, SymbolCacheEntry>, newEntr
     }
 
     const toEvict = (currentSize + newEntriesCount) - CACHE_CONFIG.SYMBOL_CACHE_LIMIT;
-    const keysToDelete = Array.from(cache.keys()).slice(0, toEvict);
 
-    keysToDelete.forEach(key => {
-        cache.delete(key);
-        cacheStats.evictions++;
+    // LRU eviction by timestamp: evict the oldest entries first
+    const entries = Array.from(cache.entries());
+    entries.sort((a, b) => {
+        const at = a[1]?.timestamp ?? 0;
+        const bt = b[1]?.timestamp ?? 0;
+        return at - bt;
     });
+
+    for (let i = 0; i < toEvict && i < entries.length; i++) {
+        cache.delete(entries[i][0]);
+        cacheStats.evictions++;
+    }
 }
 
 /**
