@@ -2,7 +2,7 @@
   import {onMount} from 'svelte';
   import {symbolCacheStore, requestSymbolResolution, subscribeKey, type SymbolCacheEntry} from '../stores/symbolCacheStore';
   import {filePathCacheStore, requestFilePathResolution, subscribeKey as subscribeFilePathKey, type FilePathCacheEntry, type ProjectFileMatch} from '../stores/filePathCacheStore';
-  import {tryFilePathDetection, setSupportedExtensions} from '../lib/filePathDetection';
+  import {tryFilePathDetection} from '../lib/filePathDetection';
   import {createLogger} from '../lib/logging';
   import {isDebugEnabled} from '../dev/debug';
 
@@ -162,7 +162,7 @@
 
     // Step 1: Try file path detection first
     const filePathResult = tryFilePathDetection(text);
-    if (filePathResult.hasValidExtension && filePathResult.isValidPath) {
+    if (filePathResult.isValidPath) {
       isValidFilePath = true;
       filePathText = filePathResult.cleanPath;
 

@@ -11,7 +11,6 @@ import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
 import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePathCacheStore';
-import {setSupportedExtensions} from './lib/filePathDetection';
 
 const mainLog = createLogger('main');
 
@@ -19,7 +18,6 @@ let searchCtrl: SearchController | null = null;
 
  // Initialization calls at the top
 checkWorkerSupport();
-initializeFilePathExtensions();
 initializeApp();
 const buffer = setupBrokkInterface();
 replayBufferedItems(buffer);
@@ -34,27 +32,6 @@ function checkWorkerSupport(): void {
     }
 }
 
-// Initialize supported file extensions for file path detection
-function initializeFilePathExtensions(): void {
-    // TODO: This should be communicated from the backend via Java bridge
-    // For now, use common extensions for testing
-    const commonExtensions = [
-        'java', 'kt', 'kts', 'scala', 'sc',  // JVM languages
-        'js', 'ts', 'jsx', 'tsx', 'mjs',     // JavaScript/TypeScript
-        'py', 'pyi',                         // Python
-        'rs',                                // Rust
-        'cpp', 'cxx', 'cc', 'c', 'h', 'hpp', // C/C++
-        'cs',                                // C#
-        'go',                                // Go
-        'rb',                                // Ruby
-        'php',                               // PHP
-        'swift',                             // Swift
-        'html', 'htm', 'css', 'scss', 'sass', 'less', // Web
-        'json', 'xml', 'yaml', 'yml',        // Config
-        'md', 'txt'                          // Documentation
-    ];
-    setSupportedExtensions(commonExtensions);
-}
 
 function initializeApp(): void {
     mount(Mop, {

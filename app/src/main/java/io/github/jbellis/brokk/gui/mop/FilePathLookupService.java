@@ -89,13 +89,7 @@ public class FilePathLookupService {
             var parsed = parseFilePath(filePath);
             var cleanPath = parsed.path();
 
-            // 2. Check if extension is supported
-            if (!isExtensionSupported(project, cleanPath)) {
-                logger.debug("File path '{}' has unsupported extension", filePath);
-                return FilePathLookupResult.notFound(filePath);
-            }
-
-            // 3. Find all matching files
+            // 2. Find all matching files (no extension filtering - if it exists in project, it's valid)
             var matches = findMatchingFiles(project, cleanPath, parsed.lineNumber(), parsed.lineRange());
 
             if (matches.isEmpty()) {
@@ -132,28 +126,7 @@ public class FilePathLookupService {
         return new ParsedFilePath(input.trim(), null, null, input);
     }
 
-    /** Check if extension is supported by project analyzers */
-    private static boolean isExtensionSupported(IProject project, String path) {
-        var extension = getFileExtension(path);
-        if (extension.isEmpty()) {
-            return false;
-        }
 
-        Set<Language> languages = project.getAnalyzerLanguages();
-        return languages.stream().anyMatch(lang -> lang.getExtensions().contains(extension.toLowerCase(Locale.ROOT)));
-    }
-
-    /** Get file extension from path (without the dot) */
-    private static String getFileExtension(String path) {
-        int lastDot = path.lastIndexOf('.');
-        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-
-        // Check if dot is after the last slash (to avoid directories like ".git")
-        if (lastDot > lastSlash && lastDot != -1) {
-            return path.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-        }
-        return "";
-    }
 
     /** Find all files matching the given path in the project */
     private static List<ProjectFileMatch> findMatchingFiles(
@@ -285,10 +258,4 @@ public class FilePathLookupService {
         return new ProjectFileMatch(relativePath, absolutePath, isDirectory, lineNumber, lineRange);
     }
 
-    /** Get supported extensions for debugging */
-    public static Set<String> getSupportedExtensions(IProject project) {
-        return project.getAnalyzerLanguages().stream()
-                .flatMap(lang -> lang.getExtensions().stream())
-                .collect(Collectors.toSet());
-    }
 }

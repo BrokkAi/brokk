@@ -576,6 +576,7 @@ public final class MOPBridge {
         }
     }
 
+
     public void shutdown() {
         xmit.shutdownNow();
     }
