@@ -212,7 +212,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         // Install centralized application-level QuitHandler so Cmd+Q and platform quit can be intercepted
         AppQuitHandler.install();
         frame.setSize(800, 1200); // Taller than wide

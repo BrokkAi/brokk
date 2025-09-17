@@ -68,6 +68,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final LoggingExecutorService userActionExecutor =
             createLoggingExecutorService(Executors.newSingleThreadExecutor());
     private final AtomicReference<Thread> userActionThread = new AtomicReference<>(); // _FIX_
+    private final AtomicBoolean llmTaskInProgress = new AtomicBoolean(false);
 
     // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
     // when it appears as its own path segment or at a camel-case boundary.
@@ -644,6 +645,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             try {
                 if (isLlmTask) {
+                    llmTaskInProgress.set(true);
                     io.blockLlmOutput(true);
                 }
                 task.run();
@@ -657,6 +659,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.error("Error while executing {}", description, e);
                 io.toolError("Error while executing " + description + ": " + e.getMessage());
             } finally {
+                llmTaskInProgress.set(false);
                 io.actionComplete();
                 io.enableActionButtons();
                 // Unblock LLM output if this was an LLM task
@@ -1381,6 +1384,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         return CompletableFuture.allOf(userActionFuture, contextActionFuture, backgroundFuture)
                 .whenComplete((v, t) -> project.close());
+    }
+
+    public boolean isLlmTaskInProgress() {
+        return llmTaskInProgress.get();
     }
 
     /**

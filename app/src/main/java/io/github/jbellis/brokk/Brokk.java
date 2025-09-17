@@ -768,6 +768,17 @@ public class Brokk {
         Chrome ourChromeInstance = openProjectWindows.get(projectPath);
         IProject projectBeingClosed = null;
         if (ourChromeInstance != null) {
+            if (ourChromeInstance.getContextManager().isLlmTaskInProgress()) {
+                int choice = JOptionPane.showConfirmDialog(
+                        ourChromeInstance.getFrame(),
+                        "An AI task is in progress. Are you sure you want to close this project?",
+                        "Task in Progress",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (choice == JOptionPane.NO_OPTION) {
+                    return;
+                }
+            }
             projectBeingClosed = ourChromeInstance.getContextManager().getProject();
         }
 
