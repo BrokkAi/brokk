@@ -1294,12 +1294,10 @@ public abstract class TreeSitterAnalyzer
                     node.getEndPoint().getRow(),
                     node.getStartByte()); // commentStartByte initially same as startByte
 
-            // Pre-expand range to include preceding comments for classes and functions.
-            // For classes/interfaces/enums, include only documentation-like comments (JSDoc/triple-slash).
-            // For functions, include any immediately preceding comments (including single-line // headings).
-            boolean docOnlyForClass = cu.isClass();
+            // Pre-expand range to include contiguous preceding comments and metadata for classes and functions.
+            // Always include contiguous leading comments and attribute-like nodes for both classes and functions.
             var finalRange = (cu.isClass() || cu.isFunction())
-                    ? expandRangeWithComments(file, originalRange, docOnlyForClass)
+                    ? expandRangeWithComments(file, originalRange, false)
                     : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
@@ -2393,19 +2391,21 @@ public abstract class TreeSitterAnalyzer
                 || nodeType.equals("documentation_comment");
     }
 
-    /** Determines if a comment node is documentation-like (e.g., JSDoc) based on node type or text content. */
-    private boolean isDocLikeCommentNode(TSNode node, String src) {
-        if (!isCommentNode(node)) {
-            return false;
-        }
-        String t = node.getType();
-        // Prefer explicit doc comment node types if grammar provides them
-        if ("doc_comment".equals(t) || "documentation_comment".equals(t)) {
+    /** Returns true if the node is considered leading metadata (comments or attribute-like nodes). */
+    protected boolean isLeadingMetadataNode(TSNode node) {
+        if (isCommentNode(node)) {
             return true;
         }
-        // Fallback to content-based detection: JSDoc block (/** ... */) or triple-slash docs (///)
-        String text = textSlice(node, src).stripLeading();
-        return text.startsWith("/**") || text.startsWith("///");
+        String type = node.getType();
+        return getLeadingMetadataNodeTypes().contains(type);
+    }
+
+    /**
+     * Node types considered attribute-like metadata that should be included with leading comments. Default includes
+     * common Rust attributes; languages without such nodes are unaffected.
+     */
+    protected Set<String> getLeadingMetadataNodeTypes() {
+        return Set.of("attribute_item", "inner_attribute");
     }
 
     /** Finds a Tree-Sitter node by its byte range within the given tree. */
@@ -2474,27 +2474,17 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
-     * Expands a source range to include preceding comments. Re-parses the source file to get AST for comment detection.
-     * If includeOnlyDocLike is true, only include documentation-like comments (e.g., JSDoc, ///). Otherwise, include
-     * any immediately preceding comments.
+     * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
+     * preceding the declaration node. Reuses the cached AST; does not re-parse.
      */
-    protected Range expandRangeWithComments(ProjectFile file, Range originalRange, boolean includeOnlyDocLike) {
+    protected Range expandRangeWithComments(ProjectFile file, Range originalRange, boolean ignoredIncludeOnlyDocLike) {
         try {
-            // Re-parse the source file
-            var srcOpt = file.read();
-            if (srcOpt.isEmpty()) {
-                log.warn("Unable to read source file for comment expansion: {}", file);
+            // Reuse cached tree created during analyzeFileDeclarations
+            TSTree tree = getCachedTree(file);
+            if (tree == null) {
+                log.debug("No cached AST available for {} during comment expansion; keeping original range", file);
                 return originalRange;
             }
-            String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
-
-            TSParser parser = new TSParser();
-            if (!parser.setLanguage(getTSLanguage())) {
-                log.warn("Failed to set language for comment expansion in file {}", file);
-                return originalRange;
-            }
-
-            TSTree tree = parser.parseString(null, src);
 
             // Find the declaration node by its range
             Optional<TSNode> declarationNode =
@@ -2508,20 +2498,26 @@ public abstract class TreeSitterAnalyzer
                 return originalRange;
             }
 
-            // Find preceding comments
-            List<TSNode> precedingComments = findPrecedingComments(declarationNode.get());
-            // Either include only documentation-like comments, or all immediately preceding comments.
-            List<TSNode> selectedComments = includeOnlyDocLike
-                    ? precedingComments.stream()
-                            .filter(n -> isDocLikeCommentNode(n, src))
-                            .toList()
-                    : precedingComments;
-            if (selectedComments.isEmpty()) {
+            TSNode decl = declarationNode.get();
+
+            // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
+            List<TSNode> leading = new ArrayList<>();
+            TSNode current = decl.getPrevSibling();
+            while (current != null && !current.isNull()) {
+                if (isLeadingMetadataNode(current)) {
+                    leading.add(current);
+                    current = current.getPrevSibling();
+                    continue;
+                }
+                break;
+            }
+            // leading currently has closest-first order; reverse to earliest-first
+            if (leading.isEmpty()) {
                 return originalRange;
             }
+            Collections.reverse(leading);
 
-            // Calculate new start byte from earliest selected comment
-            int newStartByte = selectedComments.get(0).getStartByte();
+            int newStartByte = leading.get(0).getStartByte();
 
             Range expandedRange = new Range(
                     originalRange.startByte(),
@@ -2531,18 +2527,18 @@ public abstract class TreeSitterAnalyzer
                     newStartByte);
 
             log.trace(
-                    "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} preceding comment nodes)",
+                    "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} preceding metadata nodes)",
                     file,
                     originalRange.startByte(),
                     originalRange.endByte(),
                     expandedRange.startByte(),
                     expandedRange.endByte(),
-                    selectedComments.size());
+                    leading.size());
 
             return expandedRange;
 
         } catch (Exception e) {
-            log.warn("Error during comment expansion for file {}: {}", file, e.getMessage());
+            log.warn("Error during comment/metadata expansion for file {}: {}", file, e.getMessage());
             return originalRange;
         }
     }
