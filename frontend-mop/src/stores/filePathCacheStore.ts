@@ -187,18 +187,10 @@ function isValidSequence(contextId: string, seq: number): boolean {
     return isValid;
 }
 
-function shouldProcessImmediately(contextId: string): boolean {
-    const now = Date.now();
-    const lastRequest = lastRequestTime.get(contextId) || 0;
-    const timeSinceLastRequest = now - lastRequest;
-
-    // Process immediately if:
-    // 1. This is the first request for this context (lastRequest === 0), OR
-    // 2. Enough time has passed since the last request (indicates user is not rapidly typing)
-    const isFirstRequest = lastRequest === 0;
-    const immediate = isFirstRequest || timeSinceLastRequest >= FILE_PATH_CACHE_CONFIG.IMMEDIATE_THRESHOLD;
-
-    return immediate;
+function shouldProcessImmediately(prevLastRequest: number, now: number): boolean {
+    const timeSinceLastRequest = now - prevLastRequest;
+    const isFirstRequest = prevLastRequest === 0;
+    return isFirstRequest || timeSinceLastRequest >= FILE_PATH_CACHE_CONFIG.IMMEDIATE_THRESHOLD;
 }
 
 function addToBatch(contextId: string, filePath: string): void {
@@ -206,9 +198,7 @@ function addToBatch(contextId: string, filePath: string): void {
 
     // Check if this is the first request for this context BEFORE updating lastRequestTime
     const isFirstRequest = !lastRequestTime.has(contextId);
-
-    // Update last request time for this context
-    lastRequestTime.set(contextId, now);
+    const prevLastRequest = lastRequestTime.get(contextId) || 0;
 
     if (!pendingBatchRequests.has(contextId)) {
         pendingBatchRequests.set(contextId, new Set());
@@ -218,7 +208,7 @@ function addToBatch(contextId: string, filePath: string): void {
 
     // Determine if we should process immediately or batch (per-context timer)
     const contextTimer = batchTimers.get(contextId);
-    const shouldProcessNow = shouldProcessImmediately(contextId) && contextTimer === undefined;
+    const shouldProcessNow = shouldProcessImmediately(prevLastRequest, now) && contextTimer === undefined;
 
     if (shouldProcessNow) {
         // Process immediately for first request or after inactivity
@@ -235,6 +225,9 @@ function addToBatch(contextId: string, filePath: string): void {
             batchTimers.set(contextId, timerId);
         }
     }
+
+    // Update last request time after decision
+    lastRequestTime.set(contextId, now);
 }
 
 /**
@@ -242,6 +235,7 @@ function addToBatch(contextId: string, filePath: string): void {
  */
 function processBatchForContext(contextId: string, immediate: boolean = false): void {
     const filePaths = pendingBatchRequests.get(contextId);
+    log.debug(`Processing file path batch for context="${contextId}" (immediate=${immediate}) with ${filePaths ? filePaths.size : 0} item(s)`);
     if (!filePaths || filePaths.size === 0) {
         return;
     }
@@ -387,6 +381,7 @@ async function performAtomicFilePathLookup(filePath: string, contextId: string, 
 function parseResponseParams(seqOrContextId: number | string, contextId?: string): { contextId: string; sequence: number | null } {
     if (typeof seqOrContextId === 'string') {
         // Legacy signature: (results, contextId)
+        log.warn('onFilePathResolutionResponse received legacy signature without sequence; consider updating producer to include sequence for proper validation');
         return { contextId: seqOrContextId, sequence: null };
     } else {
         // New signature: (results, seq, contextId)
@@ -412,7 +407,20 @@ function evictCacheEntriesIfNeeded(cache: Map<string, FilePathCacheEntry>, newEn
     }
 
     const toEvict = (currentSize + newEntriesCount) - FILE_PATH_CACHE_CONFIG.FILE_PATH_CACHE_LIMIT;
-    const keysToDelete = Array.from(cache.keys()).slice(0, toEvict);
+
+    // LRU eviction: evict entries with the oldest timestamps first
+    // Build an array of [key, entry], sort by timestamp ascending
+    const entries = Array.from(cache.entries());
+    entries.sort((a, b) => {
+        const at = a[1]?.timestamp ?? 0;
+        const bt = b[1]?.timestamp ?? 0;
+        return at - bt;
+    });
+
+    const keysToDelete: string[] = [];
+    for (let i = 0; i < entries.length && keysToDelete.length < toEvict; i++) {
+        keysToDelete.push(entries[i][0]);
+    }
 
     keysToDelete.forEach(key => {
         cache.delete(key);
@@ -509,8 +517,20 @@ export function onFilePathResolutionResponse(results: Record<string, FilePathLoo
         filePathCacheStore.update(cache => {
             const newCache = new Map(cache);
 
-            // Handle cache size limit with eviction
-            evictCacheEntriesIfNeeded(newCache, Object.keys(results).length);
+            // Handle cache size limit with eviction (account for both resolved and "not found" pending)
+        const resolvedCount = Object.keys(results).length;
+        const resolvedFilePathsSet = new Set(Object.keys(results));
+        const pendingSet = pendingByContext.get(actualContextId);
+        let notFoundCountEstimate = 0;
+        if (pendingSet && pendingSet.size > 0) {
+            for (const pending of pendingSet) {
+                if (!resolvedFilePathsSet.has(pending)) {
+                    notFoundCountEstimate++;
+                }
+            }
+        }
+        const totalNewEntries = resolvedCount + notFoundCountEstimate;
+        evictCacheEntriesIfNeeded(newCache, totalNewEntries);
 
             // Update cache with resolved file paths
             const resolvedUpdate = updateResolvedFilePaths(newCache, results, actualContextId);
