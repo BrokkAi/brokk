@@ -539,7 +539,7 @@ public final class MOPBridge {
                         }
 
                         if (!projectFiles.isEmpty()) {
-                            ContextMenuBuilder.forFiles(projectFiles, chrome, (io.github.jbellis.brokk.ContextManager)
+                            ContextMenuBuilder.forFilePathMatches(projectFiles, chrome, (io.github.jbellis.brokk.ContextManager)
                                             contextManager)
                                     .show(component, x, y);
                         }

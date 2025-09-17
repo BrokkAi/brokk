@@ -61,6 +61,14 @@ public class ContextMenuBuilder {
         return builder;
     }
 
+    /** Creates a context menu for file path matches (MOP disambiguation) */
+    public static ContextMenuBuilder forFilePathMatches(List<ProjectFile> files, Chrome chrome, ContextManager contextManager) {
+        var context = new FileMenuContext(files, chrome, contextManager);
+        var builder = new ContextMenuBuilder(context);
+        builder.buildFilePathMenu();
+        return builder;
+    }
+
     /** Shows the menu at the specified coordinates */
     public void show(Component component, int x, int y) {
         if (menu.getComponentCount() > 0) {
@@ -184,6 +192,59 @@ public class ContextMenuBuilder {
             return;
         }
 
+        // Show History (single file only)
+        if (files.size() == 1) {
+            var historyItem = createHistoryMenuItem(fileContext);
+            menu.add(historyItem);
+            menu.addSeparator();
+        }
+
+        boolean allFilesTracked = fileContext
+                .contextManager()
+                .getProject()
+                .getRepo()
+                .getTrackedFiles()
+                .containsAll(files);
+
+        // Edit
+        var editItem = new JMenuItem(files.size() == 1 ? "Edit" : "Edit All");
+        editItem.addActionListener(e -> editFiles(fileContext));
+        editItem.setEnabled(allFilesTracked);
+        menu.add(editItem);
+
+        // Read
+        var readItem = new JMenuItem(files.size() == 1 ? "Read" : "Read All");
+        readItem.addActionListener(e -> readFiles(fileContext));
+        menu.add(readItem);
+
+        // Summarize
+        var summarizeItem = new JMenuItem(files.size() == 1 ? "Summarize" : "Summarize All");
+        boolean analyzerReady =
+                fileContext.contextManager().getAnalyzerWrapper().isReady();
+        summarizeItem.setEnabled(analyzerReady);
+        summarizeItem.addActionListener(e -> summarizeFiles(fileContext));
+        menu.add(summarizeItem);
+
+        // Run Tests (only show if all files are test files)
+        boolean hasTestFiles = files.stream().allMatch(ContextManager::isTestFile);
+        if (hasTestFiles) {
+            menu.addSeparator();
+            var runTestsItem = new JMenuItem("Run Tests");
+            runTestsItem.addActionListener(e -> runTests(fileContext));
+            menu.add(runTestsItem);
+        }
+    }
+
+    private void buildFilePathMenu() {
+        if (!(context instanceof FileMenuContext fileContext)) {
+            return;
+        }
+
+        var files = fileContext.files();
+        if (files.isEmpty()) {
+            return;
+        }
+
         if (files.size() == 1) {
             // Single file - add actions directly to main menu
             var file = files.getFirst();
@@ -192,7 +253,7 @@ public class ContextMenuBuilder {
 
             addFileActions(menu, singleFileContext);
         } else {
-            // Multiple files - create submenus for each file
+            // Multiple files - create submenus for each file (no bulk actions for MOP disambiguation)
             for (var file : files) {
                 var submenu = new JMenu(file.toString());
 
@@ -205,45 +266,26 @@ public class ContextMenuBuilder {
 
                 menu.add(submenu);
             }
-
-            menu.addSeparator();
-
-            // Add "All" actions for bulk operations
-            boolean allFilesTracked = fileContext
-                    .contextManager()
-                    .getProject()
-                    .getRepo()
-                    .getTrackedFiles()
-                    .containsAll(files);
-
-            // Edit All
-            var editAllItem = new JMenuItem("Edit All");
-            editAllItem.addActionListener(e -> editFiles(fileContext));
-            editAllItem.setEnabled(allFilesTracked);
-            menu.add(editAllItem);
-
-            // Read All
-            var readAllItem = new JMenuItem("Read All");
-            readAllItem.addActionListener(e -> readFiles(fileContext));
-            menu.add(readAllItem);
-
-            // Summarize All
-            var summarizeAllItem = new JMenuItem("Summarize All");
-            boolean analyzerReady =
-                    fileContext.contextManager().getAnalyzerWrapper().isReady();
-            summarizeAllItem.setEnabled(analyzerReady);
-            summarizeAllItem.addActionListener(e -> summarizeFiles(fileContext));
-            menu.add(summarizeAllItem);
-
-            // Run Tests (only show if all files are test files)
-            boolean hasTestFiles = files.stream().allMatch(ContextManager::isTestFile);
-            if (hasTestFiles) {
-                menu.addSeparator();
-                var runTestsItem = new JMenuItem("Run All Tests");
-                runTestsItem.addActionListener(e -> runTests(fileContext));
-                menu.add(runTestsItem);
-            }
         }
+    }
+
+    private JMenuItem createHistoryMenuItem(FileMenuContext context) {
+        var file = context.files().getFirst();
+        boolean hasGit = context.contextManager().getProject().hasGit();
+        var historyItem = new JMenuItem("Show History");
+        historyItem.addActionListener(e -> {
+            final var chrome = context.chrome();
+            if (chrome != null) {
+                chrome.addFileHistoryTab(file);
+            } else {
+                logger.warn("Chrome is null, cannot show history for {}", file);
+            }
+        });
+        historyItem.setEnabled(hasGit);
+        if (!hasGit) {
+            historyItem.setToolTipText("Git not available for this project.");
+        }
+        return historyItem;
     }
 
     /**
@@ -303,10 +345,9 @@ public class ContextMenuBuilder {
         summarizeItem.addActionListener(e -> summarizeFiles(singleFileContext));
         parent.add(summarizeItem);
 
-        parent.add(new JPopupMenu.Separator());
-
         // Run Tests (only if this file is a test file)
         if (isTestFile) {
+            parent.add(new JPopupMenu.Separator());
             var runTestItem = new JMenuItem("Run Test");
             runTestItem.addActionListener(e -> runTests(singleFileContext));
             parent.add(runTestItem);
