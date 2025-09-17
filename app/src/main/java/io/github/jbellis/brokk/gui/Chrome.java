@@ -950,8 +950,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // Window management shortcuts
-        var closeWindowKeyStroke =
-                MainProject.getShortcut("global.closeWindow", KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0));
+        var closeWindowKeyStroke = MainProject.getShortcut(
+                "global.closeWindow",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        // Never allow bare ESC to be used as a global close shortcut
+        if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
+            closeWindowKeyStroke =
+                    io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+        }
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(closeWindowKeyStroke, "closeWindow");
         rootPane.getActionMap().put("closeWindow", new AbstractAction() {
             @Override

@@ -2583,7 +2583,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     // General navigation defaults
     private static KeyStroke defaultCloseWindow() {
-        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0);
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_W);
     }
 
     private static KeyStroke defaultFocusSearch() {

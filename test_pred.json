@@ -1,0 +1,5 @@
+{
+  "instance_id": "test-123",
+  "model_name_or_path": "BrokkAgent",
+  "model_patch": "diff --git a/.brokk/project.properties b/.brokk/project.properties\nnew file mode 100644\nindex 0000000000..244525313b\n--- /dev/null\n+++ b/.brokk/project.properties\n@@ -0,0 +1,3 @@\n+#Brokk project configuration\n+#Fri Sep 12 09:53:57 CDT 2025\n+issuesProviderJson={\"type\"\\:\"GITHUB\",\"config\"\\:{\"kind\"\\:\"github\",\"owner\"\\:\"\",\"repo\"\\:\"\",\"host\"\\:\"\"}}\n"
+}
