@@ -143,7 +143,7 @@
         display: block;
         padding-left: 0.8em;
         padding-right: 0.8em;
-        font-size: calc(0.8 * 14px * var(--zoom-level, 1));
+        font-size: calc(0.9 * 14px * var(--zoom-level, 1));
         line-height: 1.4;
     }
 
