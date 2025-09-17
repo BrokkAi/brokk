@@ -43,7 +43,7 @@ public class CompletionsTest {
         // Input "re" -> user wants to find "a.b.Do$Re" by partial name "Re"
         var completions = Completions.completeSymbols("re", mock, CodeUnit.NameType.IDENTIFIER);
         var values = toValues(completions);
-        assertEquals(Set.of("a.b.Do$Re"), values);
+        assertEquals(Set.of("a.b.Do.Re"), values);
     }
 
     @Test
@@ -53,8 +53,8 @@ public class CompletionsTest {
         var values = toValues(completions);
 
         assertEquals(2, values.size());
-        assertTrue(values.contains("a.b.Do$Re"));
-        assertTrue(values.contains("a.b.Do$Re$Sub"));
+        assertTrue(values.contains("a.b.Do.Re"));
+        assertTrue(values.contains("a.b.Do.Re.Sub"));
     }
 
     @Test
@@ -84,8 +84,8 @@ public class CompletionsTest {
         assertEquals(3, completions.size());
         var shortValues = toShortValues(completions);
         assertTrue(shortValues.contains("Do"));
-        assertTrue(shortValues.contains("Do$Re"));
-        assertTrue(shortValues.contains("Do$Re$Sub"));
+        assertTrue(shortValues.contains("Do.Re"));
+        assertTrue(shortValues.contains("Do.Re.Sub"));
     }
 
     @Test

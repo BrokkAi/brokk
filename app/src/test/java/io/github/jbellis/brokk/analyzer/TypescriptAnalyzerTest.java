@@ -246,7 +246,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(skeletons.get(topLevelGenericAlias)));
 
         // Check a nested item via getSkeleton
-        Optional<String> innerClassSkel = analyzer.getSkeleton("MyModule$InnerClass");
+        Optional<String> innerClassSkel = analyzer.getSkeleton("MyModule.InnerClass");
         assertTrue(innerClassSkel.isPresent());
         // When getting skeleton for a nested CU, it should be part of the parent's reconstruction.
         // The current `getSkeleton` will reconstruct from the top-level parent of that CU.
@@ -270,9 +270,9 @@ public class TypescriptAnalyzerTest {
 
         Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(moduleTsFile);
         // TODO: capture nested modules
-        assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "", "MyModule$NestedNamespace$DeeperClass")));
+        assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "", "MyModule.NestedNamespace.DeeperClass")));
         assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.InnerTypeAlias")));
-        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule$NestedNamespace.DeepType")));
+        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.NestedNamespace.DeepType")));
         assertTrue(declarations.contains(topLevelGenericAlias));
     }
 

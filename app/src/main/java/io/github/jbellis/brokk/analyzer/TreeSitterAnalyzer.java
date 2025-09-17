@@ -441,8 +441,6 @@ public abstract class TreeSitterAnalyzer
 
         var results = new LinkedHashSet<CodeUnit>();
         final String lowerCaseQuery = query.toLowerCase(Locale.ROOT);
-        // Normalize hierarchical separators so '.' and '$' are treated equivalently for matching.
-        final String normalizedQuery = lowerCaseQuery.replace('$', '.');
 
         // Determine if this is a CamelCase-style query (all uppercase letters, length > 1)
         boolean isAllUpper = query.length() > 1 && query.chars().allMatch(Character::isUpperCase);
@@ -477,7 +475,6 @@ public abstract class TreeSitterAnalyzer
         // the camel-case heuristic. Skip symbols already handled by the prefix optimization to avoid redundant work.
         for (String symbol : keys) {
             String symbolLower = symbol.toLowerCase(Locale.ROOT);
-            String normalizedSymbol = symbolLower.replace('$', '.');
 
             if (usePrefixOptimization && symbolLower.startsWith(lowerCaseQuery)) {
                 // already collected by prefix scan
@@ -486,7 +483,7 @@ public abstract class TreeSitterAnalyzer
 
             boolean matches = false;
 
-            if (symbolLower.contains(lowerCaseQuery) || normalizedSymbol.contains(normalizedQuery)) {
+            if (symbolLower.contains(lowerCaseQuery)) {
                 matches = true;
             } else if (isAllUpper
                     && camelCasePattern != null
@@ -499,21 +496,10 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        // ALSO: make sure to match against CodeUnit fully-qualified names (FQNs).
-        // Some queries are hierarchical and mix '.'/'$' and might not be present as keys in the symbol index.
-        // Normalize FQNs by mapping '$' -> '.' and do a case-insensitive contains check.
-        for (CodeUnit cu : uniqueCodeUnitList()) {
-            String fq = cu.fqName().toLowerCase(Locale.ROOT).replace('$', '.');
-            if (fq.contains(normalizedQuery)) {
-                results.add(cu);
-            }
-        }
-
         // Fallback for very short queries (single letter): ensure we include declarations whose FQNs contain the query.
         if (query.length() == 1) {
-            String lc = lowerCaseQuery;
             uniqueCodeUnitList().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lc))
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lowerCaseQuery))
                     .forEach(results::add);
         }
 
@@ -1113,7 +1099,7 @@ public abstract class TreeSitterAnalyzer
                 }
                 tempParent = tempParent.getParent();
             }
-            String classChain = String.join("$", enclosingClassNames);
+            String classChain = String.join(".", enclosingClassNames);
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
             // Adjust simpleName and classChain for Go methods to correctly include the receiver type

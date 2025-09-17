@@ -149,9 +149,9 @@ public class JavaTreeSitterAnalyzerSearchTest {
         assertFalse(innerSymbols.isEmpty(), "Should find nested classes containing 'Inner'");
 
         var innerFqNames = innerSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(innerFqNames.contains("A$AInner"), "Should find nested class 'A.AInner'");
+        assertTrue(innerFqNames.contains("A.AInner"), "Should find nested class 'A.AInner'");
         assertTrue(
-                innerFqNames.contains("A$AInner$AInnerInner"),
+                innerFqNames.contains("A.AInner.AInnerInner"),
                 "Should find deeply nested class 'A.AInner.AInnerInner'");
     }
 
@@ -251,17 +251,11 @@ public class JavaTreeSitterAnalyzerSearchTest {
 
     @Test
     public void testAutocomplete_DotDollarEquivalence_NestedClasses() {
-        // Query using dot-separated nested path; stored nested FQNs use '$' separators
+        // Query using dot-separated nested path; stored nested FQNs use '.' separators
         var dotQuery = analyzer.autocompleteDefinitions("A.AInner.AInnerInner");
         var dotNames = dotQuery.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertTrue(
-                dotNames.contains("A$AInner$AInnerInner"),
-                "Dot-hierarchy query should match nested class FQN with $ separators");
-
-        // Query using dollar-separated nested path should also match
-        var dollarQuery = analyzer.autocompleteDefinitions("A$AInner$AInnerInner");
-        var dollarNames = dollarQuery.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(
-                dollarNames.contains("A$AInner$AInnerInner"), "Dollar-hierarchy query should match nested class FQN");
+                dotNames.contains("A.AInner.AInnerInner"),
+                "Dot-hierarchy query should match nested class FQN with '.' separators");
     }
 }

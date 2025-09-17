@@ -253,7 +253,7 @@ public final class PythonAnalyzerTest {
                 "Constructor source should include method definition");
 
         // Test nested class method (use correct FQN format)
-        Optional<String> innerMethodSource = analyzer.getMethodSource("OuterClass$InnerClass.inner_method", true);
+        Optional<String> innerMethodSource = analyzer.getMethodSource("OuterClass.InnerClass.inner_method", true);
         assertTrue(innerMethodSource.isPresent(), "inner_method should be found");
 
         String normalizedInnerMethodSource = normalize.apply(innerMethodSource.get());
