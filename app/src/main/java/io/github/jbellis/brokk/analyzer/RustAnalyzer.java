@@ -344,4 +344,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     protected boolean requiresSemicolons() {
         return false; // Rust fields like "pub x: i32," should not have semicolons added
     }
+
+    @Override
+    protected Set<String> getLeadingMetadataNodeTypes() {
+        return Set.of("attribute_item", "inner_attribute");
+    }
 }

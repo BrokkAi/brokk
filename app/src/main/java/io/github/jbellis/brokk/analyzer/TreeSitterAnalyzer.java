@@ -2401,11 +2401,11 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
-     * Node types considered attribute-like metadata that should be included with leading comments. Default includes
-     * common Rust attributes; languages without such nodes are unaffected.
+     * Node types considered attribute-like metadata that should be included with leading comments. Default is empty;
+     * language-specific analyzers should override to add their own metadata node types.
      */
     protected Set<String> getLeadingMetadataNodeTypes() {
-        return Set.of("attribute_item", "inner_attribute");
+        return Set.of();
     }
 
     /** Finds a Tree-Sitter node by its byte range within the given tree. */
