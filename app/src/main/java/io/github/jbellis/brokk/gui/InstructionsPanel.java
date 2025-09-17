@@ -24,10 +24,10 @@ import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
-import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -692,7 +692,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                         }
                                     } else {
                                         // Repo implementation doesn't support branch creation via IGitRepo
-                                        throw new UnsupportedOperationException("Repository implementation does not support branch creation");
+                                        throw new UnsupportedOperationException(
+                                                "Repository implementation does not support branch creation");
                                     }
                                 } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
                                     // Re-throw so outer catch displays the error to the user as before
@@ -733,11 +734,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 var menu = branchMenuSupplier.get();
                 // Allow theme manager to style/popups as other popups do
-                    try {
-                        chrome.themeManager.registerPopupMenu(menu);
-                    } catch (Exception e) {
-                        logger.debug("Error registering popup menu", e);
-                    }
+                try {
+                    chrome.themeManager.registerPopupMenu(menu);
+                } catch (Exception e) {
+                    logger.debug("Error registering popup menu", e);
+                }
                 menu.show(branchSplitButton, 0, branchSplitButton.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing branch dropdown", ex);
@@ -746,25 +747,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize current branch label and enabled state
         try {
-                if (project.hasGit()) {
-                    IGitRepo repo = project.getRepo();
-                    String cur = repo.getCurrentBranch();
-                    if (!cur.isBlank()) {
-                        branchSplitButton.setText("branch: " + cur);
-                        branchSplitButton.setEnabled(true);
-                    } else {
-                        branchSplitButton.setText("branch: Unknown");
-                        branchSplitButton.setEnabled(true);
-                    }
+            if (project.hasGit()) {
+                IGitRepo repo = project.getRepo();
+                String cur = repo.getCurrentBranch();
+                if (!cur.isBlank()) {
+                    branchSplitButton.setText("branch: " + cur);
+                    branchSplitButton.setEnabled(true);
                 } else {
-                    branchSplitButton.setText("No Git");
-                    branchSplitButton.setEnabled(false);
+                    branchSplitButton.setText("branch: Unknown");
+                    branchSplitButton.setEnabled(true);
                 }
-            } catch (Exception ex) {
-                logger.error("Error initializing branch button", ex);
+            } else {
                 branchSplitButton.setText("No Git");
                 branchSplitButton.setEnabled(false);
             }
+        } catch (Exception ex) {
+            logger.error("Error initializing branch button", ex);
+            branchSplitButton.setText("No Git");
+            branchSplitButton.setEnabled(false);
+        }
 
         var historyDropdown = createHistoryDropdown();
         // Make the control itself compact; popup will expand on open
@@ -779,7 +780,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         leftPanel.add(branchSplitButton);
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
-
 
         return topBarPanel;
     }
@@ -1172,7 +1172,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                     historyMenuItem.setText(displayText);
                     historyMenuItem.setToolTipText(item);
-                    
+
                     historyMenuItem.addActionListener(ev -> {
                         Objects.requireNonNull(commandInputOverlay).hideOverlay();
                         Objects.requireNonNull(instructionsArea).setEnabled(true);
