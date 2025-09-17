@@ -130,13 +130,19 @@ public class ArchitectOptionsDialog {
             workspaceCb.setSelected(currentOptions.includeWorkspaceTools());
 
             // External tools
-            var shellCb = addCheckboxRow(
-                    externalToolsPanel, "Sandboxed Shell Command", "Allow executing shell commands inside a sandbox");
-            boolean sandboxAvailable = Environment.isSandboxAvailable();
-            shellCb.setEnabled(sandboxAvailable);
-            shellCb.setSelected(currentOptions.includeShellCommand() && sandboxAvailable);
-            if (!sandboxAvailable) {
-                shellCb.setToolTipText("Sandbox execution is not available on this platform.");
+            var shellCbRef = new AtomicReference<JCheckBox>();
+            if (Boolean.getBoolean("brokk.architectshell")) {
+                var shellCb = addCheckboxRow(
+                        externalToolsPanel,
+                        "Sandboxed Shell Command",
+                        "Allow executing shell commands inside a sandbox");
+                boolean sandboxAvailable = Environment.isSandboxAvailable();
+                shellCb.setEnabled(sandboxAvailable);
+                shellCb.setSelected(currentOptions.includeShellCommand() && sandboxAvailable);
+                if (!sandboxAvailable) {
+                    shellCb.setToolTipText("Sandbox execution is not available on this platform.");
+                }
+                shellCbRef.set(shellCb);
             }
 
             var askHumanCb = addCheckboxRow(
@@ -305,6 +311,8 @@ public class ArchitectOptionsDialog {
                     }
                 }
 
+                var shellCheckbox = shellCbRef.get();
+
                 var selectedOptions = new ArchitectAgent.ArchitectOptions(
                         selectedPlanning,
                         selectedCode,
@@ -317,7 +325,7 @@ public class ArchitectOptionsDialog {
                         askHumanCb.isSelected(),
                         commitCb.isSelected(),
                         prCb.isSelected(),
-                        shellCb.isSelected(),
+                        shellCheckbox != null && shellCheckbox.isSelected(),
                         selectedMcpTools);
 
                 boolean runInWorktreeSelected = worktreeCb.isSelected();

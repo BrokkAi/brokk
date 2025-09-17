@@ -11,7 +11,7 @@ declare global {
       onEvent: (payload: BrokkEvent) => Promise<void>;
       getSelection: () => string;
       clear: () => void;
-      setTheme: (dark: boolean, isDevMode?: boolean) => void;
+      setTheme: (dark: boolean, isDevMode?: boolean, wrapMode?: boolean, zoom?: number) => void;
       showSpinner: (message?: string) => void;
       hideSpinner: () => void;
 

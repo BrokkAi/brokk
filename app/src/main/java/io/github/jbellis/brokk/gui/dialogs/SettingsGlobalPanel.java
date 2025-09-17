@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon;
@@ -46,7 +46,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class SettingsGlobalPanel extends JPanel implements ThemeAware {
+public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
     public static final String MODELS_TAB_TITLE = "Favorite Models"; // Used for targeting this tab
 
@@ -71,7 +71,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
 
     @Nullable
-    private JTextField gitHubTokenField; // Null if GitHub tab not shown
+    private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
@@ -95,6 +95,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
         loadSettings();
+
+        // Register for settings change notifications
+        MainProject.addSettingsChangeListener(this);
     }
 
     private void initComponents() {
@@ -117,9 +120,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         boolean shouldShowGitHubTab = project.isGitHubRepo();
 
         if (shouldShowGitHubTab) {
-            var gitHubPanel = createGitHubPanel();
+            gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
             globalSubTabbedPane.addTab(
-                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubPanel, "GitHub integration settings");
+                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
         }
 
         // MCP Servers Tab
@@ -235,47 +238,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         servicePanel.add(Box.createVerticalGlue(), gbc);
 
         return servicePanel;
-    }
-
-    private JPanel createGitHubPanel() {
-        var gitHubPanel = new JPanel(new GridBagLayout());
-        gitHubPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 5, 2, 5);
-        gbc.anchor = GridBagConstraints.WEST;
-        int row = 0;
-
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gitHubPanel.add(new JLabel("GitHub Token:"), gbc);
-
-        gitHubTokenField = new JTextField(20);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gitHubPanel.add(gitHubTokenField, gbc);
-
-        var explanationLabel = new JLabel(
-                "<html>This token is used to access GitHub APIs. It should have read and write access to Pull Requests and Issues.</html>");
-        explanationLabel.setFont(explanationLabel
-                .getFont()
-                .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-        gbc.insets = new Insets(2, 5, 8, 5);
-        gitHubPanel.add(explanationLabel, gbc);
-        gbc.insets = new Insets(2, 5, 2, 5);
-
-        gbc.gridy = row;
-        gbc.weighty = 1.0;
-        gbc.fill = GridBagConstraints.VERTICAL;
-        gitHubPanel.add(Box.createVerticalGlue(), gbc);
-
-        return gitHubPanel;
     }
 
     private void updateSignupLabelVisibility() {
@@ -592,8 +554,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
         // GitHub Tab
-        if (gitHubTokenField != null) { // Only if panel was created
-            gitHubTokenField.setText(MainProject.getGitHubToken());
+        if (gitHubSettingsPanel != null) {
+            gitHubSettingsPanel.loadSettings();
         }
 
         // MCP Servers Tab
@@ -719,14 +681,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
-        // GitHub Tab
-        if (gitHubTokenField != null) {
-            String newToken = gitHubTokenField.getText().trim();
-            if (!newToken.equals(MainProject.getGitHubToken())) {
-                MainProject.setGitHubToken(newToken);
-                GitHubAuth.invalidateInstance();
-                logger.debug("Applied GitHub Token");
-            }
+        // GitHub Tab - managed via Connect/Disconnect flow
+        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+            return false;
         }
 
         // MCP Servers Tab
@@ -2257,5 +2214,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         public Object getCellEditorValue() {
             return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ProcessingTier.DEFAULT;
         }
+    }
+
+    // SettingsChangeListener implementation
+    @Override
+    public void gitHubTokenChanged() {
+        if (gitHubSettingsPanel != null) {
+            gitHubSettingsPanel.gitHubTokenChanged();
+        }
+    }
+
+    @Override
+    public void removeNotify() {
+        super.removeNotify();
+        MainProject.removeSettingsChangeListener(this);
     }
 }

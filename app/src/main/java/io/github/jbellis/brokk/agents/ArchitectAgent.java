@@ -186,13 +186,16 @@ public class ArchitectAgent {
      * can incorporate the stack's current top task or anything else.
      */
     @Tool(
-            "Invoke the Code Agent to solve or implement the current task. Provide complete instructions. Only the Workspace and your instructions are visible to the Code Agent, NOT the entire chat history; you must therefore provide appropriate context for your instructions.")
+            "Invoke the Code Agent to solve or implement the current task. Provide complete instructions. Only the Workspace and your instructions are visible to the Code Agent, NOT the entire chat history; you must therefore provide appropriate context for your instructions. If you expect your changes to temporarily break the build and plan to fix them in later steps, set 'deferBuild' to true to defer build/verification.")
     public String callCodeAgent(
             @P(
                             "Detailed instructions for the CodeAgent referencing the current project. Code Agent can figure out how to change the code at the syntax level but needs clear instructions of what exactly you want changed")
-                    String instructions)
+                    String instructions,
+            @P(
+                            "Defer build/verification for this CodeAgent call. Set to true when your changes are an intermediate step that will temporarily break the build")
+                    boolean deferBuild)
             throws FatalLlmException, InterruptedException {
-        logger.debug("callCodeAgent invoked with instructions: {}", instructions);
+        logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
         // Check if ValidationAgent is enabled in options before using it
         if (options.includeValidationAgent()) {
@@ -211,7 +214,11 @@ public class ArchitectAgent {
         // TODO label this Architect
         io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true, false);
         var agent = new CodeAgent(contextManager, codeModel);
-        var result = agent.runTask(instructions, true);
+        var opts = EnumSet.of(CodeAgent.Option.PRESERVE_RAW_MESSAGES);
+        if (deferBuild) {
+            opts.add(CodeAgent.Option.DEFER_BUILD);
+        }
+        var result = agent.runTask(instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 

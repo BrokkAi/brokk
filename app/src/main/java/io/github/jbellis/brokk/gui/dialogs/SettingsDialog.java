@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
+import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -71,6 +72,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
         cancelButton.addActionListener(e -> {
+            // Cancel any ongoing background GitHub authentication
+            BackgroundGitHubAuth.cancelCurrentAuth();
             dispose();
             // No restart needed if cancelled
         });
@@ -91,6 +94,15 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
                 cancelButton.doClick();
+            }
+        });
+
+        // Add window listener to handle window close events
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                // Cancel any ongoing background GitHub authentication when window closes
+                BackgroundGitHubAuth.cancelCurrentAuth();
             }
         });
 

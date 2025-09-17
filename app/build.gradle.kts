@@ -24,7 +24,9 @@ java {
 application {
     mainClass.set("io.github.jbellis.brokk.Brokk")
     applicationDefaultJvmArgs = listOf(
-        "-Dbrokk.servicetiers=true"  // Feature flag; JavaExec baseline supplies other args
+        // enable feature flags; JavaExec baseline supplies other args
+        "-Dbrokk.servicetiers=true",
+        "-Dbrokk.architectshell=true"
     )
 }
 

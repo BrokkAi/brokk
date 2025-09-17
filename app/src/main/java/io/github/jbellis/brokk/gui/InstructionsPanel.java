@@ -1435,7 +1435,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         contextManager.getAnalyzerWrapper().pause();
         try {
-            var result = new CodeAgent(contextManager, model).runTask(input, false);
+            CodeAgent agent = new CodeAgent(contextManager, model);
+            var result = agent.runTask(input, Set.of());
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             // code agent has displayed status in llmoutput
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

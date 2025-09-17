@@ -14,6 +14,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 public class TypescriptAnalyzerTest {
@@ -244,7 +246,7 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(skeletons.get(topLevelGenericAlias)));
 
         // Check a nested item via getSkeleton
-        Optional<String> innerClassSkel = analyzer.getSkeleton("MyModule$InnerClass");
+        Optional<String> innerClassSkel = analyzer.getSkeleton("MyModule.InnerClass");
         assertTrue(innerClassSkel.isPresent());
         // When getting skeleton for a nested CU, it should be part of the parent's reconstruction.
         // The current `getSkeleton` will reconstruct from the top-level parent of that CU.
@@ -268,9 +270,9 @@ public class TypescriptAnalyzerTest {
 
         Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(moduleTsFile);
         // TODO: capture nested modules
-        assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "", "MyModule$NestedNamespace$DeeperClass")));
+        assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "", "MyModule.NestedNamespace.DeeperClass")));
         assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.InnerTypeAlias")));
-        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule$NestedNamespace.DeepType")));
+        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.NestedNamespace.DeepType")));
         assertTrue(declarations.contains(topLevelGenericAlias));
     }
 
@@ -448,10 +450,10 @@ public class TypescriptAnalyzerTest {
         assertTrue(declarations.contains(doWorkFunc), "ThirdPartyLib.doWork should be captured as a function member");
 
         // Verify ambient namespace interface member
-        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib$LibOptions");
+        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib.LibOptions");
         assertTrue(
                 declarations.contains(libOptionsInterface),
-                "ThirdPartyLib$LibOptions should be captured as an interface member");
+                "ThirdPartyLib.LibOptions should be captured as an interface member");
 
         // Verify no duplicate captures for ambient declarations
         long dollarVarCount =
@@ -691,7 +693,7 @@ public class TypescriptAnalyzerTest {
                 declarations.contains(doWorkFunc),
                 "Function inside ambient namespace should be captured as separate CodeUnit");
 
-        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib$LibOptions");
+        CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib.LibOptions");
         assertTrue(
                 declarations.contains(libOptionsInterface),
                 "Interface inside ambient namespace should be captured as separate CodeUnit");
@@ -722,6 +724,9 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    @DisabledOnOs(
+            value = OS.WINDOWS,
+            disabledReason = "TreeSitter byte offset alignment issues on Windows due to line ending differences")
     void testGetClassSource() throws IOException {
         String greeterSource =
                 normalize.apply(analyzer.getClassSource("Greeter", true).get());
@@ -754,6 +759,9 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    @DisabledOnOs(
+            value = OS.WINDOWS,
+            disabledReason = "TreeSitter byte offset alignment issues on Windows due to line ending differences")
     void testCodeUnitEqualityFixed() throws IOException {
         // Test that verifies the CodeUnit equality fix prevents byte range corruption
         var project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);

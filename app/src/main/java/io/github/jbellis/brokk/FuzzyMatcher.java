@@ -1045,20 +1045,20 @@ public class FuzzyMatcher {
             if (!Character.isLowerCase(c)) {
                 return false;
             }
-            if (c == '$' || c == '.' || isWordSeparator(c)) {
+            if (isWordSeparator(c)) {
                 return false;
             }
         }
         return true;
     }
 
-    /** Checks whether the final matched fragment ends right before a '$' in the name. */
+    /** Checks whether the final matched fragment ends right before a '.' in the name. */
     private static boolean endsBeforeDollar(String name, FList<TextRange> fragments) {
         var last = fragments.getLast();
         if (last == null) {
             return false;
         }
         int end = last.getEndOffset();
-        return end < name.length() && name.charAt(end) == '$';
+        return end < name.length() && name.charAt(end) == '.';
     }
 }
