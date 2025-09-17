@@ -766,16 +766,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 branchSplitButton.setEnabled(false);
             }
 
-        // Add branchSplitButton into the left panel so it appears before the History dropdown
-        leftPanel.add(branchSplitButton);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
         var historyDropdown = createHistoryDropdown();
-        historyDropdown.setPreferredSize(new Dimension(230, controlHeight));
-        historyDropdown.setMinimumSize(new Dimension(80, controlHeight));
+        // Make the control itself compact; popup will expand on open
+        historyDropdown.setPreferredSize(new Dimension(120, controlHeight));
+        historyDropdown.setMinimumSize(new Dimension(120, controlHeight));
         historyDropdown.setMaximumSize(new Dimension(400, controlHeight));
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
         leftPanel.add(historyDropdown);
+        leftPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Add branchSplitButton after the History dropdown
+        leftPanel.add(branchSplitButton);
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
@@ -1142,100 +1143,62 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     @SuppressWarnings("unused")
-    private JComboBox<Object> createHistoryDropdown() {
+    private SplitButton createHistoryDropdown() {
         final var placeholder = "History";
         final var noHistory = "(No history items)";
 
         var project = chrome.getProject();
 
-        var model = new DefaultComboBoxModel<>();
-        model.addElement(placeholder);
-
-        var dropdown = new JComboBox<>(model);
+        var dropdown = new SplitButton(placeholder);
         dropdown.setToolTipText("Select a previous instruction from history");
 
-        dropdown.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof String historyItem) {
-                    // To prevent the dropdown from becoming excessively wide, we truncate the display text
-                    // to fit within the width of the JComboBox itself.
-                    String displayText = historyItem.replace('\n', ' ');
-                    int width = dropdown.getWidth();
-                    if (width > 20) {
-                        FontMetrics fm = getFontMetrics(getFont());
-                        if (fm.stringWidth(displayText) > width) {
-                            displayText = SwingUtilities.layoutCompoundLabel(
-                                    this,
-                                    fm,
-                                    displayText,
-                                    null,
-                                    SwingConstants.CENTER,
-                                    SwingConstants.LEFT,
-                                    SwingConstants.CENTER,
-                                    SwingConstants.LEFT,
-                                    new Rectangle(width, getHeight()),
-                                    new Rectangle(),
-                                    new Rectangle(),
-                                    0);
-                        }
+        // Build popup menu on demand, same pattern as branch button
+        Supplier<JPopupMenu> historyMenuSupplier = () -> {
+            var menu = new JPopupMenu();
+            List<String> historyItems = project.loadTextHistory();
+
+            logger.trace("History items loaded: {}", historyItems.size());
+            if (historyItems.isEmpty()) {
+                JMenuItem noHistoryItem = new JMenuItem(noHistory);
+                noHistoryItem.setEnabled(false);
+                menu.add(noHistoryItem);
+            } else {
+                for (var item : historyItems) {
+                    JMenuItem historyMenuItem = new JMenuItem();
+                    // Truncate display text but keep full text in tooltip
+                    String displayText = item.replace('\n', ' ');
+                    if (displayText.length() > 60) {
+                        displayText = displayText.substring(0, 57) + "...";
                     }
+                    historyMenuItem.setText(displayText);
+                    historyMenuItem.setToolTipText(item);
+                    
+                    historyMenuItem.addActionListener(ev -> {
+                        Objects.requireNonNull(commandInputOverlay).hideOverlay();
+                        Objects.requireNonNull(instructionsArea).setEnabled(true);
 
-                    setText(displayText);
-                    setEnabled(true);
-                    if (historyItem.equals(noHistory) || historyItem.equals(placeholder)) {
-                        setToolTipText(null);
-                    } else {
-                        setToolTipText(historyItem);
-                    }
-                }
-                return this;
-            }
-        });
-
-        dropdown.addActionListener(e -> {
-            var selected = dropdown.getSelectedItem();
-            if (selected instanceof String historyItem
-                    && !selected.equals(placeholder)
-                    && !selected.equals(noHistory)) {
-                // This is a valid history item
-                Objects.requireNonNull(commandInputOverlay).hideOverlay();
-                Objects.requireNonNull(instructionsArea).setEnabled(true);
-
-                instructionsArea.setText(historyItem);
-                Objects.requireNonNull(commandInputUndoManager).discardAllEdits();
-                instructionsArea.requestFocusInWindow();
-
-                // Reset to placeholder
-                SwingUtilities.invokeLater(() -> dropdown.setSelectedItem(placeholder));
-            }
-        });
-
-        dropdown.addPopupMenuListener(new PopupMenuListener() {
-            @Override
-            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
-                model.removeAllElements();
-                model.addElement(placeholder);
-                List<String> historyItems = project.loadTextHistory();
-
-                logger.trace("History items loaded: {}", historyItems.size());
-                if (historyItems.isEmpty()) {
-                    model.addElement(noHistory);
-                } else {
-                    for (var item : historyItems) {
-                        model.addElement(item);
-                    }
+                        instructionsArea.setText(item);
+                        Objects.requireNonNull(commandInputUndoManager).discardAllEdits();
+                        instructionsArea.requestFocusInWindow();
+                    });
+                    menu.add(historyMenuItem);
                 }
             }
+            return menu;
+        };
 
-            @Override
-            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+        dropdown.setMenuSupplier(historyMenuSupplier);
 
-            @Override
-            public void popupMenuCanceled(PopupMenuEvent e) {}
-        });
+        // Show popup when main button area is clicked (same as branch button)
+        dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
+            try {
+                var menu = historyMenuSupplier.get();
+                chrome.themeManager.registerPopupMenu(menu);
+                menu.show(dropdown, 0, dropdown.getHeight());
+            } catch (Exception ex) {
+                logger.error("Error showing history dropdown", ex);
+            }
+        }));
 
         return dropdown;
     }
