@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
 import io.github.jbellis.brokk.gui.mop.FilePathLookupService;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import io.github.jbellis.brokk.util.Messages;
+import java.awt.KeyboardFocusManager;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -389,7 +390,7 @@ public final class MOPBridge {
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
-                                    var singleResult = java.util.Map.of(symbolName, symbolResult);
+                                    var singleResult = Map.of(symbolName, symbolResult);
                                     var resultsJson = toJson(singleResult);
 
                                     var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
@@ -472,7 +473,7 @@ public final class MOPBridge {
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
-                                    var singleResult = java.util.Map.of(filePath, filePathResult);
+                                    var singleResult = Map.of(filePath, filePathResult);
                                     var resultsJson = toJson(singleResult);
 
                                     var js = "if (window.brokk && window.brokk.onFilePathLookupResponse) { "
@@ -486,10 +487,7 @@ public final class MOPBridge {
                         },
                         // Completion callback - called when all file paths are processed
                         () -> {
-                            logger.debug(
-                                    "File path lookup completed for {} paths in context {}",
-                                    filePaths.size(),
-                                    contextId);
+                            // No-op completion callback
                         });
 
             } catch (Exception e) {
@@ -513,13 +511,10 @@ public final class MOPBridge {
     }
 
     public void onFilePathClick(String filePath, boolean exists, String matchesJson, int x, int y) {
-        logger.debug("File path clicked: {}, exists: {} at ({}, {})", filePath, exists, x, y);
-
         SwingUtilities.invokeLater(() -> {
             var component = hostComponent != null
                     ? hostComponent
-                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
-                            .getFocusOwner();
+                    : KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
 
             if (component != null && contextManager != null) {
                 if (chrome != null) {
@@ -539,8 +534,7 @@ public final class MOPBridge {
                         }
 
                         if (!projectFiles.isEmpty()) {
-                            ContextMenuBuilder.forFilePathMatches(projectFiles, chrome, (io.github.jbellis.brokk.ContextManager)
-                                            contextManager)
+                            ContextMenuBuilder.forFilePathMatches(projectFiles, chrome, (ContextManager) contextManager)
                                     .show(component, x, y);
                         }
                     } catch (Exception e) {
@@ -561,15 +555,13 @@ public final class MOPBridge {
         SwingUtilities.invokeLater(() -> {
             var component = hostComponent != null
                     ? hostComponent
-                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
-                            .getFocusOwner();
+                    : KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
 
             if (component != null && contextManager != null) {
                 if (chrome != null) {
                     try {
                         ContextMenuBuilder.forSymbol(
-                                        symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
-                                                contextManager)
+                                        symbolName, symbolExists, fqn, chrome, (ContextManager) contextManager)
                                 .show(component, x, y);
                     } catch (Exception e) {
                         logger.error("Failed to show context menu", e);

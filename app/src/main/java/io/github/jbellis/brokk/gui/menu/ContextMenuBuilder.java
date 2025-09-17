@@ -62,7 +62,8 @@ public class ContextMenuBuilder {
     }
 
     /** Creates a context menu for file path matches (MOP disambiguation) */
-    public static ContextMenuBuilder forFilePathMatches(List<ProjectFile> files, Chrome chrome, ContextManager contextManager) {
+    public static ContextMenuBuilder forFilePathMatches(
+            List<ProjectFile> files, Chrome chrome, ContextManager contextManager) {
         var context = new FileMenuContext(files, chrome, contextManager);
         var builder = new ContextMenuBuilder(context);
         builder.buildFilePathMenu();
