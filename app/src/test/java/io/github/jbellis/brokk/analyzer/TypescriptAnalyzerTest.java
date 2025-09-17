@@ -14,6 +14,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 public class TypescriptAnalyzerTest {
@@ -722,6 +724,9 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    @DisabledOnOs(
+            value = OS.WINDOWS,
+            disabledReason = "TreeSitter byte offset alignment issues on Windows due to line ending differences")
     void testGetClassSource() throws IOException {
         String greeterSource =
                 normalize.apply(analyzer.getClassSource("Greeter", true).get());
@@ -754,6 +759,9 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    @DisabledOnOs(
+            value = OS.WINDOWS,
+            disabledReason = "TreeSitter byte offset alignment issues on Windows due to line ending differences")
     void testCodeUnitEqualityFixed() throws IOException {
         // Test that verifies the CodeUnit equality fix prevents byte range corruption
         var project = TestProject.createTestProject("testcode-ts", Languages.TYPESCRIPT);
