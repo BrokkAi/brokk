@@ -12,6 +12,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
+import io.github.jbellis.brokk.analyzer.LintingProvider;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -720,7 +721,22 @@ public class CodeAgent {
 
         String latestBuildError;
         try {
-            latestBuildError = performBuildVerification();
+            // Lint the changed files for ERROR diagnostics before build verification
+            latestBuildError = contextManager
+                    .getAnalyzer()
+                    .as(LintingProvider.class)
+                    .flatMap(analyzer -> {
+                        var lintResult = analyzer.lintFiles(new ArrayList<>(ws.changedFiles()));
+                        if (lintResult.hasErrors()) {
+                            return Optional.of(lintResult.getErrors().stream()
+                                    .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
+                                    .collect(Collectors.joining("\n")));
+                        } else {
+                            // no lint errors -> run a full build
+                            return Optional.empty();
+                        }
+                    })
+                    .orElse(performBuildVerification());
             latestBuildError = sanitizeBuildOutput(latestBuildError);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
