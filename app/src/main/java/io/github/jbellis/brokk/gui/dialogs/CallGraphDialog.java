@@ -25,7 +25,7 @@ public class CallGraphDialog extends JDialog {
     private String selectedMethod = null;
 
     private static final int DEFAULT_DEPTH = 3;
-    private int depth = 3;
+    private int depth = DEFAULT_DEPTH;
 
     private boolean confirmed = false;
 
