@@ -763,17 +763,17 @@ class CodeAgentTest {
         contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
 
         // one block was applied to trigger verify phase
-        var loopContext = CodeAgent.createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
-        loopContext.editState().changedFiles().add(file);
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), new UserMessage("req"), 0);
+        var es = new CodeAgent.EditState(new ArrayList<>(), 0, 0, 0, 1, "", new HashSet<>(), new HashMap<>());
+        es.changedFiles().add(file);
 
-        var result = codeAgent.verifyPhase(loopContext, null);
+        var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        assertEquals(1, retryStep.loopContext().editState().consecutiveBuildFailures());
+        assertEquals(1, retryStep.es().consecutiveBuildFailures());
 
-        String retryMessage =
-                Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+        String retryMessage = Messages.getText(retryStep.cs().nextRequest());
         assertTrue(retryMessage.contains("The build failed with the following error:"));
         assertTrue(retryMessage.contains("Missing semicolon"));
         assertTrue(retryMessage.contains(file.toString() + ":1:10"));
@@ -792,8 +792,8 @@ class CodeAgentTest {
         contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
 
         // Start with consecutive lint failures already at MAX_LINT_FAILURES - 1
-        var loopContext = CodeAgent.createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
-        var es = loopContext.editState();
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), new UserMessage("req"), 0);
+        var es = new CodeAgent.EditState(new ArrayList<>(), 0, 0, 0, 1, "", new HashSet<>(), new HashMap<>());
         var esWithFailures = new CodeAgent.EditState(
                 es.pendingBlocks(),
                 es.consecutiveParseFailures(),
@@ -803,11 +803,9 @@ class CodeAgentTest {
                 es.lastBuildError(),
                 es.changedFiles(),
                 es.originalFileContents());
-        var lcWithFailures =
-                new CodeAgent.LoopContext(loopContext.conversationState(), esWithFailures, loopContext.userGoal());
-        lcWithFailures.editState().changedFiles().add(file);
+        esWithFailures.changedFiles().add(file);
 
-        var result = codeAgent.verifyPhase(lcWithFailures, null);
+        var result = codeAgent.verifyPhase(cs, esWithFailures, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var fatalStep = (CodeAgent.Step.Fatal) result;

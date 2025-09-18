@@ -826,11 +826,6 @@ public class CodeAgent {
         }
     }
 
-    // Overload for tests: accept LoopContext directly
-    Step verifyPhase(LoopContext loopContext, @Nullable Metrics metrics) {
-        return verifyPhase(loopContext.conversationState(), loopContext.editState(), metrics);
-    }
-
     Step applyPhase(ConversationState cs, EditState es, EditBlockParser parser, @Nullable Metrics metrics) {
         if (es.pendingBlocks().isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
@@ -1052,15 +1047,7 @@ public class CodeAgent {
         record Continue(ConversationState cs, EditState es) implements Step {}
 
         /** this phase found a problem that it wants to send back to the llm */
-        record Retry(ConversationState cs, EditState es) implements Step {
-            /**
-             * Back-compat accessor bundling the current conversation and edit state with a user goal placeholder. Tests
-             * construct and use LoopContext; userGoal is not required for current assertions.
-             */
-            public LoopContext loopContext() {
-                return new LoopContext(cs, es, "");
-            }
-        }
+        record Retry(ConversationState cs, EditState es) implements Step {}
 
         /** fatal error, stop the task */
         record Fatal(TaskResult.StopDetails stopDetails) implements Step {
@@ -1078,47 +1065,6 @@ public class CodeAgent {
                 throw new UnsupportedOperationException("Fatal step does not have an edit state.");
             }
         }
-    }
-
-    // Context bundle used by tests and internal flows to pass around current state and goal.
-    public static record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}
-
-    // Overload that accepts untyped lists (e.g., List.of()) used in tests.
-    public static LoopContext createLoopContext(
-            String userGoal,
-            List<?> taskMessages,
-            UserMessage nextRequest,
-            List<?> changedFiles,
-            int consecutiveBuildFailures) {
-        var msgs = taskMessages.stream()
-                .filter(ChatMessage.class::isInstance)
-                .map(ChatMessage.class::cast)
-                .collect(Collectors.toCollection(ArrayList::new));
-        var files = changedFiles.stream()
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .collect(Collectors.toCollection(ArrayList::new));
-        return createLoopContextInternal(userGoal, msgs, nextRequest, files, consecutiveBuildFailures);
-    }
-
-    private static LoopContext createLoopContextInternal(
-            String userGoal,
-            List<ChatMessage> taskMessages,
-            @Nullable UserMessage nextRequest,
-            List<ProjectFile> changedFiles,
-            int blocksAppliedWithoutBuild) {
-        var cs = new ConversationState(taskMessages, nextRequest, 0);
-        var es = new EditState(
-                new ArrayList<>(), // pendingBlocks
-                0, // consecutiveParseFailures
-                0, // consecutiveApplyFailures
-                0, // consecutiveBuildFailures
-                blocksAppliedWithoutBuild,
-                "", // lastBuildError
-                new HashSet<>(changedFiles),
-                new HashMap<>() // originalFileContents
-                );
-        return new LoopContext(cs, es, userGoal);
     }
 
     /**
