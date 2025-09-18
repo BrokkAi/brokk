@@ -223,7 +223,57 @@ public class ArchitectOptionsDialog {
             var preselectedMcpTools = currentOptions.selectedMcpTools();
 
             if (mcpServers.isEmpty()) {
-                mcpToolsPanel.add(new JLabel("No MCP servers configured in Settings."));
+                var emptyRow = new JPanel(new BorderLayout());
+                var noServersLabel = new JLabel("No MCP servers configured in Settings.");
+                noServersLabel.setBorder(new EmptyBorder(0, 8, 0, 0));
+                var configureButton = new JButton("Configure...");
+                configureButton.setToolTipText("Open Settings to configure MCP servers");
+                configureButton.addActionListener(ae -> {
+                    new SettingsDialog(chrome.getFrame(), chrome).showSettingsDialog(chrome, "MCP Servers");
+
+                    // After closing Settings, refresh MCP tools list in this dialog
+                    var refreshed = project.getMcpConfig().servers();
+                    mcpToolsPanel.removeAll();
+                    serverCheckboxMap.clear();
+
+                    if (refreshed.isEmpty()) {
+                        var innerRow = new JPanel(new BorderLayout());
+                        var innerLabel = new JLabel("No MCP servers configured in Settings.");
+                        innerLabel.setBorder(new EmptyBorder(0, 8, 0, 0));
+                        var innerConfigure = new JButton("Configure...");
+                        innerConfigure.setToolTipText("Open Settings to configure MCP servers");
+                        // Reuse the same action by triggering the original button
+                        innerConfigure.addActionListener(ev -> configureButton.doClick());
+                        innerRow.add(innerLabel, BorderLayout.WEST);
+                        innerRow.add(innerConfigure, BorderLayout.EAST);
+                        mcpToolsPanel.add(innerRow);
+                    } else {
+                        var selectionPanel = new JPanel();
+                        selectionPanel.setLayout(new BoxLayout(selectionPanel, BoxLayout.Y_AXIS));
+                        selectionPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
+
+                        for (var server : refreshed) {
+                            var checkbox = new JCheckBox(server.name());
+                            // Pre-select if any previously selected tool belongs to this server
+                            boolean preselect = preselectedMcpTools.stream()
+                                    .anyMatch(t -> t.server().equals(server));
+                            checkbox.setSelected(preselect);
+                            serverCheckboxMap.put(checkbox, server);
+                            selectionPanel.add(checkbox);
+                        }
+
+                        var scrollPane = new JScrollPane(selectionPanel);
+                        scrollPane.setPreferredSize(new Dimension(300, 150));
+                        mcpToolsPanel.add(scrollPane);
+                    }
+
+                    mcpToolsPanel.revalidate();
+                    mcpToolsPanel.repaint();
+                    dialog.pack();
+                });
+                emptyRow.add(noServersLabel, BorderLayout.WEST);
+                emptyRow.add(configureButton, BorderLayout.EAST);
+                mcpToolsPanel.add(emptyRow);
             } else {
                 var selectionPanel = new JPanel();
                 selectionPanel.setLayout(new BoxLayout(selectionPanel, BoxLayout.Y_AXIS));
