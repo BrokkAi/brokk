@@ -763,7 +763,7 @@ class CodeAgentTest {
         contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
 
         // one block was applied to trigger verify phase
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var loopContext = CodeAgent.createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
         loopContext.editState().changedFiles().add(file);
 
         var result = codeAgent.verifyPhase(loopContext, null);
@@ -792,7 +792,7 @@ class CodeAgentTest {
         contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
 
         // Start with consecutive lint failures already at MAX_LINT_FAILURES - 1
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var loopContext = CodeAgent.createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
         var es = loopContext.editState();
         var esWithFailures = new CodeAgent.EditState(
                 es.pendingBlocks(),

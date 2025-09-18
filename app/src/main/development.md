@@ -354,3 +354,29 @@ unset BRK_NO_LSP
 export BRK_NO_LSP=""
 export BRK_NO_LSP="maybe"  # logs warning, disables LSP
 ```
+
+### BRK_USE_LSP_LINT_FOR_BUILD_GATE
+
+Controls whether lint diagnostics from the Java Language Server can short-circuit the verification build in CodeAgent.verifyPhase.
+
+- Name: BRK_USE_LSP_LINT_FOR_BUILD_GATE
+- Type: Boolean (case-insensitive)
+- Default: false (build always runs; build errors are preferred, lint errors are reported only if the build succeeds)
+- When true: preserves legacy behavior — if lint errors are present, the agent may skip running the build
+- When false: runs the build even if lint errors exist; if the build fails, build errors are used, otherwise lint errors are reported
+
+Notes:
+- Parsing is case-insensitive: 1, true, t, yes, y, on are truthy; 0, false, f, no, n, off are falsy
+- If unset or invalid, defaults to false
+
+Examples:
+```bash
+# Default (unset) -> false
+unset BRK_USE_LSP_LINT_FOR_BUILD_GATE
+
+# Enable lint gating (legacy behavior)
+export BRK_USE_LSP_LINT_FOR_BUILD_GATE=true
+
+# Disable lint gating explicitly
+export BRK_USE_LSP_LINT_FOR_BUILD_GATE=false
+```

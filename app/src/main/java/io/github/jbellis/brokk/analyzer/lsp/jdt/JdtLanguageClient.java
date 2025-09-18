@@ -5,14 +5,18 @@ import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 import org.eclipse.lsp4j.MessageParams;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
+import org.eclipse.lsp4j.Diagnostic;
 
 public final class JdtLanguageClient extends LspLanguageClient {
+
+    private volatile boolean suppressionAlerted = false;
 
     public JdtLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
@@ -30,18 +34,97 @@ public final class JdtLanguageClient extends LspLanguageClient {
         } catch (Exception e) {
             logger.error("Unable to determine validity of diagnostic path argument {}", diagnostics, e);
         }
+
+        var health = getBuildHealth();
+        if (health != BuildHealth.HEALTHY) {
+            var diags = diagnostics.getDiagnostics();
+            if (diags != null && !diags.isEmpty()) {
+                var filtered = new ArrayList<Diagnostic>(diags.size());
+                int unresolvedCount = 0;
+                for (var d : diags) {
+                    var msg = d.getMessage();
+                    var lower = msg == null ? "" : msg.toLowerCase(Locale.ROOT);
+                    boolean unresolvedLike = lower.contains("cannot be resolved")
+                            || lower.contains("classpath is incomplete")
+                            || lower.contains("class path is incomplete")
+                            || lower.contains("build path is incomplete")
+                            || lower.contains("project configuration is not up-to-date");
+                    if (unresolvedLike) {
+                        unresolvedCount++;
+                        continue; // filter these in unhealthy state
+                    }
+                    filtered.add(d);
+                }
+
+                double ratio = diags.isEmpty() ? 0.0 : (double) unresolvedCount / (double) diags.size();
+                if (ratio >= 0.80) {
+                    // If the vast majority are unresolved-like, drop all to reduce noise
+                    logger.debug(
+                            "Suppressed {} diagnostics ({} unresolved-like; {:.0f}% of total) for {} due to unhealthy workspace ({})",
+                            diags.size(),
+                            unresolvedCount,
+                            ratio * 100.0,
+                            uri);
+                    if (!suppressionAlerted) {
+                        suppressionAlerted = true;
+                        alertUser(
+                                "Java Language Server build/import appears unhealthy; suppressing unresolved-symbol diagnostics to reduce noise.\n"
+                                        + "Fix the project build (Gradle/Maven/Eclipse) for full linting fidelity.");
+                    }
+                    return; // do not forward any diagnostics for this file
+                } else if (unresolvedCount > 0) {
+                    logger.debug(
+                            "Filtered {} unresolved-like diagnostics out of {} for {} due to unhealthy workspace ({})",
+                            unresolvedCount,
+                            diags.size(),
+                            uri,
+                            health);
+                    if (!suppressionAlerted) {
+                        suppressionAlerted = true;
+                        alertUser(
+                                "Java Language Server build/import appears unhealthy; suppressing unresolved-symbol diagnostics to reduce noise.\n"
+                                        + "Fix the project build (Gradle/Maven/Eclipse) for full linting fidelity.");
+                    }
+                    var newParams = new PublishDiagnosticsParams(diagnostics.getUri(), filtered);
+                    super.publishDiagnostics(newParams);
+                    return;
+                }
+            }
+        }
+
         super.publishDiagnostics(diagnostics);
     }
 
     @Override
     public void logMessage(MessageParams message) {
         switch (message.getType()) {
-            case Error -> handleSystemError(message);
-            case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
+            case Error -> {
+                handleSystemError(message);
+                // Also mark build issues if they manifest as errors
+                if (isBuildPathIssue(message)) {
+                    setBuildHealth(BuildHealth.BUILD_FAILED);
+                }
+            }
+            case Warning -> {
+                logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
+                if (isBuildPathIssue(message)) {
+                    setBuildHealth(BuildHealth.BUILD_FAILED);
+                }
+            }
             case Info -> {
                 logger.trace("[LSP-SERVER-LOG] INFO: {}", message.getMessage());
 
+                // On first useful info message, mark as INDEXING if we don't yet know health
+                if (getBuildHealth() == BuildHealth.UNKNOWN) {
+                    setBuildHealth(BuildHealth.INDEXING);
+                }
+                if (isBuildPathIssue(message)) {
+                    setBuildHealth(BuildHealth.BUILD_FAILED);
+                }
+
                 if (message.getMessage().endsWith("build jobs finished")) {
+                    // Healthy after build/import jobs complete
+                    setBuildHealth(BuildHealth.HEALTHY);
                     // This is a good way we can tell when the server is ready
                     this.getServerReadyLatch().countDown();
                 } else if (message.getMessage().lines().findFirst().orElse("").contains("Projects:")) {
@@ -96,6 +179,7 @@ public final class JdtLanguageClient extends LspLanguageClient {
         // latches to unblock the clients
         if (failedToImportProject(message)) {
             logger.warn("Failed to import projects, counting down all latches");
+            setBuildHealth(BuildHealth.IMPORT_FAILED);
             alertUser(
                     "Failed to import Java project, code analysis will be limited.\nPlease ensure the project can build via Gradle, Maven, or Eclipse.");
             workspaceReadyLatchMap.forEach((workspace, latch) -> {
@@ -103,12 +187,16 @@ public final class JdtLanguageClient extends LspLanguageClient {
                 latch.countDown();
             });
         } else if (isOutOfMemoryError(message)) {
+            setBuildHealth(BuildHealth.OUT_OF_MEMORY);
             alertUser(
                     "The Java Language Server ran out of memory. Consider increasing this under 'Settings' -> 'Analyzers' -> 'Java'.");
         } else if (isCachePossiblyCorrupted(message)) {
+            setBuildHealth(BuildHealth.CACHE_CORRUPT);
             alertUser("The Java Language Server cache may be corrupted, automatically clearing now.");
             // Shut down the current server and rebuild a fresh cache
             SharedJdtLspServer.getInstance().clearCache();
+        } else if (isBuildPathIssue(message)) {
+            setBuildHealth(BuildHealth.BUILD_FAILED);
         } else if (isUnhandledError(message)) {
             alertUser("Failed to import Java project due to unknown error. Please look at $HOME/.brokk/debug.log.");
         }
@@ -129,5 +217,12 @@ public final class JdtLanguageClient extends LspLanguageClient {
 
     private boolean isUnhandledError(MessageParams message) {
         return message.getMessage().contains("Unhandled error");
+    }
+
+    private boolean isBuildPathIssue(MessageParams message) {
+        var m = message.getMessage().toLowerCase(Locale.ROOT);
+        return m.contains("classpath is incomplete")
+                || m.contains("build path is incomplete")
+                || m.contains("project configuration is not up-to-date");
     }
 }

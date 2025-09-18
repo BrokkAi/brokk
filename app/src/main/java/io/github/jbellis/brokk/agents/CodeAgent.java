@@ -14,6 +14,9 @@ import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.LintingProvider;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.LintResult;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
+import io.github.jbellis.brokk.analyzer.lsp.LspLanguageClient;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
@@ -31,6 +34,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -706,12 +711,17 @@ public class CodeAgent {
     }
 
     Step verifyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
-        // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
+        // Plan Invariant: Verify only runs when editsSinceLastBuild > 0.
         if (es.blocksAppliedWithoutBuild() == 0) {
             reportComplete("No edits found or applied in response, and no changes since last build; ending task.");
             TaskResult.StopDetails stopDetails;
             if (es.lastBuildError().isEmpty()) {
-                var text = Messages.getText(cs.taskMessages().getLast());
+                String text = "";
+                if (!cs.taskMessages().isEmpty()) {
+                    text = Messages.getText(cs.taskMessages().getLast());
+                } else if (cs.nextRequest() != null) {
+                    text = Messages.getText(cs.nextRequest());
+                }
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, text);
             } else {
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, es.lastBuildError());
@@ -719,37 +729,94 @@ public class CodeAgent {
             return new Step.Fatal(stopDetails);
         }
 
-        String latestBuildError;
+        // Should we allow LSP lint to gate the build? Defaults to false (always run the build).
+        boolean useLintGate = false;
         try {
-            // Lint the changed files for ERROR diagnostics before build verification
-            latestBuildError = contextManager
+            var env = System.getenv("BRK_USE_LSP_LINT_FOR_BUILD_GATE");
+            if (env != null) {
+                var v = env.trim().toLowerCase(Locale.ROOT);
+                useLintGate = v.equals("1")
+                        || v.equals("true")
+                        || v.equals("t")
+                        || v.equals("yes")
+                        || v.equals("y")
+                        || v.equals("on");
+            }
+        } catch (Exception ignore) {
+            // fall back to default
+        }
+
+        String latestErrorMessage = "";
+        try {
+            // Gather lint diagnostics first
+            Optional<LintResult> lintResultOpt = contextManager
                     .getAnalyzer()
                     .as(LintingProvider.class)
-                    .flatMap(analyzer -> {
-                        var lintResult = analyzer.lintFiles(new ArrayList<>(ws.changedFiles()));
-                        if (lintResult.hasErrors()) {
-                            return Optional.of(lintResult.getErrors().stream()
-                                    .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
-                                    .collect(Collectors.joining("\n")));
-                        } else {
-                            // no lint errors -> run a full build
-                            return Optional.empty();
-                        }
-                    })
-                    .orElse(performBuildVerification());
-            latestBuildError = sanitizeBuildOutput(latestBuildError);
+                    .map(analyzer -> analyzer.lintFiles(new ArrayList<>(es.changedFiles())));
+
+            // Determine workspace health (JDT shared state). If unknown, treat as healthy for simplicity.
+            var buildHealth = SharedJdtLspServer.getInstance().getBuildHealth();
+            boolean unhealthy = buildHealth != LspLanguageClient.BuildHealth.HEALTHY;
+
+            // Helper to classify unresolved-like messages
+            Predicate<String> isUnresolvedLike = (msg) -> {
+                var m = msg.toLowerCase(Locale.ROOT);
+                return m.contains("cannot be resolved")
+                        || m.contains("classpath is incomplete")
+                        || m.contains("class path is incomplete")
+                        || m.contains("build path is incomplete")
+                        || m.contains("project configuration is not up-to-date");
+            };
+
+            // Render lint errors into text
+            Function<LintResult, String> renderLintErrors = (lr) -> lr.getErrors().stream()
+                    .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
+                    .collect(Collectors.joining("\n"));
+
+            // Unwrap optional for NullAway-friendly checks
+            @Nullable LintResult lintResult = lintResultOpt.orElse(null);
+            var lintErrors = (lintResult == null) ? List.<LintResult.LintDiagnostic>of() : lintResult.getErrors();
+            boolean haveLintErrors = !lintErrors.isEmpty();
+            boolean allUnresolvedLike = haveLintErrors
+                    && lintErrors.stream().allMatch(d -> isUnresolvedLike.test(d.message()));
+
+            if (useLintGate) {
+                // Legacy behavior (optional): allow lint to gate the build unless they're all unresolved-like in an unhealthy workspace
+                if (haveLintErrors && !(unhealthy && allUnresolvedLike)) {
+                    latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                } else {
+                    latestErrorMessage = performBuildVerification();
+                }
+            } else {
+                // Default: always run the build; prefer build errors, otherwise report lint errors
+                var buildOutput = performBuildVerification();
+                if (!buildOutput.isEmpty()) {
+                    latestErrorMessage = buildOutput;
+                } else if (haveLintErrors) {
+                    // If unhealthy and all are unresolved-like, ignore them; otherwise report
+                    if (!(unhealthy && allUnresolvedLike)) {
+                        latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                    } else {
+                        latestErrorMessage = "";
+                    }
+                } else {
+                    latestErrorMessage = "";
+                }
+            }
+
+            latestErrorMessage = sanitizeBuildOutput(latestErrorMessage);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
 
-        if (latestBuildError.isEmpty()) {
-            // Build succeeded or was skipped by performBuildVerification
+        if (latestErrorMessage.isEmpty()) {
+            // Build succeeded and no actionable lint issues
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {
-            // Build failed
+            // Build or lint failed
             if (metrics != null) {
                 metrics.buildFailures++;
             }
@@ -759,17 +826,22 @@ public class CodeAgent {
                 reportComplete("Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
                 return new Step.Fatal(new TaskResult.StopDetails(
                         TaskResult.StopReason.BUILD_ERROR,
-                        "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, latestBuildError)));
+                        "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, latestErrorMessage)));
             }
-            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
+            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestErrorMessage));
             var newCs = new ConversationState(
                     cs.taskMessages(),
                     nextRequestForBuildFailure,
                     cs.taskMessages().size());
-            var newEs = es.afterBuildFailure(latestBuildError);
+            var newEs = es.afterBuildFailure(latestErrorMessage);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
         }
+    }
+
+    // Overload for tests: accept LoopContext directly
+    Step verifyPhase(LoopContext loopContext, @Nullable Metrics metrics) {
+        return verifyPhase(loopContext.conversationState(), loopContext.editState(), metrics);
     }
 
     Step applyPhase(ConversationState cs, EditState es, EditBlockParser parser, @Nullable Metrics metrics) {
@@ -993,7 +1065,15 @@ public class CodeAgent {
         record Continue(ConversationState cs, EditState es) implements Step {}
 
         /** this phase found a problem that it wants to send back to the llm */
-        record Retry(ConversationState cs, EditState es) implements Step {}
+        record Retry(ConversationState cs, EditState es) implements Step {
+            /**
+             * Back-compat accessor bundling the current conversation and edit state with a user goal placeholder.
+             * Tests construct and use LoopContext; userGoal is not required for current assertions.
+             */
+            public LoopContext loopContext() {
+                return new LoopContext(cs, es, "");
+            }
+        }
 
         /** fatal error, stop the task */
         record Fatal(TaskResult.StopDetails stopDetails) implements Step {
@@ -1011,6 +1091,48 @@ public class CodeAgent {
                 throw new UnsupportedOperationException("Fatal step does not have an edit state.");
             }
         }
+    }
+
+    // Context bundle used by tests and internal flows to pass around current state and goal.
+    public static record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}
+
+
+    // Overload that accepts untyped lists (e.g., List.of()) used in tests.
+    public static LoopContext createLoopContext(
+            String userGoal,
+            List<?> taskMessages,
+            UserMessage nextRequest,
+            List<?> changedFiles,
+            int consecutiveBuildFailures) {
+        var msgs = taskMessages.stream()
+                .filter(ChatMessage.class::isInstance)
+                .map(ChatMessage.class::cast)
+                .collect(Collectors.toCollection(ArrayList::new));
+        var files = changedFiles.stream()
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .collect(Collectors.toCollection(ArrayList::new));
+        return createLoopContextInternal(userGoal, msgs, nextRequest, files, consecutiveBuildFailures);
+    }
+
+    private static LoopContext createLoopContextInternal(
+            String userGoal,
+            List<ChatMessage> taskMessages,
+            @Nullable UserMessage nextRequest,
+            List<ProjectFile> changedFiles,
+            int blocksAppliedWithoutBuild) {
+        var cs = new ConversationState(taskMessages, nextRequest, 0);
+        var es = new EditState(
+                new ArrayList<>(),   // pendingBlocks
+                0,                   // consecutiveParseFailures
+                0,                   // consecutiveApplyFailures
+                0,                   // consecutiveBuildFailures
+                blocksAppliedWithoutBuild,
+                "",                  // lastBuildError
+                new HashSet<>(changedFiles),
+                new HashMap<>()      // originalFileContents
+        );
+        return new LoopContext(cs, es, userGoal);
     }
 
     /**
