@@ -24,7 +24,8 @@ public class CallGraphDialog extends JDialog {
     @Nullable
     private String selectedMethod = null;
 
-    private int depth = 5;
+    private static final int DEFAULT_DEPTH = 3;
+    private int depth = 3;
 
     private boolean confirmed = false;
 
@@ -57,7 +58,7 @@ public class CallGraphDialog extends JDialog {
 
         // First row - depth spinner
         var depthLabel = new JLabel("Depth: ");
-        var spinnerModel = new SpinnerNumberModel(5, 1, 10, 1);
+        var spinnerModel = new SpinnerNumberModel(DEFAULT_DEPTH, 1, 10, 1);
         depthSpinner = new JSpinner(spinnerModel);
 
         gbc.gridx = 0;
