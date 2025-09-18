@@ -350,6 +350,48 @@ public abstract class TreeSitterAnalyzer
         return withReadLock(() -> allCodeUnits().distinct().toList());
     }
 
+    /**
+     * Derive short-name keys for lookups in symbolIndex from a fully-qualified name. Returns keys from most-specific to
+     * least-specific (growing suffix), e.g. 'za.ac.sun.Foo' -> ['Foo', 'sun.Foo', 'ac.sun.Foo', 'za.ac.sun.Foo'].
+     */
+    private List<String> indexKeysFor(String fqName) {
+        if (fqName.isEmpty()) {
+            return List.of();
+        }
+        var tokens = Splitter.on('.').splitToList(fqName);
+        int n = tokens.size();
+        List<String> keys = new ArrayList<>(n);
+        StringBuilder sb = new StringBuilder();
+        // Build from last token backwards, gradually prepending previous tokens
+        for (int i = n - 1; i >= 0; i--) {
+            if (sb.isEmpty()) {
+                sb.append(tokens.get(i));
+            } else {
+                sb.insert(0, '.').insert(0, tokens.get(i));
+            }
+            keys.add(sb.toString());
+        }
+        return keys;
+    }
+
+    /**
+     * Scans symbolIndex using the suffix keys derived from the provided name and returns the first mapped result for
+     * which the matcher is true. This method expects callers to hold the read lock.
+     */
+    private <R> Optional<R> findFirstMappedByIndex(
+            String nameForKeys, Predicate<CodeUnit> matcher, Function<CodeUnit, R> mapper) {
+        for (var key : indexKeysFor(nameForKeys)) {
+            var candidates = symbolIndex.get(key);
+            if (candidates == null || candidates.isEmpty()) continue;
+            for (var cu : candidates) {
+                if (matcher.test(cu)) {
+                    return Optional.of(mapper.apply(cu));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     /* ---------- IAnalyzer ---------- */
     @Override
     public boolean isEmpty() {
@@ -366,37 +408,36 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public List<CodeUnit> getMembersInClass(String fqClass) {
-        Optional<CodeUnit> parent = uniqueCodeUnitList().stream()
-                .filter(cu -> cu.fqName().equals(fqClass) && cu.isClass())
-                .findFirst();
-        return parent.map(p -> List.copyOf(childrenByParent.getOrDefault(p, List.of())))
-                .orElse(List.of());
+        return withReadLock(() -> findFirstMappedByIndex(
+                        fqClass,
+                        cu -> cu.isClass() && cu.fqName().equals(fqClass),
+                        cu -> List.copyOf(childrenByParent.getOrDefault(cu, List.of())))
+                .orElse(List.of()));
     }
 
     @Override
     public Optional<ProjectFile> getFileFor(String fqName) {
-        return uniqueCodeUnitList().stream()
-                .filter(cu -> cu.fqName().equals(fqName))
-                .map(CodeUnit::source)
-                .findFirst();
+        return withReadLock(
+                () -> findFirstMappedByIndex(fqName, cu -> cu.fqName().equals(fqName), CodeUnit::source));
     }
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        return uniqueCodeUnitList().stream()
-                .filter(cu -> {
-                    if (cu.isFunction()) {
-                        return cu.fqName().equals(nearestMethodName(fqName));
-                    } else {
-                        return cu.fqName().equals(fqName);
-                    }
-                })
-                .findFirst();
+        return withReadLock(() -> {
+            var targetFqn = nearestMethodName(fqName);
+            return findFirstMappedByIndex(
+                    targetFqn, cu -> cu.fqName().equals(cu.isFunction() ? targetFqn : fqName), Function.identity());
+        });
     }
 
     @Override
     public boolean isDefinitionAvailable(String fqName) {
-        return withReadLock(() -> allCodeUnits().anyMatch(cu -> cu.fqName().equals(fqName)));
+        return withReadLock(() -> {
+            var targetFqn = nearestMethodName(fqName);
+            return findFirstMappedByIndex(
+                            targetFqn, cu -> cu.fqName().equals(cu.isFunction() ? targetFqn : fqName), cu -> true)
+                    .isPresent();
+        });
     }
 
     @Override
