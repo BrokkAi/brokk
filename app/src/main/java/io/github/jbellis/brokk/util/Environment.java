@@ -645,4 +645,34 @@ public class Environment {
                     JOptionPane.ERROR_MESSAGE);
         }
     }
+
+    /**
+     * Parse a boolean-like environment variable with robust semantics and standardized warnings.
+     *
+     * @param name the environment variable name
+     * @param defaultIfMissing value to return when the variable is not set
+     * @param defaultIfInvalidOrEmpty value to return when the variable is set but empty or unrecognized
+     * @return the parsed boolean value
+     */
+    public static boolean envBoolean(String name, boolean defaultIfMissing, boolean defaultIfInvalidOrEmpty) {
+        var raw = System.getenv(name);
+        if (raw == null) return defaultIfMissing;
+        var value = raw.trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) {
+            logger.warn("Environment variable {} is empty; defaulting to {}.", name, defaultIfInvalidOrEmpty);
+            return defaultIfInvalidOrEmpty;
+        }
+        return switch (value) {
+            case "1", "true", "t", "yes", "y", "on" -> true;
+            case "0", "false", "f", "no", "n", "off" -> false;
+            default -> {
+                logger.warn(
+                        "Environment variable {}='{}' is not a recognized boolean; defaulting to {}.",
+                        name,
+                        raw,
+                        defaultIfInvalidOrEmpty);
+                yield defaultIfInvalidOrEmpty;
+            }
+        };
+    }
 }

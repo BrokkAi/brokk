@@ -12,11 +12,11 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
+import io.github.jbellis.brokk.analyzer.LintResult;
 import io.github.jbellis.brokk.analyzer.LintingProvider;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.LintResult;
-import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.LspLanguageClient;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
@@ -730,21 +730,7 @@ public class CodeAgent {
         }
 
         // Should we allow LSP lint to gate the build? Defaults to false (always run the build).
-        boolean useLintGate = false;
-        try {
-            var env = System.getenv("BRK_USE_LSP_LINT_FOR_BUILD_GATE");
-            if (env != null) {
-                var v = env.trim().toLowerCase(Locale.ROOT);
-                useLintGate = v.equals("1")
-                        || v.equals("true")
-                        || v.equals("t")
-                        || v.equals("yes")
-                        || v.equals("y")
-                        || v.equals("on");
-            }
-        } catch (Exception ignore) {
-            // fall back to default
-        }
+        boolean useLintGate = Environment.envBoolean("BRK_USE_LSP_LINT_FOR_BUILD_GATE", false, false);
 
         String latestErrorMessage = "";
         try {
@@ -777,11 +763,12 @@ public class CodeAgent {
             @Nullable LintResult lintResult = lintResultOpt.orElse(null);
             var lintErrors = (lintResult == null) ? List.<LintResult.LintDiagnostic>of() : lintResult.getErrors();
             boolean haveLintErrors = !lintErrors.isEmpty();
-            boolean allUnresolvedLike = haveLintErrors
-                    && lintErrors.stream().allMatch(d -> isUnresolvedLike.test(d.message()));
+            boolean allUnresolvedLike =
+                    haveLintErrors && lintErrors.stream().allMatch(d -> isUnresolvedLike.test(d.message()));
 
             if (useLintGate) {
-                // Legacy behavior (optional): allow lint to gate the build unless they're all unresolved-like in an unhealthy workspace
+                // Legacy behavior (optional): allow lint to gate the build unless they're all unresolved-like in an
+                // unhealthy workspace
                 if (haveLintErrors && !(unhealthy && allUnresolvedLike)) {
                     latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
                 } else {
@@ -1067,8 +1054,8 @@ public class CodeAgent {
         /** this phase found a problem that it wants to send back to the llm */
         record Retry(ConversationState cs, EditState es) implements Step {
             /**
-             * Back-compat accessor bundling the current conversation and edit state with a user goal placeholder.
-             * Tests construct and use LoopContext; userGoal is not required for current assertions.
+             * Back-compat accessor bundling the current conversation and edit state with a user goal placeholder. Tests
+             * construct and use LoopContext; userGoal is not required for current assertions.
              */
             public LoopContext loopContext() {
                 return new LoopContext(cs, es, "");
@@ -1096,7 +1083,6 @@ public class CodeAgent {
     // Context bundle used by tests and internal flows to pass around current state and goal.
     public static record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}
 
-
     // Overload that accepts untyped lists (e.g., List.of()) used in tests.
     public static LoopContext createLoopContext(
             String userGoal,
@@ -1123,15 +1109,15 @@ public class CodeAgent {
             int blocksAppliedWithoutBuild) {
         var cs = new ConversationState(taskMessages, nextRequest, 0);
         var es = new EditState(
-                new ArrayList<>(),   // pendingBlocks
-                0,                   // consecutiveParseFailures
-                0,                   // consecutiveApplyFailures
-                0,                   // consecutiveBuildFailures
+                new ArrayList<>(), // pendingBlocks
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
                 blocksAppliedWithoutBuild,
-                "",                  // lastBuildError
+                "", // lastBuildError
                 new HashSet<>(changedFiles),
-                new HashMap<>()      // originalFileContents
-        );
+                new HashMap<>() // originalFileContents
+                );
         return new LoopContext(cs, es, userGoal);
     }
 
