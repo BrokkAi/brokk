@@ -10,9 +10,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
+import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.MessageParams;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
-import org.eclipse.lsp4j.Diagnostic;
 
 public final class JdtLanguageClient extends LspLanguageClient {
 
@@ -61,10 +61,7 @@ public final class JdtLanguageClient extends LspLanguageClient {
                     // If the vast majority are unresolved-like, drop all to reduce noise
                     logger.debug(
                             "Suppressed {} diagnostics ({} unresolved-like; {:.0f}% of total) for {} due to unhealthy workspace ({})",
-                            diags.size(),
-                            unresolvedCount,
-                            ratio * 100.0,
-                            uri);
+                            diags.size(), unresolvedCount, ratio * 100.0, uri);
                     if (!suppressionAlerted) {
                         suppressionAlerted = true;
                         alertUser(

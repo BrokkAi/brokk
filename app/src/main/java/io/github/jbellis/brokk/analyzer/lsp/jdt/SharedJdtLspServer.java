@@ -104,9 +104,7 @@ public final class SharedJdtLspServer extends LspServer {
 
     /** Returns the current build/import health as seen by the Java language client. */
     public LspLanguageClient.BuildHealth getBuildHealth() {
-        return languageClient != null
-                ? languageClient.getBuildHealth()
-                : LspLanguageClient.BuildHealth.UNKNOWN;
+        return languageClient != null ? languageClient.getBuildHealth() : LspLanguageClient.BuildHealth.UNKNOWN;
     }
 
     /**
