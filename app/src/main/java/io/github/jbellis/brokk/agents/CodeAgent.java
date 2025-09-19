@@ -775,19 +775,25 @@ public class CodeAgent {
                     latestErrorMessage = performBuildVerification();
                 }
             } else {
-                // Default: always run the build; prefer build errors, otherwise report lint errors
-                var buildOutput = performBuildVerification();
-                if (!buildOutput.isEmpty()) {
-                    latestErrorMessage = buildOutput;
-                } else if (haveLintErrors) {
-                    // If unhealthy and all are unresolved-like, ignore them; otherwise report
-                    if (!(unhealthy && allUnresolvedLike)) {
-                        latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                // Health-aware default:
+                // - If server is healthy and we have lint errors, trust and report them immediately (cheap feedback).
+                // - Otherwise, run the build; prefer build errors, and only fall back to lint if build succeeds.
+                if (!unhealthy && haveLintErrors) {
+                    latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                } else {
+                    var buildOutput = performBuildVerification();
+                    if (!buildOutput.isEmpty()) {
+                        latestErrorMessage = buildOutput;
+                    } else if (haveLintErrors) {
+                        // If unhealthy and all are unresolved-like, ignore them; otherwise report
+                        if (!(unhealthy && allUnresolvedLike)) {
+                            latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                        } else {
+                            latestErrorMessage = "";
+                        }
                     } else {
                         latestErrorMessage = "";
                     }
-                } else {
-                    latestErrorMessage = "";
                 }
             }
 
