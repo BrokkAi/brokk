@@ -1644,7 +1644,7 @@ public class WorkspacePanel extends JPanel {
 
         // Create a placeholder immediately so the user gets instant feedback
         var initialPlaceholder =
-                new ContextFragment.PlaceholderFragment(contextManager, "Preparing symbol search...");
+                new ContextFragment.PlaceholderFragment(contextManager, "Searching for symbol usages...");
         contextManager.addVirtualFragment(initialPlaceholder);
         chrome.systemOutput("DEBUG: Placeholder created (id=" + initialPlaceholder.id() + ")");
 
