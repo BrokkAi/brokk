@@ -1629,13 +1629,9 @@ public class WorkspacePanel extends JPanel {
         }
     }
 
-
-    /**
-     * Show the symbol selection dialog with a pre-fetched analyzer (must be called on the EDT).
-     */
+    /** Show the symbol selection dialog with a pre-fetched analyzer (must be called on the EDT). */
     private SymbolSelectionDialog.@Nullable SymbolSelection showSymbolSelectionDialogWithAnalyzer(IAnalyzer analyzer) {
-        assert SwingUtilities.isEventDispatchThread()
-                : "showSymbolSelectionDialogWithAnalyzer must be called from EDT";
+        assert SwingUtilities.isEventDispatchThread() : "showSymbolSelectionDialogWithAnalyzer must be called from EDT";
 
         logger.debug("Creating dialog with pre-fetched analyzer");
         var dialog = new SymbolSelectionDialog(chrome.getFrame(), analyzer, "Select Symbol", CodeUnitType.ALL);
@@ -1649,7 +1645,8 @@ public class WorkspacePanel extends JPanel {
 
     /** Shows the symbol selection dialog; fetch analyzer off-EDT first, then show dialog on EDT. */
     public void findSymbolUsageAsync() {
-        logger.debug("findSymbolUsageAsync called from thread: " + Thread.currentThread().getName());
+        logger.debug("findSymbolUsageAsync called from thread: "
+                + Thread.currentThread().getName());
         if (!isAnalyzerReady()) {
             logger.warn("Analyzer not ready, aborting");
             return;
@@ -1662,19 +1659,18 @@ public class WorkspacePanel extends JPanel {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
 
                 if (analyzer.isEmpty()) {
-                            SwingUtilities.invokeLater(() -> {
-                                chrome.toolError("Code Intelligence is empty; nothing to add");
-                                logger.debug("Analyzer is empty");
-                            });
-                            return;
-                        }
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError("Code Intelligence is empty; nothing to add");
+                        logger.debug("Analyzer is empty");
+                    });
+                    return;
+                }
 
                 // Analyzer obtained, scheduling dialog on EDT
                 SwingUtilities.invokeLater(() -> {
                     try {
                         logger.debug("Starting dialog display on EDT with pre-fetched analyzer");
-                        var selection = showSymbolSelectionDialogWithAnalyzer(
-                                analyzer);
+                        var selection = showSymbolSelectionDialogWithAnalyzer(analyzer);
 
                         if (selection == null
                                 || selection.symbol() == null
@@ -1812,8 +1808,8 @@ public class WorkspacePanel extends JPanel {
             logger.debug("Background task started for symbol: {}", symbol);
             try {
                 // Update placeholder status while computing
-                var searchingPlaceholder = new ContextFragment.PlaceholderFragment(
-                        contextManager, "Finding uses of " + symbol);
+                var searchingPlaceholder =
+                        new ContextFragment.PlaceholderFragment(contextManager, "Finding uses of " + symbol);
                 contextManager.replaceVirtualFragment(initialPlaceholder.id(), searchingPlaceholder);
 
                 // Build the actual fragment and replace the placeholder when ready
@@ -1821,8 +1817,8 @@ public class WorkspacePanel extends JPanel {
                         new ContextFragment.UsageFragment(contextManager, symbol, selection.includeTestFiles());
                 contextManager.replaceVirtualFragment(searchingPlaceholder.id(), actualFragment);
 
-                chrome.systemOutput("Added uses of " + symbol
-                        + (selection.includeTestFiles() ? " (including tests)" : ""));
+                chrome.systemOutput(
+                        "Added uses of " + symbol + (selection.includeTestFiles() ? " (including tests)" : ""));
             } catch (CancellationException cex) {
                 chrome.systemOutput("Symbol selection canceled.");
                 var cancelled = new ContextFragment.StringFragment(
@@ -1834,7 +1830,6 @@ public class WorkspacePanel extends JPanel {
             }
         });
     }
-
 
     /**
      * Performed by the action buttons/menus in the context panel: "edit / read / copy / drop / summarize / paste" If
