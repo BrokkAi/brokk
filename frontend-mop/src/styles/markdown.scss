@@ -95,10 +95,36 @@ li > p {
   font-size: 0.8em;
 }
 
-/* Symbol lookup styling for inline code that exists in project */
- :not(pre) > code.symbol-exists {
+/* Content lookup styling for inline code that exists in project (symbols and file paths) */
+:not(pre) > code.content-exists {
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* Symbol lookup styling for inline code that exists in project */
+:not(pre) > code.symbol-exists {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* File path styling for inline code that represents existing files */
+:not(pre) > code.file-path-exists {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Hover effects for content that exists (file paths and symbols) */
+:not(pre) > code.content-exists:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
+}
+
+/* Hover effects for file paths */
+:not(pre) > code.file-path-exists:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
 }
 
 /* Hover effects only for exact matches (exclude partial matches) */
@@ -130,6 +156,21 @@ li > p {
   text-decoration: underline;
   text-decoration-color: var(--link-color-hex);
   cursor: pointer; /* Make highlighted spans clickable */
+}
+
+/* File path highlighting - same styling as symbols */
+.file-path-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Make highlighted spans clickable */
+  color: var(--link-color-hex);
+}
+
+/* Hover effects for file path highlights */
+.file-path-highlight:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 15%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
 }
 
 /* Enhanced partial match styling - use same styling as exact matches */

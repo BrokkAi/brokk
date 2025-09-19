@@ -61,6 +61,15 @@ public class ContextMenuBuilder {
         return builder;
     }
 
+    /** Creates a context menu for file path matches (MOP disambiguation) */
+    public static ContextMenuBuilder forFilePathMatches(
+            List<ProjectFile> files, Chrome chrome, ContextManager contextManager) {
+        var context = new FileMenuContext(files, chrome, contextManager);
+        var builder = new ContextMenuBuilder(context);
+        builder.buildFilePathMenu();
+        return builder;
+    }
+
     /** Shows the menu at the specified coordinates */
     public void show(Component component, int x, int y) {
         if (menu.getComponentCount() > 0) {
@@ -217,17 +226,133 @@ public class ContextMenuBuilder {
         summarizeItem.addActionListener(e -> summarizeFiles(fileContext));
         menu.add(summarizeItem);
 
-        menu.addSeparator();
-
-        // Run Tests
-        var runTestsItem = new JMenuItem("Run Tests");
+        // Run Tests (only show if all files are test files)
         boolean hasTestFiles = files.stream().allMatch(ContextManager::isTestFile);
-        runTestsItem.setEnabled(hasTestFiles);
-        if (!hasTestFiles) {
-            runTestsItem.setToolTipText("Non-test files in selection");
+        if (hasTestFiles) {
+            menu.addSeparator();
+            var runTestsItem = new JMenuItem("Run Tests");
+            runTestsItem.addActionListener(e -> runTests(fileContext));
+            menu.add(runTestsItem);
         }
-        runTestsItem.addActionListener(e -> runTests(fileContext));
-        menu.add(runTestsItem);
+    }
+
+    private void buildFilePathMenu() {
+        if (!(context instanceof FileMenuContext fileContext)) {
+            return;
+        }
+
+        var files = fileContext.files();
+        if (files.isEmpty()) {
+            return;
+        }
+
+        if (files.size() == 1) {
+            // Single file - add actions directly to main menu
+            var file = files.getFirst();
+            var singleFileContext =
+                    new FileMenuContext(List.of(file), fileContext.chrome(), fileContext.contextManager());
+
+            addFileActions(menu, singleFileContext);
+        } else {
+            // Multiple files - create submenus for each file (no bulk actions for MOP disambiguation)
+            for (var file : files) {
+                var submenu = new JMenu(file.toString());
+
+                // Create a context for this specific file
+                var singleFileContext =
+                        new FileMenuContext(List.of(file), fileContext.chrome(), fileContext.contextManager());
+
+                // Add file actions to this submenu
+                addFileActions(submenu, singleFileContext);
+
+                menu.add(submenu);
+            }
+        }
+    }
+
+    private JMenuItem createHistoryMenuItem(FileMenuContext context) {
+        var file = context.files().getFirst();
+        boolean hasGit = context.contextManager().getProject().hasGit();
+        var historyItem = new JMenuItem("Show History");
+        historyItem.addActionListener(e -> {
+            final var chrome = context.chrome();
+            if (chrome != null) {
+                chrome.addFileHistoryTab(file);
+            } else {
+                logger.warn("Chrome is null, cannot show history for {}", file);
+            }
+        });
+        historyItem.setEnabled(hasGit);
+        if (!hasGit) {
+            historyItem.setToolTipText("Git not available for this project.");
+        }
+        return historyItem;
+    }
+
+    /**
+     * Helper method to add file actions (Show History, Edit, Read, Summarize, Run Tests) to a container for single-file
+     * contexts
+     */
+    private void addFileActions(Container parent, FileMenuContext singleFileContext) {
+        assert singleFileContext.files().size() == 1 : "addFileActions expects single file context";
+
+        var file = singleFileContext.files().getFirst();
+        boolean hasGit = singleFileContext.contextManager().getProject().hasGit();
+        boolean isTracked = singleFileContext
+                .contextManager()
+                .getProject()
+                .getRepo()
+                .getTrackedFiles()
+                .contains(file);
+        boolean analyzerReady =
+                singleFileContext.contextManager().getAnalyzerWrapper().isReady();
+        boolean isTestFile = ContextManager.isTestFile(file);
+
+        // Show History
+        var historyItem = new JMenuItem("Show History");
+        historyItem.addActionListener(e -> {
+            final var chrome = singleFileContext.chrome();
+            if (chrome != null) {
+                chrome.addFileHistoryTab(file);
+            } else {
+                logger.warn("Chrome is null, cannot show history for {}", file);
+            }
+        });
+        historyItem.setEnabled(hasGit);
+        if (!hasGit) {
+            historyItem.setToolTipText("Git not available for this project.");
+        }
+        parent.add(historyItem);
+
+        parent.add(new JPopupMenu.Separator());
+
+        // Edit
+        var editItem = new JMenuItem("Edit");
+        editItem.addActionListener(e -> editFiles(singleFileContext));
+        editItem.setEnabled(isTracked);
+        if (!isTracked) {
+            editItem.setToolTipText("File not tracked by git");
+        }
+        parent.add(editItem);
+
+        // Read
+        var readItem = new JMenuItem("Read");
+        readItem.addActionListener(e -> readFiles(singleFileContext));
+        parent.add(readItem);
+
+        // Summarize
+        var summarizeItem = new JMenuItem("Summarize");
+        summarizeItem.setEnabled(analyzerReady);
+        summarizeItem.addActionListener(e -> summarizeFiles(singleFileContext));
+        parent.add(summarizeItem);
+
+        // Run Tests (only if this file is a test file)
+        if (isTestFile) {
+            parent.add(new JPopupMenu.Separator());
+            var runTestItem = new JMenuItem("Run Test");
+            runTestItem.addActionListener(e -> runTests(singleFileContext));
+            parent.add(runTestItem);
+        }
     }
 
     // Symbol actions
@@ -327,24 +452,6 @@ public class ContextMenuBuilder {
     }
 
     // File actions
-    private JMenuItem createHistoryMenuItem(FileMenuContext context) {
-        var file = context.files().getFirst();
-        boolean hasGit = context.contextManager().getProject().hasGit();
-        var historyItem = new JMenuItem("Show History");
-        historyItem.addActionListener(e -> {
-            final var chrome = context.chrome();
-            if (chrome != null) {
-                chrome.addFileHistoryTab(file);
-            } else {
-                logger.warn("GitPanel is null, cannot show history for {}", file);
-            }
-        });
-        historyItem.setEnabled(hasGit);
-        if (!hasGit) {
-            historyItem.setToolTipText("Git not available for this project.");
-        }
-        return historyItem;
-    }
 
     private void editFiles(FileMenuContext context) {
         context.contextManager().submitContextTask("Edit files", () -> {

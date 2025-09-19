@@ -11,6 +11,7 @@ import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
+import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePathCacheStore';
 import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
 import './components/ZoomWidget.ts';
 
@@ -34,6 +35,7 @@ function checkWorkerSupport(): void {
         throw new Error('Web Workers unsupported');
     }
 }
+
 
 function initializeApp(): void {
     mount(Mop, {
@@ -70,6 +72,9 @@ function setupBrokkInterface(): any[] {
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
+        // File path lookup API
+        refreshFilePathLookup: refreshFilePathLookup,
+        onFilePathLookupResponse: onFilePathResolutionResponse,
         // Zoom API
         zoomIn: () => {
             zoomIn();
@@ -185,6 +190,22 @@ function refreshSymbolLookup(contextId: string = 'main-context'): void {
     clearSymbolCache(contextId);
 
     // Trigger symbol lookup for visible symbols to highlight them
+    reparseAll(contextId);
+}
+
+/**
+ * Refresh file path lookup by clearing the cache and triggering a fresh lookup for all visible file paths.
+ * This is called when the analyzer becomes ready or when context switches.
+ *
+ * @param contextId - The context ID to refresh file paths for (defaults to 'main-context')
+ */
+function refreshFilePathLookup(contextId: string = 'main-context'): void {
+    mainLog.debug(`[file-path-refresh] Refreshing file paths for context: ${contextId}, clearing cache and triggering UI refresh`);
+
+    // Clear file path cache to ensure fresh lookups
+    clearFilePathCache(contextId);
+
+    // Trigger file path lookup for visible file paths to highlight them
     reparseAll(contextId);
 }
 

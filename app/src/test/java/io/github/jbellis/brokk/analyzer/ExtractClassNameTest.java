@@ -55,6 +55,9 @@ public class ExtractClassNameTest {
                 Optional.of("JOptionPane"),
                 analyzer.extractClassName("JOptionPane.showMessageDialog(parent, message)"));
 
+        // Test case for GitRepo.sanitizeBranchName(...)
+        assertEquals(Optional.of("GitRepo"), analyzer.extractClassName("GitRepo.sanitizeBranchName(...)"));
+
         // Invalid cases - should return empty
         assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
         assertEquals(Optional.empty(), analyzer.extractClassName("myMethod"));

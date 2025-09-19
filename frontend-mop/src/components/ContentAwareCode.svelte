@@ -1,19 +1,28 @@
 <script lang="ts">
   import {onMount} from 'svelte';
   import {symbolCacheStore, requestSymbolResolution, subscribeKey, type SymbolCacheEntry} from '../stores/symbolCacheStore';
+  import {filePathCacheStore, requestFilePathResolution, subscribeKey as subscribeFilePathKey, type FilePathCacheEntry, type ProjectFileMatch} from '../stores/filePathCacheStore';
+  import {tryFilePathDetection} from '../lib/filePathDetection';
   import {createLogger} from '../lib/logging';
   import {isDebugEnabled} from '../dev/debug';
 
   let {children, ...rest} = $props();
 
-  const log = createLogger('symbol-aware-code');
+  const log = createLogger('content-aware-code');
 
-  // Extract symbol text from children
-  let symbolText = $state('');
-  let extractedText = $state(''); // Store extracted DOM text for fallback rendering
-  let isValidSymbol = $state(false);
-  let cacheEntry: SymbolCacheEntry | undefined = $state(undefined);
+  // Extract text from children
+  let extractedText = $state('');
   let contextId = 'main-context';
+
+  // Symbol detection state
+  let symbolText = $state('');
+  let isValidSymbol = $state(false);
+  let symbolCacheEntry: SymbolCacheEntry | undefined = $state(undefined);
+
+  // File path detection state
+  let filePathText = $state('');
+  let isValidFilePath = $state(false);
+  let filePathCacheEntry: FilePathCacheEntry | undefined = $state(undefined);
 
   // Unique identifier for this component instance
   const componentId = `symbol-${Math.random().toString(36).substr(2, 9)}`;
@@ -123,8 +132,7 @@
     const propsText = extractTextFromChildren();
     if (propsText && !propsText.includes('\n')) {
       extractedText = propsText;
-      symbolText = propsText;
-      validateAndRequestSymbol();
+      validateAndRequestContent(propsText);
       return;
     }
 
@@ -140,20 +148,33 @@
         }
 
         extractedText = textContent; // Store for fallback rendering
-        symbolText = textContent;
-        validateAndRequestSymbol();
+        validateAndRequestContent(textContent);
       }
     }, 0);
   });
 
-  function validateAndRequestSymbol() {
+  // Main detection function - tries files first, then symbols
+  function validateAndRequestContent(text: string) {
     // Verify we're in browser environment (not server-side rendering)
     if (typeof window === 'undefined') {
       return;
     }
 
-    const cleaned = cleanSymbolName(symbolText);
+    // Step 1: Try file path detection first
+    const filePathResult = tryFilePathDetection(text);
+    if (filePathResult.isValidPath) {
+      isValidFilePath = true;
+      filePathText = filePathResult.cleanPath;
 
+      // Request file path resolution
+      requestFilePathResolution(filePathText, contextId).catch(error => {
+        log.warn(`File path resolution failed for ${filePathText}:`, error);
+      });
+      return;
+    }
+
+    // Step 2: Fallback to symbol detection
+    const cleaned = cleanSymbolName(text);
     if (cleaned && shouldAttemptLookup(cleaned)) {
       isValidSymbol = true;
       symbolText = cleaned;
@@ -162,12 +183,12 @@
       requestSymbolResolution(symbolText, contextId).catch(error => {
         log.warn(`Symbol resolution failed for ${symbolText}:`, error);
       });
-
     }
   }
 
-  // Key-scoped subscription - only updates when this specific symbol changes
+  // Key-scoped subscriptions - only update when specific cache keys change
   let symbolStore: ReturnType<typeof subscribeKey> | undefined = $state(undefined);
+  let filePathStore: ReturnType<typeof subscribeFilePathKey> | undefined = $state(undefined);
 
   $effect(() => {
     if (isValidSymbol) {
@@ -178,22 +199,48 @@
     }
   });
 
-  // Subscribe to symbol-specific updates
+  $effect(() => {
+    if (isValidFilePath) {
+      const cacheKey = `${contextId}:${filePathText}`;
+      filePathStore = subscribeFilePathKey(cacheKey);
+    } else {
+      filePathStore = undefined;
+    }
+  });
+
+  // Subscribe to cache updates
   $effect(() => {
     if (symbolStore) {
-      cacheEntry = $symbolStore;
+      symbolCacheEntry = $symbolStore;
+    }
+  });
+
+  $effect(() => {
+    if (filePathStore) {
+      filePathCacheEntry = $filePathStore;
     }
   });
 
 
-  // Determine if symbol exists and get FQN using derived state
-  let symbolExists = $derived(cacheEntry?.status === 'resolved' && !!cacheEntry?.result?.fqn);
-  let symbolFqn = $derived(cacheEntry?.result?.fqn);
-  let isPartialMatch = $derived(cacheEntry?.result?.isPartialMatch || false);
-  let highlightRanges = $derived(cacheEntry?.result?.highlightRanges || []);
-  let originalText = $derived(cacheEntry?.result?.originalText);
-  let confidence = $derived(cacheEntry?.result?.confidence || 100);
-  let processingTimeMs = $derived(cacheEntry?.result?.processingTimeMs || 0);
+  // Derived states for symbols
+  let symbolExists = $derived(symbolCacheEntry?.status === 'resolved' && !!symbolCacheEntry?.result?.fqn);
+  let symbolFqn = $derived(symbolCacheEntry?.result?.fqn);
+  let isPartialMatch = $derived(symbolCacheEntry?.result?.isPartialMatch || false);
+  let highlightRanges = $derived(symbolCacheEntry?.result?.highlightRanges || []);
+  let originalText = $derived(symbolCacheEntry?.result?.originalText);
+  let symbolConfidence = $derived(symbolCacheEntry?.result?.confidence || 100);
+  let symbolProcessingTimeMs = $derived(symbolCacheEntry?.result?.processingTimeMs || 0);
+
+  // Derived states for file paths
+  let filePathExists = $derived(filePathCacheEntry?.status === 'resolved' && !!filePathCacheEntry?.result?.exists);
+  let filePathMatches = $derived(filePathCacheEntry?.result?.matches || []);
+  let filePathConfidence = $derived(filePathCacheEntry?.result?.confidence || 100);
+  let filePathProcessingTimeMs = $derived(filePathCacheEntry?.result?.processingTimeMs || 0);
+
+  // Combined derived states - prioritize file paths over symbols
+  let contentExists = $derived(filePathExists || symbolExists);
+  let confidence = $derived(filePathExists ? filePathConfidence : symbolConfidence);
+  let processingTimeMs = $derived(filePathExists ? filePathProcessingTimeMs : symbolProcessingTimeMs);
 
   // Debug tooltip information
   let showTooltip = $state(false);
@@ -201,26 +248,43 @@
 
   // Generate tooltip content for debug mode
   let tooltipContent = $derived.by(() => {
-    if (!showDebugTooltips || !isValidSymbol) return '';
+    if (!showDebugTooltips || (!isValidSymbol && !isValidFilePath)) return '';
 
     const parts = [];
-    parts.push(`Symbol: ${symbolText}`);
 
-    if (cacheEntry?.result) {
-      parts.push(`FQN: ${cacheEntry.result.fqn || 'null'}`);
-      parts.push(`Type: ${isPartialMatch ? 'Partial Match' : 'Exact Match'}`);
-      parts.push(`Confidence: ${confidence}%`);
-      if (processingTimeMs > 0) {
-        parts.push(`Processing Time: ${processingTimeMs}ms`);
+    if (isValidFilePath) {
+      parts.push(`File Path: ${filePathText}`);
+      if (filePathCacheEntry?.result) {
+        parts.push(`Exists: ${filePathExists}`);
+        parts.push(`Matches: ${filePathMatches.length}`);
+        parts.push(`Confidence: ${filePathConfidence}%`);
+        if (filePathProcessingTimeMs > 0) {
+          parts.push(`Processing Time: ${filePathProcessingTimeMs}ms`);
+        }
+        if (filePathMatches.length > 0) {
+          parts.push(`Files: [${filePathMatches.map(m => m.relativePath).join(', ')}]`);
+        }
+      } else {
+        parts.push('Status: Pending/Not Found');
       }
-      if (highlightRanges.length > 0) {
-        parts.push(`Highlight Ranges: [${highlightRanges.map(r => `${r.start}-${r.end}`).join(', ')}]`);
+    } else if (isValidSymbol) {
+      parts.push(`Symbol: ${symbolText}`);
+      if (symbolCacheEntry?.result) {
+        parts.push(`FQN: ${symbolCacheEntry.result.fqn || 'null'}`);
+        parts.push(`Type: ${isPartialMatch ? 'Partial Match' : 'Exact Match'}`);
+        parts.push(`Confidence: ${symbolConfidence}%`);
+        if (symbolProcessingTimeMs > 0) {
+          parts.push(`Processing Time: ${symbolProcessingTimeMs}ms`);
+        }
+        if (highlightRanges.length > 0) {
+          parts.push(`Highlight Ranges: [${highlightRanges.map(r => `${r.start}-${r.end}`).join(', ')}]`);
+        }
+        if (originalText && originalText !== symbolText) {
+          parts.push(`Original: ${originalText}`);
+        }
+      } else {
+        parts.push('Status: Pending/Not Found');
       }
-      if (originalText && originalText !== symbolText) {
-        parts.push(`Original: ${originalText}`);
-      }
-    } else {
-      parts.push('Status: Pending/Not Found');
     }
 
     return parts.join('\n');
@@ -277,7 +341,7 @@
 
   // Mouse event handlers for tooltip
   function handleMouseEnter() {
-    if (showDebugTooltips && isValidSymbol && tooltipContent) {
+    if (showDebugTooltips && (isValidSymbol || isValidFilePath) && tooltipContent) {
       showTooltip = true;
     }
   }
@@ -288,51 +352,83 @@
 
   // Single event handler for both left and right clicks
   function handleClick(event: MouseEvent) {
-    if (!isValidSymbol || !symbolExists) return;
+    // Handle file path clicks first (priority)
+    if (isValidFilePath && filePathExists) {
+      const matchesJson = JSON.stringify(filePathMatches);
 
-    const target = event.target as HTMLElement;
-    const isClickOnHighlight = target.classList.contains('symbol-highlight');
-    const isValidClick = !isPartialMatch || isClickOnHighlight;
+      if (event.button === 0) { // Left click
+        log.info(`Left-clicked file path: ${filePathText}, exists: ${filePathExists}, matches: ${filePathMatches.length}`);
 
-    if (!isValidClick) return;
+        if (window.javaBridge?.onFilePathClick) {
+          window.javaBridge.onFilePathClick(filePathText,
+                                          !!filePathExists,
+                                          matchesJson,
+                                          event.clientX,
+                                          event.clientY);
+        }
+      } else if (event.button === 2) { // Right click
+        event.preventDefault();
+        event.stopPropagation();
 
-    const clickedText = (isPartialMatch && isClickOnHighlight)
-      ? (target.textContent || symbolText)
-      : symbolText;
+        log.info(`Right-clicked file path: ${filePathText}, exists: ${filePathExists}, matches: ${filePathMatches.length}`);
 
-    const displayText = isPartialMatch
-      ? `${clickedText} (from ${originalText})`
-      : symbolText;
-
-    if (event.button === 0) { // Left click
-      log.info(`Left-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
-
-      if (window.javaBridge?.onSymbolClick) {
-        window.javaBridge.onSymbolClick(clickedText,
-                                        !!symbolExists,
-                                        symbolFqn,
-                                        event.clientX,
-                                        event.clientY);
+        if (window.javaBridge?.onFilePathClick) {
+          window.javaBridge.onFilePathClick(filePathText,
+                                          !!filePathExists,
+                                          matchesJson,
+                                          event.clientX,
+                                          event.clientY);
+        }
       }
-    } else if (event.button === 2) { // Right click
-      event.preventDefault();
-      event.stopPropagation();
+      return;
+    }
 
-      log.info(`Right-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
+    // Handle symbol clicks (fallback)
+    if (isValidSymbol && symbolExists) {
+      const target = event.target as HTMLElement;
+      const isClickOnHighlight = target.classList.contains('symbol-highlight');
+      const isValidClick = !isPartialMatch || isClickOnHighlight;
 
-      if (window.javaBridge?.onSymbolClick) {
-        window.javaBridge.onSymbolClick(clickedText,
-                                        !!symbolExists,
-                                        symbolFqn,
-                                        event.clientX,
-                                        event.clientY);
+      if (!isValidClick) return;
+
+      const clickedText = (isPartialMatch && isClickOnHighlight)
+        ? (target.textContent || symbolText)
+        : symbolText;
+
+      const displayText = isPartialMatch
+        ? `${clickedText} (from ${originalText})`
+        : symbolText;
+
+      if (event.button === 0) { // Left click
+        log.info(`Left-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
+
+        if (window.javaBridge?.onSymbolClick) {
+          window.javaBridge.onSymbolClick(clickedText,
+                                          !!symbolExists,
+                                          symbolFqn,
+                                          event.clientX,
+                                          event.clientY);
+        }
+      } else if (event.button === 2) { // Right click
+        event.preventDefault();
+        event.stopPropagation();
+
+        log.info(`Right-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
+
+        if (window.javaBridge?.onSymbolClick) {
+          window.javaBridge.onSymbolClick(clickedText,
+                                          !!symbolExists,
+                                          symbolFqn,
+                                          event.clientX,
+                                          event.clientY);
+        }
       }
     }
   }
 
   // Handle right-click via mousedown to prevent browser default behavior
   function handleMouseDown(event: MouseEvent) {
-    if (event.button === 2 && isValidSymbol && symbolExists) {
+    if (event.button === 2 && contentExists) {
       event.preventDefault();
       event.stopPropagation();
       handleClick(event);
@@ -340,7 +436,7 @@
   }
 
   function handleContextMenu(event: MouseEvent) {
-    if (isValidSymbol && symbolExists) {
+    if (contentExists) {
       event.preventDefault();
       event.stopPropagation();
       return false;
@@ -360,28 +456,42 @@
 </script>
 
 <code
-  class={symbolExists ?
-    `symbol-exists ${isPartialMatch ? 'partial-match' : ''} ${getConfidenceClass(confidence)}`.trim()
+  class={contentExists ?
+    `content-exists ${filePathExists ? 'file-path-exists' : ''} ${symbolExists ? 'symbol-exists' : ''} ${isPartialMatch ? 'partial-match' : ''} ${getConfidenceClass(confidence)}`.trim()
     : ''}
   data-symbol={isValidSymbol ? symbolText : undefined}
   data-symbol-exists={symbolExists ? 'true' : 'false'}
   data-symbol-fqn={symbolFqn}
   data-symbol-partial={isPartialMatch ? 'true' : 'false'}
   data-symbol-original={isPartialMatch ? originalText : undefined}
-  data-symbol-confidence={symbolExists ? confidence : undefined}
-  data-symbol-processing-time={processingTimeMs > 0 ? processingTimeMs : undefined}
-  data-symbol-component="true"
+  data-symbol-confidence={symbolExists ? symbolConfidence : undefined}
+  data-symbol-processing-time={symbolProcessingTimeMs > 0 ? symbolProcessingTimeMs : undefined}
+  data-file-path={isValidFilePath ? filePathText : undefined}
+  data-file-path-exists={filePathExists ? 'true' : 'false'}
+  data-file-path-matches={filePathExists ? filePathMatches.length : undefined}
+  data-file-path-confidence={filePathExists ? filePathConfidence : undefined}
+  data-file-path-processing-time={filePathProcessingTimeMs > 0 ? filePathProcessingTimeMs : undefined}
+  data-content-component="true"
   data-symbol-id={componentId}
   onmouseenter={handleMouseEnter}
   onmouseleave={handleMouseLeave}
   onmousedown={handleMouseDown}
   onclick={handleClick}
   oncontextmenu={handleContextMenu}
-  role={symbolExists ? 'button' : undefined}
+  role={contentExists ? 'button' : undefined}
   {...rest}
-  title={showDebugTooltips && isValidSymbol ? tooltipContent : rest.title}
+  title={showDebugTooltips && (isValidSymbol || isValidFilePath) ? tooltipContent : rest.title}
 >
-  {#if symbolExists}
+  {#if filePathExists}
+    <!-- File path highlighting -->
+    {@const displayText = filePathText || extractedText}
+    {#if displayText}
+      <span class="file-path-highlight">{displayText}</span>
+    {:else}
+      {@render children?.()}
+    {/if}
+  {:else if symbolExists}
+    <!-- Symbol highlighting -->
     {@const displayText = symbolText || extractedText}
     {#if displayText && highlightRanges.length > 0}
       <!-- Multi-range highlighting for partial matches -->
@@ -404,7 +514,7 @@
       {@render children?.()}
     {/if}
   {:else}
-    <!-- Always render the original content while waiting for symbol resolution -->
+    <!-- Always render the original content while waiting for resolution -->
     {@render children?.()}
   {/if}
 </code>

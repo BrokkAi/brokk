@@ -1,5 +1,6 @@
 import type { BrokkEvent, BufferItem } from './types';
 import type { SymbolLookupResult } from './stores/symbolCacheStore';
+import type { FilePathLookupResult } from './stores/filePathCacheStore';
 
 export {};
 
@@ -25,14 +26,20 @@ declare global {
       // Symbol lookup API
       refreshSymbolLookup: (contextId?: string) => void;
       onSymbolLookupResponse?: (results: Record<string, SymbolLookupResult>, seq: number, contextId: string) => void;
+
+      // File path lookup API
+      refreshFilePathLookup: (contextId?: string) => void;
+      onFilePathLookupResponse?: (results: Record<string, FilePathLookupResult>, seq: number, contextId: string) => void;
     };
     javaBridge?: {
       onAck: (epoch: number) => void;
       jsLog: (level: string, message: string) => void;
       searchStateChanged: (total: number, current: number) => void;
       onSymbolClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
+      onFilePathClick: (filePath: string, exists: boolean, matchesJson: string, x: number, y: number) => void;
       captureText:(text: string) => void;
       lookupSymbolsAsync?: (symbolNamesJson: string, seq: number | null, contextId: string) => void;
+      lookupFilePathsAsync?: (filePathsJson: string, seq: number, contextId: string) => void;
     };
   }
 }
