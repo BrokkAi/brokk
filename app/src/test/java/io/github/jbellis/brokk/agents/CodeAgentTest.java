@@ -11,6 +11,7 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.analyzer.LintResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
@@ -747,5 +748,68 @@ class CodeAgentTest {
         assertEquals("Here are the SEARCH/REPLACE blocks:\n\n<summary>", ((AiMessage) finalMsgs.get(3)).text());
         // Next turn should start at end
         assertEquals(finalMsgs.size(), replaced.turnStartIndex());
+    }
+
+    // L-3: Linting check - single lint error causes retry
+    @Test
+    void testVerifyPhase_lintErrorCausesRetry() throws IOException {
+        var file = contextManager.toFile("Test.java");
+        file.write("public class Test { }");
+        contextManager.addEditableFile(file);
+
+        // Configure mock analyzer to return lint errors
+        var lintDiagnostic = new LintResult.LintDiagnostic(
+                file.toString(), 1, 10, LintResult.LintDiagnostic.Severity.ERROR, "Missing semicolon", "CS001");
+        contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
+
+        // one block was applied to trigger verify phase
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), new UserMessage("req"), 0);
+        var es = new CodeAgent.EditState(new ArrayList<>(), 0, 0, 0, 1, "", new HashSet<>(), new HashMap<>());
+        es.changedFiles().add(file);
+
+        var result = codeAgent.verifyPhase(cs, es, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+        assertEquals(1, retryStep.es().consecutiveBuildFailures());
+
+        String retryMessage = Messages.getText(retryStep.cs().nextRequest());
+        assertTrue(retryMessage.contains("The build failed with the following error:"));
+        assertTrue(retryMessage.contains("Missing semicolon"));
+        assertTrue(retryMessage.contains(file.toString() + ":1:10"));
+    }
+
+    // L-4: Linting check - MAX_LINT_FAILURES reached
+    @Test
+    void testVerifyPhase_maxLintFailuresReached() throws IOException {
+        var file = contextManager.toFile("Test.java");
+        file.write("public class Test { }");
+        contextManager.addEditableFile(file);
+
+        // Configure mock analyzer to always return lint errors
+        var lintDiagnostic = new LintResult.LintDiagnostic(
+                file.toString(), 1, 10, LintResult.LintDiagnostic.Severity.ERROR, "Syntax error", "CS001");
+        contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
+
+        // Start with consecutive lint failures already at MAX_LINT_FAILURES - 1
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), new UserMessage("req"), 0);
+        var es = new CodeAgent.EditState(new ArrayList<>(), 0, 0, 0, 1, "", new HashSet<>(), new HashMap<>());
+        var esWithFailures = new CodeAgent.EditState(
+                es.pendingBlocks(),
+                es.consecutiveParseFailures(),
+                es.consecutiveApplyFailures(),
+                CodeAgent.MAX_BUILD_FAILURES - 1, // Just below limit
+                es.blocksAppliedWithoutBuild(),
+                es.lastBuildError(),
+                es.changedFiles(),
+                es.originalFileContents());
+        esWithFailures.changedFiles().add(file);
+
+        var result = codeAgent.verifyPhase(cs, esWithFailures, null);
+
+        assertInstanceOf(CodeAgent.Step.Fatal.class, result);
+        var fatalStep = (CodeAgent.Step.Fatal) result;
+        assertEquals(TaskResult.StopReason.BUILD_ERROR, fatalStep.stopDetails().reason());
+        assertTrue(fatalStep.stopDetails().explanation().contains("Build failed"));
     }
 }

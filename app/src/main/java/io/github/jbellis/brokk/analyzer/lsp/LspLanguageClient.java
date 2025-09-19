@@ -27,6 +27,19 @@ public abstract class LspLanguageClient implements LanguageClient {
 
     protected final Logger logger = LoggerFactory.getLogger(LspLanguageClient.class);
 
+    // Build/Import health tracking across the LSP session
+    public enum BuildHealth {
+        UNKNOWN,
+        INDEXING,
+        HEALTHY,
+        IMPORT_FAILED,
+        BUILD_FAILED,
+        OUT_OF_MEMORY,
+        CACHE_CORRUPT
+    }
+
+    protected volatile BuildHealth buildHealth = BuildHealth.UNKNOWN;
+
     protected final String language;
     private final CountDownLatch serverReadyLatch;
     protected final Map<String, CountDownLatch> workspaceReadyLatchMap;
@@ -254,5 +267,17 @@ public abstract class LspLanguageClient implements LanguageClient {
             case Information -> LintResult.LintDiagnostic.Severity.INFO;
             case Hint -> LintResult.LintDiagnostic.Severity.HINT;
         };
+    }
+
+    public BuildHealth getBuildHealth() {
+        return buildHealth;
+    }
+
+    protected void setBuildHealth(BuildHealth newHealth) {
+        var old = this.buildHealth;
+        if (old != newHealth) {
+            this.buildHealth = newHealth;
+            logger.info("[LSP-BUILD-HEALTH] {} -> {}", old, newHealth);
+        }
     }
 }
