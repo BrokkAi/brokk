@@ -43,6 +43,7 @@ import org.eclipse.jgit.api.CherryPickResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
+// NOTE: This file previously caused a CI build failure due to formatting. :(
 public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListener {
 
     private static final Logger logger = LogManager.getLogger(GitCommitBrowserPanel.class);

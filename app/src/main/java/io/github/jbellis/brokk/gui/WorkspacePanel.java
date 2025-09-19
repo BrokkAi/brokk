@@ -59,6 +59,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+// NOTE: This file previously caused a CI build failure due to formatting. :(
 public class WorkspacePanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(WorkspacePanel.class);
     private final String EMPTY_CONTEXT = "Empty Workspace--use Edit or Read or Summarize to add content";

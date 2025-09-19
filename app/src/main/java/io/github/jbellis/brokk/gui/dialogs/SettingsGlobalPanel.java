@@ -2224,9 +2224,145 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
-    @Override
-    public void removeNotify() {
-        super.removeNotify();
-        MainProject.removeSettingsChangeListener(this);
+    private static KeyStroke defaultToggleMode() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_M);
+    }
+
+    private static KeyStroke defaultTogglePlanOrSearch() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_SEMICOLON);
+    }
+
+    private static KeyStroke defaultOpenPlanOptions() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_COMMA);
+    }
+
+    // Global text editing defaults
+    private static KeyStroke defaultUndo() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_Z);
+    }
+
+    private static KeyStroke defaultRedo() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(
+                java.awt.event.KeyEvent.VK_Z);
+    }
+
+    private static KeyStroke defaultCopy() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_C);
+    }
+
+    private static KeyStroke defaultPaste() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_V);
+    }
+
+    // Voice and interface defaults
+    private static KeyStroke defaultToggleMicrophone() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_L);
+    }
+
+    // Panel navigation defaults (Alt/Cmd+Number)
+    private static KeyStroke defaultSwitchToProjectFiles() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_1, modifier);
+    }
+
+    private static KeyStroke defaultSwitchToChanges() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_2, modifier);
+    }
+
+    private static KeyStroke defaultSwitchToWorktrees() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_3, modifier);
+    }
+
+    private static KeyStroke defaultSwitchToLog() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, modifier);
+    }
+
+    private static KeyStroke defaultSwitchToPullRequests() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, modifier);
+    }
+
+    private static KeyStroke defaultSwitchToIssues() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_6, modifier);
+    }
+
+    // General navigation defaults
+    private static KeyStroke defaultCloseWindow() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_W);
+    }
+
+    private static KeyStroke defaultFocusSearch() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_F);
+    }
+
+    @SuppressWarnings("UnusedMethod")
+    private static KeyStroke defaultFor(String id) {
+        return switch (id) {
+            // Instructions panel
+            case "instructions.submit" ->
+                KeyStroke.getKeyStroke(
+                        java.awt.event.KeyEvent.VK_ENTER,
+                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+            case "instructions.toggleMode" -> defaultToggleMode();
+            case "instructions.togglePlanOrSearch" -> defaultTogglePlanOrSearch();
+            case "instructions.openPlanOptions" -> defaultOpenPlanOptions();
+
+            // Global text editing
+            case "global.undo" -> defaultUndo();
+            case "global.redo" -> defaultRedo();
+            case "global.copy" -> defaultCopy();
+            case "global.paste" -> defaultPaste();
+
+            // Voice and interface
+            case "global.toggleMicrophone" -> defaultToggleMicrophone();
+
+            // Panel navigation
+            case "panel.switchToProjectFiles" -> defaultSwitchToProjectFiles();
+            case "panel.switchToChanges" -> defaultSwitchToChanges();
+            case "panel.switchToWorktrees" -> defaultSwitchToWorktrees();
+            case "panel.switchToLog" -> defaultSwitchToLog();
+            case "panel.switchToPullRequests" -> defaultSwitchToPullRequests();
+            case "panel.switchToIssues" -> defaultSwitchToIssues();
+
+            // General navigation
+            case "global.closeWindow" -> defaultCloseWindow();
+            case "global.focusSearch" -> defaultFocusSearch();
+
+            default ->
+                KeyStroke.getKeyStroke(
+                        java.awt.event.KeyEvent.VK_ENTER,
+                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        };
     }
 }
