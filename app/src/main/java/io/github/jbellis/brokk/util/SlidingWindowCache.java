@@ -2,21 +2,21 @@ package io.github.jbellis.brokk.util;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Thread-safe sliding window cache implementation with proper synchronization and disposal callbacks. Uses
- * ReentrantReadWriteLock for fine-grained concurrency control.
+ * Thread-safe sliding window cache implementation using ConcurrentHashMap and ConcurrentLinkedDeque.
  *
  * <p>Features: - Sliding window eviction: maintains only items within a configurable position-based window - Deferred
- * disposal pattern: dispose() calls happen outside of locks - Reservation tracking: eliminates temporary null storage
- * for better type safety - Non-blocking disposal: other cache operations can proceed during disposal - LRU fallback:
+ * disposal pattern: dispose() calls happen asynchronously - Reservation tracking: eliminates temporary null storage for
+ * better type safety - Lock-free operations: uses concurrent data structures for better performance - LRU fallback:
  * applies LRU eviction within the sliding window when at capacity
  *
  * @param <K> the key type
@@ -42,11 +42,10 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
 
     private final int maxSize;
     private final int windowSize;
-    private final LinkedHashMap<K, V> cache;
-    private final Set<K> reservedKeys = new HashSet<>();
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final ReentrantReadWriteLock.ReadLock readLock = lock.readLock();
-    private final ReentrantReadWriteLock.WriteLock writeLock = lock.writeLock();
+    private final ConcurrentHashMap<K, V> cache;
+    private final ConcurrentLinkedDeque<K> accessOrder;
+    private final ConcurrentHashMap<K, Boolean> reservedKeys;
+    private final AtomicInteger currentSize;
 
     // Sliding window state
     private volatile int currentWindowCenter = -1;
@@ -65,21 +64,26 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     public SlidingWindowCache(int maxSize, int windowSize) {
         this.maxSize = maxSize;
         this.windowSize = windowSize;
-        this.cache = new LinkedHashMap<>(maxSize + 1, 0.75f, true);
+        this.cache = new ConcurrentHashMap<>(maxSize + 1);
+        this.accessOrder = new ConcurrentLinkedDeque<>();
+        this.reservedKeys = new ConcurrentHashMap<>();
+        this.currentSize = new AtomicInteger(0);
     }
 
     @Nullable
     public V get(K key) {
-        readLock.lock();
-        try {
-            // Return null if key is reserved but not yet loaded
-            if (reservedKeys.contains(key)) {
-                return null;
-            }
-            return cache.get(key);
-        } finally {
-            readLock.unlock();
+        // Return null if key is reserved but not yet loaded
+        if (reservedKeys.containsKey(key)) {
+            return null;
         }
+
+        V value = cache.get(key);
+        if (value != null) {
+            // Update access order - remove and re-add to end
+            accessOrder.remove(key);
+            accessOrder.offer(key);
+        }
+        return value;
     }
 
     @Nullable
@@ -90,45 +94,54 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
             return null;
         }
 
-        // Collect items to dispose outside of lock
+        // Collect items to dispose
         var toDispose = new ArrayList<V>();
-        @Nullable V previousValue;
+        V previousValue;
 
-        writeLock.lock();
-        try {
+        // Synchronize the critical section to prevent size inconsistencies
+        synchronized (this) {
             // Window-aware eviction: remove items outside window first
             evictOutsideWindow(toDispose);
 
-            // Then apply normal LRU eviction if still needed
-            if (cache.size() >= maxSize && !cache.containsKey(key) && !reservedKeys.contains(key)) {
-                var eldest = cache.entrySet().iterator().next();
-                var evictedValue = cache.remove(eldest.getKey());
+            // Perform LRU eviction if needed - loop until under capacity
+            while (currentSize.get() >= maxSize && !cache.containsKey(key) && !reservedKeys.containsKey(key)) {
+                K eldestKey = accessOrder.poll();
+                if (eldestKey == null) {
+                    break; // No more items to evict
+                }
+
+                V evictedValue = cache.remove(eldestKey);
                 if (evictedValue != null) {
                     toDispose.add(evictedValue);
+                    currentSize.decrementAndGet();
                 }
             }
 
             // Remove from reserved keys if this was a reservation
             reservedKeys.remove(key);
 
+            // Add/update the value
             previousValue = cache.put(key, value);
-        } finally {
-            writeLock.unlock();
+
+            // Update access order and size
+            accessOrder.remove(key); // Remove if already present
+            accessOrder.offer(key); // Add to end (most recent)
+
+            if (previousValue == null) {
+                currentSize.incrementAndGet();
+            } else {
+                toDispose.add(previousValue);
+            }
         }
 
-        // Dispose outside of lock to avoid blocking other operations
+        // Dispose outside of synchronized block to avoid blocking other operations
         disposeDeferred(toDispose);
 
         return previousValue;
     }
 
     public boolean containsValue(V value) {
-        readLock.lock();
-        try {
-            return cache.containsValue(value);
-        } finally {
-            readLock.unlock();
-        }
+        return cache.containsValue(value);
     }
 
     /**
@@ -136,71 +149,55 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
      * been reserved. Returns false if the key was already present (cached value exists) or already reserved.
      */
     public boolean tryReserve(K key) {
-        writeLock.lock();
-        try {
-            if (cache.containsKey(key) || reservedKeys.contains(key)) {
-                return false; // Already cached or reserved
-            }
-            // Reserve by adding to reservation set
-            reservedKeys.add(key);
-            return true;
-        } finally {
-            writeLock.unlock();
+        if (cache.containsKey(key) || reservedKeys.containsKey(key)) {
+            return false; // Already cached or reserved
         }
+        // Atomic check-and-reserve operation
+        return reservedKeys.putIfAbsent(key, true) == null;
     }
 
     /** Replaces a reserved entry with the actual value. Should only be called after successful tryReserve(). */
     @Nullable
     public V putReserved(K key, V value) {
-        writeLock.lock();
-        try {
-            // Ensure we're replacing a reserved entry
-            assert reservedKeys.contains(key) : "putReserved called on non-reserved key";
-            reservedKeys.remove(key);
-            return cache.put(key, value);
-        } finally {
-            writeLock.unlock();
+        // Ensure we're replacing a reserved entry
+        assert reservedKeys.containsKey(key) : "putReserved called on non-reserved key";
+        reservedKeys.remove(key);
+
+        V previousValue = cache.put(key, value);
+
+        // Update access order and size
+        accessOrder.remove(key); // Remove if already present
+        accessOrder.offer(key); // Add to end (most recent)
+
+        if (previousValue == null) {
+            currentSize.incrementAndGet();
         }
+
+        return previousValue;
     }
 
     /** Removes a reserved entry (used when loading fails). */
     public void removeReserved(K key) {
-        writeLock.lock();
-        try {
-            reservedKeys.remove(key);
-        } finally {
-            writeLock.unlock();
-        }
+        reservedKeys.remove(key);
     }
 
     /** Returns all cached values, excluding reserved (not yet loaded) entries. */
     public java.util.Collection<V> nonNullValues() {
-        readLock.lock();
-        try {
-            // Since we no longer store nulls, all cache values are non-null
-            return new ArrayList<>(cache.values());
-        } finally {
-            readLock.unlock();
-        }
+        // Since we no longer store nulls, all cache values are non-null
+        return new ArrayList<>(cache.values());
     }
 
     public void clear() {
-        // Collect items to dispose outside of lock
-        var toDispose = new ArrayList<V>();
+        // Collect all values for disposal
+        var toDispose = new ArrayList<>(cache.values());
 
-        writeLock.lock();
-        try {
-            // Collect all values for disposal
-            toDispose.addAll(cache.values());
+        // Clear all data structures
+        cache.clear();
+        accessOrder.clear();
+        reservedKeys.clear();
+        currentSize.set(0);
 
-            // Clear both cache and reservations
-            cache.clear();
-            reservedKeys.clear();
-        } finally {
-            writeLock.unlock();
-        }
-
-        // Dispose outside of lock to avoid blocking other operations
+        // Dispose outside of clearing to avoid blocking other operations
         disposeDeferred(toDispose);
     }
 
@@ -217,8 +214,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
 
         var toDispose = new ArrayList<V>();
 
-        writeLock.lock();
-        try {
+        synchronized (this) {
             this.currentWindowCenter = centerIndex;
             this.totalItems = totalItemCount;
 
@@ -228,14 +224,12 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
             // Clear reservations outside the new window
             var validIndices = calculateWindowIndices(centerIndex, totalItemCount);
             var reservationsToRemove = new ArrayList<K>();
-            for (K key : reservedKeys) {
+            for (K key : reservedKeys.keySet()) {
                 if (key instanceof Integer intKey && !validIndices.contains(intKey)) {
                     reservationsToRemove.add(key);
                 }
             }
             reservationsToRemove.forEach(reservedKeys::remove);
-        } finally {
-            writeLock.unlock();
         }
 
         disposeDeferred(toDispose);
@@ -273,28 +267,17 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
 
     /** Get all currently cached keys (thread-safe) */
     public Set<K> getCachedKeys() {
-        readLock.lock();
-        try {
-            return new HashSet<>(cache.keySet());
-        } finally {
-            readLock.unlock();
-        }
+        return new HashSet<>(cache.keySet());
     }
 
     /** Get current window information for debugging */
     public String getWindowInfo() {
-        readLock.lock();
-        try {
-            var cachedKeys = new ArrayList<>(cache.keySet());
-            if (currentWindowCenter == -1) {
-                return "Window: Not set, cached keys: " + cachedKeys;
-            }
-            var validIndices = calculateWindowIndices(currentWindowCenter, totalItems);
-            return String.format(
-                    "Window: center=%d, valid=%s, cached=%s", currentWindowCenter, validIndices, cachedKeys);
-        } finally {
-            readLock.unlock();
+        var cachedKeys = new ArrayList<>(cache.keySet());
+        if (currentWindowCenter == -1) {
+            return "Window: Not set, cached keys: " + cachedKeys;
         }
+        var validIndices = calculateWindowIndices(currentWindowCenter, totalItems);
+        return String.format("Window: center=%d, valid=%s, cached=%s", currentWindowCenter, validIndices, cachedKeys);
     }
 
     /**
@@ -310,7 +293,9 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
         var keysToRemove = new ArrayList<K>();
         var retainedKeys = new ArrayList<K>();
 
-        for (var entry : cache.entrySet()) {
+        // Create a snapshot of cache entries to avoid concurrent modification
+        var entries = new ArrayList<>(cache.entrySet());
+        for (var entry : entries) {
             K key = entry.getKey();
             if (key instanceof Integer intKey && !validIndices.contains(intKey)) {
                 // Check if the item has unsaved changes
@@ -323,8 +308,12 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
             }
         }
 
+        // Remove evicted keys from cache and access order
         for (K key : keysToRemove) {
-            cache.remove(key);
+            if (cache.remove(key) != null) {
+                accessOrder.remove(key);
+                currentSize.decrementAndGet();
+            }
         }
 
         // Log warning if we're retaining files outside the window
