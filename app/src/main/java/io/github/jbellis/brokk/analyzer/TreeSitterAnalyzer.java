@@ -772,6 +772,27 @@ public abstract class TreeSitterAnalyzer
                 + 1;
     }
 
+    /**
+     * Gets the starting line number (0-based) for the given CodeUnit for UI positioning purposes. Returns the original
+     * code definition line (not expanded with comments) for better navigation.
+     *
+     * @param codeUnit The CodeUnit to get the line number for
+     * @return The 0-based starting line number of the actual definition, or -1 if not found
+     */
+    public int getStartLineForCodeUnit(CodeUnit codeUnit) {
+        return withReadLock(() -> {
+            var ranges = sourceRanges.get(codeUnit);
+            if (ranges == null || ranges.isEmpty()) {
+                return -1;
+            }
+
+            // Use the first range's startLine (0-based from TreeSitter)
+            // For classes and functions, this gives us the actual definition line
+            var range = ranges.getFirst();
+            return range.startLine();
+        });
+    }
+
     /* ---------- abstract hooks ---------- */
 
     /** Creates a new TSLanguage instance for the specific language. Called by ThreadLocal initializer. */

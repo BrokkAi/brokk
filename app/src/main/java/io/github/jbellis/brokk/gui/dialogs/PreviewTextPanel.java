@@ -63,6 +63,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
+    private final RTextScrollPane scrollPane;
 
     @Nullable
     private MaterialButton editButton;
@@ -199,7 +200,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
 
         // Put the text area in a scroll pane
-        var scrollPane = new RTextScrollPane(textArea);
+        scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
 
         // Apply the current theme to the text area
@@ -1105,5 +1106,70 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         return "**Quick Edit Request:**\n\n" + "**Goal:** "
                 + goal + "\n\n" + "**Target code:**\n```\n"
                 + target + "\n```";
+    }
+
+    /**
+     * Sets the caret position in the text area to the specified character offset.
+     *
+     * @param position The character offset position to set the caret to
+     */
+    public void setCaretPosition(int position) {
+        if (position >= 0 && position <= textArea.getDocument().getLength()) {
+            textArea.setCaretPosition(position);
+            textArea.getCaret().setVisible(true);
+            // Scroll to make the caret visible
+            try {
+                var rect = textArea.modelToView2D(position);
+                if (rect != null) {
+                    textArea.scrollRectToVisible(rect.getBounds());
+                }
+            } catch (Exception e) {
+                // If scrolling fails, just set the position without scrolling
+            }
+        }
+    }
+
+    /**
+     * Sets the caret position and centers the viewport on the specified character offset.
+     *
+     * @param position The character offset position to set the caret to and center on
+     */
+    public void setCaretPositionAndCenter(int position) {
+        if (position >= 0 && position <= textArea.getDocument().getLength()) {
+            textArea.setCaretPosition(position);
+            textArea.getCaret().setVisible(true);
+            // Center the viewport on the caret position
+            try {
+                var rect = textArea.modelToView2D(position);
+                if (rect != null) {
+                    var viewport = scrollPane.getViewport();
+                    var viewSize = viewport.getExtentSize();
+                    var viewRect = rect.getBounds();
+
+                    // Calculate centered position
+                    var centerX = Math.max(0, viewRect.x - (viewSize.width - viewRect.width) / 2);
+                    var centerY = Math.max(0, viewRect.y - (viewSize.height - viewRect.height) / 2);
+
+                    // Ensure we don't scroll beyond the document bounds
+                    var maxX = Math.max(0, textArea.getWidth() - viewSize.width);
+                    var maxY = Math.max(0, textArea.getHeight() - viewSize.height);
+
+                    centerX = Math.min(centerX, maxX);
+                    centerY = Math.min(centerY, maxY);
+
+                    viewport.setViewPosition(new java.awt.Point((int) centerX, (int) centerY));
+                }
+            } catch (Exception e) {
+                // If centering fails, fall back to basic scrolling
+                try {
+                    var rect = textArea.modelToView2D(position);
+                    if (rect != null) {
+                        textArea.scrollRectToVisible(rect.getBounds());
+                    }
+                } catch (Exception e2) {
+                    // If all scrolling fails, just set the position
+                }
+            }
+        }
     }
 }

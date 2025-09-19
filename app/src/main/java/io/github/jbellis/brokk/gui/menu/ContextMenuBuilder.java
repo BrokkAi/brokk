@@ -390,8 +390,46 @@ public class ContextMenuBuilder {
 
         context.contextManager().submitContextTask("Open preview for " + symbol.fqName(), () -> {
             SwingUtilities.invokeLater(() -> {
-                // Use Chrome's centralized preview system
-                context.chrome().previewFile(symbol.source());
+                // Try to get the symbol's source range to position the preview
+                var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
+                var startLine = -1; // Default: no positioning
+
+                if (analyzer != null) {
+                    try {
+                        // Try direct TreeSitterAnalyzer cast first
+                        var tsAnalyzer = analyzer.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class);
+
+                        // If direct cast fails, try to get the delegate from MultiAnalyzer
+                        if (tsAnalyzer.isEmpty()
+                                && analyzer instanceof io.github.jbellis.brokk.analyzer.MultiAnalyzer multiAnalyzer) {
+                            var delegates = multiAnalyzer.getDelegates();
+
+                            // Get the appropriate delegate based on file extension
+                            var fileExtension = com.google.common.io.Files.getFileExtension(
+                                    symbol.source().absPath().toString());
+                            var language = io.github.jbellis.brokk.analyzer.Languages.fromExtension(fileExtension);
+
+                            var delegate = delegates.get(language);
+                            if (delegate != null) {
+                                tsAnalyzer = delegate.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class);
+                            }
+                        }
+
+                        startLine = tsAnalyzer
+                                .map(tsa -> tsa.getStartLineForCodeUnit(symbol))
+                                .orElse(-1);
+
+                        if (startLine >= 0) {
+                            logger.debug("Positioning preview at line {} for symbol {}", startLine, symbol.fqName());
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Could not get start line for symbol {}: {}", symbol.fqName(), e.getMessage());
+                        // Fall back to default positioning
+                    }
+                }
+
+                // Use Chrome's positioned preview system
+                context.chrome().previewFile(symbol.source(), startLine);
             });
         });
     }

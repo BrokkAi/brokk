@@ -42,6 +42,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -59,6 +60,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // is a setContext updating the MOP?
     private boolean skipNextUpdateOutputPanelOnContextChange = false;
+
+    // Track active preview windows for reuse
+    private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -1193,49 +1197,91 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /**
      * Creates and shows a standard preview JFrame for a given component. Handles title, default close operation,
-     * loading/saving bounds using the "preview" key, and visibility.
+     * loading/saving bounds using the "preview" key, and visibility. Reuses existing preview windows when possible to
+     * avoid cluttering the desktop.
      *
      * @param contextManager The context manager for accessing project settings.
      * @param title The title for the JFrame.
      * @param contentComponent The JComponent to display within the frame.
      */
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
-        JFrame previewFrame = newFrame(title);
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            var titleBar = new JPanel(new BorderLayout());
-            titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
-            var label = new JLabel(title, SwingConstants.CENTER);
-            titleBar.add(label, BorderLayout.CENTER);
-            previewFrame.add(titleBar, BorderLayout.NORTH);
-        }
-        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        previewFrame.add(contentComponent, BorderLayout.CENTER);
-        previewFrame.setBackground(themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
+        // Generate a key for window reuse based on the content type and title
+        String windowKey = generatePreviewWindowKey(title, contentComponent);
 
-        var project = contextManager.getProject();
-        var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
-        if (storedBounds.width > 0 && storedBounds.height > 0) {
-            previewFrame.setBounds(storedBounds);
-            if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+        // Check if we have an existing window for this content
+        JFrame previewFrame = activePreviewWindows.get(windowKey);
+        boolean isNewWindow = false;
+
+        if (previewFrame == null || !previewFrame.isDisplayable()) {
+            // Create new window if none exists or existing one was disposed
+            previewFrame = newFrame(title);
+            activePreviewWindows.put(windowKey, previewFrame);
+            isNewWindow = true;
+
+            // Set up new window configuration
+            if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+                var titleBar = new JPanel(new BorderLayout());
+                titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
+                var label = new JLabel(title, SwingConstants.CENTER);
+                titleBar.add(label, BorderLayout.CENTER);
+                previewFrame.add(titleBar, BorderLayout.NORTH);
             }
+            previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+            previewFrame.setBackground(
+                    themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
+
+            var project = contextManager.getProject();
+            var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
+            if (storedBounds.width > 0 && storedBounds.height > 0) {
+                previewFrame.setBounds(storedBounds);
+                if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                    previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                }
+            } else {
+                previewFrame.setSize(800, 600); // Default size if no bounds saved
+                previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+            }
+
+            // Add listener to save bounds using the "preview" key
+            final JFrame finalFrameForBounds = previewFrame;
+            previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentMoved(java.awt.event.ComponentEvent e) {
+                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                }
+
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent e) {
+                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                }
+            });
         } else {
-            previewFrame.setSize(800, 600); // Default size if no bounds saved
-            previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+            // Reuse existing window - update title and content
+            previewFrame.setTitle(title);
+            // Only remove the CENTER component to preserve title bar and other layout components
+            var contentPane = previewFrame.getContentPane();
+            Component centerComponent =
+                    ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+            if (centerComponent != null) {
+                contentPane.remove(centerComponent);
+            }
+
+            // Update title bar label on macOS if it exists
+            if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+                Component northComponent =
+                        ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.NORTH);
+                if (northComponent instanceof JPanel titleBar) {
+                    Component centerInTitleBar =
+                            ((BorderLayout) titleBar.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+                    if (centerInTitleBar instanceof JLabel label) {
+                        label.setText(title);
+                    }
+                }
+            }
         }
 
-        // Add listener to save bounds using the "preview" key
-        previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override
-            public void componentMoved(java.awt.event.ComponentEvent e) {
-                project.savePreviewWindowBounds(previewFrame); // Save JFrame bounds
-            }
-
-            @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
-                project.savePreviewWindowBounds(previewFrame); // Save JFrame bounds
-            }
-        });
+        // Add content component (for both new and reused windows)
+        previewFrame.add(contentComponent, BorderLayout.CENTER);
 
         // Only use DO_NOTHING_ON_CLOSE for PreviewTextPanel (which has its own confirmation dialog)
         // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
@@ -1257,7 +1303,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
 
+        // Add window cleanup listener to remove from tracking map when window is disposed
+        final String finalWindowKey = windowKey;
+        final JFrame finalPreviewFrame = previewFrame;
+        if (isNewWindow) {
+            previewFrame.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    // Remove from tracking map when window is closed
+                    activePreviewWindows.remove(finalWindowKey, finalPreviewFrame);
+                }
+            });
+        }
+
         // Add ESC key binding to close the window (delegates to windowClosing)
+        final JFrame finalFrameForESC = previewFrame;
         var rootPane = previewFrame.getRootPane();
         var actionMap = rootPane.getActionMap();
         var inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -1267,11 +1327,41 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
                 // Simulate window closing event to trigger the WindowListener logic
-                previewFrame.dispatchEvent(new WindowEvent(previewFrame, WindowEvent.WINDOW_CLOSING));
+                finalFrameForESC.dispatchEvent(new WindowEvent(finalFrameForESC, WindowEvent.WINDOW_CLOSING));
             }
         });
 
+        // Bring window to front and make visible
+        previewFrame.toFront();
         previewFrame.setVisible(true);
+    }
+
+    /**
+     * Generates a key for identifying and reusing preview windows based on content type and context. For file previews,
+     * uses the file path. For other content, uses the title.
+     */
+    private String generatePreviewWindowKey(String title, JComponent contentComponent) {
+        if (contentComponent instanceof PreviewTextPanel) {
+            // For file previews, extract file path from title or use title as fallback
+            if (title.startsWith("Preview: ")) {
+                return "file:" + title.substring(9); // Remove "Preview: " prefix
+            } else {
+                return "file:" + title;
+            }
+        } else {
+            // For other types of previews, use a generic key based on class and title
+            return "preview:" + contentComponent.getClass().getSimpleName() + ":" + title;
+        }
+    }
+
+    /** Closes all active preview windows and clears the tracking map. Useful for cleanup or when switching projects. */
+    public void closeAllPreviewWindows() {
+        for (JFrame frame : activePreviewWindows.values()) {
+            if (frame.isDisplayable()) {
+                frame.dispose();
+            }
+        }
+        activePreviewWindows.clear();
     }
 
     /**
@@ -1281,22 +1371,69 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * @param pf The ProjectFile to preview.
      */
     public void previewFile(ProjectFile pf) {
+        previewFile(pf, -1);
+    }
+
+    /**
+     * Centralized method to open a preview for a specific ProjectFile at a specified line position.
+     *
+     * @param pf The ProjectFile to preview.
+     * @param startLine The line number (0-based) to position the caret at, or -1 to use default positioning.
+     */
+    public void previewFile(ProjectFile pf, int startLine) {
         assert SwingUtilities.isEventDispatchThread() : "Preview must be initiated on EDT";
 
-        // 1. Read file content
-        var content = pf.read().orElse("");
+        try {
+            // 1. Read file content
+            var content = pf.read();
+            if (content.isEmpty()) {
+                toolError("Unable to read file for preview");
+                return;
+            }
 
-        // 2. Deduce syntax style
-        var syntax = pf.getSyntaxStyle();
+            // 2. Deduce syntax style
+            var syntax = pf.getSyntaxStyle();
 
-        // 3. Build the PTP
-        // 3. Build the PTP
-        // Pass null for the fragment when previewing a file directly.
-        // The fragment is primarily relevant when opened from the context table.
-        var panel = new PreviewTextPanel(contextManager, pf, content, syntax, themeManager, null); // Pass null fragment
+            // 3. Build the PTP with custom positioning
+            var panel = new PreviewTextPanel(contextManager, pf, content.get(), syntax, themeManager, null);
 
-        // 4. Show in frame using toString for the title
-        showPreviewFrame(contextManager, "Preview: " + pf, panel);
+            // 4. Show in frame first
+            showPreviewFrame(contextManager, "Preview: " + pf, panel);
+
+            // 5. Position the caret at the specified line if provided, after showing the frame
+            if (startLine >= 0) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        // Convert line number to character offset
+                        var lines = content.get().split("\\r?\\n", -1); // -1 to include trailing empty lines
+                        if (startLine < lines.length) {
+                            var charOffset = 0;
+                            for (var i = 0; i < startLine; i++) {
+                                charOffset += lines[i].length() + 1; // +1 for line separator
+                            }
+                            panel.setCaretPositionAndCenter(charOffset);
+                        } else {
+                            logger.warn(
+                                    "Start line {} exceeds file length {} for {}",
+                                    startLine,
+                                    lines.length,
+                                    pf.absPath());
+                        }
+                    } catch (Exception e) {
+                        logger.warn(
+                                "Failed to position caret at line {} for {}: {}",
+                                startLine,
+                                pf.absPath(),
+                                e.getMessage());
+                        // Fall back to default positioning (beginning of file)
+                    }
+                });
+            }
+
+        } catch (Exception ex) {
+            toolError("Error opening file preview: " + ex.getMessage());
+            logger.error("Unexpected error opening preview for file {}", pf.absPath(), ex);
+        }
     }
 
     /**
