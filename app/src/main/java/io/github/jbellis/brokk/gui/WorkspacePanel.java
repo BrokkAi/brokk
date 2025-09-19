@@ -8,10 +8,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.CodeUnitType;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -1632,165 +1629,212 @@ public class WorkspacePanel extends JPanel {
         }
     }
 
-    /** Shows the symbol selection dialog and adds usage information for the selected symbol. */
-    public void findSymbolUsageAsync() {
-        chrome.systemOutput("DEBUG: findSymbolUsageAsync called");
 
+    /**
+     * Show the symbol selection dialog with a pre-fetched analyzer (must be called on the EDT).
+     */
+    private SymbolSelectionDialog.@Nullable SymbolSelection showSymbolSelectionDialogWithAnalyzer(IAnalyzer analyzer) {
+        assert SwingUtilities.isEventDispatchThread()
+                : "showSymbolSelectionDialogWithAnalyzer must be called from EDT";
+
+        logger.debug("Creating dialog with pre-fetched analyzer");
+        var dialog = new SymbolSelectionDialog(chrome.getFrame(), analyzer, "Select Symbol", CodeUnitType.ALL);
+        dialog.setSize((int) (chrome.getFrame().getWidth() * 0.9), dialog.getHeight());
+        dialog.setLocationRelativeTo(chrome.getFrame());
+
+        dialog.setVisible(true);
+
+        return dialog.isConfirmed() ? dialog.getSelection() : null;
+    }
+
+    /** Shows the symbol selection dialog; fetch analyzer off-EDT first, then show dialog on EDT. */
+    public void findSymbolUsageAsync() {
+        logger.debug("findSymbolUsageAsync called from thread: " + Thread.currentThread().getName());
         if (!isAnalyzerReady()) {
-            chrome.systemOutput("DEBUG: Analyzer not ready, aborting");
+            logger.warn("Analyzer not ready, aborting");
             return;
         }
-        chrome.systemOutput("DEBUG: Analyzer ready");
 
-        // Create a placeholder immediately so the user gets instant feedback
-        var initialPlaceholder =
-                new ContextFragment.PlaceholderFragment(contextManager, "Searching for symbol usages...");
-        contextManager.addVirtualFragment(initialPlaceholder);
-        chrome.systemOutput("DEBUG: Placeholder created (id=" + initialPlaceholder.id() + ")");
-
-        // Do the dialog interaction and heavy work on a background thread
-        contextManager.submitContextTask("Find Symbol Usage", () -> {
-            chrome.systemOutput("DEBUG: Background task started");
+        // Get analyzer on background thread first to avoid blocking EDT
+        contextManager.submitContextTask("Get analyzer for symbol dialog", () -> {
             try {
+                // Getting analyzer on background thread
                 var analyzer = contextManager.getAnalyzerUninterrupted();
+
                 if (analyzer.isEmpty()) {
-                    chrome.toolError("Code Intelligence is empty; nothing to add");
-                    return;
-                }
-                chrome.systemOutput("DEBUG: Analyzer is not empty");
+                            SwingUtilities.invokeLater(() -> {
+                                chrome.toolError("Code Intelligence is empty; nothing to add");
+                                logger.debug("Analyzer is empty");
+                            });
+                            return;
+                        }
 
-                // Show dialog (runs on EDT internally, while this background thread blocks for the result)
-                chrome.systemOutput("DEBUG: Calling showSymbolSelectionDialog");
-                var selection = showSymbolSelectionDialog("Select Symbol", CodeUnitType.ALL);
-                if (selection == null
-                        || selection.symbol() == null
-                        || selection.symbol().isBlank()) {
-                    chrome.systemOutput("No symbol selected.");
-                    // Replace the placeholder with a simple informational fragment
-                    var cancelled = new ContextFragment.StringFragment(
-                            contextManager,
-                            "Symbol selection cancelled",
-                            "Cancelled",
-                            org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-                    contextManager.replaceVirtualFragment(initialPlaceholder.id(), cancelled);
-                    return;
-                }
+                // Analyzer obtained, scheduling dialog on EDT
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        logger.debug("Starting dialog display on EDT with pre-fetched analyzer");
+                        var selection = showSymbolSelectionDialogWithAnalyzer(
+                                analyzer);
 
-                // Update placeholder status while computing
-                var searchingPlaceholder = new ContextFragment.PlaceholderFragment(
-                        contextManager, "Finding uses of " + selection.symbol());
-                contextManager.replaceVirtualFragment(initialPlaceholder.id(), searchingPlaceholder);
+                        if (selection == null
+                                || selection.symbol() == null
+                                || selection.symbol().isBlank()) {
+                            logger.debug("No symbol selected or dialog cancelled");
+                            return;
+                        }
 
-                // Build the actual fragment and replace the placeholder when ready
-                var actualFragment = new ContextFragment.UsageFragment(
-                        contextManager, selection.symbol(), selection.includeTestFiles());
-                contextManager.replaceVirtualFragment(searchingPlaceholder.id(), actualFragment);
-
-                chrome.systemOutput("Added uses of " + selection.symbol()
-                        + (selection.includeTestFiles() ? " (including tests)" : ""));
-            } catch (CancellationException cex) {
-                chrome.systemOutput("Symbol selection canceled.");
+                        logger.debug("Symbol selected: {}", selection.symbol());
+                        processSymbolSelection(selection);
+                    } catch (Exception e) {
+                        logger.warn("Exception in dialog handling", e);
+                        chrome.toolError("Error showing symbol selection dialog: " + e.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> {
+                    logger.warn("Exception getting analyzer", e);
+                    chrome.toolError("Error getting analyzer: " + e.getMessage());
+                });
             }
         });
     }
 
-    /** Shows the method selection dialog and adds callers information for the selected method. */
+    /** Shows the method selection dialog on EDT, then adds callers info asynchronously. */
     public void findMethodCallersAsync() {
         if (!isAnalyzerReady()) {
             return;
         }
 
-        contextManager.submitContextTask("Find Method Callers", () -> {
-            try {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
-                if (analyzer.isEmpty()) {
-                    chrome.toolError("Code Intelligence is empty; nothing to add");
-                    return;
-                }
-
-                var dialog = showCallGraphDialog("Select Method", true);
-                if (dialog == null || !dialog.isConfirmed()) { // Check confirmed state
-                    chrome.systemOutput("No method selected.");
-                } else {
-                    var selectedMethod = dialog.getSelectedMethod();
-                    var callGraph = dialog.getCallGraph();
-                    if (selectedMethod != null && callGraph != null) {
-                        contextManager.addCallersForMethod(selectedMethod, dialog.getDepth(), callGraph);
-                    } else {
-                        chrome.systemOutput("Method selection incomplete or cancelled.");
-                    }
-                }
-            } catch (CancellationException cex) {
-                chrome.systemOutput("Method selection canceled.");
+        Runnable showDialog = () -> {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            if (analyzer.isEmpty()) {
+                chrome.toolError("Code Intelligence is empty; nothing to add");
+                return;
             }
-            // No finally needed, submitContextTask handles enabling buttons
-        });
+
+            var dialog = new CallGraphDialog(chrome.getFrame(), analyzer, "Select Method", true);
+            dialog.setSize((int) (chrome.getFrame().getWidth() * 0.9), dialog.getHeight());
+            dialog.setLocationRelativeTo(chrome.getFrame());
+            dialog.setVisible(true);
+
+            if (!dialog.isConfirmed()) {
+                chrome.systemOutput("No method selected.");
+                return;
+            }
+
+            var selectedMethod = dialog.getSelectedMethod();
+            var callGraph = dialog.getCallGraph();
+            var depth = dialog.getDepth();
+
+            if (selectedMethod == null || callGraph == null) {
+                chrome.systemOutput("Method selection incomplete or cancelled.");
+                return;
+            }
+
+            contextManager.submitContextTask("Find Method Callers", () -> {
+                try {
+                    contextManager.addCallersForMethod(selectedMethod, depth, callGraph);
+                } catch (CancellationException cex) {
+                    chrome.systemOutput("Method selection canceled.");
+                }
+            });
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            showDialog.run();
+        } else {
+            SwingUtilities.invokeLater(showDialog);
+        }
     }
 
-    /** Shows the call graph dialog and adds callees information for the selected method. */
+    /** Shows the call graph dialog on EDT, then adds callees info asynchronously. */
     public void findMethodCalleesAsync() {
         if (!isAnalyzerReady()) {
             return;
         }
 
-        contextManager.submitContextTask("Find Method Callees", () -> {
-            try {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
-                if (analyzer.isEmpty()) {
-                    chrome.toolError("Code Intelligence is empty; nothing to add");
-                    return;
-                }
-
-                var dialog = showCallGraphDialog("Select Method for Callees", false);
-                if (dialog == null || !dialog.isConfirmed()) {
-                    chrome.systemOutput("No method selected.");
-                } else {
-                    var selectedMethod = dialog.getSelectedMethod();
-                    var callGraph = dialog.getCallGraph();
-                    if (selectedMethod != null && callGraph != null) {
-                        contextManager.calleesForMethod(selectedMethod, dialog.getDepth(), callGraph);
-                    } else {
-                        chrome.systemOutput("Method selection incomplete or cancelled.");
-                    }
-                }
-            } catch (CancellationException cex) {
-                chrome.systemOutput("Method selection canceled.");
+        Runnable showDialog = () -> {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            if (analyzer.isEmpty()) {
+                chrome.toolError("Code Intelligence is empty; nothing to add");
+                return;
             }
-            // No finally needed, submitContextTask handles enabling buttons
-        });
-    }
 
-    /** Show the symbol selection dialog with a type filter */
-    private @Nullable SymbolSelectionDialog.SymbolSelection showSymbolSelectionDialog(
-            String title, Set<CodeUnitType> typeFilter) {
-        var analyzer = contextManager.getAnalyzerUninterrupted();
-        var dialogRef = new AtomicReference<SymbolSelectionDialog>();
-        SwingUtil.runOnEdt(() -> {
-            var dialog = new SymbolSelectionDialog(chrome.getFrame(), analyzer, title, typeFilter);
+            var dialog = new CallGraphDialog(chrome.getFrame(), analyzer, "Select Method for Callees", false);
             dialog.setSize((int) (chrome.getFrame().getWidth() * 0.9), dialog.getHeight());
             dialog.setLocationRelativeTo(chrome.getFrame());
             dialog.setVisible(true);
-            dialogRef.set(dialog);
-        });
-        var dialog = castNonNull(dialogRef.get());
-        return dialog.isConfirmed() ? dialog.getSelection() : null;
+
+            if (!dialog.isConfirmed()) {
+                chrome.systemOutput("No method selected.");
+                return;
+            }
+
+            var selectedMethod = dialog.getSelectedMethod();
+            var callGraph = dialog.getCallGraph();
+            var depth = dialog.getDepth();
+
+            if (selectedMethod == null || callGraph == null) {
+                chrome.systemOutput("Method selection incomplete or cancelled.");
+                return;
+            }
+
+            contextManager.submitContextTask("Find Method Callees", () -> {
+                try {
+                    contextManager.calleesForMethod(selectedMethod, depth, callGraph);
+                } catch (CancellationException cex) {
+                    chrome.systemOutput("Method selection canceled.");
+                }
+            });
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            showDialog.run();
+        } else {
+            SwingUtilities.invokeLater(showDialog);
+        }
     }
 
-    /** Show the call graph dialog for configuring method and depth */
-    private @Nullable CallGraphDialog showCallGraphDialog(String title, boolean isCallerGraph) {
-        var analyzer = contextManager.getAnalyzerUninterrupted();
-        var dialogRef = new AtomicReference<CallGraphDialog>();
-        SwingUtil.runOnEdt(() -> {
-            var dialog = new CallGraphDialog(chrome.getFrame(), analyzer, title, isCallerGraph);
-            dialog.setSize((int) (chrome.getFrame().getWidth() * 0.9), dialog.getHeight());
-            dialog.setLocationRelativeTo(chrome.getFrame());
-            dialog.setVisible(true);
-            dialogRef.set(dialog);
-        });
+    /** Process a confirmed symbol selection by updating the workspace asynchronously. */
+    private void processSymbolSelection(SymbolSelectionDialog.SymbolSelection selection) {
+        // Extract and assert non-null symbol for subsequent usage
+        final var symbol = requireNonNull(selection.symbol());
+        logger.debug("Processing symbol selection: {}", symbol);
 
-        var dialog = castNonNull(dialogRef.get());
-        return dialog.isConfirmed() ? dialog : null;
+        // Create a placeholder for immediate feedback
+        var initialPlaceholder =
+                new ContextFragment.PlaceholderFragment(contextManager, "Searching for symbol usages...");
+        contextManager.addVirtualFragment(initialPlaceholder);
+        logger.debug("Placeholder created (id={})", initialPlaceholder.id());
+
+        // Do the heavy work on background thread
+        contextManager.submitContextTask("Find Symbol Usage", () -> {
+            logger.debug("Background task started for symbol: {}", symbol);
+            try {
+                // Update placeholder status while computing
+                var searchingPlaceholder = new ContextFragment.PlaceholderFragment(
+                        contextManager, "Finding uses of " + symbol);
+                contextManager.replaceVirtualFragment(initialPlaceholder.id(), searchingPlaceholder);
+
+                // Build the actual fragment and replace the placeholder when ready
+                var actualFragment =
+                        new ContextFragment.UsageFragment(contextManager, symbol, selection.includeTestFiles());
+                contextManager.replaceVirtualFragment(searchingPlaceholder.id(), actualFragment);
+
+                chrome.systemOutput("Added uses of " + symbol
+                        + (selection.includeTestFiles() ? " (including tests)" : ""));
+            } catch (CancellationException cex) {
+                chrome.systemOutput("Symbol selection canceled.");
+                var cancelled = new ContextFragment.StringFragment(
+                        contextManager,
+                        "Symbol usage search cancelled",
+                        "Cancelled",
+                        org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                contextManager.replaceVirtualFragment(initialPlaceholder.id(), cancelled);
+            }
+        });
     }
+
 
     /**
      * Performed by the action buttons/menus in the context panel: "edit / read / copy / drop / summarize / paste" If
