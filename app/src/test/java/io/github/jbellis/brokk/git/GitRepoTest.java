@@ -1126,7 +1126,9 @@ public class GitRepoTest {
     }
 
     @Test
-    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Git clone operations may fail on Windows due to file system differences")
+    @DisabledOnOs(
+            value = OS.WINDOWS,
+            disabledReason = "Git clone operations may fail on Windows due to file system differences")
     void testCloneRepo_WithBranchSelection() throws Exception {
         // 1. Create an origin repository with multiple branches
         Path originDir = tempDir.resolve("origin-with-branches");
