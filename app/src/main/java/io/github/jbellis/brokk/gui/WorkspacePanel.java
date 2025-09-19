@@ -1634,30 +1634,63 @@ public class WorkspacePanel extends JPanel {
 
     /** Shows the symbol selection dialog and adds usage information for the selected symbol. */
     public void findSymbolUsageAsync() {
+        chrome.systemOutput("DEBUG: findSymbolUsageAsync called");
+
         if (!isAnalyzerReady()) {
+            chrome.systemOutput("DEBUG: Analyzer not ready, aborting");
             return;
         }
+        chrome.systemOutput("DEBUG: Analyzer ready");
 
+        // Create a placeholder immediately so the user gets instant feedback
+        var initialPlaceholder =
+                new ContextFragment.PlaceholderFragment(contextManager, "Preparing symbol search...");
+        contextManager.addVirtualFragment(initialPlaceholder);
+        chrome.systemOutput("DEBUG: Placeholder created (id=" + initialPlaceholder.id() + ")");
+
+        // Do the dialog interaction and heavy work on a background thread
         contextManager.submitContextTask("Find Symbol Usage", () -> {
+            chrome.systemOutput("DEBUG: Background task started");
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
                     chrome.toolError("Code Intelligence is empty; nothing to add");
                     return;
                 }
+                chrome.systemOutput("DEBUG: Analyzer is not empty");
 
+                // Show dialog (runs on EDT internally, while this background thread blocks for the result)
+                chrome.systemOutput("DEBUG: Calling showSymbolSelectionDialog");
                 var selection = showSymbolSelectionDialog("Select Symbol", CodeUnitType.ALL);
-                if (selection != null
-                        && selection.symbol() != null
-                        && !selection.symbol().isBlank()) {
-                    contextManager.usageForIdentifier(selection.symbol(), selection.includeTestFiles());
-                } else {
+                if (selection == null
+                        || selection.symbol() == null
+                        || selection.symbol().isBlank()) {
                     chrome.systemOutput("No symbol selected.");
+                    // Replace the placeholder with a simple informational fragment
+                    var cancelled = new ContextFragment.StringFragment(
+                            contextManager,
+                            "Symbol selection cancelled",
+                            "Cancelled",
+                            org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                    contextManager.replaceVirtualFragment(initialPlaceholder.id(), cancelled);
+                    return;
                 }
+
+                // Update placeholder status while computing
+                var searchingPlaceholder = new ContextFragment.PlaceholderFragment(
+                        contextManager, "Finding uses of " + selection.symbol());
+                contextManager.replaceVirtualFragment(initialPlaceholder.id(), searchingPlaceholder);
+
+                // Build the actual fragment and replace the placeholder when ready
+                var actualFragment = new ContextFragment.UsageFragment(
+                        contextManager, selection.symbol(), selection.includeTestFiles());
+                contextManager.replaceVirtualFragment(searchingPlaceholder.id(), actualFragment);
+
+                chrome.systemOutput("Added uses of " + selection.symbol()
+                        + (selection.includeTestFiles() ? " (including tests)" : ""));
             } catch (CancellationException cex) {
                 chrome.systemOutput("Symbol selection canceled.");
             }
-            // No finally needed, submitContextTask handles enabling buttons
         });
     }
 

@@ -337,6 +337,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     meta.put("depth", String.valueOf(cgf.getDepth()));
                     meta.put("isCalleeGraph", String.valueOf(cgf.isCalleeGraph()));
                 }
+                case PlaceholderFragment pf -> meta.put("message", pf.description());
                 default -> {
                     /* No type-specific meta beyond what's standard for hashing */
                 }
@@ -457,6 +458,13 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 var depth = Integer.parseInt(depthStr);
                 var isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
                 yield new ContextFragment.CallGraphFragment(cm, methodName, depth, isCalleeGraph);
+            }
+            case "io.github.jbellis.brokk.context.ContextFragment$PlaceholderFragment" -> {
+                var message = meta.get("message");
+                if (message == null) {
+                    throw new IllegalArgumentException("Missing metadata for PlaceholderFragment");
+                }
+                yield new ContextFragment.PlaceholderFragment(cm, message);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$BuildFragment" -> {
                 // Recreate a live BuildFragment with the captured build output.

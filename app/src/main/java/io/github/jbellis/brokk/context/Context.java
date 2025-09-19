@@ -279,6 +279,23 @@ public class Context {
         return getWithFragments(editableFiles, readonlyFiles, newFragments, action);
     }
 
+    public Context replaceVirtualFragmentById(String fragmentId, ContextFragment.VirtualFragment newFragment) {
+        int index = -1;
+        for (int i = 0; i < virtualFragments.size(); i++) {
+            if (Objects.equals(virtualFragments.get(i).id(), fragmentId)) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            return this; // no-op if not found
+        }
+        var newVirtuals = new ArrayList<ContextFragment.VirtualFragment>(virtualFragments);
+        newVirtuals.set(index, newFragment);
+        String action = "Updated " + newFragment.shortDescription();
+        return getWithFragments(editableFiles, readonlyFiles, newVirtuals, action);
+    }
+
     private Context getWithFragments(
             List<ContextFragment> newEditableFiles,
             List<ContextFragment> newReadonlyFiles,

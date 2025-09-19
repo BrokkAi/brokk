@@ -1033,6 +1033,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
     }
 
+    /** Replaces a virtual fragment by id with a new fragment. No-op if id is not found. */
+    public void replaceVirtualFragment(String placeholderId, VirtualFragment actualFragment) {
+        pushContext(currentLiveCtx -> currentLiveCtx.replaceVirtualFragmentById(placeholderId, actualFragment));
+    }
+
     /**
      * Lazily creates and updates the special BuildFragment with the latest build results text. Does not push a history
      * entry for updates after creation. Triggers a workspace UI refresh.

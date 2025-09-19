@@ -50,7 +50,8 @@ public interface ContextFragment {
         PASTE_TEXT(false, true, false), // Content-hashed ID
         PASTE_IMAGE(false, true, false), // Content-hashed ID, isText=false for this virtual fragment
         STACKTRACE(false, true, false), // Content-hashed ID
-        BUILD_LOG(false, true, false); // Dynamic; updated by ContextManager with latest build results
+        BUILD_LOG(false, true, false), // Dynamic; updated by ContextManager with latest build results
+        PLACEHOLDER(false, true, false); // Dynamic; temporary loading indicator
 
         private final boolean isPath;
         private final boolean isVirtual;
@@ -1627,6 +1628,46 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "BuildFragment('%s')".formatted(description());
+        }
+    }
+
+    // Placeholder fragment used to indicate a task is in progress and will be replaced later.
+    class PlaceholderFragment extends VirtualFragment { // Dynamic, uses nextId
+        private final String message;
+
+        public PlaceholderFragment(IContextManager contextManager, String message) {
+            super(contextManager);
+            this.message = message;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.PLACEHOLDER;
+        }
+
+        @Override
+        public String description() {
+            return message;
+        }
+
+        @Override
+        public String text() {
+            return "Loading: " + message;
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return true;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return SyntaxConstants.SYNTAX_STYLE_NONE;
+        }
+
+        @Override
+        public String formatSummary() {
+            return "<fragment description=\"%s\" status=\"loading\" />".formatted(description());
         }
     }
 
