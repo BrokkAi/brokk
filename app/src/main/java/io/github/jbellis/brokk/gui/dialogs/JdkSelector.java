@@ -5,7 +5,6 @@ import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
@@ -83,11 +82,23 @@ public class JdkSelector extends JPanel {
                 });
     }
 
-    /** Ensure the given path is in the combo (adding a Custom entry if needed) and select it. */
+    /**
+     * Ensure the given path is in the combo (adding a Custom entry if needed) and select it.
+     *
+     * @param path the JDK path to select
+     * @throws IllegalArgumentException if the path is not a valid JDK
+     */
     public void setSelectedJdkPath(@Nullable String path) {
         if (path == null || path.isBlank()) {
             return;
         }
+
+        // Validate the path before adding it
+        var validationError = validateJdkPath(path);
+        if (validationError != null) {
+            throw new IllegalArgumentException(validationError);
+        }
+
         int matchedIdx = -1;
         for (int i = 0; i < combo.getItemCount(); i++) {
             var it = combo.getItemAt(i);
@@ -103,6 +114,38 @@ public class JdkSelector extends JPanel {
             combo.addItem(custom);
             combo.setSelectedItem(custom);
         }
+    }
+
+    /**
+     * Validate a JDK path and return a specific error message if invalid.
+     *
+     * @param path the path to validate
+     * @return error message if invalid, null if valid
+     */
+    private static @Nullable String validateJdkPath(String path) {
+        if (path.isBlank()) {
+            return "JDK path cannot be empty";
+        }
+
+        var jdkDir = new File(path);
+        if (!jdkDir.exists()) {
+            return "The directory '" + path + "' does not exist";
+        }
+
+        if (!jdkDir.isDirectory()) {
+            return "The path '" + path + "' is not a directory";
+        }
+
+        if (!isValidJdk(path)) {
+            if (hasJavaExecutable(path)) {
+                return "The directory '" + path
+                        + "' appears to be a JRE (Java Runtime Environment) rather than a JDK (Java Development Kit). Please select a JDK installation that includes development tools like javac";
+            } else {
+                return "The directory '" + path + "' does not appear to be a valid Java installation";
+            }
+        }
+
+        return null; // Valid JDK
     }
 
     /** @return the selected JDK path or null if none selected. */
@@ -130,15 +173,60 @@ public class JdkSelector extends JPanel {
                     // Fallback to original path
                 }
 
+                // Only include valid JDKs (not JREs)
+                if (!isValidJdk(path)) {
+                    logger.debug("Skipping JRE installation at: {}", path);
+                    continue;
+                }
+
                 var label = String.format("%s %s (%s)", name, ver, arch);
                 items.add(new JdkItem(label, path));
             }
-            items.sort(Comparator.comparing(it -> it.display));
+
+            // Sort with prioritization: non-JDeploy JDKs first, then JDeploy JDKs
+            items.sort((a, b) -> {
+                boolean aIsJDeploy = isJDeployJdk(a.path);
+                boolean bIsJDeploy = isJDeployJdk(b.path);
+
+                if (aIsJDeploy != bIsJDeploy) {
+                    return aIsJDeploy ? 1 : -1; // Non-JDeploy first
+                }
+                return a.display.compareTo(b.display); // Alphabetical within groups
+            });
+
             return items;
         } catch (Throwable t) {
             logger.warn("Failed to discover installed JDKs", t);
             return List.of();
         }
+    }
+
+    /** Check if the given path is a valid JDK (has both java and javac). */
+    private static boolean isValidJdk(String path) {
+        if (path.isBlank()) return false;
+
+        var javaDir = new File(path);
+        var javacPath = new File(javaDir, "bin/javac");
+
+        return javacPath.exists() && javacPath.canExecute();
+    }
+
+    /** Check if the given path has a java executable (JRE or JDK). */
+    private static boolean hasJavaExecutable(String path) {
+        if (path.isBlank()) return false;
+
+        var javaDir = new File(path);
+        var javaPath = new File(javaDir, "bin/java");
+
+        return javaPath.exists();
+    }
+
+    /** Check if the given JDK path is from JDeploy based on path pattern and runtime detection. */
+    private static boolean isJDeployJdk(@Nullable String path) {
+        if (path == null) return false;
+
+        // check if we're currently running from JDeploy
+        return System.getProperty("jdeploy.war.path") != null || System.getenv("JDEPLOY_HOME") != null;
     }
 
     private static class JdkItem {
