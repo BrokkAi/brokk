@@ -187,9 +187,25 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
         @Override
         public void saveSettings() {
             final String value = jdkSelector.getSelectedJdkPath();
+
+            // JDK selection is optional - if none selected, just save memory settings
             if (value == null || value.isBlank()) {
-                consoleIO.systemNotify(
-                        "Please specify a valid JDK home directory.", "Invalid JDK Path", JOptionPane.WARNING_MESSAGE);
+                // Save memory setting
+                int memoryMB = (Integer) memorySpinner.getValue();
+                boolean memoryChanged = memoryMB != savedMemoryMB;
+                final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
+                prefs.putInt(PREF_MEMORY_KEY_PREFIX, memoryMB);
+                savedMemoryMB = memoryMB;
+
+                // Hide warning after saving
+                memoryWarningLabel.setVisible(false);
+
+                if (memoryChanged) {
+                    consoleIO.systemNotify(
+                            "Memory setting changed. Please restart Brokk for the change to take effect.",
+                            "Restart Required",
+                            JOptionPane.INFORMATION_MESSAGE);
+                }
                 return;
             }
 
