@@ -151,6 +151,15 @@ public abstract class LspServer {
         });
     }
 
+    /**
+     * Checks if the server is currently running and initialized.
+     *
+     * @return true if the server is running and ready to accept queries, false otherwise
+     */
+    public boolean isServerRunning() {
+        return serverInitialized != null;
+    }
+
     public void sendDidOpen(Path filePath, String language) {
         try {
             final var content = Files.readString(filePath);

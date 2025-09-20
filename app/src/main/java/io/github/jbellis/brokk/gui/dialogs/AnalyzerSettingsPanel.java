@@ -248,20 +248,25 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             final boolean pathChanged = !value.equals(previousValue);
 
             if (pathChanged) {
-                try {
-                    // Wait synchronously so we can detect errors and notify the user immediately
-                    SharedJdtLspServer.getInstance()
-                            .updateWorkspaceJdk(projectRoot, jdkPath)
-                            .join();
-                } catch (Exception ex) {
-                    consoleIO.systemNotify(
-                            "Failed to apply the selected JDK to the Java analyzer. Please check the logs for details.",
-                            "JDK Update Failed",
-                            JOptionPane.ERROR_MESSAGE);
-                    logger.error("Failed updating workspace JDK to {}", jdkPath, ex);
-                    return;
+                // Only update the server JDK if the server is running
+                if (SharedJdtLspServer.getInstance().isServerRunning()) {
+                    try {
+                        // Wait synchronously so we can detect errors and notify the user immediately
+                        SharedJdtLspServer.getInstance()
+                                .updateWorkspaceJdk(projectRoot, jdkPath)
+                                .join();
+                        logger.debug("Updated Java analyzer JDK home: {}", value);
+                    } catch (Exception ex) {
+                        // JDK update failed, but this shouldn't prevent saving the setting
+                        // The setting will be applied when the server is restarted or in a better state
+                        logger.warn(
+                                "Failed to apply JDK to running server, but preference will be saved: {}",
+                                ex.getMessage());
+                        logger.debug("Full JDK update exception:", ex);
+                    }
+                } else {
+                    logger.debug("Java analyzer server not running, JDK will be applied when server starts: {}", value);
                 }
-                logger.debug("Updated Java analyzer JDK home: {}", value);
             } else {
                 logger.debug("Java analyzer JDK home unchanged: {}", value);
             }
