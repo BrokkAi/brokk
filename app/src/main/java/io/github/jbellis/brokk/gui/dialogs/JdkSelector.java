@@ -93,8 +93,11 @@ public class JdkSelector extends JPanel {
             return;
         }
 
-        // Validate the path before adding it
-        var validationError = validateJdkPath(path);
+        // Expand environment variables if present
+        String expandedPath = expandEnvironmentVariables(path);
+
+        // Validate the expanded path before adding it
+        var validationError = validateJdkPath(expandedPath);
         if (validationError != null) {
             throw new IllegalArgumentException(validationError);
         }
@@ -102,7 +105,7 @@ public class JdkSelector extends JPanel {
         int matchedIdx = -1;
         for (int i = 0; i < combo.getItemCount(); i++) {
             var it = combo.getItemAt(i);
-            if (path.equals(it.path)) {
+            if (expandedPath.equals(it.path)) {
                 matchedIdx = i;
                 break;
             }
@@ -110,10 +113,51 @@ public class JdkSelector extends JPanel {
         if (matchedIdx >= 0) {
             combo.setSelectedIndex(matchedIdx);
         } else {
-            var custom = new JdkItem("Custom JDK: " + path, path);
+            var custom = new JdkItem("Custom JDK: " + expandedPath, expandedPath);
             combo.addItem(custom);
             combo.setSelectedItem(custom);
         }
+    }
+
+    /**
+     * Expand environment variables in the given path. Currently supports $JAVA_HOME and ${JAVA_HOME} patterns.
+     *
+     * @param path the path that may contain environment variables
+     * @return the path with environment variables expanded
+     */
+    private static String expandEnvironmentVariables(String path) {
+        if (path.isBlank()) {
+            return path;
+        }
+
+        // Handle $JAVA_HOME
+        if (path.equals("$JAVA_HOME")) {
+            String javaHome = System.getenv("JAVA_HOME");
+            return javaHome != null ? javaHome : path;
+        }
+
+        // Handle ${JAVA_HOME}
+        if (path.equals("${JAVA_HOME}")) {
+            String javaHome = System.getenv("JAVA_HOME");
+            return javaHome != null ? javaHome : path;
+        }
+
+        // Handle paths that start with $JAVA_HOME/ or ${JAVA_HOME}/
+        if (path.startsWith("$JAVA_HOME/")) {
+            String javaHome = System.getenv("JAVA_HOME");
+            if (javaHome != null) {
+                return javaHome + path.substring("$JAVA_HOME".length());
+            }
+        }
+
+        if (path.startsWith("${JAVA_HOME}/")) {
+            String javaHome = System.getenv("JAVA_HOME");
+            if (javaHome != null) {
+                return javaHome + path.substring("${JAVA_HOME}".length());
+            }
+        }
+
+        return path;
     }
 
     /**
