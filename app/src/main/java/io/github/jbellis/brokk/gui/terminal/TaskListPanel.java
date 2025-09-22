@@ -42,9 +42,23 @@ import javax.swing.TransferHandler;
 import javax.swing.UIManager;
 import javax.swing.border.TitledBorder;
 import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.util.Json;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
 public class TaskListPanel extends JPanel implements ThemeAware {
+
+    private static final Logger logger = LogManager.getLogger(TaskListPanel.class);
+    private boolean isLoadingTasks = false;
+    private @Nullable UUID sessionIdAtLoad = null;
 
     private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
@@ -239,6 +253,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             }
         });
         updateButtonStates();
+        loadTasksForCurrentSession();
     }
 
     private void addTask() {
@@ -255,6 +270,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         }
         if (added > 0) {
             input.setText("");
+            saveTasksForCurrentSession();
         }
     }
 
@@ -266,6 +282,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             }
         }
         updateButtonStates();
+        saveTasksForCurrentSession();
     }
 
     private void toggleSelectedDone() {
@@ -277,6 +294,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             }
         }
         updateButtonStates();
+        saveTasksForCurrentSession();
     }
 
     private void editSelected() {
@@ -354,6 +372,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
                 newText = newText.strip();
                 if (!newText.isEmpty() && !newText.equals(cur.text())) {
                     model.set(index, new TaskItem(newText, cur.done()));
+                    saveTasksForCurrentSession();
                 }
             }
         }
@@ -371,6 +390,88 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         removeBtn.setEnabled(hasSelection);
         toggleDoneBtn.setEnabled(hasSelection);
         playBtn.setEnabled(hasSelection);
+    }
+
+    private @Nullable UUID getCurrentSessionId() {
+        if (console instanceof Chrome c) {
+            try {
+                return c.getContextManager().getCurrentSessionId();
+            } catch (Exception e) {
+                logger.debug("Unable to get current session id", e);
+            }
+        }
+        return null;
+    }
+
+    private Path getTasksFilePath(UUID sessionId) {
+        if (console instanceof Chrome c) {
+            try {
+                Path root = c.getContextManager().getRoot();
+                return root.resolve(".brokk").resolve("sessions").resolve(sessionId.toString()).resolve("tasklist.json");
+            } catch (Exception e) {
+                logger.debug("Unable to resolve project root for tasks file; defaulting to user.dir", e);
+            }
+        }
+        Path userDir = Path.of(System.getProperty("user.dir"));
+        return userDir.resolve(".brokk").resolve("sessions").resolve(sessionId.toString()).resolve("tasklist.json");
+    }
+
+    private void loadTasksForCurrentSession() {
+        var sid = getCurrentSessionId();
+        if (sid == null) {
+            logger.debug("No current session id; skipping task load");
+            return;
+        }
+        this.sessionIdAtLoad = sid;
+        Path file = getTasksFilePath(sid);
+        isLoadingTasks = true;
+        try {
+            if (!Files.exists(file)) {
+                return;
+            }
+            String json = Files.readString(file, StandardCharsets.UTF_8);
+            if (json == null || json.isBlank()) return;
+            TaskListData data = Json.fromJson(json, TaskListData.class);
+            model.clear();
+            if (data != null && data.tasks != null) {
+                for (TaskEntryDto dto : data.tasks) {
+                    if (dto != null && dto.text != null && !dto.text.isBlank()) {
+                        model.addElement(new TaskItem(dto.text, dto.done));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed loading tasks for session {} from {}", sid, file, e);
+        } finally {
+            isLoadingTasks = false;
+            updateButtonStates();
+        }
+    }
+
+    private void saveTasksForCurrentSession() {
+        if (isLoadingTasks) return;
+        UUID sid = this.sessionIdAtLoad;
+        if (sid == null) {
+            sid = getCurrentSessionId();
+            if (sid == null) {
+                logger.debug("No session id available; skipping task save");
+                return;
+            }
+            this.sessionIdAtLoad = sid;
+        }
+        Path file = getTasksFilePath(sid);
+        try {
+            Files.createDirectories(file.getParent());
+            TaskListData data = new TaskListData();
+            for (int i = 0; i < model.size(); i++) {
+                TaskItem it = model.get(i);
+                data.tasks.add(new TaskEntryDto(it.text(), it.done()));
+            }
+            String json = Json.toJson(data);
+            Files.writeString(file, json, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            logger.debug("Failed saving tasks for session {} to {}", sid, file, e);
+        }
     }
 
     private void runArchitectOnSelected() {
@@ -393,16 +494,16 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 try {
                     console.toolError("Failed to run Architect: " + ex.getMessage(), "Task Runner Error");
-                } catch (Exception ignore) {
-                    // ignore nested error reporting problems
-                }
+            } catch (Exception e2) {
+                logger.debug("Error reporting Architect failure", e2);
+            }
             }
         } else {
             try {
                 console.toolError("Architect is only available in the main app context.", "Task Runner Error");
-            } catch (Exception ignore) {
-                // ignore nested error reporting problems
-            }
+        } catch (Exception e2) {
+            logger.debug("Error reporting Architect availability warning", e2);
+        }
         }
     }
 
@@ -512,7 +613,18 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             indices = null;
             addIndex = -1;
             addCount = 0;
+            saveTasksForCurrentSession();
         }
+    }
+
+    @Override
+    public void removeNotify() {
+        try {
+            saveTasksForCurrentSession();
+        } catch (Exception e) {
+            logger.debug("Error saving tasks on removeNotify", e);
+        }
+        super.removeNotify();
     }
 
     private record TaskItem(String text, boolean done) {}
@@ -557,6 +669,21 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             }
 
             return this;
+        }
+    }
+
+    private static final class TaskListData {
+        public List<TaskEntryDto> tasks = new ArrayList<>();
+        public TaskListData() {}
+    }
+
+    private static final class TaskEntryDto {
+        public String text = "";
+        public boolean done;
+        public TaskEntryDto() {}
+        public TaskEntryDto(String text, boolean done) {
+            this.text = text;
+            this.done = done;
         }
     }
 }
