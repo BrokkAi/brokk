@@ -419,7 +419,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Unable to query LLM busy state", ex);
             }
         }
-        playBtn.setEnabled(hasSelection && !llmBusy);
+        boolean selectedIsDone = false;
+        int sel = list.getSelectedIndex();
+        if (sel >= 0 && sel < model.getSize()) {
+            TaskItem it = model.get(sel);
+            selectedIsDone = it != null && it.done();
+        }
+        // Enable Play only if: there is a selection, LLM not busy, and the selected task is not done
+        playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone);
     }
 
     private @Nullable UUID getCurrentSessionId() {
@@ -519,6 +526,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (idx < 0) {
             JOptionPane.showMessageDialog(this, "Select a task first.", "No selection", JOptionPane.WARNING_MESSAGE);
             return;
+        }
+
+        // Do not allow running Architect on a task marked as done
+        if (idx < model.size()) {
+            TaskItem sel = model.get(idx);
+            if (sel != null && sel.done()) {
+                JOptionPane.showMessageDialog(this, "This task is already marked as done.", "Task Completed", JOptionPane.INFORMATION_MESSAGE);
+                updateButtonStates();
+                return;
+            }
         }
 
         String prompt = model.get(idx).text();
