@@ -292,7 +292,16 @@ public class Brokk {
             // If a project was selected during key validation, prioritize it
             projectsToAttemptOpen.add(dialogProjectPathFromKey);
         } else if (!parsedArgs.noProjectFlag) {
-            projectsToAttemptOpen.addAll(MainProject.getOpenProjects());
+            if (MainProject.getStartupOpenMode() == MainProject.StartupOpenMode.ALL) {
+                projectsToAttemptOpen.addAll(MainProject.getOpenProjects());
+            } else {
+                var recent = MainProject.loadRecentProjects();
+                if (!recent.isEmpty()) {
+                    var mostRecent = recent.entrySet().stream()
+                            .max(Comparator.comparingLong(e -> e.getValue().lastOpened()));
+                    mostRecent.ifPresent(e -> projectsToAttemptOpen.add(e.getKey()));
+                }
+            }
         }
         return projectsToAttemptOpen;
     }

@@ -123,6 +123,11 @@ public final class MainProject extends AbstractProject {
         STAGING
     }
 
+    public enum StartupOpenMode {
+        LAST,
+        ALL
+    }
+
     private static final String LLM_PROXY_SETTING_KEY = "llmProxySetting";
     public static final String BROKK_PROXY_URL = "https://proxy.brokk.ai";
     public static final String LOCALHOST_PROXY_URL = "http://localhost:4000";
@@ -880,6 +885,22 @@ public final class MainProject extends AbstractProject {
         };
     }
 
+    public static MainProject.StartupOpenMode getStartupOpenMode() {
+        var props = loadGlobalProperties();
+        String val = props.getProperty(STARTUP_OPEN_MODE_KEY, StartupOpenMode.LAST.name());
+        try {
+            return StartupOpenMode.valueOf(val);
+        } catch (IllegalArgumentException e) {
+            return StartupOpenMode.LAST;
+        }
+    }
+
+    public static void setStartupOpenMode(MainProject.StartupOpenMode mode) {
+        var props = loadGlobalProperties();
+        props.setProperty(STARTUP_OPEN_MODE_KEY, mode.name());
+        saveGlobalProperties(props);
+    }
+
     public static void setGitHubToken(String token) {
         var props = loadGlobalProperties();
         if (token.isBlank()) {
@@ -1108,6 +1129,7 @@ public final class MainProject extends AbstractProject {
     private static final String UI_SCALE_KEY = "uiScale";
     private static final String MOP_ZOOM_KEY = "mopZoom";
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
+    private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();

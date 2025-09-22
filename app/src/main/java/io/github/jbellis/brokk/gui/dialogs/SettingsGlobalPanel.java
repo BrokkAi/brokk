@@ -87,6 +87,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
+    private JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
+    private JRadioButton startupOpenAllRadio = new JRadioButton("Reopen all previously open projects");
+
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
@@ -128,6 +131,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
         globalSubTabbedPane.addTab("MCP Servers", null, mcpPanel, "MCP server configuration");
+
+        // Startup Tab
+        var startupPanel = createStartupPanel();
+        globalSubTabbedPane.addTab("Startup", null, startupPanel, "Startup behavior");
 
         add(globalSubTabbedPane, BorderLayout.CENTER);
     }
@@ -379,6 +386,43 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return appearancePanel;
     }
 
+    private JPanel createStartupPanel() {
+        var startupPanel = new JPanel(new GridBagLayout());
+        startupPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        int row = 0;
+
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        startupPanel.add(new JLabel("On startup:"), gbc);
+
+        var group = new ButtonGroup();
+        group.add(startupOpenLastRadio);
+        group.add(startupOpenAllRadio);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        startupPanel.add(startupOpenLastRadio, gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        startupPanel.add(startupOpenAllRadio, gbc);
+
+        gbc.gridy = row;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.VERTICAL;
+        startupPanel.add(Box.createVerticalGlue(), gbc);
+
+        return startupPanel;
+    }
+
     private JPanel createQuickModelsPanel() {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -550,6 +594,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
 
+        // Startup behavior
+        var startupMode = MainProject.getStartupOpenMode();
+        if (startupMode == MainProject.StartupOpenMode.ALL) {
+            startupOpenAllRadio.setSelected(true);
+        } else {
+            startupOpenLastRadio.setSelected(true);
+        }
+
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
@@ -672,6 +724,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             MainProject.setTerminalFontSize(newTerminalFontSize);
             chrome.updateTerminalFontSize();
             logger.debug("Applied Terminal Font Size: {}", newTerminalFontSize);
+        }
+
+        // Startup behavior
+        var currentStartupMode = MainProject.getStartupOpenMode();
+        var selectedStartupMode =
+                startupOpenAllRadio.isSelected() ? MainProject.StartupOpenMode.ALL : MainProject.StartupOpenMode.LAST;
+        if (selectedStartupMode != currentStartupMode) {
+            MainProject.setStartupOpenMode(selectedStartupMode);
+            logger.debug("Applied Startup Open Mode: {}", selectedStartupMode);
         }
 
         // Quick Models Tab
