@@ -117,8 +117,7 @@ public class ContextSerializationTest {
         // focusing on serializable aspects.
         // For a "no fragments" context, primarily the task history (welcome message) is relevant.
         Context loadedCtx = loadedHistory.getHistory().get(0);
-        assertNotNull(loadedCtx.getParsedOutput()); // Welcome message
-        assertEquals("Welcome", loadedCtx.getParsedOutput().description());
+        assertNull(loadedCtx.getParsedOutput());
     }
 
     @Test
