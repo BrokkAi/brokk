@@ -1055,6 +1055,13 @@ public class GitWorktreeTab extends JPanel {
             }
         }
 
+        // Defensive check: ensure we have a valid Git repository and branch name
+        if (worktreeBranchName.isEmpty()) {
+            logger.error("Cannot determine worktree branch - not a Git repository or unable to get current branch");
+            chrome.toolError("This operation requires a Git repository with a valid current branch", "Merge Error");
+            return;
+        }
+
         // Use the shared merge dialog utility
         var options =
                 MergeDialogUtil.MergeDialogOptions.forWorktreeMerge(worktreeBranchName, this, chrome, contextManager);
