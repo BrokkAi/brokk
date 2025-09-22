@@ -31,7 +31,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     private final JPanel drawerContentPanel;
     private final JPanel drawerToolBar;
     private final MaterialToggleButton terminalToggle;
+    private final MaterialToggleButton taskListToggle;
     private @Nullable TerminalPanel activeTerminal;
+    private @Nullable TaskListPanel activeTaskList;
 
     // Drawer state management
     private double lastDividerLocation = 0.5;
@@ -72,6 +74,16 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         drawerToolBar.add(terminalToggle);
 
+        // Task List toggle placed just south of the terminal toggle
+        taskListToggle = new MaterialToggleButton(Icons.LIST);
+        taskListToggle.setToolTipText("Toggle Task List");
+        taskListToggle.setBorderHighlightOnly(true);
+        taskListToggle.setFocusPainted(false);
+        taskListToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        taskListToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        drawerToolBar.add(taskListToggle);
+
         add(drawerToolBar, BorderLayout.EAST);
 
         // Content area for the drawer (where TerminalPanel and future tools will appear)
@@ -81,10 +93,31 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         // Wire the toggle to create/show/hide a TerminalPanel
         terminalToggle.addActionListener(ev -> {
             if (terminalToggle.isSelected()) {
+                // Only one tool at a time
+                if (taskListToggle.isSelected()) {
+                    taskListToggle.setSelected(false);
+                    hideTaskListDrawer();
+                }
                 openTerminal();
             } else {
                 if (activeTerminal != null) {
                     hideTerminalDrawer();
+                }
+            }
+        });
+
+        // Wire the Task List toggle to create/show/hide the TaskListPanel
+        taskListToggle.addActionListener(ev -> {
+            if (taskListToggle.isSelected()) {
+                // Only one tool at a time
+                if (terminalToggle.isSelected()) {
+                    terminalToggle.setSelected(false);
+                    hideTerminalDrawer();
+                }
+                openTaskList();
+            } else {
+                if (activeTaskList != null) {
+                    hideTaskListDrawer();
                 }
             }
         });
@@ -96,6 +129,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     /** Opens the terminal in the drawer. If already open, ensures it has focus. */
     public void openTerminal() {
+        // Ensure only one tool is active at a time
+        taskListToggle.setSelected(false);
         openTerminalAsync().exceptionally(ex -> {
             logger.debug("Failed to open terminal", ex);
             return null;
@@ -159,6 +194,53 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         });
     }
 
+    /** Opens the task list in the drawer. If already open, ensures it has focus. */
+    public void openTaskList() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                if (activeTaskList == null) {
+                    activeTaskList = new TaskListPanel(console);
+                }
+                // Ensure mutual exclusivity with the terminal
+                terminalToggle.setSelected(false);
+
+                showDrawer();
+                taskListToggle.setSelected(true);
+            } catch (Exception ex) {
+                logger.debug("Failed to open task list", ex);
+                taskListToggle.setSelected(false);
+            }
+        });
+    }
+
+    /** Closes the task list and collapses the drawer if empty. */
+    public void closeTaskList() {
+        SwingUtilities.invokeLater(() -> {
+            if (activeTaskList != null) {
+                try {
+                    drawerContentPanel.remove(activeTaskList);
+                    drawerContentPanel.revalidate();
+                    drawerContentPanel.repaint();
+                } catch (Exception ex) {
+                    logger.debug("Error removing task list panel", ex);
+                }
+            }
+            taskListToggle.setSelected(false);
+            collapseIfEmpty();
+        });
+    }
+
+    private void hideTaskListDrawer() {
+        SwingUtilities.invokeLater(() -> {
+            if (activeTaskList != null) {
+                drawerContentPanel.remove(activeTaskList);
+                drawerContentPanel.revalidate();
+                drawerContentPanel.repaint();
+                collapseIfEmpty();
+            }
+        });
+    }
+
     private void hideTerminalDrawer() {
         SwingUtilities.invokeLater(() -> {
             if (activeTerminal != null) {
@@ -173,11 +255,17 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     /** Shows the drawer by restoring the divider to its last known position. */
     public void showDrawer() {
         SwingUtilities.invokeLater(() -> {
-            if (activeTerminal != null && activeTerminal.getParent() == null) {
+            // Ensure only the selected tool is shown
+            drawerContentPanel.removeAll();
+
+            if (terminalToggle.isSelected() && activeTerminal != null) {
                 drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
-                drawerContentPanel.revalidate();
-                drawerContentPanel.repaint();
+            } else if (taskListToggle.isSelected() && activeTaskList != null) {
+                drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
             }
+
+            drawerContentPanel.revalidate();
+            drawerContentPanel.repaint();
 
             // Restore original divider size
             if (originalDividerSize > 0) {
@@ -279,9 +367,11 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        // Apply theme to active terminal if present
         if (activeTerminal != null) {
             activeTerminal.applyTheme(guiTheme);
+        }
+        if (activeTaskList != null) {
+            activeTaskList.applyTheme(guiTheme);
         }
     }
 
@@ -304,6 +394,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             drawerContentPanel.repaint();
             showDrawer();
             terminalToggle.setSelected(true);
+            taskListToggle.setSelected(false);
         } catch (Exception ex) {
             logger.warn("Failed to create terminal in drawer: {}", ex.getMessage());
             terminalToggle.setSelected(false);
