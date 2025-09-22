@@ -210,7 +210,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setRolloverEnabled(false);
         modeSwitch.setMargin(new Insets(0, 0, 0, 0));
         modeSwitch.setText("");
-        modeSwitch.setSelected(false); // Code by default
+        modeSwitch.setSelected(true); // Ask by default
 
         codeCheckBox = new JCheckBox("Plan First");
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
@@ -263,15 +263,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var proj = chrome.getProject();
         if (proj instanceof MainProject mp) {
             codeCheckBox.setSelected(mp.getPlanFirst());
-            searchProjectCheckBox.setSelected(mp.getSearchFirst());
+            // Default to Search checked for Ask mode
+            searchProjectCheckBox.setSelected(true);
         } else {
             // Fallback: both checked
             codeCheckBox.setSelected(true);
             searchProjectCheckBox.setSelected(true);
         }
 
-        // default stored action: Architect
-        storedAction = ACTION_ARCHITECT;
+        // default stored action: Search (Ask + Search)
+        storedAction = ACTION_SEARCH;
 
         // Toggle listeners update visibility and storedAction
         modeSwitch.addItemListener(e2 -> {
@@ -1991,8 +1992,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 chrome.llmOutput("Ask command complete!", ChatMessageType.CUSTOM);
             } else {
-                chrome.llmOutput(
-                        "Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
+                chrome.llmOutput("Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
             }
         });
         setActionRunning(future);
