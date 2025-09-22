@@ -777,6 +777,20 @@ public class GitLogTab extends JPanel {
                 logger.error("Error during enhanced merge operation", e);
                 chrome.toolError("Error during merge: " + e.getMessage(), "Merge Error");
             } finally {
+                // Restore original branch if we switched away from it
+                if (originalBranch != null && !originalBranch.equals(result.targetBranch())) {
+                    try {
+                        logger.info("Restoring original branch: {}", originalBranch);
+                        repo.checkout(originalBranch);
+                        chrome.systemOutput("Switched back to original branch: " + originalBranch);
+                    } catch (GitAPIException e) {
+                        String restoreError = "Warning: Failed to switch back to original branch '"
+                                + originalBranch + "': " + e.getMessage();
+                        logger.error(restoreError, e);
+                        chrome.toolError(restoreError, "Branch Restoration Warning");
+                    }
+                }
+
                 // Refresh UI to reflect changes
                 SwingUtilities.invokeLater(this::update);
             }
