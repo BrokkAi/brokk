@@ -254,8 +254,7 @@ public class MergeDialogUtil {
             final GitRepo.MergeMode selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
             String currentConflictText = conflictStatusLabel.getText(); // Check the final state of the label
-            if (currentConflictText.startsWith("No conflicts detected")
-                    || currentConflictText.startsWith("Checking for conflicts")) {
+            if (currentConflictText.startsWith("No conflicts detected")) {
 
                 boolean deleteWorktree = removeWorktreeCb != null && removeWorktreeCb.isSelected();
                 boolean deleteBranch = removeBranchCb != null && removeBranchCb.isSelected();
