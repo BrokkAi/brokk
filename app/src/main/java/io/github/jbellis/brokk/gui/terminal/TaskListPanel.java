@@ -46,19 +46,28 @@ import io.github.jbellis.brokk.util.Json;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import java.io.IOException;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.context.Context;
+import javax.swing.SwingUtilities;
+import java.util.Objects;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.context.Context;
+import javax.swing.SwingUtilities;
+import java.util.Objects;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
-public class TaskListPanel extends JPanel implements ThemeAware {
+public class TaskListPanel extends JPanel implements ThemeAware, IContextManager.ContextListener {
 
     private static final Logger logger = LogManager.getLogger(TaskListPanel.class);
     private boolean isLoadingTasks = false;
     private @Nullable UUID sessionIdAtLoad = null;
+    private @Nullable IContextManager registeredContextManager = null;
 
     private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
@@ -254,6 +263,16 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         });
         updateButtonStates();
         loadTasksForCurrentSession();
+
+        if (console instanceof Chrome c) {
+            try {
+                IContextManager cm = c.getContextManager();
+                registeredContextManager = cm;
+                cm.addContextListener(this);
+            } catch (Exception e) {
+                logger.debug("Unable to register TaskListPanel as context listener", e);
+            }
+        }
     }
 
     private void addTask() {
@@ -427,17 +446,21 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         isLoadingTasks = true;
         try {
             if (!Files.exists(file)) {
-                return;
-            }
-            String json = Files.readString(file, StandardCharsets.UTF_8);
-            if (json == null || json.isBlank()) return;
-            TaskListData data = Json.fromJson(json, TaskListData.class);
-            model.clear();
-            if (data != null && data.tasks != null) {
-                for (TaskEntryDto dto : data.tasks) {
-                    if (dto != null && dto.text != null && !dto.text.isBlank()) {
-                        model.addElement(new TaskItem(dto.text, dto.done));
+                model.clear();
+            } else {
+                String json = Files.readString(file, StandardCharsets.UTF_8);
+                if (json != null && !json.isBlank()) {
+                    TaskListData data = Json.fromJson(json, TaskListData.class);
+                    model.clear();
+                    if (data != null && data.tasks != null) {
+                        for (TaskEntryDto dto : data.tasks) {
+                            if (dto != null && dto.text != null && !dto.text.isBlank()) {
+                                model.addElement(new TaskItem(dto.text, dto.done));
+                            }
+                        }
                     }
+                } else {
+                    model.clear();
                 }
             }
         } catch (Exception e) {
@@ -624,7 +647,26 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         } catch (Exception e) {
             logger.debug("Error saving tasks on removeNotify", e);
         }
+        try {
+            var cm = registeredContextManager;
+            if (cm != null) {
+                cm.removeContextListener(this);
+            }
+        } catch (Exception e) {
+            logger.debug("Error unregistering TaskListPanel as context listener", e);
+        } finally {
+            registeredContextManager = null;
+        }
         super.removeNotify();
+    }
+
+    @Override
+    public void contextChanged(Context newCtx) {
+        UUID current = getCurrentSessionId();
+        UUID loaded = this.sessionIdAtLoad;
+        if (!Objects.equals(current, loaded)) {
+            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+        }
     }
 
     private record TaskItem(String text, boolean done) {}
