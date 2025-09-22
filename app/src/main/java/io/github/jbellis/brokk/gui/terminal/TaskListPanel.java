@@ -76,8 +76,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final IConsoleIO console;
     private final Timer llmStateTimer;
-    private final Timer runningFlashTimer;
-    private boolean runningFlashOn = false;
+    private final Timer runningFadeTimer;
+    private long runningAnimStartMs = 0L;
 
     private @Nullable JTextField inlineEditor = null;
     private int editingIndex = -1;
@@ -305,19 +305,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         llmStateTimer.setRepeats(true);
         llmStateTimer.start();
 
-        runningFlashTimer = new Timer(500, e -> {
-            runningFlashOn = !runningFlashOn;
+        runningFadeTimer = new Timer(40, e -> {
             Integer ri = runningIndex;
             if (ri != null) {
                 var rect = list.getCellBounds(ri, ri);
                 if (rect != null) list.repaint(rect);
                 else list.repaint();
             } else {
-                runningFlashOn = false;
                 ((Timer) e.getSource()).stop();
             }
         });
-        runningFlashTimer.setRepeats(true);
+        runningFadeTimer.setRepeats(true);
 
         loadTasksForCurrentSession();
 
@@ -681,8 +679,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Set running state and refresh UI
         runningIndex = idx;
         list.repaint();
-        runningFlashOn = false;
-        runningFlashTimer.start();
+        runningAnimStartMs = System.currentTimeMillis();
+        runningFadeTimer.start();
         // Disable play immediately to avoid double triggers
         playBtn.setEnabled(false);
 
@@ -746,8 +744,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         }
                     } finally {
                         runningIndex = null;
-                        runningFlashOn = false;
-                        runningFlashTimer.stop();
+                        runningFadeTimer.stop();
                         list.repaint();
                         updateButtonStates();
                     }
@@ -759,8 +756,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     logger.debug("Error reporting Architect failure", e2);
                 } finally {
                     runningIndex = null;
-                    runningFlashOn = false;
-                    runningFlashTimer.stop();
+                    runningFadeTimer.stop();
                     list.repaint();
                     updateButtonStates();
                 }
@@ -772,8 +768,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Error reporting Architect availability warning", e2);
             } finally {
                 runningIndex = null;
-                runningFlashOn = false;
-                runningFlashTimer.stop();
+                runningFadeTimer.stop();
                 list.repaint();
                 updateButtonStates();
             }
@@ -990,7 +985,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (llmStateTimer != null) {
             llmStateTimer.stop();
         }
-        if (runningFlashTimer != null) runningFlashTimer.stop();
+        if (runningFadeTimer != null) runningFadeTimer.stop();
         super.removeNotify();
     }
 
@@ -1052,9 +1047,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 setBackground(list.getSelectionBackground());
                 label.setForeground(list.getSelectionForeground());
             } else {
-                if (isRunningRow && runningFlashOn) {
+                if (isRunningRow) {
+                    long now = System.currentTimeMillis();
+                    long start = TaskListPanel.this.runningAnimStartMs;
+                    double periodMs = 5000.0;
+                    double t = ((now - start) % (long) periodMs) / periodMs; // 0..1
+                    double ratio = 0.5 * (1 - Math.cos(2 * Math.PI * t));    // 0..1 smooth in/out
+
+                    java.awt.Color bgBase = list.getBackground();
                     java.awt.Color selBg = list.getSelectionBackground();
-                    setBackground(selBg != null ? selBg : list.getBackground());
+                    if (selBg == null) selBg = bgBase;
+
+                    int r = (int) Math.round(bgBase.getRed()   * (1 - ratio) + selBg.getRed()   * ratio);
+                    int g = (int) Math.round(bgBase.getGreen() * (1 - ratio) + selBg.getGreen() * ratio);
+                    int b = (int) Math.round(bgBase.getBlue()  * (1 - ratio) + selBg.getBlue()  * ratio);
+                    setBackground(new java.awt.Color(r, g, b));
                 } else {
                     setBackground(list.getBackground());
                 }
