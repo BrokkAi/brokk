@@ -340,6 +340,7 @@ public class JdtAnalyzerTest {
                 "D.DSub",
                 "D.DSubStatic",
                 "E",
+                "EnumClass",
                 "F",
                 "Foo",
                 "Interface",
