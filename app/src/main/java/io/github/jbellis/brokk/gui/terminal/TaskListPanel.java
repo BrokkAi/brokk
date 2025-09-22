@@ -73,8 +73,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
+    private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final IConsoleIO console;
     private final Timer llmStateTimer;
+    private final Timer runningFlashTimer;
+    private boolean runningFlashOn = false;
 
     private @Nullable JTextField inlineEditor = null;
     private int editingIndex = -1;
@@ -253,17 +256,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         playBtn.setToolTipText("Run Architect on selected task");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
+        clearCompletedBtn.setIcon(Icons.DIFFERENCE);
+        clearCompletedBtn.setToolTipText("Clear all completed tasks");
+        clearCompletedBtn.addActionListener(e -> clearCompletedTasks());
+
         {
             // Make the buttons visually tighter and grouped
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
             playBtn.setMargin(new Insets(0, 0, 0, 0));
+            clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
             buttonBar.setOpaque(false);
             buttonBar.add(removeBtn);
             buttonBar.add(toggleDoneBtn);
             buttonBar.add(playBtn);
+            buttonBar.add(clearCompletedBtn);
 
             gbc.gridx = 1;
             gbc.weightx = 0.0;
@@ -289,6 +298,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         llmStateTimer = new Timer(300, e -> updateButtonStates());
         llmStateTimer.setRepeats(true);
         llmStateTimer.start();
+
+        runningFlashTimer = new Timer(500, e -> {
+            runningFlashOn = !runningFlashOn;
+            Integer ri = runningIndex;
+            if (ri != null) {
+                var rect = list.getCellBounds(ri, ri);
+                if (rect != null) list.repaint(rect);
+                else list.repaint();
+            } else {
+                runningFlashOn = false;
+                ((Timer) e.getSource()).stop();
+            }
+        });
+        runningFlashTimer.setRepeats(true);
+
         loadTasksForCurrentSession();
 
         if (console instanceof Chrome c) {
@@ -492,6 +516,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Play enabled only if: selection exists, not busy, not done
         playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone);
+
+        // Clear Completed enabled if any task is done
+        boolean anyCompleted = false;
+        for (int i = 0; i < model.getSize(); i++) {
+            TaskItem it2 = model.get(i);
+            if (it2 != null && it2.done()) {
+                anyCompleted = true;
+                break;
+            }
+        }
+        clearCompletedBtn.setEnabled(anyCompleted);
     }
 
     private @Nullable UUID getCurrentSessionId() {
@@ -624,6 +659,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Set running state and refresh UI
         runningIndex = idx;
         list.repaint();
+        runningFlashOn = false;
+        runningFlashTimer.start();
         // Disable play immediately to avoid double triggers
         playBtn.setEnabled(false);
 
@@ -687,6 +724,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         }
                     } finally {
                         runningIndex = null;
+                        runningFlashOn = false;
+                        runningFlashTimer.stop();
                         list.repaint();
                         updateButtonStates();
                     }
@@ -698,7 +737,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     logger.debug("Error reporting Architect failure", e2);
                 } finally {
                     runningIndex = null;
+                    runningFlashOn = false;
+                    runningFlashTimer.stop();
                     list.repaint();
+                    updateButtonStates();
                 }
             }
         } else {
@@ -708,7 +750,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Error reporting Architect availability warning", e2);
             } finally {
                 runningIndex = null;
+                runningFlashOn = false;
+                runningFlashTimer.stop();
                 list.repaint();
+                updateButtonStates();
             }
         }
     }
@@ -849,6 +894,63 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
+    private void clearCompletedTasks() {
+        if (model.isEmpty()) {
+            return;
+        }
+
+        // Count how many completed tasks would be removed (exclude the running task for safety)
+        int completedCount = 0;
+        for (int i = 0; i < model.size(); i++) {
+            TaskItem it = model.get(i);
+            if (it != null && it.done()) {
+                if (runningIndex != null && i == runningIndex.intValue()) {
+                    continue;
+                }
+                completedCount++;
+            }
+        }
+
+        if (completedCount == 0) {
+            // Nothing to clear
+            updateButtonStates();
+            return;
+        }
+
+        String plural = completedCount == 1 ? "task" : "tasks";
+        String message = "This will remove " + completedCount + " completed " + plural + " from this session.\n"
+                + "This action cannot be undone.";
+        int result = console.showConfirmDialog(
+                message,
+                "Clear Completed Tasks?",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+
+        if (result != JOptionPane.YES_OPTION) {
+            updateButtonStates();
+            return;
+        }
+
+        boolean removedAny = false;
+        // Remove from bottom to top to keep indices valid
+        for (int i = model.size() - 1; i >= 0; i--) {
+            TaskItem it = model.get(i);
+            if (it != null && it.done()) {
+                // Do not remove the running task even if marked done (safety)
+                if (runningIndex != null && i == runningIndex.intValue()) {
+                    continue;
+                }
+                model.remove(i);
+                removedAny = true;
+            }
+        }
+
+        if (removedAny) {
+            saveTasksForCurrentSession();
+        }
+        updateButtonStates();
+    }
+
     @Override
     public void removeNotify() {
         try {
@@ -869,6 +971,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (llmStateTimer != null) {
             llmStateTimer.stop();
         }
+        if (runningFlashTimer != null) runningFlashTimer.stop();
         super.removeNotify();
     }
 
@@ -901,8 +1004,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         public Component getListCellRendererComponent(
                 JList<? extends TaskItem> list, TaskItem value, int index, boolean isSelected, boolean cellHasFocus) {
 
+            boolean isRunningRow = (!value.done() && TaskListPanel.this.runningIndex != null && TaskListPanel.this.runningIndex == index);
             // Icon logic: running takes precedence, then done/undone
-            if (!value.done() && TaskListPanel.this.runningIndex != null && TaskListPanel.this.runningIndex == index) {
+            if (isRunningRow) {
                 check.setSelected(false);
                 check.setIcon(Icons.ARROW_UPLOAD_READY);
                 check.setSelectedIcon(null);
@@ -927,7 +1031,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 setBackground(list.getSelectionBackground());
                 label.setForeground(list.getSelectionForeground());
             } else {
-                setBackground(list.getBackground());
+                if (isRunningRow && runningFlashOn) {
+                    java.awt.Color selBg = list.getSelectionBackground();
+                    setBackground(selBg != null ? selBg : list.getBackground());
+                } else {
+                    setBackground(list.getBackground());
+                }
                 label.setForeground(list.getForeground());
             }
 

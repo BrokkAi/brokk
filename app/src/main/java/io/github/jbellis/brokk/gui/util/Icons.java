@@ -47,4 +47,5 @@ public final class Icons {
     public static final Icon CHECK = SwingUtil.uiIcon("Brokk.check");
     public static final Icon PENDING = SwingUtil.uiIcon("Brokk.pending");
     public static final Icon ARROW_UPLOAD_READY = SwingUtil.uiIcon("Brokk.arrow_upload_ready");
+    public static final Icon CLEAR_ALL = SwingUtil.uiIcon("Brokk.clear_all");
 }
