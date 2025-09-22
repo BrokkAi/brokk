@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -9,42 +10,37 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.awt.FlowLayout;
 import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.font.TextAttribute;
-import com.google.common.base.Splitter;
 import java.util.regex.Pattern;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
+import javax.swing.DropMode;
 import javax.swing.JCheckBox;
-import javax.swing.JLabel;
+import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
-import javax.swing.JPopupMenu;
-import javax.swing.KeyStroke;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
+import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
-import javax.swing.UIManager;
-import javax.swing.DropMode;
 import javax.swing.TransferHandler;
+import javax.swing.UIManager;
 import javax.swing.border.TitledBorder;
-import javax.swing.JComponent;
-import java.awt.datatransfer.StringSelection;
-import java.awt.datatransfer.Transferable;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.Rectangle;
 import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
@@ -106,9 +102,11 @@ public class TaskListPanel extends JPanel implements ThemeAware {
                 editSelected();
             }
         });
-        list.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_A, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                "selectAll");
+        list.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_A, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "selectAll");
         list.getActionMap().put("selectAll", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -117,9 +115,11 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         });
 
         // Run Architect with Ctrl/Cmd+Enter
-        list.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                "runArchitect");
+        list.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "runArchitect");
         list.getActionMap().put("runArchitect", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -170,9 +170,11 @@ public class TaskListPanel extends JPanel implements ThemeAware {
                 addTask();
             }
         });
-        input.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                "addTaskKeep");
+        input.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "addTaskKeep");
         input.getActionMap().put("addTaskKeep", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -191,7 +193,6 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         });
 
         controls.add(input, gbc);
-
 
         removeBtn.setIcon(Icons.REMOVE);
         removeBtn.setToolTipText("Remove selected task");
@@ -420,8 +421,8 @@ public class TaskListPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * TransferHandler for in-place reordering via drag-and-drop.
-     * Keeps data locally and performs MOVE operations within the same list.
+     * TransferHandler for in-place reordering via drag-and-drop. Keeps data locally and performs MOVE operations within
+     * the same list.
      */
     private final class TaskReorderTransferHandler extends TransferHandler {
         private @Nullable int[] indices = null;
