@@ -1797,37 +1797,38 @@ public class WorkspacePanel extends JPanel {
         final var symbol = requireNonNull(selection.symbol());
         logger.debug("Processing symbol selection: {}", symbol);
 
-        // Create a placeholder for immediate feedback
-        var initialPlaceholder =
-                new ContextFragment.PlaceholderFragment(contextManager, "Searching for symbol usages...");
-        contextManager.addVirtualFragment(initialPlaceholder);
-        logger.debug("Placeholder created (id={})", initialPlaceholder.id());
+        // Create a placeholder for immediate feedback. This should be outside the EDT
+        contextManager.submitContextTask("Delegating Symbol Usage Task", () -> {
+            var initialPlaceholder =
+                    new ContextFragment.PlaceholderFragment(contextManager, "Searching for symbol usages...");
+            contextManager.addVirtualFragment(initialPlaceholder);
+            logger.debug("Placeholder created (id={})", initialPlaceholder.id());
+            // Do the heavy work on background thread
+            contextManager.submitContextTask("Find Symbol Usage", () -> {
+                logger.debug("Background task started for symbol: {}", symbol);
+                try {
+                    // Update placeholder status while computing
+                    var searchingPlaceholder =
+                            new ContextFragment.PlaceholderFragment(contextManager, "Finding uses of " + symbol);
+                    contextManager.replaceVirtualFragment(initialPlaceholder.id(), searchingPlaceholder);
 
-        // Do the heavy work on background thread
-        contextManager.submitContextTask("Find Symbol Usage", () -> {
-            logger.debug("Background task started for symbol: {}", symbol);
-            try {
-                // Update placeholder status while computing
-                var searchingPlaceholder =
-                        new ContextFragment.PlaceholderFragment(contextManager, "Finding uses of " + symbol);
-                contextManager.replaceVirtualFragment(initialPlaceholder.id(), searchingPlaceholder);
+                    // Build the actual fragment and replace the placeholder when ready
+                    var actualFragment =
+                            new ContextFragment.UsageFragment(contextManager, symbol, selection.includeTestFiles());
+                    contextManager.replaceVirtualFragment(searchingPlaceholder.id(), actualFragment);
 
-                // Build the actual fragment and replace the placeholder when ready
-                var actualFragment =
-                        new ContextFragment.UsageFragment(contextManager, symbol, selection.includeTestFiles());
-                contextManager.replaceVirtualFragment(searchingPlaceholder.id(), actualFragment);
-
-                chrome.systemOutput(
-                        "Added uses of " + symbol + (selection.includeTestFiles() ? " (including tests)" : ""));
-            } catch (CancellationException cex) {
-                chrome.systemOutput("Symbol selection canceled.");
-                var cancelled = new ContextFragment.StringFragment(
-                        contextManager,
-                        "Symbol usage search cancelled",
-                        "Cancelled",
-                        org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-                contextManager.replaceVirtualFragment(initialPlaceholder.id(), cancelled);
-            }
+                    chrome.systemOutput(
+                            "Added uses of " + symbol + (selection.includeTestFiles() ? " (including tests)" : ""));
+                } catch (CancellationException cex) {
+                    chrome.systemOutput("Symbol selection canceled.");
+                    var cancelled = new ContextFragment.StringFragment(
+                            contextManager,
+                            "Symbol usage search cancelled",
+                            "Cancelled",
+                            org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                    contextManager.replaceVirtualFragment(initialPlaceholder.id(), cancelled);
+                }
+            });
         });
     }
 
