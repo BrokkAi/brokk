@@ -173,7 +173,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     int[] sel = list.getSelectedIndices();
                     if (runningIndex != null) {
                         for (int si : sel) {
-                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
+                            if (si == runningIndex.intValue()) {
+                                includesRunning = true;
+                                break;
+                            }
                         }
                     }
                     toggleItem.setEnabled(!includesRunning);
@@ -190,7 +193,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     int[] sel = list.getSelectedIndices();
                     if (runningIndex != null) {
                         for (int si : sel) {
-                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
+                            if (si == runningIndex.intValue()) {
+                                includesRunning = true;
+                                break;
+                            }
                         }
                     }
                     toggleItem.setEnabled(!includesRunning);
@@ -393,7 +399,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int idx = list.getSelectedIndex();
         if (idx < 0) return;
         if (runningIndex != null && idx == runningIndex.intValue()) {
-            JOptionPane.showMessageDialog(this, "Cannot edit a task that is currently running.", "Edit Disabled", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot edit a task that is currently running.",
+                    "Edit Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         startInlineEdit(idx);
@@ -401,7 +411,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void startInlineEdit(int index) {
         if (runningIndex != null && index == runningIndex.intValue()) {
-            JOptionPane.showMessageDialog(this, "Cannot edit a task that is currently running.", "Edit Disabled", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot edit a task that is currently running.",
+                    "Edit Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         if (index < 0 || index >= model.size()) return;
@@ -632,7 +646,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (idx < model.size()) {
             TaskItem sel = model.get(idx);
             if (sel != null && sel.done()) {
-                JOptionPane.showMessageDialog(this, "This task is already marked as done.", "Task Completed", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(
+                        this,
+                        "This task is already marked as done.",
+                        "Task Completed",
+                        JOptionPane.INFORMATION_MESSAGE);
                 updateButtonStates();
                 return;
             }
@@ -648,7 +666,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (console instanceof Chrome cBusy) {
             try {
                 if (cBusy.getContextManager().isLlmTaskInProgress()) {
-                    JOptionPane.showMessageDialog(this, "An AI task is already running. Please wait for it to finish.", "Busy", JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "An AI task is already running. Please wait for it to finish.",
+                            "Busy",
+                            JOptionPane.WARNING_MESSAGE);
                     return;
                 }
             } catch (Exception ex) {
@@ -921,10 +943,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         String message = "This will remove " + completedCount + " completed " + plural + " from this session.\n"
                 + "This action cannot be undone.";
         int result = console.showConfirmDialog(
-                message,
-                "Clear Completed Tasks?",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+                message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
         if (result != JOptionPane.YES_OPTION) {
             updateButtonStates();
@@ -1004,7 +1023,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         public Component getListCellRendererComponent(
                 JList<? extends TaskItem> list, TaskItem value, int index, boolean isSelected, boolean cellHasFocus) {
 
-            boolean isRunningRow = (!value.done() && TaskListPanel.this.runningIndex != null && TaskListPanel.this.runningIndex == index);
+            boolean isRunningRow = (!value.done()
+                    && TaskListPanel.this.runningIndex != null
+                    && TaskListPanel.this.runningIndex == index);
             // Icon logic: running takes precedence, then done/undone
             if (isRunningRow) {
                 check.setSelected(false);
