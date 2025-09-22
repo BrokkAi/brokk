@@ -262,7 +262,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         playBtn.setToolTipText("Run Architect on selected task");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
-        clearCompletedBtn.setIcon(Icons.DIFFERENCE);
+        clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
         clearCompletedBtn.setToolTipText("Clear all completed tasks");
         clearCompletedBtn.addActionListener(e -> clearCompletedTasks());
 
