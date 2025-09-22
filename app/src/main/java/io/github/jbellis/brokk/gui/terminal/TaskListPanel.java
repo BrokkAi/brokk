@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.terminal;
 
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -53,6 +54,8 @@ public class TaskListPanel extends JPanel implements ThemeAware {
     private final JTextField input = new JTextField();
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
+    private final MaterialButton playBtn = new MaterialButton();
+    private final IConsoleIO console;
 
     private @Nullable JTextField inlineEditor = null;
     private int editingIndex = -1;
@@ -65,6 +68,8 @@ public class TaskListPanel extends JPanel implements ThemeAware {
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
+
+        this.console = console;
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
@@ -107,6 +112,17 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             @Override
             public void actionPerformed(ActionEvent e) {
                 list.setSelectionInterval(0, Math.max(0, model.size() - 1));
+            }
+        });
+
+        // Run Architect with Ctrl/Cmd+Enter
+        list.getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                "runArchitect");
+        list.getActionMap().put("runArchitect", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                runArchitectOnSelected();
             }
         });
 
@@ -187,6 +203,12 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
         gbc.gridx = 2;
         controls.add(toggleDoneBtn, gbc);
+
+        playBtn.setIcon(Icons.PLAY);
+        playBtn.setToolTipText("Run Architect on selected task");
+        playBtn.addActionListener(e -> runArchitectOnSelected());
+        gbc.gridx = 3;
+        controls.add(playBtn, gbc);
 
         add(new JScrollPane(list), BorderLayout.CENTER);
         add(controls, BorderLayout.SOUTH);
@@ -334,6 +356,40 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         boolean hasSelection = list.getSelectedIndex() >= 0;
         removeBtn.setEnabled(hasSelection);
         toggleDoneBtn.setEnabled(hasSelection);
+        playBtn.setEnabled(hasSelection);
+    }
+
+    private void runArchitectOnSelected() {
+        int idx = list.getSelectedIndex();
+        if (idx < 0) {
+            JOptionPane.showMessageDialog(this, "Select a task first.", "No selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String prompt = model.get(idx).text();
+        if (prompt == null || prompt.isBlank()) {
+            JOptionPane.showMessageDialog(this, "Selected task is empty.", "Invalid task", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        if (console instanceof Chrome c) {
+            try {
+                var options = c.getProject().getArchitectOptions();
+                c.getInstructionsPanel().runArchitectCommand(prompt, options);
+            } catch (Exception ex) {
+                try {
+                    console.toolError("Failed to run Architect: " + ex.getMessage(), "Task Runner Error");
+                } catch (Exception ignore) {
+                    // ignore nested error reporting problems
+                }
+            }
+        } else {
+            try {
+                console.toolError("Architect is only available in the main app context.", "Task Runner Error");
+            } catch (Exception ignore) {
+                // ignore nested error reporting problems
+            }
+        }
     }
 
     @Override
