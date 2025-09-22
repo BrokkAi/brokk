@@ -2,11 +2,14 @@ package io.github.jbellis.brokk.gui.terminal;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.util.Json;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -21,6 +24,14 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.font.TextAttribute;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -38,28 +49,13 @@ import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
 import javax.swing.UIManager;
 import javax.swing.border.TitledBorder;
-import org.jetbrains.annotations.Nullable;
-import io.github.jbellis.brokk.util.Json;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import java.io.IOException;
-import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.context.Context;
-import javax.swing.SwingUtilities;
-import java.util.Objects;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.context.Context;
-import javax.swing.SwingUtilities;
-import java.util.Objects;
+import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
 public class TaskListPanel extends JPanel implements ThemeAware, IContextManager.ContextListener {
@@ -426,13 +422,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (console instanceof Chrome c) {
             try {
                 Path root = c.getContextManager().getRoot();
-                return root.resolve(".brokk").resolve("sessions").resolve(sessionId.toString()).resolve("tasklist.json");
+                return root.resolve(".brokk")
+                        .resolve("sessions")
+                        .resolve(sessionId.toString())
+                        .resolve("tasklist.json");
             } catch (Exception e) {
                 logger.debug("Unable to resolve project root for tasks file; defaulting to user.dir", e);
             }
         }
         Path userDir = Path.of(System.getProperty("user.dir"));
-        return userDir.resolve(".brokk").resolve("sessions").resolve(sessionId.toString()).resolve("tasklist.json");
+        return userDir.resolve(".brokk")
+                .resolve("sessions")
+                .resolve(sessionId.toString())
+                .resolve("tasklist.json");
     }
 
     private void loadTasksForCurrentSession() {
@@ -517,16 +519,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             } catch (Exception ex) {
                 try {
                     console.toolError("Failed to run Architect: " + ex.getMessage(), "Task Runner Error");
-            } catch (Exception e2) {
-                logger.debug("Error reporting Architect failure", e2);
-            }
+                } catch (Exception e2) {
+                    logger.debug("Error reporting Architect failure", e2);
+                }
             }
         } else {
             try {
                 console.toolError("Architect is only available in the main app context.", "Task Runner Error");
-        } catch (Exception e2) {
-            logger.debug("Error reporting Architect availability warning", e2);
-        }
+            } catch (Exception e2) {
+                logger.debug("Error reporting Architect availability warning", e2);
+            }
         }
     }
 
@@ -716,13 +718,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private static final class TaskListData {
         public List<TaskEntryDto> tasks = new ArrayList<>();
+
         public TaskListData() {}
     }
 
     private static final class TaskEntryDto {
         public String text = "";
         public boolean done;
+
         public TaskEntryDto() {}
+
         public TaskEntryDto(String text, boolean done) {
             this.text = text;
             this.done = done;
