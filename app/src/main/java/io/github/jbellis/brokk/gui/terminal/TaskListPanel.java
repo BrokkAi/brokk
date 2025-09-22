@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -50,6 +51,7 @@ import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.TransferHandler;
 import javax.swing.UIManager;
 import javax.swing.border.TitledBorder;
@@ -72,15 +74,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
     private final IConsoleIO console;
+    private final Timer llmStateTimer;
 
     private @Nullable JTextField inlineEditor = null;
     private int editingIndex = -1;
+    private @Nullable Integer runningIndex = null;
 
     public TaskListPanel(IConsoleIO console) {
         super(new BorderLayout(4, 4));
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
-                "Task List",
+                "Session Task List",
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
@@ -258,6 +262,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
         updateButtonStates();
+        llmStateTimer = new Timer(300, e -> updateButtonStates());
+        llmStateTimer.setRepeats(true);
+        llmStateTimer.start();
         loadTasksForCurrentSession();
 
         if (console instanceof Chrome c) {
@@ -404,7 +411,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean hasSelection = list.getSelectedIndex() >= 0;
         removeBtn.setEnabled(hasSelection);
         toggleDoneBtn.setEnabled(hasSelection);
-        playBtn.setEnabled(hasSelection);
+        boolean llmBusy = false;
+        if (console instanceof Chrome c) {
+            try {
+                llmBusy = c.getContextManager().isLlmTaskInProgress();
+            } catch (Exception ex) {
+                logger.debug("Unable to query LLM busy state", ex);
+            }
+        }
+        playBtn.setEnabled(hasSelection && !llmBusy);
     }
 
     private @Nullable UUID getCurrentSessionId() {
@@ -512,15 +527,96 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        // Prevent starting if an LLM task is already running
+        if (console instanceof Chrome cBusy) {
+            try {
+                if (cBusy.getContextManager().isLlmTaskInProgress()) {
+                    JOptionPane.showMessageDialog(this, "An AI task is already running. Please wait for it to finish.", "Busy", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+            } catch (Exception ex) {
+                logger.debug("Error checking LLM busy state", ex);
+            }
+        }
+
+        // Set running state and refresh UI
+        runningIndex = idx;
+        list.repaint();
+        // Disable play immediately to avoid double triggers
+        playBtn.setEnabled(false);
+
         if (console instanceof Chrome c) {
             try {
                 var options = c.getProject().getArchitectOptions();
+                // Start Architect run
                 c.getInstructionsPanel().runArchitectCommand(prompt, options);
+
+                // Monitor specifically for this run: wait until the LLM is actually busy,
+                // then wait until it has been idle for a short, stable period.
+                var cm = c.getContextManager();
+                var future = cm.submitBackgroundTask("TaskListPanel: Wait for Architect", (Callable<Boolean>) () -> {
+                    boolean sawBusy = false;
+                    try {
+                        // Phase 1: wait until any LLM task actually starts (up to ~5 minutes)
+                        int attempts = 0;
+                        while (attempts++ < 1200) { // 1200 * 250ms = 300s
+                            if (cm.isLlmTaskInProgress()) {
+                                sawBusy = true;
+                                break;
+                            }
+                            Thread.sleep(250);
+                        }
+                        if (!sawBusy) {
+                            // Architect didn't start; don't mark done
+                            return false;
+                        }
+
+                        // Phase 2: wait for a stable idle period to avoid transient false negatives
+                        int stableIdleCount = 0;
+                        while (true) {
+                            if (!cm.isLlmTaskInProgress()) {
+                                stableIdleCount++;
+                                if (stableIdleCount >= 4) { // ~1s of stable idle
+                                    break;
+                                }
+                            } else {
+                                stableIdleCount = 0;
+                            }
+                            Thread.sleep(250);
+                        }
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                    return true;
+                });
+
+                // When done, update the task as completed only if this run really finished
+                future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
+                    try {
+                        if (Boolean.TRUE.equals(res)
+                                && runningIndex != null
+                                && runningIndex == idx
+                                && idx >= 0
+                                && idx < model.size()) {
+                            var it = model.get(idx);
+                            model.set(idx, new TaskItem(it.text(), true));
+                            saveTasksForCurrentSession();
+                        }
+                    } finally {
+                        runningIndex = null;
+                        list.repaint();
+                        updateButtonStates();
+                    }
+                }));
             } catch (Exception ex) {
                 try {
                     console.toolError("Failed to run Architect: " + ex.getMessage(), "Task Runner Error");
                 } catch (Exception e2) {
                     logger.debug("Error reporting Architect failure", e2);
+                } finally {
+                    runningIndex = null;
+                    list.repaint();
                 }
             }
         } else {
@@ -528,6 +624,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 console.toolError("Architect is only available in the main app context.", "Task Runner Error");
             } catch (Exception e2) {
                 logger.debug("Error reporting Architect availability warning", e2);
+            } finally {
+                runningIndex = null;
+                list.repaint();
             }
         }
     }
@@ -659,6 +758,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             registeredContextManager = null;
         }
+        if (llmStateTimer != null) {
+            llmStateTimer.stop();
+        }
         super.removeNotify();
     }
 
@@ -673,7 +775,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private record TaskItem(String text, boolean done) {}
 
-    private static final class TaskRenderer extends JPanel implements ListCellRenderer<TaskItem> {
+    private final class TaskRenderer extends JPanel implements ListCellRenderer<TaskItem> {
         private final JCheckBox check = new JCheckBox();
         private final javax.swing.JLabel label = new javax.swing.JLabel();
 
@@ -691,7 +793,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         public Component getListCellRendererComponent(
                 JList<? extends TaskItem> list, TaskItem value, int index, boolean isSelected, boolean cellHasFocus) {
 
-            check.setSelected(value.done());
+            // Icon logic: running takes precedence, then done/undone
+            if (!value.done() && TaskListPanel.this.runningIndex != null && TaskListPanel.this.runningIndex == index) {
+                check.setSelected(false);
+                check.setIcon(Icons.ARROW_UPLOAD_READY);
+                check.setSelectedIcon(null);
+            } else {
+                check.setIcon(Icons.CIRCLE);
+                check.setSelectedIcon(Icons.CHECK);
+                check.setSelected(value.done());
+            }
             label.setText(value.text());
 
             // Strike-through and dim when done
