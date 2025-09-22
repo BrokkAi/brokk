@@ -81,7 +81,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
-    public static final String ACTION_ASK = "Answer";
+    public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
     public static final String ACTION_RUN_TESTS = "Run Selected Tests";
@@ -106,7 +106,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialButton planOptionsLink;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
-    private final JLabel answerModeLabel = new JLabel("Answer");
+    private final JLabel answerModeLabel = new JLabel("Ask");
     private final JButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
@@ -185,9 +185,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 """
                 <html>
                 <b>Code Mode:</b> For generating or modifying code based on your instructions.<br>
-                <b>Answer Mode:</b> For answering questions about your project or general programming topics.<br>
+                <b>Ask Mode:</b> For answering questions about your project or general programming topics.<br>
                 <br>
-                Click to toggle between Code and Answer modes (%s).
+                Click to toggle between Code and Ask modes (%s).
                 </html>
                 """
                         .formatted(formatKeyStroke(toggleKs));
@@ -227,7 +227,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Append the shortcut to the tooltip for discoverability
         searchProjectCheckBox.setToolTipText("<html><b>Search:</b><br><ul>"
                 + "<li><b>checked:</b> Performs an &quot;agentic&quot; search across your entire project (even files not in the Workspace) to find relevant code</li>"
-                + "<li><b>unchecked:</b> Answers using only the Workspace (faster for follow-ups)</li>"
+                + "<li><b>unchecked:</b> Asks using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
         io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
@@ -1016,7 +1016,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         if (modeBadge != null) {
-            modeBadge.setText(askMode ? "ANSWER MODE" : "CODE MODE");
+            modeBadge.setText(askMode ? "ASK MODE" : "CODE MODE");
             modeBadge.setBackground(badgeBg);
             modeBadge.setForeground(badgeFg);
             modeBadge.repaint();
@@ -1033,7 +1033,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionGroupPanel.setAccentColor(accent);
 
         if (instructionsTitledBorder != null) {
-            instructionsTitledBorder.setTitle(askMode ? "Instructions - Answer" : "Instructions - Code");
+            instructionsTitledBorder.setTitle(askMode ? "Instructions - Ask" : "Instructions - Code");
             revalidate();
             repaint();
         }
@@ -1610,7 +1610,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,
-                    "Answer: " + question,
+                    "Ask: " + question,
                     List.of(),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
@@ -1647,7 +1647,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         requireNonNull(stop);
         return new TaskResult(
                 cm,
-                "Answer: " + question,
+                "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages(false)),
                 Set.of(), // Ask never changes files
                 stop);
@@ -1954,7 +1954,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        final var modelToUse = selectDropdownModelOrShowError("Answer", true);
+        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
         if (modelToUse == null) {
             return;
         }
@@ -1989,10 +1989,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Provide a brief status update
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                chrome.llmOutput("Answer command complete!", ChatMessageType.CUSTOM);
+                chrome.llmOutput("Ask command complete!", ChatMessageType.CUSTOM);
             } else {
                 chrome.llmOutput(
-                        "Answer command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
+                        "Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
             }
         });
         setActionRunning(future);
@@ -2034,9 +2034,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
             displayAction = "Code With Plan";
         } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Answer with Search";
+            displayAction = "Ask with Search";
         } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Answer";
+            displayAction = "Ask";
         } else {
             displayAction = action;
         }

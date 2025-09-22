@@ -505,7 +505,7 @@ public class SearchAgent {
             coalesced = AnalyzerUtil.coalesceInnerClasses(units);
         }
 
-        io.llmOutput("\n# Answer\n" + explanation, ChatMessageType.AI);
+        io.llmOutput("\n# Ask\n" + explanation, ChatMessageType.AI);
         var sessionName = "Search: " + goal;
         var fragment = new ContextFragment.SearchFragment(
                 cm, sessionName, List.copyOf(io.getLlmRawMessages(false)), coalesced);

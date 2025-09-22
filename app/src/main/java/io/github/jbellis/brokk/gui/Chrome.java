@@ -873,7 +873,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 SwingUtilities.invokeLater(() -> {
                     try {
                         instructionsPanel.toggleCodeAnswerMode();
-                        systemOutput("Toggled Code/Answer mode");
+                        systemOutput("Toggled Code/Ask mode");
                     } catch (Exception ex) {
                         logger.warn("Error toggling Code/Answer mode via shortcut", ex);
                     }
