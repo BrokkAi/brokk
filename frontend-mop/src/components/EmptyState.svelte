@@ -73,10 +73,10 @@
           <span class="env-muted">
             (
             {#if $envStore.nativeFileCount !== undefined}
-              {$envStore.nativeFileCount} native{#if $envStore.totalFileCount !== undefined}, {/if}
+              {$envStore.nativeFileCount} files{#if $envStore.totalFileCount !== undefined}, {/if}
             {/if}
             {#if $envStore.totalFileCount !== undefined}
-              {$envStore.totalFileCount} total with deps
+              {$envStore.totalFileCount} total files with deps
             {/if}
             )
           </span>
@@ -115,7 +115,7 @@
   .empty-icon {
     font-size: 4rem;
     margin-bottom: 1.5rem;
-    color: var(--border-color-hex);
+    color: var(--badge-foreground);
     font-family: monospace;
     font-weight: 300;
   }
@@ -183,7 +183,7 @@
     max-width: 550px;
     text-align: left;
     background: var(--message-background);
-    border: 1px solid var(--border-color-hex);
+    border: 1px solid var(--badge-border);
     border-radius: 0.8rem;
     padding: 1rem 1.5rem;
   }
@@ -239,11 +239,16 @@
   }
 
   .env-badge.ready {
-    color: var(--chat-text);
+    color: var(--diff-add);
+    border-color: var(--diff-add);
+    background: var(--diff-add-bg);
+    font-weight: 600;
   }
 
   .env-badge.progress {
-    color: var(--chat-text);
-    opacity: 0.9;
+    color: var(--git-changed);
+    border-color: var(--git-changed);
+    background: color-mix(in srgb, var(--git-changed) 15%, transparent);
+    font-weight: 600;
   }
 </style>
