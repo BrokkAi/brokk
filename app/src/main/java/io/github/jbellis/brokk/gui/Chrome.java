@@ -118,7 +118,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
         lastTabToggleTime = currentTime;
 
-        if (leftTabbedPanel.getSelectedIndex() == tabIndex) {
+        if (!sidebarCollapsed && leftTabbedPanel.getSelectedIndex() == tabIndex) {
             // Tab already selected: capture current expanded width (if not already minimized), then minimize
             int currentLocation = bottomSplitPane.getDividerLocation();
             if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
@@ -127,15 +127,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
             bottomSplitPane.setDividerSize(0);
             bottomSplitPane.setDividerLocation(40);
+            sidebarCollapsed = true;
         } else {
             leftTabbedPanel.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
-            if (bottomSplitPane.getDividerLocation() < SIDEBAR_COLLAPSED_THRESHOLD) {
+            if (sidebarCollapsed) {
                 bottomSplitPane.setDividerSize(originalBottomDividerSize);
                 int target = (lastExpandedSidebarLocation > 0)
                         ? lastExpandedSidebarLocation
                         : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(target);
+                sidebarCollapsed = false;
             }
         }
     }
@@ -146,6 +148,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Remember the last non-minimized divider location of the left sidebar
     // Used to restore the previous width when re-expanding after a minimize
     private int lastExpandedSidebarLocation = -1;
+    private boolean sidebarCollapsed = false;
 
     // Swing components:
     final JFrame frame;
@@ -1572,6 +1575,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (properDividerLocation < SIDEBAR_COLLAPSED_THRESHOLD) {
             bottomSplitPane.setDividerSize(0);
             leftTabbedPanel.setSelectedIndex(0); // Show Project Files when collapsed
+            sidebarCollapsed = true;
         } else {
             lastExpandedSidebarLocation = properDividerLocation;
         }
