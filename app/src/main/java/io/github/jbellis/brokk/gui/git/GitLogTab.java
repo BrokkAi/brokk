@@ -4,14 +4,13 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitRepo.MergeMode;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.MergeDialogUtil;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -275,7 +274,7 @@ public class GitLogTab extends JPanel {
         chrome.getTheme().registerPopupMenu(branchContextMenu);
         JMenuItem checkoutItem = new JMenuItem("Checkout");
         JMenuItem newBranchItem = new JMenuItem("New Branch From This");
-        JMenuItem mergeItem = new JMenuItem("Merge into HEAD");
+        JMenuItem mergeItem = new JMenuItem("Merge into...");
         JMenuItem renameItem = new JMenuItem("Rename");
         JMenuItem deleteItem = new JMenuItem("Delete");
         captureDiffVsBranchItem = new JMenuItem("Capture Diff vs Branch");
@@ -722,76 +721,112 @@ public class GitLogTab extends JPanel {
     }
 
     private void showMergeDialog(String branchToMerge) {
-        String currentBranch;
-        try {
-            currentBranch = getRepo().getCurrentBranch();
-        } catch (GitAPIException e) {
-            logger.error("Could not get current branch for merge dialog", e);
-            chrome.toolError("Could not determine current branch: " + e.getMessage(), "Merge Error");
-            return;
-        }
-
-        if (branchToMerge.equals(currentBranch)) {
-            chrome.systemNotify(
-                    "Cannot merge '" + branchToMerge + "' into itself.", "Merge Info", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        var parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
-        var dialogPanel = new MergeBranchDialogPanel(parentFrame, branchToMerge, currentBranch);
-        var result = dialogPanel.showDialog(getRepo(), contextManager);
+        // Use the shared merge dialog utility
+        var options = MergeDialogUtil.MergeDialogOptions.forBranchMerge(branchToMerge, this, chrome, contextManager);
+        var result = MergeDialogUtil.showMergeDialog(options);
 
         if (result.confirmed()) {
-            if (!result.hasConflicts()) {
-                mergeBranchIntoHead(branchToMerge, result.mergeMode());
-            } else {
-                chrome.toolError(
-                        "Merge cancelled due to conflicts or error: " + result.conflictMessage(), "Merge Cancelled");
-            }
+            performEnhancedMerge(result);
         }
     }
 
-    /** Merge a branch into HEAD using the specified mode. */
-    private void mergeBranchIntoHead(String branchName, MergeMode mode) {
-        contextManager.submitUserTask("Merging branch: " + branchName + " (" + mode + ")", () -> {
+    /** Enhanced merge that supports target branch selection and branch deletion. */
+    private void performEnhancedMerge(MergeDialogUtil.MergeDialogResult result) {
+        String taskDescription = String.format(
+                "Merging %s into %s (%s)", result.sourceBranch(), result.targetBranch(), result.mergeMode());
+
+        contextManager.submitUserTask(taskDescription, () -> {
             var repo = getRepo();
+            String originalBranch = null;
 
             try {
-                String targetBranch = repo.getCurrentBranch();
-                var mergeResult = repo.performMerge(branchName, mode);
-                var status = mergeResult.getMergeStatus();
+                // Remember current branch to restore if needed
+                originalBranch = repo.getCurrentBranch();
 
-                if (GitRepo.isMergeSuccessful(mergeResult, mode)) {
+                // Checkout target branch if not already on it
+                if (!originalBranch.equals(result.targetBranch())) {
+                    repo.checkout(result.targetBranch());
+                    logger.info("Switched to target branch: {}", result.targetBranch());
+                }
+
+                // Perform the merge
+                var mergeResult = repo.performMerge(result.sourceBranch(), result.mergeMode());
+
+                if (GitRepo.isMergeSuccessful(mergeResult, result.mergeMode())) {
                     String modeDescription =
-                            switch (mode) {
+                            switch (result.mergeMode()) {
                                 case MERGE_COMMIT -> "merged";
                                 case SQUASH_COMMIT -> "squash merged";
                                 case REBASE_MERGE -> "rebase-merged";
                             };
-                    chrome.systemOutput("Branch '" + branchName + "' successfully " + modeDescription + " into '"
-                            + targetBranch + "'.");
-                } else if (status == MergeResult.MergeStatus.CONFLICTING) {
-                    String conflictingFiles = Objects.requireNonNull(mergeResult.getConflicts()).keySet().stream()
-                            .map(s -> "  - " + s)
-                            .collect(Collectors.joining("\n"));
-                    chrome.toolError(
-                            "Merge conflicts for '" + branchName + "' into '" + targetBranch + "'.\n"
-                                    + "Resolve manually and commit.\nConflicting files:\n" + conflictingFiles,
-                            "Merge Conflict");
+
+                    chrome.systemOutput(String.format(
+                            "Branch '%s' successfully %s into '%s'.",
+                            result.sourceBranch(), modeDescription, result.targetBranch()));
+
+                    // Delete source branch if requested
+                    if (result.deleteBranch()) {
+                        deleteBranchAfterMerge(result.sourceBranch());
+                    }
+
                 } else {
-                    chrome.toolError(
-                            "Merge of '" + branchName + "' into '" + targetBranch + "' failed: " + status,
-                            "Merge Error");
+                    handleMergeFailure(mergeResult, result);
                 }
 
-                update(); // Refresh UI to reflect new state
             } catch (GitAPIException e) {
-                logger.error("Error merging branch '{}' with mode {}: {}", branchName, mode, e.getMessage(), e);
-                chrome.toolError("Error merging branch: " + e.getMessage(), "Merge Error");
-                update(); // Refresh UI
+                logger.error("Error during enhanced merge operation", e);
+                chrome.toolError("Error during merge: " + e.getMessage(), "Merge Error");
+            } finally {
+                // Refresh UI to reflect changes
+                SwingUtilities.invokeLater(this::update);
             }
+
             return null;
         });
+    }
+
+    private void deleteBranchAfterMerge(String branchName) {
+        try {
+            GitRepo repo = getRepo();
+            String currentBranch = repo.getCurrentBranch();
+            List<String> localBranches = repo.listLocalBranches();
+
+            if (localBranches.contains(branchName) && !branchName.equals(currentBranch)) {
+                // Check if branch is merged before deletion
+                boolean isMerged = repo.isBranchMerged(branchName);
+                if (isMerged) {
+                    repo.deleteBranch(branchName);
+                    chrome.systemOutput("Branch '" + branchName + "' deleted after merge.");
+                } else {
+                    logger.warn("Branch '{}' appears unmerged, skipping deletion after merge", branchName);
+                    chrome.systemOutput("Warning: Branch '" + branchName + "' appears unmerged, skipping deletion.");
+                }
+            }
+        } catch (GitAPIException e) {
+            logger.warn("Could not delete source branch after merge", e);
+            chrome.toolError("Merge successful, but failed to delete source branch: " + e.getMessage());
+        }
+    }
+
+    private void handleMergeFailure(MergeResult mergeResult, MergeDialogUtil.MergeDialogResult result) {
+        var status = mergeResult.getMergeStatus();
+
+        if (status == MergeResult.MergeStatus.CONFLICTING) {
+            String conflictingFiles = Objects.requireNonNull(mergeResult.getConflicts()).keySet().stream()
+                    .map(s -> "  - " + s)
+                    .collect(Collectors.joining("\n"));
+
+            chrome.toolError(
+                    String.format(
+                            "Merge conflicts for '%s' into '%s'.\nResolve manually and commit.\nConflicting files:\n%s",
+                            result.sourceBranch(), result.targetBranch(), conflictingFiles),
+                    "Merge Conflict");
+        } else {
+            chrome.toolError(
+                    String.format(
+                            "Merge of '%s' into '%s' failed: %s", result.sourceBranch(), result.targetBranch(), status),
+                    "Merge Error");
+        }
     }
 
     /** Creates a new branch from an existing one and checks it out. */
