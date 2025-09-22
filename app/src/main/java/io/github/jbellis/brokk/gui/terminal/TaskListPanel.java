@@ -13,6 +13,7 @@ import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.FlowLayout;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -195,20 +196,32 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         removeBtn.setIcon(Icons.REMOVE);
         removeBtn.setToolTipText("Remove selected task");
         removeBtn.addActionListener(e -> removeSelected());
-        gbc.gridx = 1;
-        controls.add(removeBtn, gbc);
 
         toggleDoneBtn.setIcon(Icons.CHECK);
         toggleDoneBtn.setToolTipText("Toggle selected done");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
-        gbc.gridx = 2;
-        controls.add(toggleDoneBtn, gbc);
 
         playBtn.setIcon(Icons.PLAY);
         playBtn.setToolTipText("Run Architect on selected task");
         playBtn.addActionListener(e -> runArchitectOnSelected());
-        gbc.gridx = 3;
-        controls.add(playBtn, gbc);
+
+        {
+            // Make the buttons visually tighter and grouped
+            removeBtn.setMargin(new Insets(0, 0, 0, 0));
+            toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
+            playBtn.setMargin(new Insets(0, 0, 0, 0));
+
+            JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            buttonBar.setOpaque(false);
+            buttonBar.add(removeBtn);
+            buttonBar.add(toggleDoneBtn);
+            buttonBar.add(playBtn);
+
+            gbc.gridx = 1;
+            gbc.weightx = 0.0;
+            gbc.fill = GridBagConstraints.NONE;
+            controls.add(buttonBar, gbc);
+        }
 
         add(new JScrollPane(list), BorderLayout.CENTER);
         add(controls, BorderLayout.SOUTH);
