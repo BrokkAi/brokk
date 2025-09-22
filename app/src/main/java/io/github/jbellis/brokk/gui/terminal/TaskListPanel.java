@@ -34,6 +34,12 @@ import javax.swing.JTextField;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
 import javax.swing.UIManager;
+import javax.swing.DropMode;
+import javax.swing.TransferHandler;
+import javax.swing.border.TitledBorder;
+import javax.swing.JComponent;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.Rectangle;
@@ -53,10 +59,12 @@ public class TaskListPanel extends JPanel implements ThemeAware {
 
     public TaskListPanel(IConsoleIO console) {
         super(new BorderLayout(4, 4));
-        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
-        // Header label
-        add(new JLabel("Task List"), BorderLayout.NORTH);
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Task List",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
@@ -64,6 +72,11 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> updateButtonStates());
+
+        // Enable drag-and-drop reordering
+        list.setDragEnabled(true);
+        list.setDropMode(DropMode.INSERT);
+        list.setTransferHandler(new TaskReorderTransferHandler());
 
         // List keyboard shortcuts
         list.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleDone");
@@ -335,6 +348,101 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         list.setSelectionForeground(selFg);
         revalidate();
         repaint();
+    }
+
+    /**
+     * TransferHandler for in-place reordering via drag-and-drop.
+     * Keeps data locally and performs MOVE operations within the same list.
+     */
+    private final class TaskReorderTransferHandler extends TransferHandler {
+        private @Nullable int[] indices = null;
+        private int addIndex = -1;
+        private int addCount = 0;
+
+        @Override
+        public int getSourceActions(JComponent c) {
+            return MOVE;
+        }
+
+        @Override
+        protected Transferable createTransferable(JComponent c) {
+            // Commit any inline edit before starting a drag
+            stopInlineEdit(true);
+
+            indices = list.getSelectedIndices();
+            addIndex = -1;
+            addCount = 0;
+
+            // We keep the data locally; return a simple dummy transferable
+            return new StringSelection("tasks");
+        }
+
+        @Override
+        public boolean canImport(TransferSupport support) {
+            return support.isDrop();
+        }
+
+        @Override
+        public boolean importData(TransferSupport support) {
+            if (!support.isDrop()) {
+                return false;
+            }
+            var dl = (JList.DropLocation) support.getDropLocation();
+            int index = dl.getIndex();
+            int max = model.getSize();
+            if (index < 0 || index > max) {
+                index = max;
+            }
+            addIndex = index;
+
+            if (indices == null || indices.length == 0) {
+                return false;
+            }
+
+            // Snapshot the items being moved
+            var items = new java.util.ArrayList<TaskItem>(indices.length);
+            for (int i : indices) {
+                if (i >= 0 && i < model.size()) {
+                    items.add(model.get(i));
+                }
+            }
+
+            // Insert items at drop index
+            for (var it : items) {
+                model.add(index++, it);
+            }
+            addCount = items.size();
+
+            // Select the inserted range
+            if (addCount > 0) {
+                list.setSelectionInterval(addIndex, addIndex + addCount - 1);
+            }
+            return true;
+        }
+
+        @Override
+        protected void exportDone(JComponent source, Transferable data, int action) {
+            if (action == MOVE && indices != null) {
+                // Adjust indices if we inserted before some of the original positions
+                if (addCount > 0) {
+                    for (int i = 0; i < indices.length; i++) {
+                        if (indices[i] >= addIndex) {
+                            indices[i] += addCount;
+                        }
+                    }
+                }
+                // Remove original items (from bottom to top to keep indices valid)
+                for (int i = indices.length - 1; i >= 0; i--) {
+                    int idx = indices[i];
+                    if (idx >= 0 && idx < model.size()) {
+                        model.remove(idx);
+                    }
+                }
+            }
+            indices = null;
+            addIndex = -1;
+            addCount = 0;
+        }
     }
 
     private record TaskItem(String text, boolean done) {}
