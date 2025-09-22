@@ -165,12 +165,36 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) popup.show(list, e.getX(), e.getY());
+                if (e.isPopupTrigger()) {
+                    boolean includesRunning = false;
+                    int[] sel = list.getSelectedIndices();
+                    if (runningIndex != null) {
+                        for (int si : sel) {
+                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
+                        }
+                    }
+                    toggleItem.setEnabled(!includesRunning);
+                    editItem.setEnabled(!includesRunning);
+                    deleteItem.setEnabled(!includesRunning);
+                    popup.show(list, e.getX(), e.getY());
+                }
             }
 
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) popup.show(list, e.getX(), e.getY());
+                if (e.isPopupTrigger()) {
+                    boolean includesRunning = false;
+                    int[] sel = list.getSelectedIndices();
+                    if (runningIndex != null) {
+                        for (int si : sel) {
+                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
+                        }
+                    }
+                    toggleItem.setEnabled(!includesRunning);
+                    editItem.setEnabled(!includesRunning);
+                    deleteItem.setEnabled(!includesRunning);
+                    popup.show(list, e.getX(), e.getY());
+                }
             }
         });
 
@@ -299,33 +323,63 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void removeSelected() {
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
+            boolean removedAny = false;
             for (int i = indices.length - 1; i >= 0; i--) {
-                model.remove(indices[i]);
+                int idx = indices[i];
+                if (runningIndex != null && idx == runningIndex.intValue()) {
+                    continue; // skip running task
+                }
+                if (idx >= 0 && idx < model.size()) {
+                    model.remove(idx);
+                    removedAny = true;
+                }
+            }
+            if (removedAny) {
+                updateButtonStates();
+                saveTasksForCurrentSession();
+            } else {
+                // No-op if only the running task was selected
+                updateButtonStates();
             }
         }
-        updateButtonStates();
-        saveTasksForCurrentSession();
     }
 
     private void toggleSelectedDone() {
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
+            boolean changed = false;
             for (int idx : indices) {
-                var it = model.get(idx);
-                model.set(idx, new TaskItem(it.text(), !it.done()));
+                if (runningIndex != null && idx == runningIndex.intValue()) {
+                    continue; // skip running task
+                }
+                if (idx >= 0 && idx < model.getSize()) {
+                    var it = model.get(idx);
+                    model.set(idx, new TaskItem(it.text(), !it.done()));
+                    changed = true;
+                }
+            }
+            if (changed) {
+                updateButtonStates();
+                saveTasksForCurrentSession();
             }
         }
-        updateButtonStates();
-        saveTasksForCurrentSession();
     }
 
     private void editSelected() {
         int idx = list.getSelectedIndex();
         if (idx < 0) return;
+        if (runningIndex != null && idx == runningIndex.intValue()) {
+            JOptionPane.showMessageDialog(this, "Cannot edit a task that is currently running.", "Edit Disabled", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         startInlineEdit(idx);
     }
 
     private void startInlineEdit(int index) {
+        if (runningIndex != null && index == runningIndex.intValue()) {
+            JOptionPane.showMessageDialog(this, "Cannot edit a task that is currently running.", "Edit Disabled", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         if (index < 0 || index >= model.size()) return;
 
         // Commit any existing editor first
@@ -409,8 +463,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void updateButtonStates() {
         boolean hasSelection = list.getSelectedIndex() >= 0;
-        removeBtn.setEnabled(hasSelection);
-        toggleDoneBtn.setEnabled(hasSelection);
         boolean llmBusy = false;
         if (console instanceof Chrome c) {
             try {
@@ -419,13 +471,26 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Unable to query LLM busy state", ex);
             }
         }
+
         boolean selectedIsDone = false;
+        boolean selectionIncludesRunning = false;
+        int[] selIndices = list.getSelectedIndices();
+        for (int si : selIndices) {
+            if (runningIndex != null && si == runningIndex.intValue()) {
+                selectionIncludesRunning = true;
+            }
+        }
         int sel = list.getSelectedIndex();
         if (sel >= 0 && sel < model.getSize()) {
             TaskItem it = model.get(sel);
             selectedIsDone = it != null && it.done();
         }
-        // Enable Play only if: there is a selection, LLM not busy, and the selected task is not done
+
+        // Remove/Toggle disabled if no selection OR selection includes running task
+        removeBtn.setEnabled(hasSelection && !selectionIncludesRunning);
+        toggleDoneBtn.setEnabled(hasSelection && !selectionIncludesRunning);
+
+        // Play enabled only if: selection exists, not busy, not done
         playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone);
     }
 
@@ -677,11 +742,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         @Override
-        protected Transferable createTransferable(JComponent c) {
+        protected @Nullable Transferable createTransferable(JComponent c) {
             // Commit any inline edit before starting a drag
             stopInlineEdit(true);
 
             indices = list.getSelectedIndices();
+
+            // Disallow dragging if selection includes the running task
+            if (runningIndex != null && indices != null) {
+                for (int i : indices) {
+                    if (i == runningIndex.intValue()) {
+                        Toolkit.getDefaultToolkit().beep();
+                        indices = null;
+                        return null; // cancel drag
+                    }
+                }
+            }
+
             addIndex = -1;
             addCount = 0;
 
@@ -691,6 +768,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public boolean canImport(TransferSupport support) {
+            if (indices != null && runningIndex != null) {
+                for (int i : indices) {
+                    if (i == runningIndex.intValue()) {
+                        return false; // cannot drop a running task
+                    }
+                }
+            }
             return support.isDrop();
         }
 
@@ -698,6 +782,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         public boolean importData(TransferSupport support) {
             if (!support.isDrop()) {
                 return false;
+            }
+            if (indices != null && runningIndex != null) {
+                for (int i : indices) {
+                    if (i == runningIndex.intValue()) {
+                        return false; // cannot drop a running task
+                    }
+                }
             }
             var dl = (JList.DropLocation) support.getDropLocation();
             int index = dl.getIndex();
