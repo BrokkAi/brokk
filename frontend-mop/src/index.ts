@@ -14,6 +14,7 @@ import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCache
 import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePathCacheStore';
 import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
 import './components/ZoomWidget.ts';
+import { envStore } from './stores/envStore';
 
 const mainLog = createLogger('main');
 
@@ -91,6 +92,11 @@ function setupBrokkInterface(): any[] {
 
         // Debug API
         toggleWrapStatus: () => typeof window !== 'undefined' && window.toggleWrapStatus ? window.toggleWrapStatus() : undefined,
+
+        // Environment info API
+        setEnvironmentInfo: (info) => {
+            envStore.set(info);
+        },
 
     };
 

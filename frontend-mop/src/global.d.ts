@@ -1,5 +1,6 @@
 import type { BrokkEvent, BufferItem } from './types';
 import type { SymbolLookupResult } from './stores/symbolCacheStore';
+import type { EnvInfo } from './stores/envStore';
 import type { FilePathLookupResult } from './stores/filePathCacheStore';
 
 export {};
@@ -30,6 +31,9 @@ declare global {
       // File path lookup API
       refreshFilePathLookup: (contextId?: string) => void;
       onFilePathLookupResponse?: (results: Record<string, FilePathLookupResult>, seq: number, contextId: string) => void;
+
+      // Environment info API
+      setEnvironmentInfo: (info: EnvInfo) => void;
     };
     javaBridge?: {
       onAck: (epoch: number) => void;

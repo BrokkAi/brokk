@@ -406,6 +406,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void onRepoChange() {
                 project.getRepo().invalidateCaches();
                 io.updateGitRepo();
+
+                // Notify analyzer callbacks
+                for (var callback : analyzerCallbacks) {
+                    try {
+                        callback.onRepoChange();
+                    } catch (Exception e) {
+                        logger.warn("Analyzer callback (onRepoChange) failed", e);
+                    }
+                }
             }
 
             @Override
@@ -427,12 +436,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 for (var fsListener : fileSystemEventListeners) {
                     fsListener.onTrackedFilesChanged();
                 }
+
+                // Notify analyzer callbacks
+                for (var callback : analyzerCallbacks) {
+                    try {
+                        callback.onTrackedFileChange();
+                    } catch (Exception e) {
+                        logger.warn("Analyzer callback (onTrackedFileChange) failed", e);
+                    }
+                }
             }
 
             @Override
             public void beforeEachBuild() {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().showAnalyzerRebuildSpinner();
+                }
+                // Notify analyzer callbacks
+                for (var callback : analyzerCallbacks) {
+                    try {
+                        callback.beforeEachBuild();
+                    } catch (Exception e) {
+                        logger.warn("Analyzer callback (beforeEachBuild) failed", e);
+                    }
                 }
             }
 
@@ -459,6 +485,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 if (externalRequest && io instanceof Chrome chrome) {
                     chrome.notifyActionComplete("Analyzer rebuild completed");
+                }
+
+                // Notify analyzer callbacks
+                for (var callback : analyzerCallbacks) {
+                    try {
+                        callback.afterEachBuild(externalRequest);
+                    } catch (Exception e) {
+                        logger.warn("Analyzer callback (afterEachBuild) failed", e);
+                    }
                 }
             }
 

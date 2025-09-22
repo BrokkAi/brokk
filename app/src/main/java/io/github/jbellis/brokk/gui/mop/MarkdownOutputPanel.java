@@ -294,6 +294,32 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public void onAnalyzerReady() {
         String contextId = webHost.getContextCacheId();
         webHost.onAnalyzerReadyResponse(contextId);
+        // Update environment block in the frontend to reflect readiness and languages
+        webHost.sendEnvironmentInfo(true, "Ready");
+    }
+
+    @Override
+    public void beforeEachBuild() {
+        // Analyzer about to rebuild; reflect "Building..." in environment block
+        webHost.sendEnvironmentInfo(false, "Building...");
+    }
+
+    @Override
+    public void afterEachBuild(boolean externalRequest) {
+        // Build complete; re-send snapshot in case counts/languages changed
+        webHost.sendEnvironmentInfo(true, "Ready");
+    }
+
+    @Override
+    public void onRepoChange() {
+        // Repo changed; update counts promptly (status may change shortly via build events)
+        webHost.sendEnvironmentInfo(true, "Ready");
+    }
+
+    @Override
+    public void onTrackedFileChange() {
+        // Files changed; update counts promptly
+        webHost.sendEnvironmentInfo(true, "Ready");
     }
 
     /** Re-sends the entire task history to the WebView. */

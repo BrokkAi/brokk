@@ -18,8 +18,24 @@ public interface IContextManager {
 
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
+        /** Called before each analyzer build begins. */
+        default void beforeEachBuild() {}
+
         /** Called when the analyzer transitions from not-ready to ready state. */
         default void onAnalyzerReady() {}
+
+        /**
+         * Called after each analyzer build completes.
+         *
+         * @param externalRequest whether the build was externally requested
+         */
+        default void afterEachBuild(boolean externalRequest) {}
+
+        /** Called when the underlying repo changed (e.g., branch switch). */
+        default void onRepoChange() {}
+
+        /** Called when tracked files change in the working tree. */
+        default void onTrackedFileChange() {}
     }
 
     default ExecutorService getBackgroundTasks() {
