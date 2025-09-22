@@ -118,7 +118,18 @@ public class MergeDialogUtil {
         gbc.weightx = 0;
 
         // Populate targetBranchComboBox
-        var repo = (GitRepo) mainProject.getRepo();
+        if (!(mainProject.getRepo() instanceof GitRepo repo)) {
+            logger.error(
+                    "Merge operation requires Git repository, got: {}",
+                    mainProject.getRepo().getClass().getSimpleName());
+            JOptionPane.showMessageDialog(
+                    options.parentComponent(),
+                    "This operation requires a Git repository",
+                    "Repository Type Error",
+                    JOptionPane.ERROR_MESSAGE);
+            return MergeDialogResult.cancelled();
+        }
+
         try {
             List<String> localBranches = repo.listLocalBranches();
             localBranches.forEach(targetBranchComboBox::addItem);
@@ -327,7 +338,19 @@ public class MergeDialogUtil {
             mainProject = project.getMainProject();
         }
 
-        GitRepo gitRepo = (GitRepo) mainProject.getRepo();
+        if (!(mainProject.getRepo() instanceof GitRepo gitRepo)) {
+            logger.error(
+                    "Conflict check requires Git repository, got: {}",
+                    mainProject.getRepo().getClass().getSimpleName());
+            SwingUtilities.invokeLater(() -> {
+                conflictStatusLabel.setText("Repository type not supported for merge operations");
+                conflictStatusLabel.setForeground(Color.RED);
+                if (okButton != null) {
+                    okButton.setEnabled(false);
+                }
+            });
+            return;
+        }
 
         final String finalSelectedTargetBranch = selectedTargetBranch;
         final GitRepo.MergeMode finalSelectedMergeMode = selectedMergeMode;

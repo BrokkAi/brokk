@@ -784,8 +784,8 @@ public class GitLogTab extends JPanel {
                         repo.checkout(originalBranch);
                         chrome.systemOutput("Switched back to original branch: " + originalBranch);
                     } catch (GitAPIException e) {
-                        String restoreError = "Warning: Failed to switch back to original branch '"
-                                + originalBranch + "': " + e.getMessage();
+                        String restoreError = "Warning: Failed to switch back to original branch '" + originalBranch
+                                + "': " + e.getMessage();
                         logger.error(restoreError, e);
                         chrome.toolError(restoreError, "Branch Restoration Warning");
                     }
