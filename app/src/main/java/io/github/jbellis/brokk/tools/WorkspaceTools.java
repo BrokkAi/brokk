@@ -374,7 +374,7 @@ public class WorkspaceTools {
                   Retrieves the full source code of specific methods and adds to the Workspace each as a separate read-only text fragment.
                   Faster and more efficient than including entire files or classes when you only need a few methods.
                   """)
-    public String addMethodSourcesToWorkspace(
+    public String addMethodsToWorkspace(
             @P(
                             "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty.")
                     List<String> methodNames) {
@@ -384,7 +384,7 @@ public class WorkspaceTools {
             return "Cannot add method sources: method names list is empty";
         }
 
-        var sourcesData = AnalyzerUtil.getMethodSourcesData(getAnalyzer(), methodNames);
+        var sourcesData = AnalyzerUtil.getMethodSources(getAnalyzer(), methodNames);
         if (sourcesData.isEmpty()) {
             return "No sources found for methods: " + String.join(", ", methodNames);
         }
@@ -449,43 +449,6 @@ public class WorkspaceTools {
 
         return resultMessage;
     }
-
-    // disabled until we can do this efficiently in Joern
-    //    @Tool(value = """
-    //    Retrieves the full source code of specified classes and adds each as a separate read-only text fragment.
-    //    More efficient than reading an entire file when you only need a single class, particularly for inner classes
-    //    """)
-    //    public String addClassSourcesFragment(
-    //            @P("List of fully qualified class names (e.g., ['com.example.ClassA', 'org.another.ClassB']) to
-    // retrieve the full source code for.")
-    //            List<String> classNames
-    //    ) {
-    //        assert getAnalyzer().isCpg() : "Cannot add class sources: Code Intelligence is not available.";
-    //        if (classNames.isEmpty()) {
-    //            return "Cannot add class sources: class names list is empty";
-    //        }
-    //        // Removed reasoning check
-    //
-    //        var sourcesData = AnalyzerUtil.getClassSourcesData(getAnalyzer(), classNames);
-    //        if (sourcesData.isEmpty()) {
-    //            return "No sources found for classes: " + String.join(", ", classNames);
-    //        }
-    //
-    //        // Add each class source as a separate StringFragment
-    //        int count = 0;
-    //        for (var entry : sourcesData.entrySet()) {
-    //            String className = entry.getKey();
-    //            String sourceCodeWithHeader = entry.getValue();
-    //            String description = "Source for class " + className;
-    //            // Create and add the fragment
-    //            var fragment = new ContextFragment.StringFragment(sourceCodeWithHeader, description);
-    //            contextManager.addVirtualFragment(fragment);
-    //            count++;
-    //        }
-    //
-    //        return "Added %d class source fragment(s) for: [%s]".formatted(count, String.join(", ",
-    // sourcesData.keySet()));
-    //    }
 
     @Tool(
             value =

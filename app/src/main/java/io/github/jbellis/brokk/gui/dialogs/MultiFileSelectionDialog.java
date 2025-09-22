@@ -182,7 +182,7 @@ public class MultiFileSelectionDialog extends JDialog {
     }
 
     private String buildFilesTabHintText(boolean allowExternalFiles) {
-        var sb = new StringBuilder("Ctrl-space to autocomplete project files.");
+        var sb = new StringBuilder("Type to autocomplete project files.");
         if (allowExternalFiles) {
             sb.append(" External files may be selected from the tree.");
         }
@@ -219,19 +219,19 @@ public class MultiFileSelectionDialog extends JDialog {
 
         var provider = new SymbolCompletionProvider(analyzerWrapper);
         classAutoCompletion = new AutoCompletion(provider);
-        classAutoCompletion.setAutoActivationEnabled(false);
-        classAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
+        classAutoCompletion.setAutoActivationEnabled(true);
+        classAutoCompletion.setAutoActivationDelay(0);
         classAutoCompletion.install(classInput);
         AutoCompleteUtil.bindCtrlEnter(classAutoCompletion, classInput);
         classInput.setToolTipText(
-                "Enter fully qualified class names (space-separated). Ctrl+Space for autocomplete. Enter/Ctrl+Enter to confirm.");
+                "Enter fully qualified class names (space-separated). Type to autocomplete. Enter/Ctrl+Enter to confirm.");
 
         JPanel inputPanel = new JPanel(new BorderLayout());
         inputPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         inputPanel.add(new JScrollPane(classInput), BorderLayout.CENTER);
 
         JPanel labelsPanel = new JPanel(new GridLayout(1, 1));
-        labelsPanel.add(new JLabel("Ctrl-space to autocomplete class names."));
+        labelsPanel.add(new JLabel("Type to autocomplete class names."));
         inputPanel.add(labelsPanel, BorderLayout.SOUTH);
         classesPanel.add(inputPanel, BorderLayout.NORTH);
         classesPanel.add(

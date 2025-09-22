@@ -524,8 +524,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             contextManager.submitBackgroundTask("Checking .gitignore", () -> {
                 if (!getProject().isGitIgnoreSet()) {
                     SwingUtilities.invokeLater(() -> {
-                        int result = JOptionPane.showConfirmDialog(
-                                frame,
+                        int result = showConfirmDialog(
                                 "Update .gitignore and add .brokk project files to git?",
                                 "Git Configuration",
                                 JOptionPane.YES_NO_OPTION,
@@ -2144,9 +2143,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public int showConfirmDialog(
-            @Nullable JFrame frame, String message, String title, int optionType, int messageType) {
+            @Nullable Component parent, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
-        return JOptionPane.showConfirmDialog(frame, message, title, optionType, messageType);
+        return JOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
     }
 
     @Override

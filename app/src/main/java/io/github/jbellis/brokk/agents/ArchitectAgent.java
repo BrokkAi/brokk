@@ -677,7 +677,7 @@ public class ArchitectAgent {
                         "addClassesToWorkspace",
                         "addSymbolUsagesToWorkspace",
                         "addClassSummariesToWorkspace",
-                        "addMethodSourcesToWorkspace",
+                        "addMethodsToWorkspace",
                         "addCallGraphInToWorkspace",
                         "addCallGraphOutToWorkspace",
                         "getFiles");

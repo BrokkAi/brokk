@@ -150,7 +150,7 @@ public class ToolRegistry {
         ADD_SYMBOL_USAGES_TO_WORKSPACE("📝", "Adding symbol usages to workspace"),
         ADD_CLASS_SUMMARIES_TO_WORKSPACE("📝", "Adding class summaries to workspace"),
         ADD_FILE_SUMMARIES_TO_WORKSPACE("📝", "Adding file summaries to workspace"),
-        ADD_METHOD_SOURCES_TO_WORKSPACE("📝", "Adding method sources to workspace"),
+        ADD_METHODS_TO_WORKSPACE("📝", "Adding method sources to workspace"),
         ADD_CALL_GRAPH_IN_TO_WORKSPACE("📝", "Adding callers to workspace"),
         ADD_CALL_GRAPH_OUT_TO_WORKSPACE("📝", "Adding callees to workspace"),
         DROP_WORKSPACE_FRAGMENTS("🗑️", "Removing from workspace"),
@@ -198,7 +198,7 @@ public class ToolRegistry {
                 case "addSymbolUsagesToWorkspace" -> ADD_SYMBOL_USAGES_TO_WORKSPACE;
                 case "addClassSummariesToWorkspace" -> ADD_CLASS_SUMMARIES_TO_WORKSPACE;
                 case "addFileSummariesToWorkspace" -> ADD_FILE_SUMMARIES_TO_WORKSPACE;
-                case "addMethodSourcesToWorkspace" -> ADD_METHOD_SOURCES_TO_WORKSPACE;
+                case "addMethodsToWorkspace" -> ADD_METHODS_TO_WORKSPACE;
                 case "addCallGraphInToWorkspace" -> ADD_CALL_GRAPH_IN_TO_WORKSPACE;
                 case "addCallGraphOutToWorkspace" -> ADD_CALL_GRAPH_OUT_TO_WORKSPACE;
                 case "dropWorkspaceFragments" -> DROP_WORKSPACE_FRAGMENTS;

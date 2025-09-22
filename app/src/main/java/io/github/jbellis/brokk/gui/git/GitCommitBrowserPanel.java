@@ -1085,7 +1085,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void dropStashInternal(int stashIndex) {
-        int result = JOptionPane.showConfirmDialog(
+        int result = chrome.showConfirmDialog(
                 this,
                 "Delete stash@{" + stashIndex + "}?",
                 "Confirm Drop",

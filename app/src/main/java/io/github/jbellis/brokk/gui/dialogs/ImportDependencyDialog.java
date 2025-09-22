@@ -434,7 +434,7 @@ public class ImportDependencyDialog {
 
             var project = chrome.getProject();
             if (project.getAnalyzerLanguages().stream().anyMatch(lang -> lang.isAnalyzed(project, sourcePath))) {
-                int proceedResponse = javax.swing.JOptionPane.showConfirmDialog(
+                int proceedResponse = chrome.showConfirmDialog(
                         dialog,
                         "The selected directory might already be part of the project's analyzed sources. Proceed?",
                         "Confirm Import",
@@ -448,7 +448,7 @@ public class ImportDependencyDialog {
 
             var targetPath = dependenciesRoot.resolve(sourcePath.getFileName());
             if (Files.exists(targetPath)) {
-                int overwriteResponse = javax.swing.JOptionPane.showConfirmDialog(
+                int overwriteResponse = chrome.showConfirmDialog(
                         dialog,
                         "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
                         "Confirm Overwrite",
@@ -516,7 +516,7 @@ public class ImportDependencyDialog {
             final Path targetPath = dependenciesRoot.resolve(repoName);
 
             if (Files.exists(targetPath)) {
-                int overwriteResponse = javax.swing.JOptionPane.showConfirmDialog(
+                int overwriteResponse = chrome.showConfirmDialog(
                         dialog,
                         "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
                         "Confirm Overwrite",

@@ -5,6 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.AnalyzerUtil.CodeWithSource;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
@@ -1174,14 +1175,6 @@ public interface ContextFragment {
         }
     }
 
-    static String toClassname(String methodname) {
-        int lastDot = methodname.lastIndexOf('.');
-        if (lastDot == -1) {
-            return methodname;
-        }
-        return methodname.substring(0, lastDot);
-    }
-
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
@@ -1226,10 +1219,11 @@ public interface ContextFragment {
                                     .filter(cu -> !ContextManager.isTestFile(cu.source()))
                                     .toList();
                         }
-                        var result = AnalyzerUtil.processUsages(analyzer, uses);
-                        return result.code().isEmpty()
+                        var parts = AnalyzerUtil.processUsages(analyzer, uses);
+                        var formatted = CodeWithSource.text(parts);
+                        return formatted.isEmpty()
                                 ? "No relevant usages found for symbol: " + targetIdentifier
-                                : result.code();
+                                : formatted;
                     })
                     .orElse("Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".");
         }
@@ -1250,8 +1244,10 @@ public interface ContextFragment {
                                     .filter(cu -> !ContextManager.isTestFile(cu.source()))
                                     .toList();
                         }
-                        var result = AnalyzerUtil.processUsages(analyzer, uses);
-                        return result.sources();
+                        var parts = AnalyzerUtil.processUsages(analyzer, uses);
+                        return parts.stream()
+                                .map(AnalyzerUtil.CodeWithSource::source)
+                                .collect(Collectors.toSet());
                     })
                     .orElseThrow(UnsupportedOperationException::new);
         }
@@ -1290,7 +1286,7 @@ public interface ContextFragment {
             return targetIdentifier;
         }
 
-        public boolean getIncludeTestFiles() {
+        public boolean includeTestFiles() {
             return includeTestFiles;
         }
     }

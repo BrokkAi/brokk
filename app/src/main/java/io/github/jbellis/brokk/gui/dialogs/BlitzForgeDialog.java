@@ -1322,7 +1322,7 @@ public class BlitzForgeDialog extends JDialog {
         // Refresh cost estimate and warn if it is more than half the balance
         updateCostEstimate();
         if (!Float.isNaN(userBalance) && estimatedCost > userBalance / 2.0) {
-            int choice = JOptionPane.showConfirmDialog(
+            int choice = chrome.showConfirmDialog(
                     this,
                     String.format(
                             "The estimated cost is $%.2f, which exceeds half of your remaining balance ($%.2f).\nDo you want to continue?",

@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.awt.*;
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -72,9 +71,11 @@ public class FileSelectionPanel extends JPanel {
                 config.allowExternalFiles(),
                 config.multiSelect(),
                 config.includeProjectFilesInAutocomplete());
+        // Enable auto-activation on typing (letters) similar to ProjectFilesPanel
+        provider.setAutoActivationRules(true, null);
         var autoCompletion = new AutoCompletion(provider);
-        autoCompletion.setAutoActivationEnabled(false);
-        autoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
+        autoCompletion.setAutoActivationEnabled(true);
+        autoCompletion.setAutoActivationDelay(0); // show popup immediately
         autoCompletion.install(fileInputComponent);
         AutoCompleteUtil.bindCtrlEnter(
                 autoCompletion, fileInputComponent); // Ctrl+Enter on input might imply confirmation

@@ -73,7 +73,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     @Nullable
     private MaterialButton saveButton;
 
-    private final ContextManager contextManager;
+    private final ContextManager cm;
 
     // Nullable
     @Nullable
@@ -93,7 +93,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
 
     public PreviewTextPanel(
-            ContextManager contextManager,
+            ContextManager cm,
             @Nullable ProjectFile file,
             String content,
             @Nullable String syntaxStyle,
@@ -101,7 +101,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             @Nullable ContextFragment fragment) {
         super(new BorderLayout());
 
-        this.contextManager = contextManager;
+        this.cm = cm;
         this.file = file;
         this.contentBeforeSave = content; // Store initial content
 
@@ -143,7 +143,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
-                contextManager.addReadOnlyFragmentAsync(ghf);
+                cm.addReadOnlyFragmentAsync(ghf);
                 finalCaptureButton.setEnabled(false); // Disable after capture
                 finalCaptureButton.setToolTipText("Revision captured");
             });
@@ -158,12 +158,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             editButton = new MaterialButton(text);
             SwingUtilities.invokeLater(() -> requireNonNull(editButton).setIcon(Icons.EDIT_DOCUMENT));
             var finalEditButton = editButton; // Final reference for lambda
-            if (contextManager.getEditableFiles().contains(file)) {
+            if (cm.getEditableFiles().contains(file)) {
                 finalEditButton.setEnabled(false);
                 finalEditButton.setToolTipText("File is in Edit context");
             } else {
                 finalEditButton.addActionListener(e -> {
-                    contextManager.editFiles(List.of(this.file));
+                    cm.editFiles(List.of(this.file));
                     finalEditButton.setEnabled(false);
                     finalEditButton.setToolTipText("File is in Edit context");
                 });
@@ -227,12 +227,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Fetch declarations in the background if it's a project file
         if (file != null) {
-            fileDeclarations = contextManager.submitBackgroundTask("Fetch Declarations", () -> {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
+            fileDeclarations = cm.submitBackgroundTask("Fetch Declarations", () -> {
+                var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarationsInFile(file);
             });
-            analyzerCapabilities = contextManager.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
+            analyzerCapabilities = cm.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
+                var analyzer = cm.getAnalyzerUninterrupted();
                 final var capabilityMap = new HashMap<Language, AnalyzerCapabilities>();
                 if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
                     multiAnalyzer.getDelegates().forEach((language, an) -> {
@@ -247,15 +247,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         capabilityMap.put(language, capabilities);
                     });
                 } else {
-                    contextManager.getProject().getAnalyzerLanguages().stream()
-                            .findFirst()
-                            .ifPresent(language -> {
-                                var hasUsages =
-                                        analyzer.as(UsagesProvider.class).isPresent();
-                                var hasSource =
-                                        analyzer.as(SourceCodeProvider.class).isPresent();
-                                capabilityMap.put(language, new AnalyzerCapabilities(hasUsages, hasSource));
-                            });
+                    cm.getProject().getAnalyzerLanguages().stream().findFirst().ifPresent(language -> {
+                        var hasUsages = analyzer.as(UsagesProvider.class).isPresent();
+                        var hasSource = analyzer.as(SourceCodeProvider.class).isPresent();
+                        capabilityMap.put(language, new AnalyzerCapabilities(hasUsages, hasSource));
+                    });
                 }
                 return capabilityMap;
             });
@@ -453,19 +449,17 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                 if (usagesAvailable) {
                                                     // Use a local variable for the action listener lambda
                                                     usageItem.addActionListener(action -> {
-                                                        contextManager.submitBackgroundTask(
+                                                        cm.submitBackgroundTask(
                                                                 "Capture Usages",
-                                                                () -> contextManager.usageForIdentifier(
-                                                                        codeUnit.fqName(), true));
+                                                                () -> cm.usageForIdentifier(codeUnit.fqName(), true));
                                                     });
                                                 } else {
                                                     usageItem.setToolTipText(
                                                             "Code intelligence does not support usage capturing for this language.");
                                                 }
 
-                                                var analyzer = contextManager
-                                                        .getAnalyzerWrapper()
-                                                        .getNonBlocking();
+                                                var analyzer =
+                                                        cm.getAnalyzerWrapper().getNonBlocking();
                                                 boolean sourceCodeAvailable = analyzer != null
                                                         && SourceCaptureUtil.isSourceCaptureAvailable(
                                                                 codeUnit, capabilities.hasSource(), analyzer);
@@ -478,8 +472,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                 if (sourceCodeAvailable) {
                                                     // Use shared utility for consistent behavior
                                                     sourceItem.addActionListener(action -> {
-                                                        SourceCaptureUtil.captureSourceForCodeUnit(
-                                                                codeUnit, contextManager);
+                                                        SourceCaptureUtil.captureSourceForCodeUnit(codeUnit, cm);
                                                     });
                                                 } else {
                                                     sourceItem.setToolTipText(
@@ -592,8 +585,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Only try to get symbols if we have a file and its corresponding fragment is a PathFragment
         if (file != null) {
             // Submit the task to fetch symbols in the background
-            symbolsFuture = contextManager.submitBackgroundTask("Fetch File Symbols", () -> {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
+            symbolsFuture = cm.submitBackgroundTask("Fetch File Symbols", () -> {
+                var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.getSymbols(analyzer.getDeclarationsInFile(file));
             });
         }
@@ -601,7 +594,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Voice input button setup, passing the Future for file-specific symbols
         var micButton = new VoiceInputButton(
                 editArea,
-                contextManager,
+                cm,
                 () -> {
                     /* no action on record start */
                 },
@@ -789,9 +782,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         var resultsIo = new QuickResultsIo();
 
         // Submit the quick-edit session to a background future
-        var future = contextManager.submitUserTask("Quick Edit", () -> {
-            var agent =
-                    new CodeAgent(contextManager, contextManager.getService().quickModel());
+        var future = cm.submitUserTask("Quick Edit", () -> {
+            var agent = new CodeAgent(cm, cm.getService().quickModel());
             return agent.runQuickTask(file, selectedText, instructions);
         });
 
@@ -978,13 +970,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             return true; // No unsaved changes or not a savable file, okay to close
         }
 
-        // Prompt the user
-        int choice = JOptionPane.showConfirmDialog(
-                SwingUtilities.getWindowAncestor(this),
-                "You have unsaved changes. Do you want to save them before closing?",
-                "Unsaved Changes",
-                JOptionPane.YES_NO_CANCEL_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+        // Prompt the user via the application's IConsoleIO (omits the Frame parameter)
+        int choice = cm.getIo()
+                .showConfirmDialog(
+                        SwingUtilities.getWindowAncestor(this),
+                        "You have unsaved changes. Do you want to save them before closing?",
+                        "Unsaved Changes",
+                        JOptionPane.YES_NO_CANCEL_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
 
         return switch (choice) {
             case JOptionPane.YES_OPTION -> performSave(saveButton);
@@ -1012,7 +1005,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private boolean performSave(@Nullable JButton buttonToDisable) {
         requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
-        return contextManager.withFileChangeNotificationsPaused(() -> {
+        return cm.withFileChangeNotificationsPaused(() -> {
             try {
                 // Write the new content to the file first
                 file.write(newContent);
@@ -1035,12 +1028,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         messagesForHistory.add(
                                 Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
                         var saveResult = new TaskResult(
-                                contextManager,
-                                actionDescription,
-                                messagesForHistory,
-                                Set.of(file),
-                                TaskResult.StopReason.SUCCESS);
-                        contextManager.addToHistory(saveResult, false); // Add the single entry
+                                cm, actionDescription, messagesForHistory, Set.of(file), TaskResult.StopReason.SUCCESS);
+                        cm.addToHistory(saveResult, false); // Add the single entry
                         logger.debug("Added history entry for changes in: {}", file);
                     } catch (Exception e) {
                         logger.error("Failed to generate diff or add history entry for {}", file, e);

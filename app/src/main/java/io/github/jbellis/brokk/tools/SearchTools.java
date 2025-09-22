@@ -310,7 +310,8 @@ public class SearchTools {
             return "No usages found for: " + String.join(", ", symbols);
         }
 
-        var processedUsages = AnalyzerUtil.processUsages(getAnalyzer(), allUses).code();
+        var cwsList = AnalyzerUtil.processUsages(getAnalyzer(), allUses);
+        var processedUsages = AnalyzerUtil.CodeWithSource.text(cwsList);
         return "Usages of " + String.join(", ", symbols) + ":\n\n" + processedUsages;
     }
 

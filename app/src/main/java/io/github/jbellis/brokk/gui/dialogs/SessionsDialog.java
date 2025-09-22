@@ -460,7 +460,7 @@ public class SessionsDialog extends JDialog {
         /* ---------- delete (single or multi) ---------- */
         JMenuItem deleteItem = new JMenuItem(selectedSessions.size() == 1 ? "Delete" : "Delete Selected");
         deleteItem.addActionListener(ev -> {
-            int confirm = JOptionPane.showConfirmDialog(
+            int confirm = chrome.showConfirmDialog(
                     SessionsDialog.this,
                     "Are you sure you want to delete the selected session(s)?",
                     "Confirm Delete",
@@ -726,7 +726,7 @@ public class SessionsDialog extends JDialog {
             return;
         }
         var info = maybeInfo.get();
-        int confirm = JOptionPane.showConfirmDialog(
+        int confirm = chrome.showConfirmDialog(
                 parent,
                 "Are you sure you want to delete the current session?",
                 "Confirm Delete",

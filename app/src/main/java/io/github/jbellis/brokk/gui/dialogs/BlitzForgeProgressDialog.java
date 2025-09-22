@@ -637,7 +637,7 @@ public class BlitzForgeProgressDialog extends JDialog {
             @Override
             public void windowClosing(java.awt.event.WindowEvent windowEvent) {
                 if (!worker.isDone()) {
-                    int choice = JOptionPane.showConfirmDialog(
+                    int choice = chrome.showConfirmDialog(
                             BlitzForgeProgressDialog.this,
                             "Are you sure you want to cancel the upgrade process?",
                             "Confirm Cancel",

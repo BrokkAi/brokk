@@ -289,7 +289,7 @@ public final class BrokkCli implements Callable<Integer> {
         if (!resolvedClasses.isEmpty()) workspaceTools.addClassesToWorkspace(resolvedClasses);
         if (!resolvedSummaryClasses.isEmpty()) workspaceTools.addClassSummariesToWorkspace(resolvedSummaryClasses);
         if (!addSummaryFiles.isEmpty()) workspaceTools.addFileSummariesToWorkspace(addSummaryFiles);
-        if (!addMethodSources.isEmpty()) workspaceTools.addMethodSourcesToWorkspace(addMethodSources);
+        if (!addMethodSources.isEmpty()) workspaceTools.addMethodsToWorkspace(addMethodSources);
         addUrls.forEach(workspaceTools::addUrlContentsToWorkspace);
         addUsages.forEach(workspaceTools::addSymbolUsagesToWorkspace);
         addCallers.forEach(workspaceTools::addCallGraphInToWorkspace);

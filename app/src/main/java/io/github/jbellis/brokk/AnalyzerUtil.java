@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
 import java.util.*;
@@ -14,73 +13,38 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
 
-    public static CodeWithSource processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
-        final StringBuilder code = new StringBuilder();
-        final Set<CodeUnit> sources = new HashSet<>();
+    public static List<CodeWithSource> processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
+        List<CodeWithSource> results = new ArrayList<>();
 
-        final var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
+        var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
         if (maybeSourceCodeProvider.isEmpty()) {
             logger.warn("Analyzer ({}) does not provide source code, skipping", analyzer.getClass());
         }
         maybeSourceCodeProvider.ifPresent(sourceCodeProvider -> {
             var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
-
-            if (!methodUses.isEmpty()) {
-                Map<String, List<String>> groupedMethods = new LinkedHashMap<>();
-                for (var cu : methodUses) {
-                    var source = sourceCodeProvider.getMethodSource(cu.fqName(), true);
-                    if (source.isPresent()) {
-                        String classname = ContextFragment.toClassname(cu.fqName());
-                        groupedMethods
-                                .computeIfAbsent(classname, k -> new ArrayList<>())
-                                .add(source.get());
-                        sources.add(cu);
-                    } else {
-                        logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
-                    }
-                }
-                if (!groupedMethods.isEmpty()) {
-                    code.append("Method uses:\n\n");
-                    for (var entry : groupedMethods.entrySet()) {
-                        var methods = entry.getValue();
-                        if (!methods.isEmpty()) {
-                            var fqcn = entry.getKey();
-                            var file = analyzer.getFileFor(fqcn)
-                                    .map(ProjectFile::toString)
-                                    .orElse("?");
-                            code.append(
-                                    """
-                                            <methods class="%s" file="%s">
-                                            %s
-                                            </methods>
-                                            """
-                                            .formatted(fqcn, file, String.join("\n\n", methods)));
-                        }
-                    }
+            for (var cu : methodUses) {
+                var source = sourceCodeProvider.getMethodSource(cu.fqName(), true);
+                if (source.isPresent()) {
+                    results.add(new CodeWithSource(source.get(), cu));
+                } else {
+                    logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
                 }
             }
         });
 
-        final var maybeSkeletonProvider = analyzer.as(SkeletonProvider.class);
+        var maybeSkeletonProvider = analyzer.as(SkeletonProvider.class);
         if (maybeSkeletonProvider.isEmpty()) {
             logger.warn("Analyzer ({}) does not provide skeletons, skipping", analyzer.getClass());
         }
         maybeSkeletonProvider.ifPresent(skeletonProvider -> {
             var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
-            if (!typeUses.isEmpty()) {
-                code.append("Type uses:\n\n");
-                for (var cu : typeUses) {
-                    var skeletonHeader = skeletonProvider.getSkeletonHeader(cu.fqName());
-                    if (skeletonHeader.isEmpty()) {
-                        continue;
-                    }
-                    code.append(skeletonHeader.get()).append("\n");
-                    sources.add(cu);
-                }
+            for (var cu : typeUses) {
+                var skeletonHeader = skeletonProvider.getSkeletonHeader(cu.fqName());
+                skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, cu)));
             }
         });
 
-        return new CodeWithSource(code.toString(), sources);
+        return results;
     }
 
     public static List<ProjectFile> combinedRankingFor(IProject project, Map<ProjectFile, Double> weightedSeeds) {
@@ -166,40 +130,13 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Retrieves skeleton data for the given class names.
-     *
-     * @param analyzer The Analyzer instance.
-     * @param classNames Fully qualified class names.
-     * @return A map of CodeUnit to its skeleton string. Returns an empty map if no skeletons are found.
-     */
-    public static Map<CodeUnit, String> getClassSkeletonsData(IAnalyzer analyzer, List<String> classNames) {
-        assert analyzer instanceof SkeletonProvider : "Analyzer is not available.";
-        if (classNames.isEmpty()) {
-            return Map.of();
-        }
-
-        return classNames.stream()
-                .distinct()
-                .map(analyzer::getDefinition) // Get the CodeUnit definition directly
-                .flatMap(Optional::stream) // Convert Optional<CodeUnit> to Stream<CodeUnit>
-                .filter(CodeUnit::isClass) // Ensure it's a class CodeUnit
-                .map(cu -> {
-                    Optional<String> skeletonOpt = analyzer.as(SkeletonProvider.class)
-                            .flatMap(skp -> skp.getSkeleton(cu.fqName())); // Use fqName from CodeUnit
-                    return skeletonOpt.map(s -> Map.entry(cu, s)).orElse(null); // Create entry if skeleton exists
-                })
-                .filter(Objects::nonNull) // Filter out null entries (where skeleton wasn't found)
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-    }
-
-    /**
      * Retrieves method source code for the given method names.
      *
      * @param analyzer The Analyzer instance.
      * @param methodNames Fully qualified method names.
      * @return A map of method name to its source code string. Returns an empty map if no sources are found.
      */
-    public static Map<String, String> getMethodSourcesData(IAnalyzer analyzer, List<String> methodNames) {
+    public static Map<String, String> getMethodSources(IAnalyzer analyzer, List<String> methodNames) {
         assert analyzer instanceof SourceCodeProvider : "Analyzer is not available for getMethodSourcesData.";
         if (methodNames.isEmpty()) {
             return Map.of();
@@ -231,7 +168,7 @@ public class AnalyzerUtil {
      * @return A map of class name to its formatted source code string (with header). Returns an empty map if no sources
      *     are found.
      */
-    public static Map<String, String> getClassSourcesData(IAnalyzer analyzer, List<String> classNames) {
+    public static Map<String, String> getClassSources(IAnalyzer analyzer, List<String> classNames) {
         assert analyzer instanceof SourceCodeProvider : "Analyzer is not available for getClassSourcesData.";
         if (classNames.isEmpty()) {
             return Map.of();
@@ -262,5 +199,98 @@ public class AnalyzerUtil {
         return sources;
     }
 
-    public record CodeWithSource(String code, Set<CodeUnit> sources) {}
+    public record CodeWithSource(String code, CodeUnit source) {
+        /** Format this single CodeWithSource instance into the same textual representation used for lists. */
+        public String text() {
+            return text(List.of(this));
+        }
+
+        /**
+         * Formats a list of CodeWithSource parts into a human-readable usage summary. The summary will contain -
+         * "Method uses:" section grouped by containing class with <methods> blocks - "Type uses:" section with skeleton
+         * headers
+         */
+        public static String text(List<CodeWithSource> parts) {
+            Map<String, List<String>> methodsByClass = new LinkedHashMap<>();
+            List<CodeWithSource> classParts = new ArrayList<>();
+
+            for (var cws : parts) {
+                var cu = cws.source();
+                if (cu.isFunction()) {
+                    String fqcn = CodeUnit.toClassname(cu.fqName());
+                    methodsByClass.computeIfAbsent(fqcn, k -> new ArrayList<>()).add(cws.code());
+                } else if (cu.isClass()) {
+                    classParts.add(cws);
+                }
+            }
+
+            StringBuilder sb = new StringBuilder();
+
+            if (!methodsByClass.isEmpty()) {
+                sb.append("Method uses:\n\n");
+                for (var entry : methodsByClass.entrySet()) {
+                    var fqcn = entry.getKey();
+
+                    // Try to derive the file path from any representative CodeUnit for this class
+                    String file = "?";
+                    for (var cws : parts) {
+                        var cu = cws.source();
+                        if (cu.isFunction() && CodeUnit.toClassname(cu.fqName()).equals(fqcn)) {
+                            file = cu.source().toString();
+                            break;
+                        }
+                    }
+
+                    sb.append(
+                            """
+                            <methods class="%s" file="%s">
+                            %s
+                            </methods>
+                            """
+                                    .formatted(fqcn, file, String.join("\n\n", entry.getValue())));
+                }
+            }
+
+            if (!classParts.isEmpty()) {
+                sb.append("Type uses:\n\n");
+
+                // Group class parts by FQCN
+                Map<String, List<String>> classCodesByFqcn = new LinkedHashMap<>();
+                for (var cws : classParts) {
+                    // Each CodeWithSource in classParts represents a class CodeUnit
+                    var cu = cws.source();
+                    if (!cu.isClass()) continue;
+                    String fqcn = cu.fqName();
+                    classCodesByFqcn
+                            .computeIfAbsent(fqcn, k -> new ArrayList<>())
+                            .add(cws.code());
+                }
+
+                for (var entry : classCodesByFqcn.entrySet()) {
+                    var fqcn = entry.getKey();
+                    var codesForClass = entry.getValue();
+
+                    // Find the file path for this class.
+                    String file = "?";
+                    for (var cws : classParts) {
+                        var potentialCu = cws.source();
+                        if (potentialCu.isClass() && potentialCu.fqName().equals(fqcn)) {
+                            file = potentialCu.source().toString();
+                            break;
+                        }
+                    }
+
+                    sb.append(
+                            """
+                            <class file="%s">
+                            %s
+                            </class>
+                            """
+                                    .formatted(file, String.join("\n\n", codesForClass)));
+                }
+            }
+
+            return sb.toString();
+        }
+    }
 }

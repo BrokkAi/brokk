@@ -779,7 +779,7 @@ public class GitWorktreeTab extends JPanel {
                 .map(p -> p.getFileName().toString()) // More concise display
                 .collect(Collectors.joining("\n"));
 
-        int confirm = JOptionPane.showConfirmDialog(
+        int confirm = chrome.showConfirmDialog(
                 this,
                 "Are you sure you want to remove the following worktree(s):\n" + pathListString
                         + "\n\nThis will delete the files from disk and attempt to close their Brokk window(s) if open.",

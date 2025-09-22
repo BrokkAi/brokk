@@ -229,7 +229,7 @@ public class SearchAgent {
                         You are the Search Agent.
                         Your job:
                           - find and organize code relevant to the user's question or implementation goal,
-                          - aggressively curate the Workspace so a Code Agent can implement next without confusion,
+                          - aggressively curate the Workspace so a Code Agent has all the needed resources to implement next without confusion,
                           - never write code yourself.
 
                         Critical rules:
@@ -374,7 +374,7 @@ public class SearchAgent {
         names.add("addFilesToWorkspace");
         names.add("addClassesToWorkspace");
         names.add("addClassSummariesToWorkspace");
-        names.add("addMethodSourcesToWorkspace");
+        names.add("addMethodsToWorkspace");
         names.add("addFileSummariesToWorkspace");
         names.add("addSymbolUsagesToWorkspace");
         names.add("addCallGraphInToWorkspace");
@@ -408,7 +408,7 @@ public class SearchAgent {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
             case "addTextToWorkspace" -> 2;
-            case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodSourcesToWorkspace" -> 3;
+            case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
             case "getRelatedClasses" -> 5;
             case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;

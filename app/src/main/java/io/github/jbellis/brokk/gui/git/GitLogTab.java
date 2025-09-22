@@ -823,7 +823,7 @@ public class GitLogTab extends JPanel {
                 boolean isMerged = getRepo().isBranchMerged(branchName);
                 SwingUtilities.invokeLater(() -> {
                     if (isMerged) {
-                        int result = JOptionPane.showConfirmDialog(
+                        int result = chrome.showConfirmDialog(
                                 this,
                                 "Are you sure you want to delete branch '" + branchName + "'?",
                                 "Delete Branch",

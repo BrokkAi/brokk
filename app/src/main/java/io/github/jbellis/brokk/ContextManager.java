@@ -1232,7 +1232,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var methodFullName = element.getClassName() + "." + element.getMethodName();
                 var methodSource = sourceCodeProvider.getMethodSource(methodFullName, true);
                 if (methodSource.isPresent()) {
-                    String className = ContextFragment.toClassname(methodFullName);
+                    String className = CodeUnit.toClassname(methodFullName);
                     localAnalyzer
                             .getDefinition(className)
                             .filter(CodeUnit::isClass)
