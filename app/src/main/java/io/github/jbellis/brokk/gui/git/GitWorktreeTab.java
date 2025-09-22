@@ -7,18 +7,16 @@ import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.MergeDialogUtil;
 import java.awt.*;
-import java.awt.event.ItemEvent;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -28,7 +26,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
@@ -1041,12 +1038,11 @@ public class GitWorktreeTab extends JPanel {
 
     private void showMergeDialog() {
         var project = contextManager.getProject();
-        if (!(project instanceof WorktreeProject worktreeProject)) {
+        if (!(project instanceof WorktreeProject)) {
             // This should not happen if the merge button is only available in worktree views.
             logger.warn("Merge dialog opened for a non-worktree project: {}", project.getRoot());
             return;
         }
-        var parentProject = worktreeProject.getParent();
 
         String worktreeBranchName = "";
         if (project.getRepo() instanceof GitRepo gitRepo) {
@@ -1054,262 +1050,24 @@ public class GitWorktreeTab extends JPanel {
                 worktreeBranchName = gitRepo.getCurrentBranch();
             } catch (GitAPIException e) {
                 logger.error("Could not get current branch for worktree", e);
-                // Optionally inform the user or disable merge functionality if branch name is crucial
+                chrome.toolError("Could not determine current branch: " + e.getMessage(), "Merge Error");
+                return;
             }
         }
 
-        JPanel dialogPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridwidth = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.insets = new Insets(2, 2, 2, 2);
-        gbc.weightx = 0;
+        // Use the shared merge dialog utility
+        var options =
+                MergeDialogUtil.MergeDialogOptions.forWorktreeMerge(worktreeBranchName, this, chrome, contextManager);
+        var result = MergeDialogUtil.showMergeDialog(options);
 
-        // Target Branch
-        JLabel targetBranchLabel = new JLabel("Merge into branch:");
-        dialogPanel.add(targetBranchLabel, gbc);
-
-        gbc.gridwidth = GridBagConstraints.REMAINDER;
-        gbc.weightx = 1.0;
-        JComboBox<String> targetBranchComboBox = new JComboBox<>();
-        dialogPanel.add(targetBranchComboBox, gbc);
-        gbc.weightx = 0; // Reset for next components
-
-        // Merge Strategy
-        gbc.gridwidth = 1;
-        JLabel mergeModeLabel = new JLabel("Merge strategy:");
-        dialogPanel.add(mergeModeLabel, gbc);
-
-        gbc.gridwidth = GridBagConstraints.REMAINDER;
-        gbc.weightx = 1.0;
-        JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
-        var lastMergeMode = parentProject.getLastMergeMode().orElse(GitRepo.MergeMode.MERGE_COMMIT);
-        mergeModeComboBox.setSelectedItem(lastMergeMode);
-        mergeModeComboBox.addActionListener(
-                MergeBranchDialogPanel.createMergeModePersistenceListener(mergeModeComboBox, parentProject));
-        dialogPanel.add(mergeModeComboBox, gbc);
-        gbc.weightx = 0;
-
-        // Populate targetBranchComboBox
-        IGitRepo iParentRepo = parentProject.getRepo();
-        if (iParentRepo instanceof GitRepo parentGitRepo) {
-            try {
-                List<String> localBranches = parentGitRepo.listLocalBranches();
-                localBranches.forEach(targetBranchComboBox::addItem);
-                String currentParentBranch = parentGitRepo.getCurrentBranch();
-                targetBranchComboBox.setSelectedItem(currentParentBranch);
-            } catch (GitAPIException e) {
-                logger.error("Failed to get parent project branches", e);
-                targetBranchComboBox.addItem("Error loading branches");
-                targetBranchComboBox.setEnabled(false);
-            }
-        } else {
-            logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
-            targetBranchComboBox.addItem("Unsupported parent repo type");
-            targetBranchComboBox.setEnabled(false);
+        if (result.confirmed()) {
+            performMergeOperation(
+                    result.sourceBranch(),
+                    result.targetBranch(),
+                    result.mergeMode(),
+                    result.deleteWorktree(),
+                    result.deleteBranch());
         }
-
-        // Checkboxes
-        gbc.gridwidth = GridBagConstraints.REMAINDER; // Span full width for checkboxes and label
-        JCheckBox removeWorktreeCb = new JCheckBox("Delete worktree after merge");
-        removeWorktreeCb.setSelected(true);
-        dialogPanel.add(removeWorktreeCb, gbc);
-
-        final String finalWorktreeBranchName = worktreeBranchName;
-        JCheckBox removeBranchCb = new JCheckBox("Delete branch '" + finalWorktreeBranchName + "' after merge");
-        removeBranchCb.setSelected(true);
-        dialogPanel.add(removeBranchCb, gbc);
-
-        Runnable updateRemoveBranchCbState = () -> {
-            if (removeWorktreeCb.isSelected()) {
-                removeBranchCb.setEnabled(true);
-            } else {
-                removeBranchCb.setEnabled(false);
-                removeBranchCb.setSelected(false); // Uncheck when disabled
-            }
-        };
-        removeWorktreeCb.addActionListener(e -> updateRemoveBranchCbState.run());
-        updateRemoveBranchCbState.run();
-
-        // Conflict Status Label
-        JLabel conflictStatusLabel = new JLabel(" "); // Start with a non-empty string for layout
-        conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground")); // Default color
-        dialogPanel.add(conflictStatusLabel, gbc);
-
-        String dialogTitle = "Merge branch '" + finalWorktreeBranchName + "'";
-        JOptionPane optionPane = new JOptionPane(dialogPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
-
-        // Create explicit OK and Cancel buttons so we have a reliable reference to the OK button
-        JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
-        JButton cancelButton = new JButton(UIManager.getString("OptionPane.cancelButtonText"));
-
-        okButton.addActionListener(e -> {
-            optionPane.setValue(JOptionPane.OK_OPTION);
-            Window w = SwingUtilities.getWindowAncestor(okButton);
-            if (w instanceof JDialog d) d.dispose();
-        });
-        cancelButton.addActionListener(e -> {
-            optionPane.setValue(JOptionPane.CANCEL_OPTION);
-            Window w = SwingUtilities.getWindowAncestor(cancelButton);
-            if (w instanceof JDialog d) d.dispose();
-        });
-
-        optionPane.setOptions(new Object[] {okButton, cancelButton});
-        okButton.setEnabled(false); // Initially disabled until conflict check completes successfully
-
-        JDialog dialog = optionPane.createDialog(this, dialogTitle);
-        dialog.getRootPane().setDefaultButton(okButton);
-
-        // Add listeners to re-check conflicts on selection changes (both Action and Item to be robust)
-        final JButton finalOkButton = okButton; // effectively final for lambda
-        targetBranchComboBox.addActionListener(e -> checkConflictsAsync(
-                targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
-        mergeModeComboBox.addActionListener(e -> checkConflictsAsync(
-                targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
-
-        targetBranchComboBox.addItemListener(e -> {
-            if (e.getStateChange() == ItemEvent.SELECTED) {
-                checkConflictsAsync(
-                        targetBranchComboBox,
-                        mergeModeComboBox,
-                        conflictStatusLabel,
-                        finalWorktreeBranchName,
-                        finalOkButton);
-            }
-        });
-        mergeModeComboBox.addItemListener(e -> {
-            if (e.getStateChange() == ItemEvent.SELECTED) {
-                checkConflictsAsync(
-                        targetBranchComboBox,
-                        mergeModeComboBox,
-                        conflictStatusLabel,
-                        finalWorktreeBranchName,
-                        finalOkButton);
-            }
-        });
-
-        // Initial conflict check with the explicit OK button reference
-        checkConflictsAsync(
-                targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton);
-
-        dialog.setVisible(true);
-        Object selectedValue = optionPane.getValue();
-        dialog.dispose();
-
-        if (selectedValue != null && selectedValue.equals(JOptionPane.OK_OPTION)) {
-            // Ensure these are captured before the lambda potentially changes them,
-            // or ensure they are final/effectively final.
-            final String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
-            final GitRepo.MergeMode selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
-
-            String currentConflictText = conflictStatusLabel.getText(); // Check the final state of the label
-            if (currentConflictText.startsWith("No conflicts detected")
-                    || currentConflictText.startsWith("Checking for conflicts")) {
-                logger.info(
-                        "Merge confirmed for worktree branch '{}' into target branch '{}' using mode '{}'. Remove worktree: {}, Remove branch: {}",
-                        finalWorktreeBranchName,
-                        selectedTargetBranch,
-                        selectedMergeMode,
-                        removeWorktreeCb.isSelected(),
-                        removeBranchCb.isSelected());
-                performMergeOperation(
-                        finalWorktreeBranchName,
-                        selectedTargetBranch,
-                        selectedMergeMode,
-                        removeWorktreeCb.isSelected(),
-                        removeBranchCb.isSelected());
-            } else {
-                logger.info(
-                        "Merge dialog confirmed with OK, but conflicts were present or an error occurred. Merge not performed.");
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Merge was not performed because conflicts were detected or an error occurred:\n"
-                                + currentConflictText,
-                        "Merge Prevented",
-                        JOptionPane.WARNING_MESSAGE);
-            }
-        }
-    }
-
-    private void checkConflictsAsync(
-            JComboBox<String> targetBranchComboBox,
-            JComboBox<GitRepo.MergeMode> mergeModeComboBox,
-            JLabel conflictStatusLabel,
-            String worktreeBranchName,
-            @Nullable JButton okButton) {
-        if (okButton != null) {
-            okButton.setEnabled(false);
-        }
-
-        String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
-        GitRepo.MergeMode selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
-
-        if (selectedTargetBranch == null
-                || selectedTargetBranch.equals("Error loading branches")
-                || selectedTargetBranch.equals("Unsupported parent repo type")
-                || selectedTargetBranch.equals("Parent repo not available")
-                || selectedTargetBranch.equals("Parent project not found")
-                || selectedTargetBranch.equals("Not a worktree project")) {
-            conflictStatusLabel.setText("Please select a valid target branch.");
-            conflictStatusLabel.setForeground(Color.RED);
-            // okButton is already disabled, or null if not found
-            return;
-        }
-
-        conflictStatusLabel.setText("Checking for conflicts with '" + selectedTargetBranch + "'...");
-        conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground")); // Default color
-
-        var project = contextManager.getProject();
-        assert project instanceof WorktreeProject;
-
-        var parentProject = project.getParent();
-        IGitRepo gitRepo = parentProject.getRepo();
-
-        final String finalSelectedTargetBranch = selectedTargetBranch;
-        final GitRepo.MergeMode finalSelectedMergeMode = selectedMergeMode;
-
-        contextManager.submitBackgroundTask("Checking merge conflicts", () -> {
-            String conflictResultString;
-            try {
-                if (finalSelectedTargetBranch.equals(worktreeBranchName)) {
-                    conflictResultString = "Cannot merge a branch into itself.";
-                } else {
-                    // This checks for historical conflicts in a clean, temporary worktree
-                    conflictResultString = gitRepo.checkMergeConflicts(
-                            worktreeBranchName, finalSelectedTargetBranch, finalSelectedMergeMode);
-                }
-            } catch (GitRepo.WorktreeDirtyException e) {
-                // uncommitted changes that would prevent even starting a simulation.
-                logger.warn("Conflict check aborted because target worktree is dirty: {}", e.getMessage());
-                conflictResultString = "Target branch has uncommitted changes that must be stashed or committed first.";
-            } catch (GitAPIException e) {
-                logger.error("GitAPIException during conflict check", e);
-                conflictResultString = "Error checking conflicts: " + e.getMessage();
-            } catch (Exception e) { // Catch other potential exceptions
-                logger.error("Unexpected error during conflict check", e);
-                conflictResultString = "Unexpected error during conflict check: " + e.getMessage();
-            }
-
-            final String finalConflictResultString = conflictResultString;
-            SwingUtilities.invokeLater(() -> {
-                if (finalConflictResultString != null && !finalConflictResultString.isBlank()) {
-                    conflictStatusLabel.setText(finalConflictResultString);
-                    conflictStatusLabel.setForeground(Color.RED);
-                    if (okButton != null) {
-                        okButton.setEnabled(false);
-                    }
-                } else {
-                    conflictStatusLabel.setText("No conflicts detected with '" + finalSelectedTargetBranch + "' for "
-                            + finalSelectedMergeMode.toString().toLowerCase(Locale.ROOT) + ".");
-                    conflictStatusLabel.setForeground(new Color(0, 128, 0)); // Green for no conflicts
-                    if (okButton != null) {
-                        okButton.setEnabled(true);
-                    }
-                }
-            });
-            return null;
-        });
     }
 
     private void performMergeOperation(
