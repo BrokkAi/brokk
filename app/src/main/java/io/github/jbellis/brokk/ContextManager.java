@@ -28,8 +28,6 @@ import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -293,7 +291,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var loadedCH = sessionManager.loadHistory(currentSessionId, this);
         if (loadedCH == null) {
             if (forceNew) {
-                contextHistory = new ContextHistory(new Context(this, buildWelcomeMessage()));
+                contextHistory = new ContextHistory(new Context(this, null));
             } else {
                 initializeCurrentSessionAndHistory(true);
                 return;
@@ -1250,40 +1248,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return messages;
     }
 
-    /** Build a welcome message with environment information. Uses statically available model info. */
-    private String buildWelcomeMessage() {
-        String welcomeMarkdown;
-        var mdPath = "/WELCOME.md";
-        try (var welcomeStream = Brokk.class.getResourceAsStream(mdPath)) {
-            if (welcomeStream != null) {
-                welcomeMarkdown = new String(welcomeStream.readAllBytes(), StandardCharsets.UTF_8);
-            } else {
-                logger.warn("WELCOME.md resource not found.");
-                welcomeMarkdown = "Welcome to Brokk!";
-            }
-        } catch (IOException e1) {
-            throw new UncheckedIOException(e1);
-        }
-
-        var version = BuildInfo.version;
-
-        return """
-               %s
-
-               ## Environment
-               - Brokk version: %s
-               - Project: %s (%d native files, %d total including dependencies)
-               - Analyzer language: %s
-               """
-                .stripIndent()
-                .formatted(
-                        welcomeMarkdown,
-                        version,
-                        project.getRoot().getFileName(), // Show just the folder name
-                        project.getRepo().getTrackedFiles().size(),
-                        project.getAllFiles().size(),
-                        project.getAnalyzerLanguages());
-    }
 
     /** Shutdown all executors */
     @Override
@@ -1944,7 +1908,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             updateActiveSession(sessionInfo.id()); // Mark as active for this project
 
             // initialize history for the session
-            contextHistory = new ContextHistory(new Context(this, "Welcome to the new session!"));
+            contextHistory = new ContextHistory(new Context(this, null));
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 

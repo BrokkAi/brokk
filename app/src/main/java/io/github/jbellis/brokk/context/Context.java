@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.context;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
@@ -12,7 +11,6 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
-import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -39,7 +37,7 @@ public class Context {
     public static final Context EMPTY = new Context(new IContextManager() {}, null);
 
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
-    private static final String WELCOME_ACTION = "Welcome to Brokk";
+    private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
@@ -68,17 +66,10 @@ public class Context {
                 contextManager,
                 List.of(),
                 List.of(),
-                getWelcomeOutput(contextManager, initialOutputText),
+                null,
                 CompletableFuture.completedFuture(WELCOME_ACTION));
     }
 
-    private static ContextFragment.TaskFragment getWelcomeOutput(
-            IContextManager contextManager, @Nullable String initialOutputText) {
-        var messages = initialOutputText == null
-                ? List.<ChatMessage>of()
-                : List.<ChatMessage>of(Messages.customSystem(initialOutputText));
-        return new ContextFragment.TaskFragment(contextManager, messages, "Welcome");
-    }
 
     private Context(
             UUID id,
