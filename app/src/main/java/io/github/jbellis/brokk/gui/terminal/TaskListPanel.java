@@ -20,6 +20,7 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
+import javax.swing.JLabel;
 import javax.swing.ListCellRenderer;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -33,14 +34,21 @@ public class TaskListPanel extends JPanel implements ThemeAware {
     private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
     private final JTextField input = new JTextField();
+    private final MaterialButton removeBtn = new MaterialButton();
+    private final JButton toggleDoneBtn = new JButton("Done");
 
     public TaskListPanel(IConsoleIO console) {
         super(new BorderLayout(4, 4));
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
+        // Header label
+        add(new JLabel("Task List"), BorderLayout.NORTH);
+
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
+        // Update button states based on selection
+        list.addListSelectionListener(e -> updateButtonStates());
 
         // South: controls
         var controls = new JPanel(new GridBagLayout());
@@ -62,14 +70,12 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         controls.add(addBtn, gbc);
 
-        var removeBtn = new MaterialButton();
         removeBtn.setIcon(Icons.REMOVE);
         removeBtn.setToolTipText("Remove selected task");
         removeBtn.addActionListener(e -> removeSelected());
         gbc.gridx = 2;
         controls.add(removeBtn, gbc);
 
-        var toggleDoneBtn = new JButton("Done");
         toggleDoneBtn.setToolTipText("Toggle complete");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
         gbc.gridx = 3;
@@ -87,6 +93,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
                 }
             }
         });
+        updateButtonStates();
     }
 
     private void addTask() {
@@ -101,6 +108,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         if (idx >= 0) {
             model.remove(idx);
         }
+        updateButtonStates();
     }
 
     private void toggleSelectedDone() {
@@ -109,6 +117,13 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             var it = model.get(idx);
             model.set(idx, new TaskItem(it.text(), !it.done()));
         }
+        updateButtonStates();
+    }
+
+    private void updateButtonStates() {
+        boolean hasSelection = list.getSelectedIndex() >= 0;
+        removeBtn.setEnabled(hasSelection);
+        toggleDoneBtn.setEnabled(hasSelection);
     }
 
     @Override
