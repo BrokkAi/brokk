@@ -598,8 +598,10 @@ public final class MOPBridge {
     }
 
     public void onBridgeReady() {
-        // Send initial environment snapshot; frontend will update again via callbacks
-        sendEnvironmentInfo(false, "Initializing...");
+        // Send initial environment snapshot; reflect current analyzer state and languages
+        boolean ready = contextManager != null && contextManager.isAnalyzerReady();
+        sendEnvironmentInfo(ready);
+
         if (hostComponent instanceof MOPWebViewHost host) {
             host.onBridgeReady();
         }
@@ -610,9 +612,8 @@ public final class MOPBridge {
      * window.brokk.setEnvironmentInfo(info).
      *
      * @param analyzerReady whether the analyzer is ready
-     * @param analyzerStatus optional human-readable status ("Building...", "Ready", etc.)
      */
-    public void sendEnvironmentInfo(boolean analyzerReady, @Nullable String analyzerStatus) {
+    public void sendEnvironmentInfo(boolean analyzerReady) {
         var cm = contextManager;
         if (cm == null) {
             logger.warn("sendEnvironmentInfo called without a ContextManager");
@@ -663,14 +664,8 @@ public final class MOPBridge {
             payload.put("nativeFileCount", nativeFileCount);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
-
-            if (analyzerReady) {
-                payload.put("analyzerStatus", analyzerStatus != null ? analyzerStatus : "Ready");
-                if (!analyzerLanguages.isEmpty()) {
-                    payload.put("analyzerLanguages", analyzerLanguages);
-                }
-            } else {
-                payload.put("analyzerStatus", analyzerStatus != null ? analyzerStatus : "Building...");
+            if (!analyzerLanguages.isEmpty()) {
+                payload.put("analyzerLanguages", analyzerLanguages);
             }
 
             var json = toJson(payload);

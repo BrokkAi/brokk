@@ -177,6 +177,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Model reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
 
+    // Tracks current analyzer readiness for quick non-blocking queries
+    private final AtomicBoolean analyzerReady = new AtomicBoolean(false);
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -452,6 +455,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().showAnalyzerRebuildSpinner();
                 }
+                analyzerReady.set(false);
                 // Notify analyzer callbacks
                 for (var callback : analyzerCallbacks) {
                     try {
@@ -467,6 +471,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().hideAnalyzerRebuildSpinner();
                 }
+                analyzerReady.set(true);
 
                 // Wait for context load to finish, with a timeout
                 long startTime = System.currentTimeMillis();
@@ -500,6 +505,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onAnalyzerReady() {
                 logger.debug("Analyzer became ready, triggering symbol lookup refresh");
+                analyzerReady.set(true);
                 for (var callback : analyzerCallbacks) {
                     try {
                         callback.onAnalyzerReady();
@@ -1311,6 +1317,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public boolean isLlmTaskInProgress() {
         return llmTaskInProgress.get();
+    }
+
+    /** Returns current analyzer readiness without blocking. */
+    public boolean isAnalyzerReady() {
+        return analyzerReady.get();
     }
 
     @Override

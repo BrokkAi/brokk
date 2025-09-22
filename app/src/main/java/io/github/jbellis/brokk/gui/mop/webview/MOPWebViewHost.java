@@ -430,15 +430,14 @@ public final class MOPWebViewHost extends JPanel {
      * Push a fresh snapshot of environment information to the WebView.
      *
      * @param analyzerReady whether the analyzer is ready
-     * @param status human-readable status ("Building...", "Ready", etc.)
      */
-    public void sendEnvironmentInfo(boolean analyzerReady, String status) {
+    public void sendEnvironmentInfo(boolean analyzerReady) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
             logger.debug("sendEnvironmentInfo ignored; bridge not ready");
             return;
         }
-        bridge.sendEnvironmentInfo(analyzerReady, status);
+        bridge.sendEnvironmentInfo(analyzerReady);
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {

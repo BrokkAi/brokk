@@ -6,13 +6,11 @@ export type EnvInfo = {
   nativeFileCount?: number;
   totalFileCount?: number;
   analyzerReady?: boolean;
-  analyzerStatus?: string;
   analyzerLanguages?: string | string[];
 };
 
 const initial: EnvInfo = {
-  analyzerReady: false,
-  analyzerStatus: 'Initializing...'
+  analyzerReady: false
 };
 
 export const envStore = writable<EnvInfo>(initial);

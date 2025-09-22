@@ -93,7 +93,7 @@
             <span class="env-muted"> — {formatLanguages($envStore.analyzerLanguages)}</span>
           {/if}
         {:else}
-          <span class="env-badge progress">{$envStore.analyzerStatus ?? 'Analyzer in progress'}</span>
+          <span class="env-badge progress">Building...</span>
         {/if}
       </div>
     </div>
