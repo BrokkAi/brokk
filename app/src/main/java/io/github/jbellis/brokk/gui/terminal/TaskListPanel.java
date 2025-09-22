@@ -16,20 +16,16 @@ import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
-import javax.swing.JLabel;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
-import org.jetbrains.annotations.Nullable;
 
-/**
- * A simple, theme-aware task list panel supporting add, remove and complete toggle.
- */
+/** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
 public class TaskListPanel extends JPanel implements ThemeAware {
 
     private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
@@ -164,11 +160,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
 
         @Override
         public Component getListCellRendererComponent(
-                JList<? extends TaskItem> list,
-                TaskItem value,
-                int index,
-                boolean isSelected,
-                boolean cellHasFocus) {
+                JList<? extends TaskItem> list, TaskItem value, int index, boolean isSelected, boolean cellHasFocus) {
 
             check.setSelected(value.done());
             label.setText(value.text());
