@@ -53,6 +53,15 @@ import org.jetbrains.annotations.Nullable;
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
+    // Default layout proportions - can be overridden by saved preferences
+    private static final double DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT = 0.583; // 58.3% workspace, 41.7% instructions
+    private static final double DEFAULT_OUTPUT_MAIN_SPLIT = 0.4; // 40% output, 60% main content
+    private static final double MIN_SIDEBAR_WIDTH_FRACTION = 0.10; // 10% minimum sidebar width
+    private static final double MAX_SIDEBAR_WIDTH_FRACTION = 0.40; // 40% maximum sidebar width (normal screens)
+    private static final double MAX_SIDEBAR_WIDTH_FRACTION_WIDE = 0.25; // 25% maximum sidebar width (wide screens)
+    private static final int WIDE_SCREEN_THRESHOLD = 2000; // Screen width threshold for wide screen layout
+    private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
+
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
     private final String SYSMSG_EMPTY = "Ready";
@@ -112,16 +121,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (leftTabbedPanel.getSelectedIndex() == tabIndex) {
             // Tab already selected: capture current expanded width (if not already minimized), then minimize
             int currentLocation = bottomSplitPane.getDividerLocation();
-            if (currentLocation >= 50) {
+            if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
                 lastExpandedSidebarLocation = currentLocation;
             }
-            leftTabbedPanel.setSelectedIndex(-1);
+            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
             bottomSplitPane.setDividerSize(0);
             bottomSplitPane.setDividerLocation(40);
         } else {
             leftTabbedPanel.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
-            if (bottomSplitPane.getDividerLocation() < 50) {
+            if (bottomSplitPane.getDividerLocation() < SIDEBAR_COLLAPSED_THRESHOLD) {
                 bottomSplitPane.setDividerSize(originalBottomDividerSize);
                 int target = (lastExpandedSidebarLocation > 0)
                         ? lastExpandedSidebarLocation
@@ -207,6 +216,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
     public Chrome(ContextManager contextManager) {
+        assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
@@ -453,10 +463,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         outputStackSplit.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
         bottomSplitPane.setResizeWeight(0.0);
-        int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-        bottomSplitPane.setDividerLocation(initialDividerLocation);
-        // Initialize the remembered expanded location
-        lastExpandedSidebarLocation = initialDividerLocation;
+        int tempDividerLocation = 300; // Reasonable default that will be recalculated
+        bottomSplitPane.setDividerLocation(tempDividerLocation);
+        // Initialize the remembered expanded location (will be updated later)
+        lastExpandedSidebarLocation = tempDividerLocation;
 
         // Store original divider size
         originalBottomDividerSize = bottomSplitPane.getDividerSize();
@@ -466,10 +476,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
         bottomPanel.repaint();
-
-        // Now that every split pane exists, restore previous window size and
-        // divider locations and hook their listeners.
-        loadWindowSizeAndPosition();
 
         // Set initial enabled state for global actions after all components are ready
         this.globalUndoAction.updateEnabledState();
@@ -512,12 +518,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Register global keyboard shortcuts now that actions are fully initialized
         registerGlobalKeyboardShortcuts();
 
-        // Show the window
-        frame.setVisible(true);
+        // Complete all layout operations synchronously before showing window
+        completeLayoutSynchronously();
+
+        // Final validation and repaint before making window visible
         frame.validate();
         frame.repaint();
-
-        // Title bar will be applied after layout restoration in loadWindowSizeAndPosition()
+        // Now show the window with complete layout
+        frame.setVisible(true);
 
         // Possibly check if .gitignore is set
         if (getProject().hasGit()) {
@@ -1473,6 +1481,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var boundsOptional = project.getMainWindowBounds();
         if (boundsOptional.isEmpty()) {
             // No valid saved bounds, apply default placement logic
+            logger.info("No workspace.properties found, using default window layout");
             GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
             GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
             Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
@@ -1523,66 +1532,124 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 project.saveMainWindowBounds(frame);
             }
         });
+    }
 
-        SwingUtilities.invokeLater(() -> {
-            // Load and set top split position (Instructions | Workspace)
-            int topSplitPos = project.getLeftVerticalSplitPosition(); // Reuse this setting
-            if (topSplitPos > 0) {
-                topSplitPane.setDividerLocation(topSplitPos);
-            } else {
-                topSplitPane.setDividerLocation(0.583);
+    /**
+     * Completes all window and split pane layout operations synchronously. This ensures the window has proper layout
+     * before becoming visible.
+     *
+     * <p>CRITICAL FIX: Uses frame.pack() to force proper component sizing, then restores intended window size. This
+     * resolves the issue where components had zero size when workspace.properties is missing, causing empty gray window
+     * on startup.
+     */
+    private void completeLayoutSynchronously() {
+        // First, set up window size and position
+        loadWindowSizeAndPosition();
+
+        // Then complete split pane layout synchronously
+        var project = getProject();
+
+        // Force a layout pass so split panes have proper sizes before setting divider locations
+        frame.validate();
+
+        // Set horizontal (sidebar) split pane divider now - it depends on frame width which is already known
+        // Note: Vertical split panes will be set after pack() when component heights are properly calculated
+
+        // Calculate the proper sidebar width with correct frame size
+        int savedHorizontalPos = project.getHorizontalSplitPosition();
+        int properDividerLocation;
+        if (savedHorizontalPos > 0) {
+            // Use saved position, but ensure it's safe for current window size
+            properDividerLocation = project.getSafeHorizontalSplitPosition(frame.getWidth());
+        } else {
+            // No saved position, calculate based on current frame size
+            int computedWidth = computeInitialSidebarWidth();
+            properDividerLocation = computedWidth + bottomSplitPane.getDividerSize();
+        }
+
+        bottomSplitPane.setDividerLocation(properDividerLocation);
+
+        if (properDividerLocation < SIDEBAR_COLLAPSED_THRESHOLD) {
+            bottomSplitPane.setDividerSize(0);
+            leftTabbedPanel.setSelectedIndex(0); // Show Project Files when collapsed
+        } else {
+            lastExpandedSidebarLocation = properDividerLocation;
+        }
+
+        // Add property change listeners for future updates
+        addSplitPaneListeners(project);
+
+        // Apply title bar now that layout is complete
+        applyTitleBar(frame, frame.getTitle());
+
+        // Force a complete layout validation
+        frame.revalidate();
+
+        // Fix zero-sized components by forcing layout calculation with pack()
+        // Remember the intended size before pack changes it
+        int intendedWidth = frame.getWidth();
+        int intendedHeight = frame.getHeight();
+
+        frame.pack(); // This forces proper component sizing
+        frame.setSize(intendedWidth, intendedHeight); // Restore intended window size
+        frame.validate();
+
+        // NOW calculate vertical split pane dividers with proper component heights
+
+        // Load and set top split position (Instructions | Workspace)
+        int topSplitPos = project.getLeftVerticalSplitPosition();
+        if (topSplitPos > 0) {
+            topSplitPane.setDividerLocation(topSplitPos);
+        } else {
+            // Calculate absolute position with proper component height
+            int topSplitHeight = topSplitPane.getHeight();
+            int defaultTopSplitPos = (int) (topSplitHeight * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT);
+            topSplitPane.setDividerLocation(defaultTopSplitPos);
+        }
+
+        // Load and set main vertical split position (Top | Bottom tabs)
+        int mainVerticalPos = project.getRightVerticalSplitPosition();
+        if (mainVerticalPos > 0) {
+            mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
+        } else {
+            // Calculate absolute position with proper component height
+            int mainVerticalHeight = mainVerticalSplitPane.getHeight();
+            int defaultMainVerticalPos = (int) (mainVerticalHeight * DEFAULT_OUTPUT_MAIN_SPLIT);
+            mainVerticalSplitPane.setDividerLocation(defaultMainVerticalPos);
+        }
+    }
+
+    /** Adds property change listeners to split panes for saving positions. */
+    private void addSplitPaneListeners(AbstractProject project) {
+        topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (topSplitPane.isShowing()) {
+                var newPos = topSplitPane.getDividerLocation();
+                if (newPos > 0) {
+                    project.saveLeftVerticalSplitPosition(newPos);
+                }
             }
-            topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (topSplitPane.isShowing()) {
-                    var newPos = topSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveLeftVerticalSplitPosition(newPos); // Reuse this setting
+        });
+
+        mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (mainVerticalSplitPane.isShowing()) {
+                var newPos = mainVerticalSplitPane.getDividerLocation();
+                if (newPos > 0) {
+                    project.saveRightVerticalSplitPosition(newPos);
+                }
+            }
+        });
+
+        bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (bottomSplitPane.isShowing()) {
+                var newPos = bottomSplitPane.getDividerLocation();
+                if (newPos > 0) {
+                    project.saveHorizontalSplitPosition(newPos);
+                    // Remember expanded locations only (ignore collapsed sidebar)
+                    if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
+                        lastExpandedSidebarLocation = newPos;
                     }
                 }
-            });
-
-            // Load and set main vertical split position (Top | Bottom tabs)
-            int mainVerticalPos = project.getRightVerticalSplitPosition(); // Reuse this setting
-            if (mainVerticalPos > 0) {
-                mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
-            } else {
-                mainVerticalSplitPane.setDividerLocation(0.4);
             }
-            mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (mainVerticalSplitPane.isShowing()) {
-                    var newPos = mainVerticalSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveRightVerticalSplitPosition(newPos); // Reuse this setting
-                    }
-                }
-            });
-
-            // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
-            int safePosition = project.getSafeHorizontalSplitPosition(frame.getWidth());
-            bottomSplitPane.setDividerLocation(safePosition);
-
-            if (safePosition < 50) {
-                bottomSplitPane.setDividerSize(0);
-                leftTabbedPanel.setSelectedIndex(-1);
-            } else {
-                lastExpandedSidebarLocation = safePosition;
-            }
-
-            bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (bottomSplitPane.isShowing()) {
-                    var newPos = bottomSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveHorizontalSplitPosition(newPos);
-                        // Remember expanded locations only (ignore minimized 40px)
-                        if (newPos >= 50) {
-                            lastExpandedSidebarLocation = newPos;
-                        }
-                    }
-                }
-            });
-
-            // Apply title bar after all layout restoration is complete
-            applyTitleBar(frame, frame.getTitle());
         });
     }
 
@@ -2268,11 +2335,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         int ideal = projectFilesPanel.getPreferredSize().width;
         int frameWidth = frame.getWidth();
 
-        // Allow between 10 % and 40 % on normal displays.
-        // On very wide screens ( > 2000 px ), 40 % is excessive,
-        // so cap the maximum at 25 %.
-        int min = (int) (frameWidth * 0.10); // 10 % of window width
-        double maxFraction = frameWidth > 2000 ? 0.25 : 0.40;
+        // Allow between minimum and maximum percentage based on screen width
+        int min = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
+        double maxFraction =
+                frameWidth > WIDE_SCREEN_THRESHOLD ? MAX_SIDEBAR_WIDTH_FRACTION_WIDE : MAX_SIDEBAR_WIDTH_FRACTION;
         int max = (int) (frameWidth * maxFraction);
 
         return Math.max(min, Math.min(ideal, max));
