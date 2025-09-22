@@ -1283,7 +1283,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return messages;
     }
 
-
     /** Shutdown all executors */
     @Override
     public void close() {

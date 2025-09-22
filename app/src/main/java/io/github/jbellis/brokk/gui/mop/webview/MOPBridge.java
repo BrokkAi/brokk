@@ -6,10 +6,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
-import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
@@ -19,12 +19,12 @@ import io.github.jbellis.brokk.util.Messages;
 import java.awt.KeyboardFocusManager;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.Collection;
-import java.util.Arrays;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -606,8 +606,8 @@ public final class MOPBridge {
     }
 
     /**
-     * Send a snapshot of environment information to the frontend.
-     * The frontend is expected to expose window.brokk.setEnvironmentInfo(info).
+     * Send a snapshot of environment information to the frontend. The frontend is expected to expose
+     * window.brokk.setEnvironmentInfo(info).
      *
      * @param analyzerReady whether the analyzer is ready
      * @param analyzerStatus optional human-readable status ("Building...", "Ready", etc.)
@@ -674,8 +674,8 @@ public final class MOPBridge {
             }
 
             var json = toJson(payload);
-            var js = "if (window.brokk && window.brokk.setEnvironmentInfo) { "
-                    + "window.brokk.setEnvironmentInfo(" + json + "); }";
+            var js = "if (window.brokk && window.brokk.setEnvironmentInfo) { " + "window.brokk.setEnvironmentInfo("
+                    + json + "); }";
 
             Platform.runLater(() -> {
                 try {

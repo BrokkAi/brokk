@@ -70,7 +70,6 @@ public class Context {
                 CompletableFuture.completedFuture(WELCOME_ACTION));
     }
 
-
     private Context(
             UUID id,
             IContextManager contextManager,
