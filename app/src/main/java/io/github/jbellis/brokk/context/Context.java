@@ -290,7 +290,7 @@ public class Context {
         if (index < 0) {
             return this; // no-op if not found
         }
-        var newVirtuals = new ArrayList<ContextFragment.VirtualFragment>(virtualFragments);
+        var newVirtuals = new ArrayList<>(virtualFragments);
         newVirtuals.set(index, newFragment);
         String action = "Updated " + newFragment.shortDescription();
         return getWithFragments(editableFiles, readonlyFiles, newVirtuals, action);

@@ -1450,9 +1450,9 @@ public class WorkspacePanel extends JPanel {
 
         String warningTooltip =
                 """
-        Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
-        Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
-        """;
+                        Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
+                        Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
+                        """;
 
         // Always set the standard summary text on innerLabel
         innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
@@ -1701,7 +1701,7 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        Runnable showDialog = () -> {
+        contextManager.submitContextTask("Delegating Call Graph Task", () -> {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             if (analyzer.isEmpty()) {
                 chrome.toolError("Code Intelligence is empty; nothing to add");
@@ -1734,13 +1734,7 @@ public class WorkspacePanel extends JPanel {
                     chrome.systemOutput("Method selection canceled.");
                 }
             });
-        };
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            showDialog.run();
-        } else {
-            SwingUtilities.invokeLater(showDialog);
-        }
+        });
     }
 
     /** Shows the call graph dialog on EDT, then adds callees info asynchronously. */
@@ -1749,7 +1743,7 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        Runnable showDialog = () -> {
+        contextManager.submitContextTask("Delegating Call Graph Task", () -> {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             if (analyzer.isEmpty()) {
                 chrome.toolError("Code Intelligence is empty; nothing to add");
@@ -1782,13 +1776,7 @@ public class WorkspacePanel extends JPanel {
                     chrome.systemOutput("Method selection canceled.");
                 }
             });
-        };
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            showDialog.run();
-        } else {
-            SwingUtilities.invokeLater(showDialog);
-        }
+        });
     }
 
     /** Process a confirmed symbol selection by updating the workspace asynchronously. */
@@ -1803,19 +1791,14 @@ public class WorkspacePanel extends JPanel {
                     new ContextFragment.PlaceholderFragment(contextManager, "Searching for symbol usages...");
             contextManager.addVirtualFragment(initialPlaceholder);
             logger.debug("Placeholder created (id={})", initialPlaceholder.id());
-            // Do the heavy work on background thread
+            // Schedule the long-running task after the EDT has a chance to render the placeholder
             contextManager.submitContextTask("Find Symbol Usage", () -> {
                 logger.debug("Background task started for symbol: {}", symbol);
                 try {
-                    // Update placeholder status while computing
-                    var searchingPlaceholder =
-                            new ContextFragment.PlaceholderFragment(contextManager, "Finding uses of " + symbol);
-                    contextManager.replaceVirtualFragment(initialPlaceholder.id(), searchingPlaceholder);
-
-                    // Build the actual fragment and replace the placeholder when ready
+                    // Build the actual fragment and replace the initial placeholder when ready
                     var actualFragment =
                             new ContextFragment.UsageFragment(contextManager, symbol, selection.includeTestFiles());
-                    contextManager.replaceVirtualFragment(searchingPlaceholder.id(), actualFragment);
+                    contextManager.replaceVirtualFragment(initialPlaceholder.id(), actualFragment);
 
                     chrome.systemOutput(
                             "Added uses of " + symbol + (selection.includeTestFiles() ? " (including tests)" : ""));
