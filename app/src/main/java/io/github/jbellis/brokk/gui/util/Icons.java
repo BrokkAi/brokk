@@ -43,4 +43,6 @@ public final class Icons {
     public static final Icon REDO = SwingUtil.uiIcon("Brokk.redo");
     public static final Icon PLAY = SwingUtil.uiIcon("Brokk.play");
     public static final Icon LIST = SwingUtil.uiIcon("Brokk.list");
+    public static final Icon CIRCLE = SwingUtil.uiIcon("Brokk.circle");
+    public static final Icon CHECK = SwingUtil.uiIcon("Brokk.check");
 }

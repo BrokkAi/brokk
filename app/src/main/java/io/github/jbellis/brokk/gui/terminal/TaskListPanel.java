@@ -22,6 +22,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.JLabel;
 import javax.swing.ListCellRenderer;
+import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import org.jetbrains.annotations.Nullable;
@@ -47,6 +48,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
+        list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> updateButtonStates());
 
@@ -76,7 +78,7 @@ public class TaskListPanel extends JPanel implements ThemeAware {
         gbc.gridx = 2;
         controls.add(removeBtn, gbc);
 
-        toggleDoneBtn.setToolTipText("Toggle complete");
+        toggleDoneBtn.setToolTipText("Mark selected done");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
         gbc.gridx = 3;
         controls.add(toggleDoneBtn, gbc);
@@ -104,18 +106,22 @@ public class TaskListPanel extends JPanel implements ThemeAware {
     }
 
     private void removeSelected() {
-        int idx = list.getSelectedIndex();
-        if (idx >= 0) {
-            model.remove(idx);
+        int[] indices = list.getSelectedIndices();
+        if (indices.length > 0) {
+            for (int i = indices.length - 1; i >= 0; i--) {
+                model.remove(indices[i]);
+            }
         }
         updateButtonStates();
     }
 
     private void toggleSelectedDone() {
-        int idx = list.getSelectedIndex();
-        if (idx >= 0) {
-            var it = model.get(idx);
-            model.set(idx, new TaskItem(it.text(), !it.done()));
+        int[] indices = list.getSelectedIndices();
+        if (indices.length > 0) {
+            for (int idx : indices) {
+                var it = model.get(idx);
+                model.set(idx, new TaskItem(it.text(), !it.done()));
+            }
         }
         updateButtonStates();
     }
@@ -150,6 +156,8 @@ public class TaskListPanel extends JPanel implements ThemeAware {
             super(new BorderLayout(6, 0));
             setOpaque(true);
             check.setOpaque(false);
+            check.setIcon(Icons.CIRCLE);
+            check.setSelectedIcon(Icons.CHECK);
             add(check, BorderLayout.WEST);
             add(label, BorderLayout.CENTER);
         }
