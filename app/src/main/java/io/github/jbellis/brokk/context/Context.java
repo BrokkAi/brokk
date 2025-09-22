@@ -186,6 +186,24 @@ public class Context {
         return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action);
     }
 
+    public Context replaceVirtualFragmentById(String fragmentId, ContextFragment.VirtualFragment newFragment) {
+        int index = -1;
+        for (int i = 0; i < fragments.size(); i++) {
+            ContextFragment f = fragments.get(i);
+            if (f.getType().isVirtual() && Objects.equals(f.id(), fragmentId)) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            return this; // no-op if not found
+        }
+        var newFragments = new ArrayList<>(fragments);
+        newFragments.set(index, newFragment);
+        String action = "Updated " + newFragment.shortDescription();
+        return withFragments(newFragments, CompletableFuture.completedFuture(action));
+    }
+
     /**
      * 1) Gather all classes from each fragment. 2) Compute PageRank with those classes as seeds, requesting up to
      * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.

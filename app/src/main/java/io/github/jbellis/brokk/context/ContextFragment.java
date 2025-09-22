@@ -59,7 +59,8 @@ public interface ContextFragment {
         PASTE_TEXT,
         PASTE_IMAGE,
         STACKTRACE,
-        BUILD_LOG;
+        BUILD_LOG,
+        PLACEHOLDER;
 
         private static final EnumSet<FragmentType> PATH_TYPES =
                 EnumSet.of(PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);
@@ -76,7 +77,8 @@ public interface ContextFragment {
                 PASTE_TEXT,
                 PASTE_IMAGE,
                 STACKTRACE,
-                BUILD_LOG);
+                BUILD_LOG,
+                PLACEHOLDER);
 
         private static final EnumSet<FragmentType> OUTPUT_TYPES = EnumSet.of(SEARCH, HISTORY, TASK);
 
@@ -1745,6 +1747,46 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "BuildFragment('%s')".formatted(description());
+        }
+    }
+
+    // Placeholder fragment used to indicate a task is in progress and will be replaced later.
+    class PlaceholderFragment extends VirtualFragment { // Dynamic, uses nextId
+        private final String message;
+
+        public PlaceholderFragment(IContextManager contextManager, String message) {
+            super(contextManager);
+            this.message = message;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.PLACEHOLDER;
+        }
+
+        @Override
+        public String description() {
+            return message;
+        }
+
+        @Override
+        public String text() {
+            return "Loading: " + message;
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return true;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return SyntaxConstants.SYNTAX_STYLE_NONE;
+        }
+
+        @Override
+        public String formatSummary() {
+            return "<fragment description=\"%s\" status=\"loading\" />".formatted(description());
         }
     }
 
