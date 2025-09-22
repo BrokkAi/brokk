@@ -1,3 +1,3 @@
 public enum EnumClass {
-    FOO, BAR;
+    FOO, BAR
 }

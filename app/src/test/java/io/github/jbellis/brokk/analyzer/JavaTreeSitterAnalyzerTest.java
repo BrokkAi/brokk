@@ -235,8 +235,8 @@ public class JavaTreeSitterAnalyzerTest {
         final var expected =
                 """
                 public enum EnumClass {
-                  Foo,
-                  Bar;
+                  FOO,
+                  BAR
                 }
                 """
                         .trim()
