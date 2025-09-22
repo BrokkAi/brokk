@@ -56,7 +56,8 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
                     "annotation.definition", SkeletonType.CLASS_LIKE, // for @interface
                     "method.definition", SkeletonType.FUNCTION_LIKE,
                     "constructor.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE),
+                    "field.definition", SkeletonType.FIELD_LIKE,
+                    "enum.constant", SkeletonType.FIELD_LIKE),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );

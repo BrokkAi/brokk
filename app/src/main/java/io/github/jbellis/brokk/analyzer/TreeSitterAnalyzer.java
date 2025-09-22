@@ -1888,8 +1888,6 @@ public abstract class TreeSitterAnalyzer
                     functionName);
         }
 
-        // exportPrefix already contains all modifiers including 'async' if present.
-        // The asyncPrefix logic is removed as it's now part of the unified exportPrefix.
         String paramsText = formatParameterList(paramsNode, src);
         String returnTypeText = formatReturnType(returnTypeNode, src);
 
@@ -1902,9 +1900,37 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        // The asyncPrefix parameter is removed from assembleFunctionSignature
+        // Combine captured/export prefix with any modifier nodes present on the function node itself.
+        var modifierTokens = new LinkedHashSet<String>();
+        var trimmedExport = exportPrefix.strip();
+        if (!trimmedExport.isEmpty()) {
+            for (String tok :
+                    Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(trimmedExport)) {
+                modifierTokens.add(tok);
+            }
+        }
+
+        for (int i = 0; i < funcNode.getChildCount(); i++) {
+            TSNode child = funcNode.getChild(i);
+            if (child == null || child.isNull()) continue;
+            String t = child.getType();
+            boolean isModifierType = profile.modifierNodeTypes().contains(t)
+                    || (!profile.asyncKeywordNodeType().isEmpty() && t.equals(profile.asyncKeywordNodeType()));
+            if (isModifierType) {
+                String text = textSlice(child, src).strip();
+                if (!text.isEmpty()) {
+                    for (String tok : Splitter.on(Pattern.compile("\\s+"))
+                            .omitEmptyStrings()
+                            .split(text)) {
+                        modifierTokens.add(tok);
+                    }
+                }
+            }
+        }
+        String combinedPrefix = modifierTokens.isEmpty() ? "" : String.join(" ", modifierTokens) + " ";
+
         String functionLine = assembleFunctionSignature(
-                funcNode, src, exportPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
+                funcNode, src, combinedPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
         if (!functionLine.isBlank()) {
             lines.add(functionLine);
         }

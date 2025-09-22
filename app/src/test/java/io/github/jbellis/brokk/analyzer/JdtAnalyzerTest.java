@@ -150,7 +150,7 @@ public class JdtAnalyzerTest {
         final var source = sourceOpt.get().stripIndent();
         // Verify the source contains class definition and methods
         assertTrue(source.contains("class A {"));
-        assertTrue(source.contains("public void method1()"));
+        assertTrue(source.contains("void method1()"));
         assertTrue(source.contains("public String method2(String input)"));
     }
 
@@ -201,7 +201,7 @@ public class JdtAnalyzerTest {
         final var source = sourceOpt.get().stripIndent();
         // Verify that the class fallback works if subclasses (or anonymous classes) aren't resolved
         assertTrue(source.contains("class A {"));
-        assertTrue(source.contains("public void method1()"));
+        assertTrue(source.contains("void method1()"));
         assertTrue(source.contains("public String method2(String input)"));
     }
 
@@ -243,7 +243,7 @@ public class JdtAnalyzerTest {
                 """
                 public class A {
                   public A() {...}
-                  public void method1() {...}
+                  void method1() {...}
                   public String method2(String input) {...}
                   public String method2(String input, int otherInput) {...}
                   public Function<Integer, Integer> method3() {...}
@@ -260,7 +260,7 @@ public class JdtAnalyzerTest {
                   public static class AInnerStatic {
                     public AInnerStatic() {...}
                   }
-                  public void usesInnerClass() {...}
+                  private void usesInnerClass() {...}
                 }
                 """
                         .trim()
