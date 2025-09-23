@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk.exception;
 
 import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.util.LowMemoryWatcherManager;
 import java.lang.Thread.UncaughtExceptionHandler;
+import java.lang.reflect.InvocationTargetException;
 import javax.swing.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,18 +49,23 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
     }
 
     public static void showRecoveryMessage() {
-        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                null,
-                String.format(
-                        """
-                                The application ran out of memory during the last session.
-                                Any active projects have been cleared to prevent this from immediately reoccurring.
-                                To launch Brokk with more allocated memory, use:
-                                    jbang run --java-options -Xmx%dM brokk@brokkai/brokk
-                                """,
-                        LowMemoryWatcherManager.suggestedHeapSizeMb()),
-                "Memory Error Recovery",
-                JOptionPane.WARNING_MESSAGE));
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                var message = "<html>"
+                        + "The application ran out of memory during the last session.<br>"
+                        + "Any active projects have been cleared to prevent this from immediately reoccurring.<br><br>"
+                        + "To adjust memory allocation:<br>"
+                        + "- Open Settings &gt; Global &gt; General<br>"
+                        + "- Increase the memory allocation<br><br>"
+                        + "A restart is required for changes to take effect."
+                        + "</html>";
+
+                JOptionPane.showMessageDialog(null, message, "Memory Error Recovery", JOptionPane.WARNING_MESSAGE);
+            });
+        } catch (InterruptedException | InvocationTargetException e) {
+            logger.warn("Failed to synchronously show memory recovery message dialog.", e);
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**

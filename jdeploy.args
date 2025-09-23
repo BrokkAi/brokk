@@ -1,0 +1,6 @@
+# Brokk JVM argument file (managed by Brokk)
+# Runtime settings (e.g., -Xmx) are written here by the app.
+# Example:
+# -Xmx4096m
+
+--add-modules jdk.incubator.vector
