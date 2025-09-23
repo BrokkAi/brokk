@@ -262,6 +262,47 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         });
     }
 
+    /** Opens the drawer synchronously before first layout using a saved proportion. */
+    public void openInitially(double proportion) {
+        // Ensure the TerminalPanel exists without invoking the 50% defaults
+        if (activeTerminal == null) {
+            try {
+                Path cwd = null;
+                if (console instanceof Chrome c) {
+                    var project = c.getProject();
+                    if (project != null) {
+                        cwd = project.getRoot();
+                    }
+                }
+                if (cwd == null) {
+                    cwd = Path.of(System.getProperty("user.dir"));
+                }
+                activeTerminal = new TerminalPanel(console, this::closeTerminal, true, cwd);
+                drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
+            } catch (Exception ex) {
+                logger.warn("Failed to create terminal in drawer: {}", ex.getMessage());
+                return;
+            }
+        }
+
+        // Restore original divider size and sane defaults
+        if (originalDividerSize > 0) {
+            parentSplitPane.setDividerSize(originalDividerSize);
+        }
+        parentSplitPane.setResizeWeight(0.5);
+        setMinimumSize(null);
+
+        // Apply saved proportion if valid, else fall back to 0.5
+        double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
+        parentSplitPane.setDividerLocation(loc);
+
+        // Reflect toggle selected state without firing its action
+        terminalToggle.setSelected(true);
+
+        revalidate();
+        repaint();
+    }
+
     public void openTerminalAndPasteText(String text) {
         openTerminalAsync()
                 .thenAccept(tp -> {

@@ -1774,11 +1774,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         boolean termOpen = GlobalUiSettings.isTerminalDrawerOpen();
         double termProp = GlobalUiSettings.getTerminalDrawerProportion();
         if (termOpen) {
-            // Show drawer and then set location
-            terminalDrawer.showDrawer();
-            if (termProp > 0.0 && termProp < 1.0) {
-                instructionsDrawerSplit.setDividerLocation(termProp);
-            }
+            // Open using saved proportion synchronously before first layout
+            terminalDrawer.openInitially(termProp);
         } else {
             terminalDrawer.collapseIfEmpty();
         }
