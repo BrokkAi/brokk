@@ -78,15 +78,6 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
     }
 
     @Override
-    public FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
-        if (jdtAnalyzer != null) {
-            return jdtAnalyzer.getFunctionLocation(fqMethodName, paramNames);
-        } else {
-            return super.getFunctionLocation(fqMethodName, paramNames);
-        }
-    }
-
-    @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (jdtAnalyzer != null) {
             jdtAnalyzer.update(changedFiles);

@@ -236,12 +236,6 @@ public class MultiAnalyzer
     }
 
     @Override
-    public FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
-        // TODO -- unused right now
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public Optional<String> extractClassName(String reference) {
         return findFirst(analyzer -> analyzer.extractClassName(reference));
     }

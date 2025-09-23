@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
-import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.analyzer.lsp.domain.SymbolContext;
 import java.io.IOException;
@@ -348,96 +347,6 @@ public interface LspAnalyzer
                 .thenApply(v ->
                         usagesFutures.stream().flatMap(CompletableFuture::join).toList())
                 .join();
-    }
-
-    /**
-     * Locates the source file and line range for the given fully-qualified method name. The {@code paramNames} list
-     * contains the *parameter variable names* (not types). If there is only a single match, or exactly one match with
-     * matching param names, return it. Otherwise, throw {@code SymbolNotFoundException} or
-     * {@code SymbolAmbiguousException}.
-     *
-     * @param fqMethodName the fully qualified method name.
-     * @param paramNames the parameter names to differentiate the function from overloaded variants.
-     * @return the function's location.
-     * @throws SymbolNotFoundException if no function could be found with the given parameters.
-     */
-    @Override
-    default @NotNull FunctionLocation getFunctionLocation(
-            @NotNull String fqMethodName, @NotNull List<String> paramNames) {
-        final var methodMatches = getDefinitionsInWorkspace(fqMethodName).stream()
-                .filter(symbol -> LspAnalyzerHelper.METHOD_KINDS.contains(symbol.getKind()))
-                .toList();
-
-        final var matches = new HashSet<FunctionLocation>();
-
-        for (final WorkspaceSymbol overload : methodMatches) {
-            // getRight won't give us the Range object
-            if (!overload.getLocation().isLeft()) {
-                continue;
-            }
-            // For each overload, get its full signature from the source.
-            final var uri = LspAnalyzerHelper.getUriStringFromLocation(overload.getLocation());
-            final var maybeSnippet = LspAnalyzerHelper.getSourceFromMethodSymbol(overload, getServer());
-            if (maybeSnippet.isPresent()) {
-                final var signatureSnippet = maybeSnippet.get();
-                // Extract the parameter list string.
-                final int openParen = signatureSnippet.indexOf('(');
-                final int closeParen = signatureSnippet.indexOf(')');
-
-                if (openParen != -1 && closeParen > openParen) {
-                    final String paramListString = signatureSnippet.substring(openParen + 1, closeParen);
-
-                    // Parse the names from the string.
-                    final List<String> actualParamNames = getParameterNamesFromString(paramListString);
-
-                    // If the parsed names match the expected names, we've found our method.
-                    if (methodMatches.size() == 1 || actualParamNames.equals(paramNames)) {
-                        final Path filePath = Paths.get(URI.create(uri));
-                        final Range range = overload.getLocation().getLeft().getRange();
-                        final var projectFile = new ProjectFile(
-                                getProjectRoot(), getProjectRoot().relativize(filePath));
-                        matches.add(new FunctionLocation(
-                                projectFile,
-                                range.getStart().getLine(),
-                                range.getEnd().getLine(),
-                                signatureSnippet));
-                    }
-                }
-            }
-        }
-        if (matches.size() > 1) {
-            // if more than one match is found, this is ambiguous
-            final var reason = matches.size() + " methods found in " + fqMethodName
-                    + " matching provided parameter names [" + String.join(", ", paramNames) + "]";
-            throw new SymbolAmbiguousException(reason);
-        } else if (matches.isEmpty()) {
-            // if nothing found, bail
-            final var reason = "No methods found in " + fqMethodName + " matching provided parameter names ["
-                    + String.join(", ", paramNames) + "]";
-            throw new SymbolNotFoundException(reason);
-        } else {
-            return matches.iterator().next();
-        }
-    }
-
-    /**
-     * A helper to parse a list of parameter names from a declaration string.
-     *
-     * @param parameterString e.g., "String input, int otherInput"
-     * @return A list of names, e.g., ["input", "otherInput"]
-     */
-    private List<String> getParameterNamesFromString(String parameterString) {
-        if (parameterString == null || parameterString.isBlank()) {
-            return Collections.emptyList();
-        }
-        return Arrays.stream(parameterString.split(","))
-                .map(String::strip)
-                .map(param -> {
-                    List<String> parts = Splitter.on(Pattern.compile("\\s+")).splitToList(param);
-                    // The last part is the name (e.g., from "String input")
-                    return parts.getLast();
-                })
-                .collect(Collectors.toList());
     }
 
     @Override
