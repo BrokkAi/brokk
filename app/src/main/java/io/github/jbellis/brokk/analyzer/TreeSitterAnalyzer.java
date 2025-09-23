@@ -58,6 +58,11 @@ public abstract class TreeSitterAnalyzer
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
 
+    // Definition priority constants - lower values are preferred for sorting
+    protected static final int PRIORITY_DEFAULT = 0;
+    protected static final int PRIORITY_HIGH = -1;
+    protected static final int PRIORITY_LOW = 1;
+
     private static boolean containsAnyHierarchySeparator(String s) {
         for (String sep : COMMON_HIERARCHY_SEPARATORS) {
             if (s.contains(sep)) {
@@ -66,6 +71,14 @@ public abstract class TreeSitterAnalyzer
         }
         return false;
     }
+
+    // Comparator for sorting CodeUnit definitions by priority
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
+                    (CodeUnit cu) -> definitionOverridePriority(cu))
+            .thenComparingInt(this::firstStartByteForSelection)
+            .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(cu -> cu.kind().name());
 
     /* ---------- instance state ---------- */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
@@ -396,13 +409,7 @@ public abstract class TreeSitterAnalyzer
             return Optional.empty();
         }
 
-        Comparator<CodeUnit> comparator = Comparator.comparingInt((CodeUnit cu) -> definitionOverridePriority(cu))
-                .thenComparingInt(this::firstStartByteForSelection)
-                .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(cu -> cu.kind().name());
-
-        return matches.stream().sorted(comparator).findFirst();
+        return matches.stream().sorted(DEFINITION_COMPARATOR).findFirst();
     }
 
     @Override
@@ -682,10 +689,10 @@ public abstract class TreeSitterAnalyzer
 
     /**
      * Hook for language-specific preference when multiple CodeUnits share the same FQN. Lower values are preferred.
-     * Default is 0 (no preference).
+     * Default is PRIORITY_DEFAULT (no preference).
      */
     protected int definitionOverridePriority(CodeUnit cu) {
-        return 0;
+        return PRIORITY_DEFAULT;
     }
 
     /** Returns the earliest startByte among recorded ranges for deterministic ordering. */
