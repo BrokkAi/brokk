@@ -352,18 +352,15 @@ public class MergeDialogUtil {
             return;
         }
 
-        final String finalSelectedTargetBranch = selectedTargetBranch;
-        final GitRepo.MergeMode finalSelectedMergeMode = selectedMergeMode;
-
         contextManager.submitBackgroundTask("Checking merge conflicts", () -> {
             String conflictResultString;
             try {
-                if (finalSelectedTargetBranch.equals(sourceBranchName)) {
+                if (selectedTargetBranch.equals(sourceBranchName)) {
                     conflictResultString = "Cannot merge a branch into itself.";
                 } else {
                     // This checks for historical conflicts in a clean, temporary worktree
-                    conflictResultString = gitRepo.checkMergeConflicts(
-                            sourceBranchName, finalSelectedTargetBranch, finalSelectedMergeMode);
+                    conflictResultString =
+                            gitRepo.checkMergeConflicts(sourceBranchName, selectedTargetBranch, selectedMergeMode);
                 }
             } catch (GitRepo.WorktreeDirtyException e) {
                 // uncommitted changes that would prevent even starting a simulation.
@@ -377,17 +374,18 @@ public class MergeDialogUtil {
                 conflictResultString = "Unexpected error during conflict check: " + e.getMessage();
             }
 
-            final String finalConflictResultString = conflictResultString;
+            final String finalConflictResult = conflictResultString;
             SwingUtilities.invokeLater(() -> {
-                if (finalConflictResultString != null && !finalConflictResultString.isBlank()) {
-                    conflictStatusLabel.setText(finalConflictResultString);
+                if (finalConflictResult != null && !finalConflictResult.isBlank()) {
+                    conflictStatusLabel.setText(finalConflictResult);
                     conflictStatusLabel.setForeground(Color.RED);
                     if (okButton != null) {
                         okButton.setEnabled(false);
                     }
                 } else {
-                    conflictStatusLabel.setText("No conflicts detected with '" + finalSelectedTargetBranch + "' for "
-                            + finalSelectedMergeMode.toString().toLowerCase(java.util.Locale.ROOT) + ".");
+                    conflictStatusLabel.setText(String.format(
+                            "No conflicts detected with '%s' for %s.",
+                            selectedTargetBranch, selectedMergeMode.toString().toLowerCase(java.util.Locale.ROOT)));
                     conflictStatusLabel.setForeground(new Color(0, 128, 0)); // Green for no conflicts
                     if (okButton != null) {
                         okButton.setEnabled(true);

@@ -784,8 +784,9 @@ public class GitLogTab extends JPanel {
                         repo.checkout(originalBranch);
                         chrome.systemOutput("Switched back to original branch: " + originalBranch);
                     } catch (GitAPIException e) {
-                        String restoreError = "Warning: Failed to switch back to original branch '" + originalBranch
-                                + "': " + e.getMessage();
+                        String restoreError = String.format(
+                                "Warning: Failed to switch back to original branch '%s': %s",
+                                originalBranch, e.getMessage());
                         logger.error(restoreError, e);
                         chrome.toolError(restoreError, "Branch Restoration Warning");
                     }
@@ -801,24 +802,24 @@ public class GitLogTab extends JPanel {
 
     private void deleteBranchAfterMerge(String branchName) {
         try {
-            GitRepo repo = getRepo();
-            String currentBranch = repo.getCurrentBranch();
-            List<String> localBranches = repo.listLocalBranches();
+            var repo = getRepo();
+            var currentBranch = repo.getCurrentBranch();
+            var localBranches = repo.listLocalBranches();
 
             if (localBranches.contains(branchName) && !branchName.equals(currentBranch)) {
                 // Check if branch is merged before deletion
-                boolean isMerged = repo.isBranchMerged(branchName);
-                if (isMerged) {
+                if (repo.isBranchMerged(branchName)) {
                     repo.deleteBranch(branchName);
-                    chrome.systemOutput("Branch '" + branchName + "' deleted after merge.");
+                    chrome.systemOutput(String.format("Branch '%s' deleted after merge.", branchName));
                 } else {
                     logger.warn("Branch '{}' appears unmerged, skipping deletion after merge", branchName);
-                    chrome.systemOutput("Warning: Branch '" + branchName + "' appears unmerged, skipping deletion.");
+                    chrome.systemOutput(
+                            String.format("Warning: Branch '%s' appears unmerged, skipping deletion.", branchName));
                 }
             }
         } catch (GitAPIException e) {
             logger.warn("Could not delete source branch after merge", e);
-            chrome.toolError("Merge successful, but failed to delete source branch: " + e.getMessage());
+            chrome.toolError(String.format("Merge successful, but failed to delete source branch: %s", e.getMessage()));
         }
     }
 
