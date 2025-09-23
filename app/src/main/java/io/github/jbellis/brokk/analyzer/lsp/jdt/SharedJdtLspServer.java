@@ -53,6 +53,7 @@ public final class SharedJdtLspServer extends LspServer {
         final Path launcherJar = LspFileUtilities.findFile(serverHome, "org.eclipse.equinox.launcher_");
         final Path configDir = LspFileUtilities.findConfigDir(serverHome);
         final int memoryMB = JavaAnalyzerSettingsPanel.getSavedMemoryValueMb();
+        final int halfCoreCount = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
         logger.debug("Creating JDT LSP process with a max heap size of {} Mb", memoryMB);
         var javaExec = resolveJavaExecutable();
 
@@ -70,6 +71,7 @@ public final class SharedJdtLspServer extends LspServer {
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dlog.level=ALL",
+                "-Djava.util.concurrent.ForkJoinPool.common.parallelism=" + halfCoreCount,
                 // JDT LSP arguments
                 "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-DDetectVMInstallsJob.disabled=true",
@@ -80,6 +82,7 @@ public final class SharedJdtLspServer extends LspServer {
                 "-XX:GCTimeRatio=4",
                 "-XX:AdaptiveSizePolicyWeight=90",
                 "-XX:+UseStringDeduplication",
+                "-XX:ActiveProcessorCount=" + halfCoreCount,
                 "-Dsun.zip.disableMemoryMapping=true",
                 // Running the JAR
                 "-jar",
