@@ -29,13 +29,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
-import java.util.LinkedHashSet;
-import java.util.Arrays;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -178,11 +178,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     int[] sel = list.getSelectedIndices();
                     if (runningIndex != null) {
                         for (int si : sel) {
-                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
+                            if (si == runningIndex.intValue()) {
+                                includesRunning = true;
+                                break;
+                            }
                         }
                     }
                     for (int si : sel) {
-                        if (pendingQueue.contains(si)) { includesPending = true; break; }
+                        if (pendingQueue.contains(si)) {
+                            includesPending = true;
+                            break;
+                        }
                     }
                     boolean block = includesRunning || includesPending;
                     toggleItem.setEnabled(!block);
@@ -200,11 +206,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     int[] sel = list.getSelectedIndices();
                     if (runningIndex != null) {
                         for (int si : sel) {
-                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
+                            if (si == runningIndex.intValue()) {
+                                includesRunning = true;
+                                break;
+                            }
                         }
                     }
                     for (int si : sel) {
-                        if (pendingQueue.contains(si)) { includesPending = true; break; }
+                        if (pendingQueue.contains(si)) {
+                            includesPending = true;
+                            break;
+                        }
                     }
                     boolean block = includesRunning || includesPending;
                     toggleItem.setEnabled(!block);
@@ -262,27 +274,34 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
         removeBtn.setAppendShortcutToTooltip(true);
         removeBtn.setShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), null, null, null);
-        removeBtn.setToolTipText("<html><body style='width:300px'>Remove the selected tasks from the list.<br>Tasks that are running or queued cannot be removed.</body></html>");
+        removeBtn.setToolTipText(
+                "<html><body style='width:300px'>Remove the selected tasks from the list.<br>Tasks that are running or queued cannot be removed.</body></html>");
         removeBtn.addActionListener(e -> removeSelected());
 
         toggleDoneBtn.setIcon(Icons.CHECK);
         // Show a concise HTML tooltip and append the Space shortcut (display only; no action registered).
         toggleDoneBtn.setAppendShortcutToTooltip(true);
         toggleDoneBtn.setShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), null, null, null);
-        toggleDoneBtn.setToolTipText("<html><body style='width:300px'>Mark the selected tasks as done or not done.<br>Running or queued tasks cannot be toggled.</body></html>");
+        toggleDoneBtn.setToolTipText(
+                "<html><body style='width:300px'>Mark the selected tasks as done or not done.<br>Running or queued tasks cannot be toggled.</body></html>");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
 
         playBtn.setIcon(Icons.PLAY);
         // Show a helpful HTML tooltip and append the platform Enter shortcut (Ctrl/Cmd+Enter display only).
         playBtn.setAppendShortcutToTooltip(true);
         playBtn.setShortcut(
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                null, null, null);
-        playBtn.setToolTipText("<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                null,
+                null,
+                null);
+        playBtn.setToolTipText(
+                "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
         clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
-        clearCompletedBtn.setToolTipText("<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
+        clearCompletedBtn.setToolTipText(
+                "<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
         clearCompletedBtn.addActionListener(e -> clearCompletedTasks());
 
         {
@@ -573,14 +592,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
 
-        // Play enabled only if: selection exists, not busy, not done, no running/pending in selection, and no active queue
+        // Play enabled only if: selection exists, not busy, not done, no running/pending in selection, and no active
+        // queue
         playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
         for (int i = 0; i < model.getSize(); i++) {
             TaskItem it2 = model.get(i);
-            if (it2 != null && it2.done()) { anyCompleted = true; break; }
+            if (it2 != null && it2.done()) {
+                anyCompleted = true;
+                break;
+            }
         }
         clearCompletedBtn.setEnabled(anyCompleted);
     }
@@ -680,7 +703,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void runArchitectOnSelected() {
         int[] selected = list.getSelectedIndices();
         if (selected.length == 0) {
-            JOptionPane.showMessageDialog(this, "Select at least one task.", "No selection", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this, "Select at least one task.", "No selection", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -688,7 +712,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (console instanceof Chrome cBusy) {
             try {
                 if (cBusy.getContextManager().isLlmTaskInProgress()) {
-                    JOptionPane.showMessageDialog(this, "An AI task is already running. Please wait for it to finish.", "Busy", JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "An AI task is already running. Please wait for it to finish.",
+                            "Busy",
+                            JOptionPane.WARNING_MESSAGE);
                     return;
                 }
             } catch (Exception ex) {
@@ -696,7 +724,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
         if (queueActive || runningIndex != null) {
-            JOptionPane.showMessageDialog(this, "A task run is already in progress.", "In progress", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this, "A task run is already in progress.", "In progress", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
@@ -712,7 +741,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
         if (toRun.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "All selected tasks are already done.", "Nothing to run", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this, "All selected tasks are already done.", "Nothing to run", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
@@ -778,7 +808,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     // Phase 1: wait until busy (up to ~5 minutes)
                     int attempts = 0;
                     while (attempts++ < 1200) {
-                        if (cm.isLlmTaskInProgress()) { sawBusy = true; break; }
+                        if (cm.isLlmTaskInProgress()) {
+                            sawBusy = true;
+                            break;
+                        }
                         Thread.sleep(250);
                     }
                     if (!sawBusy) return false; // didn't start
@@ -801,7 +834,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
                 try {
-                    if (Boolean.TRUE.equals(res) && runningIndex != null && runningIndex == idx && idx >= 0 && idx < model.size()) {
+                    if (Boolean.TRUE.equals(res)
+                            && runningIndex != null
+                            && runningIndex == idx
+                            && idx >= 0
+                            && idx < model.size()) {
                         var it = model.get(idx);
                         model.set(idx, new TaskItem(it.text(), true));
                         saveTasksForCurrentSession();
@@ -1159,15 +1196,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     long start = TaskListPanel.this.runningAnimStartMs;
                     double periodMs = 5000.0;
                     double t = ((now - start) % (long) periodMs) / periodMs; // 0..1
-                    double ratio = 0.5 * (1 - Math.cos(2 * Math.PI * t));    // 0..1 smooth in/out
+                    double ratio = 0.5 * (1 - Math.cos(2 * Math.PI * t)); // 0..1 smooth in/out
 
                     java.awt.Color bgBase = list.getBackground();
                     java.awt.Color selBg = list.getSelectionBackground();
                     if (selBg == null) selBg = bgBase;
 
-                    int r = (int) Math.round(bgBase.getRed()   * (1 - ratio) + selBg.getRed()   * ratio);
+                    int r = (int) Math.round(bgBase.getRed() * (1 - ratio) + selBg.getRed() * ratio);
                     int g = (int) Math.round(bgBase.getGreen() * (1 - ratio) + selBg.getGreen() * ratio);
-                    int b = (int) Math.round(bgBase.getBlue()  * (1 - ratio) + selBg.getBlue()  * ratio);
+                    int b = (int) Math.round(bgBase.getBlue() * (1 - ratio) + selBg.getBlue() * ratio);
                     setBackground(new java.awt.Color(r, g, b));
                 } else {
                     setBackground(list.getBackground());
