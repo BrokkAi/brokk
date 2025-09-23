@@ -210,7 +210,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setRolloverEnabled(false);
         modeSwitch.setMargin(new Insets(0, 0, 0, 0));
         modeSwitch.setText("");
-        modeSwitch.setSelected(true); // Ask by default
 
         codeCheckBox = new JCheckBox("Plan First");
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
@@ -261,10 +260,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
+        modeSwitch.setSelected(proj.getInstructionsAskMode());
         if (proj instanceof MainProject mp) {
             codeCheckBox.setSelected(mp.getPlanFirst());
-            // Default to Search checked for Ask mode
-            searchProjectCheckBox.setSelected(true);
+            // Default to Search checked for Ask mode, but use persisted preference when available
+            searchProjectCheckBox.setSelected(mp.getSearchFirst());
         } else {
             // Fallback: both checked
             codeCheckBox.setSelected(true);
@@ -301,6 +301,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Update label emphasis
             updateModeLabels();
             refreshModeIndicator();
+            try {
+                chrome.getProject().setInstructionsAskMode(askMode);
+            } catch (Exception ex) {
+                logger.warn("Unable to persist instructions mode", ex);
+            }
         });
 
         codeCheckBox.addActionListener(e -> {

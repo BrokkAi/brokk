@@ -324,6 +324,19 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
+    public boolean getInstructionsAskMode() {
+        String v = workspaceProps.getProperty(PROP_INSTRUCTIONS_ASK);
+        // default to true (Ask mode) if not set
+        return v == null ? true : Boolean.parseBoolean(v);
+    }
+
+    @Override
+    public void setInstructionsAskMode(boolean ask) {
+        workspaceProps.setProperty(PROP_INSTRUCTIONS_ASK, String.valueOf(ask));
+        saveWorkspaceProperties();
+    }
+
     public final Optional<UUID> getLastActiveSession() {
         String sessionIdStr = workspaceProps.getProperty("lastActiveSession");
         if (sessionIdStr != null && !sessionIdStr.isBlank()) {
@@ -345,6 +358,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private static final String PROP_BUILD_LANGUAGE = "build.language";
     private static final String PROP_COMMAND_EXECUTOR = "commandExecutor";
     private static final String PROP_EXECUTOR_ARGS = "commandExecutorArgs";
+    private static final String PROP_INSTRUCTIONS_ASK = "instructions.ask";
 
     @Override
     public @Nullable String getJdk() {

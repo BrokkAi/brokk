@@ -214,6 +214,14 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default boolean getInstructionsAskMode() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setInstructionsAskMode(boolean ask) {
+        throw new UnsupportedOperationException();
+    }
+
     default List<String> loadTextHistory() {
         return List.of();
     }
