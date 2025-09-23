@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
@@ -46,6 +47,8 @@ public class Service {
     public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
+
+    private static final Logger log = LogManager.getLogger(Service.class);
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
@@ -333,7 +336,7 @@ public class Service {
 
         String url = MainProject.getServiceUrl() + "/api/payments/balance-lookup/" + key;
         Request request = new Request.Builder().url(url).get().build();
-        try (Response response = httpClient.newCall(request).execute()) {
+        try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
                 if (response.code() == 401) { // HTTP 401 Unauthorized
@@ -378,7 +381,7 @@ public class Service {
         String url = MainProject.getServiceUrl() + "/api/users/check-data-sharing?brokk_key=" + encodedKey;
         Request request = new Request.Builder().url(url).get().build();
 
-        try (Response response = httpClient.newCall(request).execute()) {
+        try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
                 LogManager.getLogger(Service.class)
@@ -443,18 +446,10 @@ public class Service {
         boolean isBrokk = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST;
         boolean isFreeTierOnly = false;
 
-        var authHeader = "Bearer dummy-key";
-        if (isBrokk) {
-            var kp = parseKey(MainProject.getBrokkKey());
-            authHeader = "Bearer " + kp.token();
-        }
-        Request request = new Request.Builder()
-                .url(baseUrl + "/model/info")
-                .header("Authorization", authHeader)
-                .get()
-                .build();
+        Request request =
+                BrokkHttp.proxyRequest().url(baseUrl + "/model/info").get().build();
 
-        try (Response response = httpClient.newCall(request).execute()) {
+        try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
                 throw new IOException("Failed to fetch model info: " + response.code() + " " + response.message()
@@ -1119,16 +1114,136 @@ public class Service {
                     RequestBody.create(screenshotFile, MediaType.parse("image/png")));
         }
 
-        var requestBuilder = new Request.Builder()
+        var request = new Request.Builder()
                 .url(MainProject.getServiceUrl() + "/api/events/feedback")
-                .post(bodyBuilder.build());
+                .post(bodyBuilder.build())
+                .build();
 
-        try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
+        try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
                 throw new IOException("Failed to send feedback: " + response.code() + " - "
                         + (response.body() != null ? response.body().string() : "(no body)"));
             }
             logger.debug("Feedback sent successfully");
+        }
+    }
+
+    // Metadata for remote sessions (lenient; unknown fields ignored)
+    public record RemoteSessionMeta(
+            String id,
+            @JsonProperty("user_id") String userId,
+            @JsonProperty("org_id") String orgId,
+            String remote,
+            String name,
+            String sharing,
+            @JsonProperty("created_at") String createdAt,
+            @JsonProperty("updated_at") String updatedAt,
+            @JsonProperty("deleted_at") @Nullable String deletedAt) {}
+
+    // Separate mapper configured to ignore unknown properties
+    private static final ObjectMapper SESSION_OBJECT_MAPPER = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+    // Cache for remote sessions
+    @Nullable
+    private static volatile List<RemoteSessionMeta> lastRemoteSessions = null;
+
+    private static @Nullable String sessionAuthHeader() {
+        String key = MainProject.getBrokkKey();
+        if (key.isBlank()) return null;
+        return "Bearer " + key;
+    }
+
+    public static List<RemoteSessionMeta> getLastRemoteSessions(String remote) throws IOException {
+        var sessions = lastRemoteSessions;
+        if (sessions == null) {
+            try {
+                return listRemoteSessions(remote); // this updates the cache
+            } catch (Exception e) {
+                log.warn("Failed to list remote sessions", e);
+                sessions = List.of();
+                // To prevent further attempts to list sessions for functionalities that
+                // don't strictly require the current state on the server
+                lastRemoteSessions = sessions;
+            }
+        }
+        return sessions;
+    }
+
+    public static List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+        var builder = BrokkHttp.sessionServiceRequest();
+        if (builder == null || remote.isBlank()) {
+            log.debug("Skipping listRemoteSessions: missing auth or remote");
+            throw new IOException("listRemoteSessions failed: missing auth or remote");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions?remote="
+                + URLEncoder.encode(remote, StandardCharsets.UTF_8);
+        Request request = builder.url(url).get().build();
+        try (Response response = BrokkHttp.execute(request)) {
+            if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                throw new IOException("listRemoteSessions failed: " + response.code() + " - " + body);
+            }
+            String body = response.body() != null ? response.body().string() : "[]";
+            RemoteSessionMeta[] arr = SESSION_OBJECT_MAPPER.readValue(body, RemoteSessionMeta[].class);
+            var result = Arrays.asList(arr);
+            lastRemoteSessions = result;
+            return result;
+        }
+    }
+
+    public static byte[] getRemoteSessionContent(UUID id) throws IOException {
+        var builder = BrokkHttp.sessionServiceRequest();
+        if (builder == null) {
+            throw new IOException("Missing Brokk key for remote session content fetch");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions/" + id;
+        Request request = builder.url(url).get().build();
+        try (Response response = BrokkHttp.execute(request)) {
+            if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                throw new IOException("getRemoteSessionContent failed: " + response.code() + " - " + body);
+            }
+            return response.body() != null ? response.body().bytes() : new byte[0];
+        }
+    }
+
+    public static RemoteSessionMeta writeRemoteSession(UUID id, String remote, String name, byte[] contentZip)
+            throws IOException {
+        var builder = BrokkHttp.sessionServiceRequest();
+        if (builder == null || remote.isBlank()) {
+            throw new IOException("Missing auth or remote for writeRemoteSession");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions";
+        var bodyBuilder = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("id", id.toString())
+                .addFormDataPart("remote", remote)
+                .addFormDataPart("name", name);
+        bodyBuilder.addFormDataPart(
+                "content", "session.zip", RequestBody.create(contentZip, MediaType.parse("application/zip")));
+        Request request = builder.url(url).post(bodyBuilder.build()).build();
+        try (Response response = BrokkHttp.execute(request)) {
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                throw new IOException("writeRemoteSession failed: " + response.code() + " - " + respBody);
+            }
+            return SESSION_OBJECT_MAPPER.readValue(respBody, RemoteSessionMeta.class);
+        }
+    }
+
+    public static void deleteRemoteSession(UUID id) throws IOException {
+        var builder = BrokkHttp.sessionServiceRequest();
+        if (builder == null) {
+            throw new IOException("Missing auth for deleteRemoteSession");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions/" + id;
+        Request request = builder.url(url).delete().build();
+        try (Response response = BrokkHttp.execute(request)) {
+            if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                throw new IOException("deleteRemoteSession failed: " + response.code() + " - " + body);
+            }
         }
     }
 
@@ -1230,23 +1345,13 @@ public class Service {
             String proxyUrl = MainProject.getProxyUrl();
             String endpoint = proxyUrl + "/audio/transcriptions";
 
-            var authHeader = "Bearer dummy-key"; // Default for LOCALHOST (no auth)
-            if (MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST) {
-                var kp = parseKey(MainProject.getBrokkKey());
-                authHeader = "Bearer " + kp.token();
-            }
-
-            Request request = new Request.Builder()
-                    .url(endpoint)
-                    .header("Authorization", authHeader)
-                    // Content-Type is set automatically by OkHttp for MultipartBody
-                    .post(requestBody)
-                    .build();
+            Request request =
+                    BrokkHttp.proxyRequest().url(endpoint).post(requestBody).build();
 
             logger.debug("Sending STT request to {}", endpoint);
 
             // Use the shared httpClient from the outer Models class
-            try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+            try (okhttp3.Response response = BrokkHttp.execute(request)) {
                 String bodyStr = response.body() != null ? response.body().string() : "";
                 logger.debug("Received STT response, status = {}", response.code());
 
@@ -1271,6 +1376,30 @@ public class Service {
                     throw new IOException("Error parsing proxied STT JSON response: " + e.getMessage(), e);
                 }
             }
+        }
+    }
+
+    private static class BrokkHttp {
+        public static Request.Builder proxyRequest() {
+            var builder = new Request.Builder();
+            var authHeader = "Bearer dummy-key";
+            if (MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST) {
+                var kp = parseKey(MainProject.getBrokkKey());
+                authHeader = "Bearer " + kp.token();
+            }
+            return builder.header("Authorization", authHeader);
+        }
+
+        public static @Nullable Request.Builder sessionServiceRequest() {
+            String auth = sessionAuthHeader();
+            if (auth == null) {
+                return null;
+            }
+            return new Request.Builder().header("Authorization", auth);
+        }
+
+        public static Response execute(Request request) throws IOException {
+            return httpClient.newCall(request).execute();
         }
     }
 }

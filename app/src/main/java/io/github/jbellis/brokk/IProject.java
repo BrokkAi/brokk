@@ -348,6 +348,10 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default String getRemoteProjectName() {
+        throw new UnsupportedOperationException();
+    }
+
     enum CodeAgentTestScope {
         ALL,
         WORKSPACE;

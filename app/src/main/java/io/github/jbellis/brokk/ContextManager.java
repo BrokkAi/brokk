@@ -145,6 +145,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     Executors.defaultThreadFactory()),
             Set.of(InterruptedException.class));
 
+    private final ScheduledExecutorService periodicTasks = Executors.newSingleThreadScheduledExecutor();
+
     private final ServiceWrapper service;
 
     @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
@@ -315,12 +317,54 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         });
 
-        migrateToSessionsV3IfNeeded();
+        var migrationFuture = migrateToSessionsV3IfNeeded();
+        if (!project.getRepo().isWorktree() && !MainProject.getBrokkKey().isBlank()) {
+            migrationFuture.whenComplete((v, t) -> uploadAndSyncSessions(sessionManager));
+        }
     }
 
-    private void migrateToSessionsV3IfNeeded() {
+    private void uploadAndSyncSessions(SessionManager sessionManager) {
+        var uploadSessionsPendingSynchronization = submitBackgroundTask("Upload sessions pending sync", () -> {
+            try {
+                sessionManager.uploadDirtySessionsToRemote();
+            } catch (Exception e) {
+                logger.warn("Failed to upload dirty sessions to remote: {}", e.getMessage());
+            }
+        });
+
+        uploadSessionsPendingSynchronization.whenComplete((v, t) -> {
+            var syncRemoteSessions = submitBackgroundTask("Sync remote sessions", () -> {
+                try {
+                    var sessionsChanged = project.getSessionManager().synchronizeRemoteSessions();
+                    if (sessionsChanged) {
+                        project.getMainProject().sessionsListChanged();
+                    }
+                } catch (Exception e) {
+                    logger.warn("Remote session sync failed: {}", e.getMessage());
+                }
+            });
+            syncRemoteSessions.whenComplete((v2, t2) -> startPeriodicSessionUpload(sessionManager));
+        });
+    }
+
+    private void startPeriodicSessionUpload(SessionManager sessionManager) {
+        logger.debug("Starting periodic session upload every 30 seconds.");
+        periodicTasks.scheduleAtFixedRate(
+                () -> {
+                    try {
+                        sessionManager.uploadDirtySessionsToRemote();
+                    } catch (Exception e) {
+                        logger.warn("Periodic session upload failed: {}", e.getMessage());
+                    }
+                },
+                30,
+                30,
+                TimeUnit.SECONDS);
+    }
+
+    private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
         if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
-            submitBackgroundTask("Quarantine unreadable sessions", () -> {
+            return submitBackgroundTask("Quarantine unreadable sessions", () -> {
                 var sessionManager = project.getSessionManager();
 
                 // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger
@@ -346,6 +390,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             });
         }
+        return CompletableFuture.completedFuture(null);
     }
 
     /**
@@ -1293,7 +1338,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void close() {
         // we're not in a hurry when calling close(), this indicates a single window shutting down
-        closeAsync(5_000).join();
+        try {
+            closeAsync(5_000).get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.debug("Error while waiting to close ContextManager: {}", e.getMessage());
+        }
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
@@ -1311,7 +1360,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
 
-        return CompletableFuture.allOf(userActionFuture, contextActionFuture, backgroundFuture)
+        var periodicTasksFuture = CompletableFuture.runAsync(() -> {
+            periodicTasks.shutdown();
+            try {
+                if (!periodicTasks.awaitTermination(awaitMillis, TimeUnit.MILLISECONDS)) {
+                    periodicTasks.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                periodicTasks.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        return CompletableFuture.allOf(userActionFuture, contextActionFuture, backgroundFuture, periodicTasksFuture)
                 .whenComplete((v, t) -> project.close());
     }
 

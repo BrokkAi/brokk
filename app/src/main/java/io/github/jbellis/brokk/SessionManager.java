@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -15,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -28,13 +30,32 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
+    public enum SyncStatus {
+        PENDING_SYNC,
+        SYNCED,
+        PENDING_DELETION,
+        DELETED
+    }
+
     /** Record representing session metadata for the sessions management system. */
-    public record SessionInfo(UUID id, String name, long created, long modified) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SessionInfo(
+            UUID id,
+            String name,
+            long created,
+            long modified,
+            @Nullable SyncStatus syncStatus,
+            @Nullable Long syncedAt) {
+
+        public SessionInfo(UUID id, String name, long created, long modified) {
+            this(id, name, created, modified, null, null);
+        }
 
         @JsonIgnore
         public boolean isSessionModified() {
@@ -47,10 +68,15 @@ public class SessionManager implements AutoCloseable {
     private final ExecutorService sessionExecutor;
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
+    private final Path deletedSessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
+    private final Set<UUID> deletionsPendingSync;
+    private final AbstractProject project;
 
-    public SessionManager(Path sessionsDir) {
+    public SessionManager(AbstractProject project, Path sessionsDir) {
+        this.project = project;
         this.sessionsDir = sessionsDir;
+        this.deletedSessionsDir = sessionsDir.resolve("deleted");
         this.sessionExecutor = Executors.newFixedThreadPool(3, r -> {
             var t = Executors.defaultThreadFactory().newThread(r);
             t.setDaemon(false);
@@ -59,6 +85,25 @@ public class SessionManager implements AutoCloseable {
         });
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
+        this.deletionsPendingSync = loadPendingDeletions();
+    }
+
+    private Set<UUID> loadPendingDeletions() {
+        var pending = ConcurrentHashMap.<UUID>newKeySet();
+        try {
+            Files.createDirectories(deletedSessionsDir);
+            try (var stream = Files.list(deletedSessionsDir)) {
+                stream.filter(path -> path.toString().endsWith(".zip"))
+                        .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
+                            if (sessionInfo.syncStatus() == SyncStatus.PENDING_DELETION) {
+                                pending.add(sessionInfo.id());
+                            }
+                        }));
+            }
+        } catch (IOException e) {
+            logger.error("Error listing deleted session zip files in {}: {}", deletedSessionsDir, e.getMessage());
+        }
+        return pending;
     }
 
     private Map<UUID, SessionInfo> loadSessions() {
@@ -67,9 +112,8 @@ public class SessionManager implements AutoCloseable {
             Files.createDirectories(sessionsDir);
             try (var stream = Files.list(sessionsDir)) {
                 stream.filter(path -> path.toString().endsWith(".zip"))
-                        .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
-                            sessions.put(sessionInfo.id(), sessionInfo);
-                        }));
+                        .forEach(zipPath -> readSessionInfoFromZip(zipPath)
+                                .ifPresent(sessionInfo -> sessions.put(sessionInfo.id(), sessionInfo)));
             }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
@@ -115,7 +159,13 @@ public class SessionManager implements AutoCloseable {
     public void renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(),
+                    newName,
+                    oldInfo.created(),
+                    System.currentTimeMillis(),
+                    SyncStatus.PENDING_SYNC,
+                    oldInfo.syncedAt());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -132,22 +182,42 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public void deleteSession(UUID sessionId) {
-        sessionsCache.remove(sessionId);
+    private void markSessionAsDeleted(UUID sessionId, SyncStatus status) {
+        SessionInfo oldInfo = sessionsCache.remove(sessionId);
+        if (oldInfo == null) {
+            logger.warn("Session {} not found in cache for deletion marking.", sessionId);
+            return;
+        }
+        if (status == SyncStatus.PENDING_DELETION) {
+            deletionsPendingSync.add(sessionId);
+        }
+
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
+            Path targetPath = deletedSessionsDir.resolve(historyZipPath.getFileName());
             try {
-                boolean deleted = Files.deleteIfExists(historyZipPath);
-                if (deleted) {
-                    logger.info("Deleted session zip: {}", historyZipPath.getFileName());
-                } else {
-                    logger.warn(
-                            "Session zip {} not found for deletion, or already deleted.", historyZipPath.getFileName());
+                Files.createDirectories(deletedSessionsDir);
+                if (Files.exists(historyZipPath)) {
+                    Files.move(historyZipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
                 }
+
+                var updatedInfo = new SessionInfo(
+                        oldInfo.id(),
+                        oldInfo.name(),
+                        oldInfo.created(),
+                        System.currentTimeMillis(),
+                        status,
+                        oldInfo.syncedAt());
+                writeSessionInfoToZip(targetPath, updatedInfo);
+                logger.info("Moved session {} to deleted folder with status {}.", sessionId, status);
             } catch (IOException e) {
-                logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+                logger.error("Error marking session {} as {}: {}", sessionId, status, e.getMessage());
             }
         });
+    }
+
+    public void deleteSession(UUID sessionId) {
+        markSessionAsDeleted(sessionId, SyncStatus.PENDING_DELETION);
     }
 
     /**
@@ -352,7 +422,12 @@ public class SessionManager implements AutoCloseable {
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
                 infoToSave = new SessionInfo(
-                        currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                        currentInfo.id(),
+                        currentInfo.name(),
+                        currentInfo.created(),
+                        System.currentTimeMillis(),
+                        SyncStatus.PENDING_SYNC,
+                        currentInfo.syncedAt());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
@@ -422,6 +497,8 @@ public class SessionManager implements AutoCloseable {
     }
 
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
+        downloadUpdatedSessionIfNeeded(sessionId);
+
         var sessionHistoryPath = getSessionHistoryPath(sessionId);
         ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
 
@@ -461,6 +538,229 @@ public class SessionManager implements AutoCloseable {
             logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
         }
         return ch;
+    }
+
+    private void downloadUpdatedSessionIfNeeded(UUID sessionId) {
+        if (MainProject.getBrokkKey().isBlank()) {
+            return;
+        }
+        try {
+            var remoteUrl = project.getRemoteProjectName();
+            // getLastRemoteSessions talks to the server at most once, so subsequent attempts to download will not wait
+            var remoteMetaOpt = Service.getLastRemoteSessions(remoteUrl).stream()
+                    .filter(meta -> sessionId.toString().equals(meta.id()))
+                    .findFirst();
+
+            if (remoteMetaOpt.isPresent()) {
+                var meta = remoteMetaOpt.get();
+                var localInfo = sessionsCache.get(sessionId);
+                if (shouldDownloadRemoteSession(sessionId, localInfo, meta)) {
+                    logger.info("Session {} is outdated locally, downloading from remote.", sessionId);
+                    try {
+                        byte[] content = Service.getRemoteSessionContent(sessionId);
+                        handleDownloadedSession(sessionId, content, meta, localInfo);
+                    } catch (IOException io) {
+                        logger.warn("Failed to download remote session {}: {}", sessionId, io.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Could not check for remote session update for {}: {}", sessionId, e.getMessage());
+        }
+    }
+
+    // Pull remote sessions (if any) into local storage; skip if missing key or remote.
+    public boolean synchronizeRemoteSessions() {
+        var sessionsChanged = false;
+        try {
+            String key = MainProject.getBrokkKey();
+            if (key.isBlank()) {
+                return false;
+            }
+
+            String remoteUrl = project.getRemoteProjectName();
+
+            List<Service.RemoteSessionMeta> metas = Service.listRemoteSessions(remoteUrl);
+            Files.createDirectories(sessionsDir);
+
+            // Process remote sessions and download missing ones.
+            var remoteIds = new HashSet<UUID>();
+            for (var meta : metas) {
+                String idStr = meta.id();
+                if (idStr.isBlank()) {
+                    continue;
+                }
+
+                UUID id;
+                try {
+                    id = UUID.fromString(idStr);
+                } catch (IllegalArgumentException e) {
+                    logger.warn("Skipping remote session with non-UUID id: {}", meta.id());
+                    continue;
+                }
+                remoteIds.add(id);
+
+                var localInfo = sessionsCache.get(id);
+                if (shouldDownloadRemoteSession(id, localInfo, meta)) {
+                    sessionsChanged = true;
+                    try {
+                        byte[] content = Service.getRemoteSessionContent(id);
+                        sessionExecutorByKey
+                                .submit(id.toString(), () -> handleDownloadedSession(id, content, meta, localInfo))
+                                .join();
+                    } catch (IOException io) {
+                        logger.warn("Failed to download/update remote session {}: {}", id, io.getMessage());
+                    }
+                }
+            }
+
+            // Delete local sessions that are synced but no longer on remote.
+            for (var localInfo : new ArrayList<>(sessionsCache.values())) {
+                if (localInfo.syncStatus() == SyncStatus.SYNCED && !remoteIds.contains(localInfo.id())) {
+                    markSessionAsDeleted(localInfo.id(), SyncStatus.DELETED);
+                    sessionsChanged = true;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("synchronizeRemoteSessionsIfAvailable failed: {}", e.getMessage());
+        }
+        return sessionsChanged;
+    }
+
+    private boolean shouldDownloadRemoteSession(
+            UUID sessionId, @Nullable SessionInfo localInfo, Service.RemoteSessionMeta meta) {
+        if (localInfo == null) {
+            return !deletionsPendingSync.contains(sessionId);
+        }
+        if (localInfo.syncStatus != null && localInfo.syncStatus != SyncStatus.SYNCED) {
+            return false;
+        }
+        return localInfo.syncedAt() == null || Instant.parse(meta.updatedAt()).toEpochMilli() > localInfo.syncedAt();
+    }
+
+    private void handleDownloadedSession(
+            UUID id, byte[] content, Service.RemoteSessionMeta meta, @Nullable SessionInfo localInfo) {
+        try {
+            Path localPath = getSessionHistoryPath(id);
+            Files.createDirectories(localPath.getParent());
+            Files.write(localPath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            readSessionInfoFromZip(localPath).ifPresent(si -> {
+                var remoteUpdatedAt = Instant.parse(meta.updatedAt()).toEpochMilli();
+                var updatedSi = new SessionInfo(
+                        si.id(), si.name(), si.created(), si.modified(), SyncStatus.SYNCED, remoteUpdatedAt);
+                try {
+                    writeSessionInfoToZip(localPath, updatedSi);
+                    sessionsCache.put(updatedSi.id(), updatedSi);
+                } catch (IOException e) {
+                    logger.error("Failed to update manifest for downloaded session {}: {}", si.id(), e);
+                }
+            });
+            if (localInfo == null) {
+                logger.info("Downloaded remote session {} to local cache", id);
+            } else {
+                logger.info("Updated local session {} from remote", id);
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to write downloaded session content for {}: {}", id, e.getMessage());
+        }
+    }
+
+    public void uploadDirtySessionsToRemote() {
+        try {
+            String key = MainProject.getBrokkKey();
+            if (key.isBlank()) return;
+            String remoteUrl = project.getRemoteProjectName();
+
+            // Union: (sessions not marked as synced) + (any local sessions missing on remote)
+            Set<UUID> toUpload = sessionsCache.values().stream()
+                    .filter(info -> info.syncStatus() != SyncStatus.SYNCED)
+                    .map(SessionInfo::id)
+                    .collect(Collectors.toSet());
+
+            for (UUID id : toUpload) {
+                sessionExecutorByKey
+                        .submit(id.toString(), () -> uploadSession(id, remoteUrl))
+                        .join();
+            }
+
+            for (UUID id : new ArrayList<>(deletionsPendingSync)) {
+                try {
+                    Service.deleteRemoteSession(id);
+                    logger.debug("Uploaded deletion for session {} to remote", id);
+
+                    sessionExecutorByKey
+                            .submit(id.toString(), () -> handleRemoteDeletion(id))
+                            .join();
+                } catch (IOException e) {
+                    logger.warn("Failed to upload deletion for session {}: {}", id, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("uploadDirtySessionsToRemote failed: {}", e.getMessage());
+        }
+    }
+
+    private void uploadSession(UUID id, String remoteUrl) {
+        Path zipPath = getSessionHistoryPath(id);
+        try {
+            if (!Files.exists(zipPath)) {
+                return;
+            }
+
+            SessionInfo info = sessionsCache.get(id);
+            if (info == null) {
+                info = readSessionInfoFromZip(zipPath).orElse(null);
+            }
+            String name = (info != null && !info.name().isBlank()) ? info.name() : ("Session " + id.toString());
+            byte[] bytes = Files.readAllBytes(zipPath);
+            var meta = Service.writeRemoteSession(id, remoteUrl, name, bytes);
+            logger.debug("Uploaded session {} to remote", id);
+
+            SessionInfo oldInfo = sessionsCache.get(id);
+            if (oldInfo != null) {
+                var remoteUpdatedAt = Instant.parse(meta.updatedAt()).toEpochMilli();
+                var updatedInfo = new SessionInfo(
+                        oldInfo.id(),
+                        oldInfo.name(),
+                        oldInfo.created(),
+                        oldInfo.modified(),
+                        SyncStatus.SYNCED,
+                        remoteUpdatedAt);
+                sessionsCache.put(id, updatedInfo);
+                writeSessionInfoToZip(zipPath, updatedInfo);
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to upload session {}: {}", id, e.getMessage());
+        }
+    }
+
+    private void handleRemoteDeletion(UUID id) {
+        Path deletedZipPath = deletedSessionsDir.resolve(id + ".zip");
+        if (Files.exists(deletedZipPath)) {
+            readSessionInfoFromZip(deletedZipPath)
+                    .ifPresentOrElse(
+                            info -> {
+                                var updatedInfo = new SessionInfo(
+                                        info.id(),
+                                        info.name(),
+                                        info.created(),
+                                        info.modified(),
+                                        SyncStatus.DELETED,
+                                        info.syncedAt());
+                                try {
+                                    writeSessionInfoToZip(deletedZipPath, updatedInfo);
+                                    deletionsPendingSync.remove(id);
+                                } catch (IOException e) {
+                                    logger.error(
+                                            "Error writing updated manifest for deleted session {}: {}",
+                                            id,
+                                            e.getMessage());
+                                }
+                            },
+                            () -> deletionsPendingSync.remove(id));
+        } else {
+            deletionsPendingSync.remove(id);
+        }
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
@@ -521,10 +821,15 @@ public class SessionManager implements AutoCloseable {
 
     @Override
     public void close() {
+        try {
+            uploadDirtySessionsToRemote();
+        } catch (Exception e) {
+            logger.warn("Failed to upload dirty sessions to remote during close: {}", e.getMessage());
+        }
         sessionExecutor.shutdown();
         try {
-            if (!sessionExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-                logger.warn("Session IO tasks did not finish in 30 seconds, forcing shutdown.");
+            if (!sessionExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warn("Session IO tasks did not finish in 5 seconds, forcing shutdown.");
                 sessionExecutor.shutdownNow();
             }
         } catch (InterruptedException e) {
