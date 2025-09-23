@@ -50,13 +50,13 @@
     <!-- Collapsed header preview (always rendered; hidden when expanded via CSS) -->
     <header
         class="header-preview"
-        style="border-left-color: var({bubbleDisplay.hlVar});"
+        style={`border-left-color: var(${bubbleDisplay.hlVar});`}
         on:click={toggle}
         on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
         tabindex="0"
         role="button"
         aria-expanded={collapsed ? 'false' : 'true'}
-        aria-controls="thread-body-{threadId}"
+        aria-controls={"thread-body-" + threadId}
     >
         <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
         <span class="tag">{bubbleDisplay.tag}: </span>
@@ -78,18 +78,36 @@
     </header>
 
     <!-- Thread body (always rendered; visually collapsed via CSS when data-collapsed="true") -->
-    <div class="thread-body" id="thread-body-{threadId}">
-        <div
-            class="first-bubble-wrapper"
-            on:click={toggle}
-            on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-            tabindex="0"
-            role="button"
-            aria-expanded={collapsed ? 'false' : 'true'}
-            aria-controls="thread-body-{threadId}"
-        >
-            <Icon icon="mdi:chevron-down" class="toggle-arrow" style="color: var(--chat-text);" />
+    <div class="thread-body" id={"thread-body-" + threadId}>
+        <div class="first-bubble-wrapper">
+            <button
+                type="button"
+                class="toggle-arrow-btn"
+                on:click={toggle}
+                on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+                aria-expanded={collapsed ? 'false' : 'true'}
+                aria-controls={"thread-body-" + threadId}
+                aria-label="Collapse thread"
+            >
+                <Icon
+                    icon="mdi:chevron-down"
+                    class="toggle-arrow"
+                    style="color: var(--chat-text);"
+                />
+            </button>
             <div class="bubble-container">
+                {#if !collapsed}
+                    <div
+                        class="first-line-hit-area"
+                        on:click={toggle}
+                        on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+                        tabindex="0"
+                        role="button"
+                        aria-expanded={collapsed ? 'false' : 'true'}
+                        aria-controls={"thread-body-" + threadId}
+                        aria-label="Collapse thread"
+                    ></div>
+                {/if}
                 {#if firstBubble.type === 'AI' && firstBubble.reasoning}
                     <AIReasoningBubble bubble={firstBubble} />
                 {:else}
@@ -179,21 +197,54 @@
         display: flex;
         align-items: flex-start;
         gap: 0.5em;
-        cursor: pointer;
         border-radius: 0.9em; /* To provide a hover/focus area */
         padding-bottom: 1em;
     }
     .first-bubble-wrapper:hover {
-       background: color-mix(in srgb, var(--chat-background) 50%, transparent);
+       background: transparent;
+    }
+    .toggle-arrow-btn {
+        flex-shrink: 0;
+        margin-top: 0.5em;
+        background: transparent;
+        border: none;
+        padding: 0;
+        color: var(--chat-text);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .toggle-arrow-btn:focus-visible {
+        outline: 2px solid var(--focus-ring, #5b9dd9);
+        outline-offset: 2px;
+        border-radius: 0.35em;
     }
     .toggle-arrow {
-        flex-shrink: 0;
-        margin-top: 0.7em;
         color: var(--chat-text);
+        pointer-events: none; /* ensure the button receives the click */
     }
     .bubble-container {
         flex-grow: 1;
         width: 100%;
+        position: relative; /* to position the first-line hit area */
+    }
+    /* Transparent hit target covering the first line of the first bubble
+       so clicking the "label" (e.g., "You") or that line collapses */
+    .first-line-hit-area {
+        position: absolute;
+        z-index: 1;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--thread-first-line-hit-height, 2.25em);
+        cursor: pointer;
+        background: transparent;
+    }
+    .first-line-hit-area:focus-visible {
+        outline: 2px solid var(--focus-ring, #5b9dd9);
+        outline-offset: 2px;
+        border-radius: 0.35em;
     }
 
     .remaining-bubbles {
