@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.util.ExecutorServiceUtil;
 import io.github.jbellis.brokk.util.TextCanonicalizer;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,9 +28,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -271,16 +274,11 @@ public abstract class TreeSitterAnalyzer
     private AnalysisStats performInitialAnalysis(Set<String> validExtensions) {
         log.trace("Filtering project files for extensions: {}", validExtensions);
 
-        var totalFilesAttempted = new AtomicInteger(0);
-        var successfullyProcessed = new AtomicInteger(0);
-        var failedFiles = new AtomicInteger(0);
-
-        project.getAllFiles().stream()
+        // Collect relevant files first (producer set)
+        List<ProjectFile> filesToProcess = project.getAllFiles().stream()
                 .filter(pf -> {
-                    // Normalize the file path once
                     var filePath = pf.absPath().toAbsolutePath().normalize();
 
-                    // Check if file is under any excluded path
                     var excludedBy = normalizedExcludedPaths.stream()
                             .filter(filePath::startsWith)
                             .findFirst();
@@ -290,61 +288,112 @@ public abstract class TreeSitterAnalyzer
                         return false;
                     }
 
-                    // Check extension using proper file extension matching
                     var extension = pf.extension();
                     return validExtensions.contains(extension);
                 })
-                .parallel()
-                .forEach(pf -> {
-                    totalFilesAttempted.incrementAndGet();
-                    log.trace("Processing file: {}", pf);
-                    // TSParser is not threadsafe, so we create a parser per thread
-                    var localParser = new TSParser();
-                    try {
-                        if (!localParser.setLanguage(getTSLanguage())) {
-                            log.error(
-                                    "Failed to set language on thread-local TSParser for language {} in file {}",
-                                    getTSLanguage().getClass().getSimpleName(),
-                                    pf);
-                            return; // Skip this file if parser setup fails
-                        }
-                        var analysisResult = analyzeFileDeclarations(pf, localParser);
-                        if (!analysisResult.topLevelCUs().isEmpty()
-                                || !analysisResult.signatures().isEmpty()
-                                || !analysisResult.sourceRanges().isEmpty()) {
-                            // Use the centralized ingestion logic so that the symbol index and codeUnitsBySymbol
-                            // are populated consistently for initial project analysis as well as updates.
-                            ingestAnalysisResult(pf, analysisResult);
+                .toList();
 
-                            log.trace(
-                                    "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
-                                    pf,
-                                    analysisResult.topLevelCUs().size(),
-                                    analysisResult.signatures().size(),
-                                    analysisResult.children().size(),
-                                    analysisResult.sourceRanges().size());
-                        } else {
-                            log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
-                        }
-                        successfullyProcessed.incrementAndGet();
-                    } catch (OutOfMemoryError e) {
-                        // Critical JVM issues that should terminate processing
-                        throw e;
-                    } catch (IOException e) {
-                        failedFiles.incrementAndGet();
-                        log.warn("IO error analyzing {}: {}", pf, e.getMessage());
-                    } catch (Exception e) {
-                        // Handle all other exceptions (including RuntimeException) by logging and continuing
-                        failedFiles.incrementAndGet();
-                        if (e instanceof RuntimeException) {
-                            log.error("Runtime error analyzing {}: {}", pf, e.getMessage(), e);
-                        } else {
-                            log.warn("Error analyzing {}: {}", pf, e.getMessage(), e);
-                        }
-                    }
-                });
+        int totalFilesAttempted = filesToProcess.size();
 
-        return new AnalysisStats(totalFilesAttempted.get(), successfullyProcessed.get(), failedFiles.get());
+        ExecutorService ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-parser-");
+        ExecutorService ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(1, "ts-ingest-");
+        List<CompletableFuture<Boolean>> futures = new ArrayList<>();
+
+        try {
+            for (ProjectFile pf : filesToProcess) {
+                log.trace("Processing file: {}", pf);
+
+                CompletableFuture<Boolean> pipeline = CompletableFuture.supplyAsync(
+                                () -> {
+                                    // TSParser is not thread-safe; create per task
+                                    var localParser = new TSParser();
+                                    try {
+                                        if (!localParser.setLanguage(getTSLanguage())) {
+                                            log.error(
+                                                    "Failed to set language on thread-local TSParser for language {} in file {}",
+                                                    getTSLanguage().getClass().getSimpleName(),
+                                                    pf);
+                                            throw new IllegalStateException("Failed to set language on TSParser");
+                                        }
+                                        return analyzeFileDeclarations(pf, localParser);
+                                    } catch (IOException e) {
+                                        throw new UncheckedIOException(e);
+                                    } catch (OutOfMemoryError e) {
+                                        // Critical JVM issues that should terminate processing
+                                        throw e;
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                },
+                                ioExecutor)
+                        .thenApplyAsync(
+                                analysisResult -> {
+                                    if (!analysisResult.topLevelCUs().isEmpty()
+                                            || !analysisResult.signatures().isEmpty()
+                                            || !analysisResult.sourceRanges().isEmpty()) {
+                                        ingestAnalysisResult(pf, analysisResult);
+                                        log.trace(
+                                                "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
+                                                pf,
+                                                analysisResult.topLevelCUs().size(),
+                                                analysisResult.signatures().size(),
+                                                analysisResult.children().size(),
+                                                analysisResult.sourceRanges().size());
+                                    } else {
+                                        log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
+                                    }
+                                    return true;
+                                },
+                                ingestExecutor)
+                        .exceptionally(throwable -> {
+                            Throwable cause = (throwable instanceof java.util.concurrent.CompletionException ce
+                                            && ce.getCause() != null)
+                                    ? ce.getCause()
+                                    : throwable;
+
+                            if (cause instanceof UncheckedIOException uioe) {
+                                Throwable io = (uioe.getCause() != null) ? uioe.getCause() : uioe;
+                                log.warn("IO error analyzing {}: {}", pf, io.getMessage());
+                            } else if (cause instanceof RuntimeException re) {
+                                log.error("Runtime error analyzing {}: {}", pf, re.getMessage(), re);
+                            } else {
+                                log.warn("Error analyzing {}: {}", pf, cause.getMessage(), cause);
+                            }
+                            return false;
+                        });
+
+                futures.add(pipeline);
+            }
+
+            // Wait for all pipelines to complete
+            if (!futures.isEmpty()) {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .join();
+            }
+        } finally {
+            ioExecutor.shutdown();
+            ingestExecutor.shutdown();
+            try {
+                if (!ioExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                    ioExecutor.shutdownNow();
+                }
+                if (!ingestExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                    ingestExecutor.shutdownNow();
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ioExecutor.shutdownNow();
+                ingestExecutor.shutdownNow();
+            }
+        }
+
+        int successfullyProcessed = (int) futures.stream()
+                .map(CompletableFuture::join)
+                .filter(Boolean::booleanValue)
+                .count();
+        int failedFiles = totalFilesAttempted - successfullyProcessed;
+
+        return new AnalysisStats(totalFilesAttempted, successfullyProcessed, failedFiles);
     }
 
     private static record AnalysisStats(int attempted, int successful, int failed) {}

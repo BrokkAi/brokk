@@ -30,4 +30,14 @@ public final class ExecutorServiceUtil {
         };
         return Executors.newFixedThreadPool(parallelism, factory);
     }
+
+    public static ExecutorService newVirtualThreadExecutor(String threadPrefix) {
+        ThreadFactory baseFactory = Thread.ofVirtual().name(threadPrefix, 0).factory();
+        ThreadFactory factory = r -> {
+            var t = baseFactory.newThread(r);
+            t.setUncaughtExceptionHandler((thr, ex) -> logger.error("Unhandled exception in {}", thr.getName(), ex));
+            return t;
+        };
+        return Executors.newThreadPerTaskExecutor(factory);
+    }
 }
