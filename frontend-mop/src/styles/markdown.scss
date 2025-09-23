@@ -14,6 +14,7 @@
   --shiki-token-string-expression: #d66e05;
   --shiki-token-punctuation: #9eacba;
   --shiki-token-link: #4ec9b0;
+  --code-block-font-weight: initial;
 }
 
 /* Shiki CSS variables for light theme */
@@ -29,6 +30,7 @@
   --shiki-token-string-expression: #d248ae;
   --shiki-token-punctuation: #131313;
   --shiki-token-link: #3200f9;
+  --code-block-font-weight: 700;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -93,6 +95,7 @@ li > p {
   border: 1px solid var(--border-color-hex);
   border-radius: .3em;
   font-size: 0.8em;
+  font-weight: var(--code-block-font-weight);
 }
 
 /* Content lookup styling for inline code that exists in project (symbols and file paths) */
