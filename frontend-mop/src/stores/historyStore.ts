@@ -61,6 +61,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
 
                 const newTask: HistoryTask = {
                     threadId: threadId,
+                    taskSequence: evt.taskSequence,
                     compressed: evt.compressed,
                     entries: entries,
                 };
