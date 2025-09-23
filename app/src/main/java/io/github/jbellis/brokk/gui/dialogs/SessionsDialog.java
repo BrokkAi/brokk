@@ -361,19 +361,15 @@ public class SessionsDialog extends JDialog {
         if (taskHistory.isEmpty()) {
             // Fall back to parsed output for contexts that are not part of a task history
             if (context.getParsedOutput() != null) {
-                markdownOutputPanel.replaceHistory(List.of()); // explicit history clear
-                markdownOutputPanel.setText(context.getParsedOutput());
+                markdownOutputPanel.setMainThenHistoryAsync(
+                        context.getParsedOutput().messages(), List.of());
             } else {
-                markdownOutputPanel.clear(); // clears main view and history
+                markdownOutputPanel.clear(); // clears main view, history, and cache
             }
         } else {
             var history = taskHistory.subList(0, taskHistory.size() - 1);
             var main = taskHistory.getLast();
-            // render first the last message, then the history
-            markdownOutputPanel.setText(main);
-            SwingUtilities.invokeLater(() -> {
-                markdownOutputPanel.replaceHistory(history);
-            });
+            markdownOutputPanel.setMainThenHistoryAsync(main, history);
         }
     }
 

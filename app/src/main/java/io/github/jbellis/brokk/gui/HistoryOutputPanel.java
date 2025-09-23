@@ -711,11 +711,8 @@ public class HistoryOutputPanel extends JPanel {
      * @param main The final task to show in the main output section.
      */
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
-        // prioritize rendering live area, then history
-        setLlmOutput(main);
-        SwingUtilities.invokeLater(() -> {
-            llmStreamArea.replaceHistory(history);
-        });
+        // prioritize rendering live area, then history (explicitly sequenced with flush)
+        llmStreamArea.setMainThenHistoryAsync(main, history);
     }
 
     /** Appends text to the LLM output area */
@@ -882,10 +879,7 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel.updateTheme(isDark);
             outputPanel.setBlocking(isBlockingMode);
             // Seed main content first, then history
-            outputPanel.setText(main);
-            SwingUtilities.invokeLater(() -> {
-                outputPanel.replaceHistory(history);
-            });
+            outputPanel.setMainThenHistoryAsync(main, history);
 
             // Create toolbar panel with capture button if not in blocking mode
             JPanel toolbarPanel = null;
