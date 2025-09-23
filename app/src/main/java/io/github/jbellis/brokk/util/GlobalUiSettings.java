@@ -34,6 +34,7 @@ public final class GlobalUiSettings {
     private static final String KEY_DEP_PROP = "drawers.dependencies.proportion";
     private static final String KEY_TERM_OPEN = "drawers.terminal.open";
     private static final String KEY_TERM_PROP = "drawers.terminal.proportion";
+    private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -178,6 +179,15 @@ public final class GlobalUiSettings {
 
     public static void saveTerminalDrawerProportion(double prop) {
         setDouble(KEY_TERM_PROP, clampProportion(prop));
+    }
+
+    // Window bounds persistence preference (default: true = per-project)
+    public static boolean isPersistPerProjectBounds() {
+        return getBoolean(KEY_PERSIST_PER_PROJECT_BOUNDS, true);
+    }
+
+    public static void savePersistPerProjectBounds(boolean persist) {
+        setBoolean(KEY_PERSIST_PER_PROJECT_BOUNDS, persist);
     }
 
     private static int getInt(String key) {

@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.mcp.StdioMcpServer;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -89,6 +90,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
     private JRadioButton startupOpenAllRadio = new JRadioButton("Reopen all previously open projects");
+    private JCheckBox persistPerProjectWindowCheckbox = new JCheckBox("Save window position per project (recommended)");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -415,6 +417,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         startupPanel.add(startupOpenAllRadio, gbc);
 
+        // Per-project window bounds persistence
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        startupPanel.add(persistPerProjectWindowCheckbox, gbc);
+
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
@@ -601,6 +610,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } else {
             startupOpenLastRadio.setSelected(true);
         }
+        // Persist per-project main window position (default true)
+        persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
 
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
@@ -734,6 +745,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             MainProject.setStartupOpenMode(selectedStartupMode);
             logger.debug("Applied Startup Open Mode: {}", selectedStartupMode);
         }
+        // Save preference for per-project main window bounds persistence
+        GlobalUiSettings.savePersistPerProjectBounds(persistPerProjectWindowCheckbox.isSelected());
 
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {

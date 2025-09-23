@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.formdev.flatlaf.util.SystemInfo;
+import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
@@ -54,6 +55,9 @@ import org.jetbrains.annotations.Nullable;
 
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
+
+    // Track open Chrome instances for window cascading
+    private static final Set<Chrome> openInstances = ConcurrentHashMap.newKeySet();
 
     // Default layout proportions - can be overridden by saved preferences
     private static final double DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT = 0.583; // 58.3% workspace, 41.7% instructions
@@ -564,6 +568,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
+
+        // Register this instance for window tracking
+        openInstances.add(this);
     }
 
     /**
@@ -1097,6 +1104,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.info("Closing Chrome UI");
         contextManager.close();
         frame.dispose();
+        // Unregister this instance
+        openInstances.remove(this);
     }
 
     @Override
@@ -1619,8 +1628,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     private void loadWindowSizeAndPosition() {
-        // Per-project first: read from project settings
-        var boundsOpt = getProject().getMainWindowBounds();
+        boolean persistPerProject = GlobalUiSettings.isPersistPerProjectBounds();
+
+        // Per-project first (only if enabled)
+        var boundsOpt = persistPerProject ? getProject().getMainWindowBounds() : java.util.Optional.<Rectangle>empty();
         if (boundsOpt.isPresent()) {
             var bounds = boundsOpt.get();
             frame.setSize(bounds.width, bounds.height);
@@ -1633,17 +1644,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 logger.debug("Project window position is off-screen, centering window.");
             }
         } else {
-            // No project bounds, try global bounds with offset
+            // No (or disabled) project bounds, try global bounds with cascading offset
             var globalBounds = GlobalUiSettings.getMainWindowBounds();
             if (globalBounds.width > 0 && globalBounds.height > 0) {
-                // Apply slight offset (30px down and right) for window cascading
-                int offsetX = globalBounds.x + 30;
-                int offsetY = globalBounds.y + 30;
+                // Calculate progressive DPI-aware offset based on number of open instances
+                int instanceCount = Math.max(0, openInstances.size()); // this instance not yet added
+                int step = UIScale.scale(20); // gentle, DPI-aware cascade step
+                int offsetX = globalBounds.x + (step * instanceCount);
+                int offsetY = globalBounds.y + (step * instanceCount);
 
                 frame.setSize(globalBounds.width, globalBounds.height);
                 if (isPositionOnScreen(offsetX, offsetY)) {
                     frame.setLocation(offsetX, offsetY);
-                    logger.debug("Using global window position with offset as fallback.");
+                    logger.debug("Using global window position with cascading offset ({}) as fallback.", instanceCount);
                 } else {
                     // Offset position is off-screen, center instead
                     frame.setLocationRelativeTo(null);
@@ -1673,18 +1686,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
 
-        // Listener to save bounds on move/resize (both per-project and global)
+        // Listener to save bounds on move/resize:
+        // - always save globally (for cascade fallback)
+        // - save per-project only if enabled
         frame.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
-                getProject().saveMainWindowBounds(frame);
                 GlobalUiSettings.saveMainWindowBounds(frame);
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    getProject().saveMainWindowBounds(frame);
+                }
             }
 
             @Override
             public void componentMoved(java.awt.event.ComponentEvent e) {
-                getProject().saveMainWindowBounds(frame);
                 GlobalUiSettings.saveMainWindowBounds(frame);
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    getProject().saveMainWindowBounds(frame);
+                }
             }
         });
     }
