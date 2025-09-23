@@ -585,6 +585,15 @@ public final class MOPBridge {
         }
     }
 
+    public void deleteHistoryTask(int sequence) {
+        var cm = contextManager;
+        if (cm == null) {
+            logger.warn("Cannot delete history entry {} - no context manager", sequence);
+            return;
+        }
+        cm.submitUserTask("Delete history entry " + sequence, () -> cm.dropHistoryEntryBySequence(sequence));
+    }
+
     public String getContextCacheId() {
         return "main-context";
     }
