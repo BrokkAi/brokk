@@ -1187,29 +1187,39 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 label.setFont(base.deriveFont(Font.PLAIN));
             }
 
-            if (isSelected) {
+            if (isRunningRow) {
+                long now = System.currentTimeMillis();
+                long start = TaskListPanel.this.runningAnimStartMs;
+                double periodMs = 5000.0;
+                double t = ((now - start) % (long) periodMs) / periodMs; // 0..1
+                double ratio = 0.5 * (1 - Math.cos(2 * Math.PI * t)); // 0..1 smooth in/out
+
+                java.awt.Color bgBase = list.getBackground();
+                java.awt.Color selBg = list.getSelectionBackground();
+                if (selBg == null) selBg = bgBase;
+
+                int r = (int) Math.round(bgBase.getRed() * (1 - ratio) + selBg.getRed() * ratio);
+                int g = (int) Math.round(bgBase.getGreen() * (1 - ratio) + selBg.getGreen() * ratio);
+                int b = (int) Math.round(bgBase.getBlue() * (1 - ratio) + selBg.getBlue() * ratio);
+                setBackground(new java.awt.Color(r, g, b));
+
+                if (isSelected) {
+                    label.setForeground(list.getSelectionForeground());
+                    // Subtle selection indicator while flashing
+                    java.awt.Color borderColor = selBg.darker();
+                    setBorder(javax.swing.BorderFactory.createLineBorder(borderColor, 1));
+                } else {
+                    label.setForeground(list.getForeground());
+                    setBorder(null);
+                }
+            } else if (isSelected) {
                 setBackground(list.getSelectionBackground());
                 label.setForeground(list.getSelectionForeground());
+                setBorder(null);
             } else {
-                if (isRunningRow) {
-                    long now = System.currentTimeMillis();
-                    long start = TaskListPanel.this.runningAnimStartMs;
-                    double periodMs = 5000.0;
-                    double t = ((now - start) % (long) periodMs) / periodMs; // 0..1
-                    double ratio = 0.5 * (1 - Math.cos(2 * Math.PI * t)); // 0..1 smooth in/out
-
-                    java.awt.Color bgBase = list.getBackground();
-                    java.awt.Color selBg = list.getSelectionBackground();
-                    if (selBg == null) selBg = bgBase;
-
-                    int r = (int) Math.round(bgBase.getRed() * (1 - ratio) + selBg.getRed() * ratio);
-                    int g = (int) Math.round(bgBase.getGreen() * (1 - ratio) + selBg.getGreen() * ratio);
-                    int b = (int) Math.round(bgBase.getBlue() * (1 - ratio) + selBg.getBlue() * ratio);
-                    setBackground(new java.awt.Color(r, g, b));
-                } else {
-                    setBackground(list.getBackground());
-                }
+                setBackground(list.getBackground());
                 label.setForeground(list.getForeground());
+                setBorder(null);
             }
 
             return this;
