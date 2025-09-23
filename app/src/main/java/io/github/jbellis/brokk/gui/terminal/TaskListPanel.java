@@ -34,6 +34,8 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
+import java.util.LinkedHashSet;
+import java.util.Arrays;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -82,6 +84,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable JTextField inlineEditor = null;
     private int editingIndex = -1;
     private @Nullable Integer runningIndex = null;
+    private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
+    private boolean queueActive = false;
 
     public TaskListPanel(IConsoleIO console) {
         super(new BorderLayout(4, 4));
@@ -170,18 +174,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             public void mousePressed(java.awt.event.MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     boolean includesRunning = false;
+                    boolean includesPending = false;
                     int[] sel = list.getSelectedIndices();
                     if (runningIndex != null) {
                         for (int si : sel) {
-                            if (si == runningIndex.intValue()) {
-                                includesRunning = true;
-                                break;
-                            }
+                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
                         }
                     }
-                    toggleItem.setEnabled(!includesRunning);
-                    editItem.setEnabled(!includesRunning);
-                    deleteItem.setEnabled(!includesRunning);
+                    for (int si : sel) {
+                        if (pendingQueue.contains(si)) { includesPending = true; break; }
+                    }
+                    boolean block = includesRunning || includesPending;
+                    toggleItem.setEnabled(!block);
+                    editItem.setEnabled(!block);
+                    deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
             }
@@ -190,18 +196,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             public void mouseReleased(java.awt.event.MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     boolean includesRunning = false;
+                    boolean includesPending = false;
                     int[] sel = list.getSelectedIndices();
                     if (runningIndex != null) {
                         for (int si : sel) {
-                            if (si == runningIndex.intValue()) {
-                                includesRunning = true;
-                                break;
-                            }
+                            if (si == runningIndex.intValue()) { includesRunning = true; break; }
                         }
                     }
-                    toggleItem.setEnabled(!includesRunning);
-                    editItem.setEnabled(!includesRunning);
-                    deleteItem.setEnabled(!includesRunning);
+                    for (int si : sel) {
+                        if (pendingQueue.contains(si)) { includesPending = true; break; }
+                    }
+                    boolean block = includesRunning || includesPending;
+                    toggleItem.setEnabled(!block);
+                    editItem.setEnabled(!block);
+                    deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
             }
@@ -344,6 +352,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         if (added > 0) {
             input.setText("");
+            input.requestFocusInWindow();
             saveTasksForCurrentSession();
         }
     }
@@ -357,6 +366,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (runningIndex != null && idx == runningIndex.intValue()) {
                     continue; // skip running task
                 }
+                if (pendingQueue.contains(idx)) {
+                    continue; // skip pending task
+                }
                 if (idx >= 0 && idx < model.size()) {
                     model.remove(idx);
                     removedAny = true;
@@ -366,7 +378,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 updateButtonStates();
                 saveTasksForCurrentSession();
             } else {
-                // No-op if only the running task was selected
+                // No-op if only the running/pending tasks were selected
                 updateButtonStates();
             }
         }
@@ -379,6 +391,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             for (int idx : indices) {
                 if (runningIndex != null && idx == runningIndex.intValue()) {
                     continue; // skip running task
+                }
+                if (pendingQueue.contains(idx)) {
+                    continue; // skip pending task
                 }
                 if (idx >= 0 && idx < model.getSize()) {
                     var it = model.get(idx);
@@ -404,6 +419,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
+        if (pendingQueue.contains(idx)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot edit a task that is queued for running.",
+                    "Edit Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         startInlineEdit(idx);
     }
 
@@ -412,6 +435,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             JOptionPane.showMessageDialog(
                     this,
                     "Cannot edit a task that is currently running.",
+                    "Edit Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (pendingQueue.contains(index)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot edit a task that is queued for running.",
                     "Edit Disabled",
                     JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -510,10 +541,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         boolean selectedIsDone = false;
         boolean selectionIncludesRunning = false;
+        boolean selectionIncludesPending = false;
         int[] selIndices = list.getSelectedIndices();
         for (int si : selIndices) {
             if (runningIndex != null && si == runningIndex.intValue()) {
                 selectionIncludesRunning = true;
+            }
+            if (pendingQueue.contains(si)) {
+                selectionIncludesPending = true;
             }
         }
         int sel = list.getSelectedIndex();
@@ -522,21 +557,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             selectedIsDone = it != null && it.done();
         }
 
-        // Remove/Toggle disabled if no selection OR selection includes running task
-        removeBtn.setEnabled(hasSelection && !selectionIncludesRunning);
-        toggleDoneBtn.setEnabled(hasSelection && !selectionIncludesRunning);
+        // Remove/Toggle disabled if no selection OR selection includes running/pending
+        boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
+        removeBtn.setEnabled(hasSelection && !blockEdits);
+        toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
 
-        // Play enabled only if: selection exists, not busy, not done
-        playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone);
+        // Play enabled only if: selection exists, not busy, not done, no running/pending in selection, and no active queue
+        playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
         for (int i = 0; i < model.getSize(); i++) {
             TaskItem it2 = model.get(i);
-            if (it2 != null && it2.done()) {
-                anyCompleted = true;
-                break;
-            }
+            if (it2 != null && it2.done()) { anyCompleted = true; break; }
         }
         clearCompletedBtn.setEnabled(anyCompleted);
     }
@@ -634,145 +667,175 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnSelected() {
-        int idx = list.getSelectedIndex();
-        if (idx < 0) {
-            JOptionPane.showMessageDialog(this, "Select a task first.", "No selection", JOptionPane.WARNING_MESSAGE);
+        int[] selected = list.getSelectedIndices();
+        if (selected.length == 0) {
+            JOptionPane.showMessageDialog(this, "Select at least one task.", "No selection", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        // Do not allow running Architect on a task marked as done
-        if (idx < model.size()) {
-            TaskItem sel = model.get(idx);
-            if (sel != null && sel.done()) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "This task is already marked as done.",
-                        "Task Completed",
-                        JOptionPane.INFORMATION_MESSAGE);
-                updateButtonStates();
-                return;
-            }
-        }
-
-        String prompt = model.get(idx).text();
-        if (prompt == null || prompt.isBlank()) {
-            JOptionPane.showMessageDialog(this, "Selected task is empty.", "Invalid task", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        // Prevent starting if an LLM task is already running
+        // Prevent running if an LLM task is already busy or a queue is in progress
         if (console instanceof Chrome cBusy) {
             try {
                 if (cBusy.getContextManager().isLlmTaskInProgress()) {
-                    JOptionPane.showMessageDialog(
-                            this,
-                            "An AI task is already running. Please wait for it to finish.",
-                            "Busy",
-                            JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "An AI task is already running. Please wait for it to finish.", "Busy", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
             } catch (Exception ex) {
                 logger.debug("Error checking LLM busy state", ex);
             }
         }
+        if (queueActive || runningIndex != null) {
+            JOptionPane.showMessageDialog(this, "A task run is already in progress.", "In progress", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
 
-        // Set running state and refresh UI
-        runningIndex = idx;
-        list.repaint();
-        runningAnimStartMs = System.currentTimeMillis();
-        runningFadeTimer.start();
-        // Disable play immediately to avoid double triggers
-        playBtn.setEnabled(false);
-
-        if (console instanceof Chrome c) {
-            try {
-                var options = c.getProject().getArchitectOptions();
-                // Start Architect run
-                c.getInstructionsPanel().runArchitectCommand(prompt, options);
-
-                // Monitor specifically for this run: wait until the LLM is actually busy,
-                // then wait until it has been idle for a short, stable period.
-                var cm = c.getContextManager();
-                var future = cm.submitBackgroundTask("TaskListPanel: Wait for Architect", (Callable<Boolean>) () -> {
-                    boolean sawBusy = false;
-                    try {
-                        // Phase 1: wait until any LLM task actually starts (up to ~5 minutes)
-                        int attempts = 0;
-                        while (attempts++ < 1200) { // 1200 * 250ms = 300s
-                            if (cm.isLlmTaskInProgress()) {
-                                sawBusy = true;
-                                break;
-                            }
-                            Thread.sleep(250);
-                        }
-                        if (!sawBusy) {
-                            // Architect didn't start; don't mark done
-                            return false;
-                        }
-
-                        // Phase 2: wait for a stable idle period to avoid transient false negatives
-                        int stableIdleCount = 0;
-                        while (true) {
-                            if (!cm.isLlmTaskInProgress()) {
-                                stableIdleCount++;
-                                if (stableIdleCount >= 4) { // ~1s of stable idle
-                                    break;
-                                }
-                            } else {
-                                stableIdleCount = 0;
-                            }
-                            Thread.sleep(250);
-                        }
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return false;
-                    }
-                    return true;
-                });
-
-                // When done, update the task as completed only if this run really finished
-                future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
-                    try {
-                        if (Boolean.TRUE.equals(res)
-                                && runningIndex != null
-                                && runningIndex == idx
-                                && idx >= 0
-                                && idx < model.size()) {
-                            var it = model.get(idx);
-                            model.set(idx, new TaskItem(it.text(), true));
-                            saveTasksForCurrentSession();
-                        }
-                    } finally {
-                        runningIndex = null;
-                        runningFadeTimer.stop();
-                        list.repaint();
-                        updateButtonStates();
-                    }
-                }));
-            } catch (Exception ex) {
-                try {
-                    console.toolError("Failed to run Architect: " + ex.getMessage(), "Task Runner Error");
-                } catch (Exception e2) {
-                    logger.debug("Error reporting Architect failure", e2);
-                } finally {
-                    runningIndex = null;
-                    runningFadeTimer.stop();
-                    list.repaint();
-                    updateButtonStates();
+        // Build the ordered list of indices to run: valid, not done
+        Arrays.sort(selected);
+        var toRun = new java.util.ArrayList<Integer>(selected.length);
+        for (int idx : selected) {
+            if (idx >= 0 && idx < model.getSize()) {
+                TaskItem it = model.get(idx);
+                if (it != null && !it.done()) {
+                    toRun.add(idx);
                 }
             }
+        }
+        if (toRun.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "All selected tasks are already done.", "Nothing to run", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Set up queue: first runs now, the rest are pending
+        int first = toRun.get(0);
+        pendingQueue.clear();
+        if (toRun.size() > 1) {
+            for (int i = 1; i < toRun.size(); i++) pendingQueue.add(toRun.get(i));
+            queueActive = true;
         } else {
+            queueActive = false;
+        }
+
+        // Reflect pending state in UI and disable Play to avoid double trigger
+        list.repaint();
+        playBtn.setEnabled(false);
+
+        // Start the first task
+        startRunForIndex(first);
+    }
+
+    private void startRunForIndex(int idx) {
+        if (idx < 0 || idx >= model.getSize()) {
+            startNextIfAny();
+            return;
+        }
+        TaskItem item = model.get(idx);
+        if (item == null || item.done()) {
+            startNextIfAny();
+            return;
+        }
+
+        String prompt = item.text();
+        if (prompt == null || prompt.isBlank()) {
+            startNextIfAny();
+            return;
+        }
+
+        // Set running visuals
+        runningIndex = idx;
+        runningAnimStartMs = System.currentTimeMillis();
+        runningFadeTimer.start();
+        list.repaint();
+
+        if (!(console instanceof Chrome c)) {
             try {
                 console.toolError("Architect is only available in the main app context.", "Task Runner Error");
             } catch (Exception e2) {
                 logger.debug("Error reporting Architect availability warning", e2);
-            } finally {
-                runningIndex = null;
-                runningFadeTimer.stop();
-                list.repaint();
-                updateButtonStates();
             }
+            finishQueueOnError();
+            return;
         }
+
+        try {
+            var options = c.getProject().getArchitectOptions();
+            c.getInstructionsPanel().runArchitectCommand(prompt, options);
+
+            var cm = c.getContextManager();
+            var future = cm.submitBackgroundTask("TaskListPanel: Wait for Architect", (Callable<Boolean>) () -> {
+                boolean sawBusy = false;
+                try {
+                    // Phase 1: wait until busy (up to ~5 minutes)
+                    int attempts = 0;
+                    while (attempts++ < 1200) {
+                        if (cm.isLlmTaskInProgress()) { sawBusy = true; break; }
+                        Thread.sleep(250);
+                    }
+                    if (!sawBusy) return false; // didn't start
+                    // Phase 2: require ~1s of stable idle
+                    int stableIdleCount = 0;
+                    while (true) {
+                        if (!cm.isLlmTaskInProgress()) {
+                            if (++stableIdleCount >= 4) break;
+                        } else {
+                            stableIdleCount = 0;
+                        }
+                        Thread.sleep(250);
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+                return true;
+            });
+
+            future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
+                try {
+                    if (Boolean.TRUE.equals(res) && runningIndex != null && runningIndex == idx && idx >= 0 && idx < model.size()) {
+                        var it = model.get(idx);
+                        model.set(idx, new TaskItem(it.text(), true));
+                        saveTasksForCurrentSession();
+                    }
+                } finally {
+                    // Clear running, advance queue
+                    runningIndex = null;
+                    runningFadeTimer.stop();
+                    list.repaint();
+                    updateButtonStates();
+                    startNextIfAny();
+                }
+            }));
+        } catch (Exception ex) {
+            try {
+                console.toolError("Failed to run Architect: " + ex.getMessage(), "Task Runner Error");
+            } catch (Exception e2) {
+                logger.debug("Error reporting Architect failure", e2);
+            }
+            finishQueueOnError();
+        }
+    }
+
+    private void startNextIfAny() {
+        if (pendingQueue.isEmpty()) {
+            // Queue finished
+            queueActive = false;
+            list.repaint();
+            updateButtonStates();
+            return;
+        }
+        // Get next pending index in insertion order and start it
+        int next = pendingQueue.iterator().next();
+        pendingQueue.remove(next);
+        list.repaint();
+        startRunForIndex(next);
+    }
+
+    private void finishQueueOnError() {
+        runningIndex = null;
+        runningFadeTimer.stop();
+        pendingQueue.clear();
+        queueActive = false;
+        list.repaint();
+        updateButtonStates();
     }
 
     @Override
@@ -821,6 +884,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
 
+            // Disallow dragging when a queue is active or if selection includes pending
+            if (queueActive) {
+                Toolkit.getDefaultToolkit().beep();
+                indices = null;
+                return null;
+            }
+            if (indices != null) {
+                for (int i : indices) {
+                    if (pendingQueue.contains(i)) {
+                        Toolkit.getDefaultToolkit().beep();
+                        indices = null;
+                        return null;
+                    }
+                }
+            }
+
             addIndex = -1;
             addCount = 0;
 
@@ -830,11 +909,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public boolean canImport(TransferSupport support) {
+            if (queueActive) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
                     if (i == runningIndex.intValue()) {
                         return false; // cannot drop a running task
                     }
+                }
+            }
+            if (indices != null) {
+                for (int i : indices) {
+                    if (pendingQueue.contains(i)) return false;
                 }
             }
             return support.isDrop();
@@ -845,11 +930,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (!support.isDrop()) {
                 return false;
             }
+            if (queueActive) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
                     if (i == runningIndex.intValue()) {
                         return false; // cannot drop a running task
                     }
+                }
+            }
+            if (indices != null) {
+                for (int i : indices) {
+                    if (pendingQueue.contains(i)) return false;
                 }
             }
             var dl = (JList.DropLocation) support.getDropLocation();
@@ -1021,10 +1112,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             boolean isRunningRow = (!value.done()
                     && TaskListPanel.this.runningIndex != null
                     && TaskListPanel.this.runningIndex == index);
-            // Icon logic: running takes precedence, then done/undone
+            boolean isPendingRow = (!value.done() && TaskListPanel.this.pendingQueue.contains(index));
+            // Icon logic: running takes precedence, then pending, then done/undone
             if (isRunningRow) {
                 check.setSelected(false);
                 check.setIcon(Icons.ARROW_UPLOAD_READY);
+                check.setSelectedIcon(null);
+            } else if (isPendingRow) {
+                check.setSelected(false);
+                check.setIcon(Icons.PENDING);
                 check.setSelectedIcon(null);
             } else {
                 check.setIcon(Icons.CIRCLE);
