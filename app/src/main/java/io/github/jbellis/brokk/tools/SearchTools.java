@@ -166,17 +166,6 @@ public class SearchTools {
         return predicates;
     }
 
-    /**
-     * Advanced capabilities are typically associated with {@link CallGraphProvider} and {@link UsagesProvider}
-     * analyzers. If this analyzer may provide such capabilities, this checks if they are ready.
-     */
-    private static void assertAdvancedCapabilities(IAnalyzer analyzer, String failureMessagePrefix) {
-        final var suffix = ": Code Intelligence is not available.";
-        assert !(analyzer instanceof HasDelayedCapabilities advancedAnalyzer)
-                        || advancedAnalyzer.isAdvancedAnalysisReady().getNow(false)
-                : failureMessagePrefix + suffix;
-    }
-
     @Tool(
             value =
                     """
@@ -189,7 +178,8 @@ public class SearchTools {
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
                     List<String> filePaths) {
-        assert getAnalyzer() instanceof SkeletonProvider : "Cannot get summaries: Code Intelligence is not available.";
+        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
+                : "Cannot get summaries: Code Intelligence is not available.";
         if (filePaths.isEmpty()) {
             return "Cannot get summaries: file paths list is empty";
         }
@@ -237,16 +227,15 @@ public class SearchTools {
     @Tool(
             value =
                     """
-                            Search for symbols (class/method/field definitions) using Joern.
+                            Search for symbols (class/method/field definitions) using static analysis.
                             This should usually be the first step in a search.
                             """)
     public String searchSymbols(
             @P(
-                            "Case-insensitive Joern regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
+                            "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
                     List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assertAdvancedCapabilities(getAnalyzer(), "Cannot search definitions");
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
@@ -288,7 +277,8 @@ public class SearchTools {
                     List<String> symbols,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assertAdvancedCapabilities(getAnalyzer(), "Cannot search usages");
+        assert getAnalyzer().as(UsagesProvider.class).isPresent()
+                : "Cannot search usages: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -376,7 +366,7 @@ public class SearchTools {
     public String getClassSkeletons(
             @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
 
-        assert (getAnalyzer() instanceof SkeletonProvider)
+        assert getAnalyzer().as(SkeletonProvider.class).isPresent()
                 : "Cannot get skeletons: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
@@ -409,7 +399,7 @@ public class SearchTools {
             @P("Fully qualified class names to retrieve the full source code for") List<String> classNames,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assert (getAnalyzer() instanceof SourceCodeProvider)
+        assert getAnalyzer().as(SourceCodeProvider.class).isPresent()
                 : "Cannot get class sources: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
@@ -459,7 +449,7 @@ public class SearchTools {
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
                     List<String> methodNames) {
-        assert (getAnalyzer() instanceof SourceCodeProvider)
+        assert getAnalyzer().as(SourceCodeProvider.class).isPresent()
                 : "Cannot get method sources: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize methodNames: remove potential `(params)` suffix from LLM.
         methodNames = stripParams(methodNames);
@@ -501,26 +491,27 @@ public class SearchTools {
     @Tool(
             value =
                     """
-                            Returns the call graph to a depth of 5 showing which methods call the given method and one line of source code for each invocation.
+                            Returns the call graph to a depth of 3 showing which methods call the given method and one line of source code for each invocation.
                             Use this to understand method dependencies and how code flows into a method.
                             """)
     public String getCallGraphTo(
             @P("Fully qualified method name (package name, class name, method name) to find callers for")
                     String methodName) {
         final var analyzer = getAnalyzer();
-        assertAdvancedCapabilities(analyzer, "Cannot get call graph");
-        assert (analyzer instanceof CallGraphProvider)
+        assert analyzer.as(CallGraphProvider.class).isPresent()
                 : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize methodName: remove potential `(params)` suffix from LLM.
-        methodName = stripParams(methodName);
-        if (methodName.isBlank()) {
+        final var cleanMethodName = stripParams(methodName);
+        if (cleanMethodName.isBlank()) {
             throw new IllegalArgumentException("Cannot get call graph: method name is empty");
         }
 
-        Map<String, List<CallSite>> graph = ((CallGraphProvider) analyzer).getCallgraphTo(methodName, 5);
-        String result = AnalyzerUtil.formatCallGraph(graph, methodName, true);
+        var graph = analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphTo(cleanMethodName, 3))
+                .orElse(Collections.emptyMap());
+        String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, true);
         if (result.isEmpty()) {
-            return "No callers found of method: " + methodName;
+            return "No callers found of method: " + cleanMethodName;
         }
         return result;
     }
@@ -528,26 +519,29 @@ public class SearchTools {
     @Tool(
             value =
                     """
-                            Returns the call graph to a depth of 5 showing which methods are called by the given method and one line of source code for each invocation.
+                            Returns the call graph to a depth of 3 showing which methods are called by the given method and one line of source code for each invocation.
                             Use this to understand how a method's logic flows to other parts of the codebase.
                             """)
     public String getCallGraphFrom(
             @P("Fully qualified method name (package name, class name, method name) to find callees for")
                     String methodName) {
         final var analyzer = getAnalyzer();
-        assertAdvancedCapabilities(analyzer, "Cannot get call graph");
+        assert analyzer.as(CallGraphProvider.class).isPresent()
+                : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
         assert (analyzer instanceof CallGraphProvider)
                 : "Cannot get call graph: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize methodName: remove potential `(params)` suffix from LLM.
-        methodName = stripParams(methodName);
-        if (methodName.isBlank()) {
+        final var cleanMethodName = stripParams(methodName);
+        if (cleanMethodName.isBlank()) {
             throw new IllegalArgumentException("Cannot get call graph: method name is empty");
         }
 
-        var graph = ((CallGraphProvider) analyzer).getCallgraphFrom(methodName, 5); // Use correct analyzer method
-        String result = AnalyzerUtil.formatCallGraph(graph, methodName, false);
+        var graph = analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphFrom(cleanMethodName, 3))
+                .orElse(Collections.emptyMap());
+        String result = AnalyzerUtil.formatCallGraph(graph, cleanMethodName, false);
         if (result.isEmpty()) {
-            return "No calls out made by method: " + methodName;
+            return "No calls out made by method: " + cleanMethodName;
         }
         return result;
     }
