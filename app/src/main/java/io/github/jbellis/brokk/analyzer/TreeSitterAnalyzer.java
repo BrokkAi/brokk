@@ -214,36 +214,63 @@ public abstract class TreeSitterAnalyzer
     protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
         this.project = project;
         this.language = language;
-        // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
 
-        this.normalizedExcludedPaths = excludedFiles.stream()
-                .map(Path::of)
-                .map(p -> p.isAbsolute()
-                        ? p.normalize()
-                        : project.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toUnmodifiableSet());
+        this.normalizedExcludedPaths = normalizeExcludedPaths(project, excludedFiles);
         if (!this.normalizedExcludedPaths.isEmpty()) {
             log.debug("Normalized excluded paths: {}", this.normalizedExcludedPaths);
         }
 
-        // Initialize query using a ThreadLocal for thread safety
-        // The supplier will use the appropriate getQueryResource() from the subclass
-        // and getTSLanguage() for the current thread.
-        this.query = ThreadLocal.withInitial(() -> {
-            String rawQueryString = loadResource(getQueryResource());
-            return new TSQuery(getTSLanguage(), rawQueryString);
-        });
+        this.query = createQueryThreadLocal();
 
-        // Debug log using SLF4J
         log.debug(
                 "Initializing TreeSitterAnalyzer for language: {}, query resource: {}",
                 this.language,
                 getQueryResource());
 
-        var validExtensions = this.language.getExtensions();
+        var validExtensions = Set.copyOf(this.language.getExtensions());
+
+        var stats = performInitialAnalysis(validExtensions);
+
+        if (stats.failed() > 0) {
+            log.warn(
+                    "File processing summary: {} attempted, {} successful, {} failed",
+                    stats.attempted(),
+                    stats.successful(),
+                    stats.failed());
+        } else {
+            log.info("File processing summary: {} files processed successfully", stats.successful());
+        }
+
+        log.debug(
+                "TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
+                topLevelDeclarations.size(),
+                childrenByParent.size(),
+                signatures.size());
+    }
+
+    protected TreeSitterAnalyzer(IProject project, Language language) {
+        this(project, language, project.getExcludedDirectories());
+    }
+
+    private static Set<Path> normalizeExcludedPaths(IProject project, Set<String> excludedFiles) {
+        return excludedFiles.stream()
+                .map(Path::of)
+                .map(p -> p.isAbsolute()
+                        ? p.normalize()
+                        : project.getRoot().resolve(p).toAbsolutePath().normalize())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private ThreadLocal<TSQuery> createQueryThreadLocal() {
+        return ThreadLocal.withInitial(() -> {
+            String rawQueryString = loadResource(getQueryResource());
+            return new TSQuery(getTSLanguage(), rawQueryString);
+        });
+    }
+
+    private AnalysisStats performInitialAnalysis(Set<String> validExtensions) {
         log.trace("Filtering project files for extensions: {}", validExtensions);
 
-        // Track processing statistics for better diagnostics
         var totalFilesAttempted = new AtomicInteger(0);
         var successfullyProcessed = new AtomicInteger(0);
         var failedFiles = new AtomicInteger(0);
@@ -317,31 +344,10 @@ public abstract class TreeSitterAnalyzer
                     }
                 });
 
-        // Log summary of file processing results
-        int totalAttempted = totalFilesAttempted.get();
-        int successful = successfullyProcessed.get();
-        int failed = failedFiles.get();
-
-        if (failed > 0) {
-            log.warn(
-                    "File processing summary: {} attempted, {} successful, {} failed",
-                    totalAttempted,
-                    successful,
-                    failed);
-        } else {
-            log.info("File processing summary: {} files processed successfully", successful);
-        }
-
-        log.debug(
-                "TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
-                topLevelDeclarations.size(),
-                childrenByParent.size(),
-                signatures.size());
+        return new AnalysisStats(totalFilesAttempted.get(), successfullyProcessed.get(), failedFiles.get());
     }
 
-    protected TreeSitterAnalyzer(IProject project, Language language) {
-        this(project, language, Collections.emptySet());
-    }
+    private static record AnalysisStats(int attempted, int successful, int failed) {}
 
     /* ---------- Helper methods for accessing CodeUnits ---------- */
 
