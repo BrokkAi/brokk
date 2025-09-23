@@ -191,6 +191,24 @@ public class Brokk {
                 }
             }
         }
+
+        // Initialize JavaFX platform to prevent deadlocks during MOPWebViewHost creation
+        // See: https://docs.oracle.com/javase/8/javafx/interoperability-tutorial/swing-fx-interoperability.htm
+        try {
+            javafx.application.Platform.startup(() -> {});
+            // Prevent JavaFX thread from dying when JFXPanels are removed/hidden
+            javafx.application.Platform.setImplicitExit(false);
+            logger.debug("JavaFX platform initialized at startup");
+        } catch (IllegalStateException e) {
+            var message = e.getMessage();
+            if (message != null && message.contains("Toolkit already initialized")) {
+                logger.debug("JavaFX platform already initialized");
+                // Still set implicit exit to false even if already initialized
+                javafx.application.Platform.setImplicitExit(false);
+            } else {
+                logger.warn("Failed to initialize JavaFX platform: {}", message);
+            }
+        }
     }
 
     private static void initializeLookAndFeelAndSplashScreen(boolean isDark) {
