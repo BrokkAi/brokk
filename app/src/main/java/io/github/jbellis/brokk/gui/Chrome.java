@@ -1619,6 +1619,51 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var project = getProject();
 
         var boundsOptional = project.getMainWindowBounds();
+
+        // If this is a worktree window with no saved bounds yet, try to base its initial
+        // placement on the parent project's window (live or saved), with a small offset.
+        if (boundsOptional.isEmpty() && project instanceof WorktreeProject wt) {
+            var parent = wt.getParent();
+
+            Rectangle candidate = null;
+            var parentChrome = Brokk.findOpenProjectWindow(parent.getRoot());
+            if (parentChrome != null) {
+                candidate = parentChrome.getFrame().getBounds();
+            } else {
+                var parentBoundsOpt = parent.getMainWindowBounds();
+                if (parentBoundsOpt.isPresent()) {
+                    candidate = parentBoundsOpt.get();
+                }
+            }
+
+            if (candidate != null) {
+                var initial = new Rectangle(candidate);
+                // Offset so the new window doesn't exactly overlap the parent
+                initial.translate(40, 40);
+
+                frame.setSize(initial.width, initial.height);
+                if (isPositionOnScreen(initial.x, initial.y)) {
+                    frame.setLocation(initial.x, initial.y);
+                } else {
+                    // Saved/parent position was off-screen (e.g. monitor change), center it
+                    frame.setLocationRelativeTo(null);
+                }
+
+                // Listener to save bounds on move/resize
+                frame.addComponentListener(new java.awt.event.ComponentAdapter() {
+                    @Override
+                    public void componentResized(java.awt.event.ComponentEvent e) {
+                        project.saveMainWindowBounds(frame);
+                    }
+
+                    @Override
+                    public void componentMoved(java.awt.event.ComponentEvent e) {
+                        project.saveMainWindowBounds(frame);
+                    }
+                });
+                return;
+            }
+        }
         if (boundsOptional.isEmpty()) {
             // No valid saved bounds, apply default placement logic
             logger.info("No workspace.properties found, using default window layout");
