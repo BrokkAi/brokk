@@ -41,8 +41,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private volatile Future<IAnalyzer> future;
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
     private volatile boolean rebuildInProgress = false;
-    private volatile boolean externalRebuildRequested =
-            false; // TODO allow requesting either incremental or full rebuild
+    private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
     private volatile boolean wasReady = false;
 
@@ -76,15 +75,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             // debug logging
             final var metrics = currentAnalyzer.getMetrics();
             logger.debug(
-                    "Initial analyzer has {} declarations across {} files",
+                    "Initial analyzer has {} declarations across {} files and took {} ms",
                     metrics.numberOfDeclarations(),
-                    metrics.numberOfCodeUnits());
-
-            // configure auto-refresh based on how long the first build took
-            if (project.getAnalyzerRefresh() == IProject.AnalyzerRefresh.UNSET) {
-                handleFirstBuildRefreshSettings(
-                        metrics.numberOfCodeUnits(), durationMs, project.getAnalyzerLanguages());
-            }
+                    metrics.numberOfCodeUnits(),
+                    durationMs);
 
             return currentAnalyzer;
         });
@@ -145,11 +139,6 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                 .collect(Collectors.toSet());
 
         if (!relevantFiles.isEmpty()) {
-            // update the analyzer if we're configured to do so
-            if (project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.AUTO) {
-                return;
-            }
-
             logger.debug(
                     "Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
                     relevantFiles.stream()
@@ -239,18 +228,16 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         /* ── 2.  Determine if any cached storage is stale ───────────────────────────────── */
         logger.debug("Scanning for modified project files");
         boolean needsRebuild = externalRebuildRequested; // explicit user request wins
-        if (project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.MANUAL) {
-            for (Language lang : project.getAnalyzerLanguages()) {
-                Path storagePath = lang.getStoragePath(project);
-                if (!Files.exists(storagePath)) { // no cache → rebuild
-                    needsRebuild = true;
-                    continue;
-                }
-                // Filter tracked files relevant to this language
-                List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
-                if (isStale(lang, storagePath, tracked)) // cache older than sources
+        for (Language lang : project.getAnalyzerLanguages()) {
+            Path storagePath = lang.getStoragePath(project);
+            // todo: This will not exist for most analyzers right now
+            if (!Files.exists(storagePath)) { // no cache → rebuild
                 needsRebuild = true;
+                continue;
             }
+            // Filter tracked files relevant to this language
+            List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
+            if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
@@ -301,9 +288,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
-        if (needsRebuild
-                && project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.MANUAL
-                && !externalRebuildRequested) {
+        if (needsRebuild && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
             runner.submit("Refreshing Code Intelligence", () -> {
@@ -316,71 +301,6 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         logger.debug("Analyzer load complete!");
         return analyzer;
-    }
-
-    private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, Set<Language> languages) {
-        var isEmpty = totalDeclarations == 0;
-        String langNames = languages.stream().map(Language::name).collect(Collectors.joining("/"));
-        String langExtensions = languages.stream()
-                .flatMap(l -> l.getExtensions().stream())
-                .distinct()
-                .collect(Collectors.joining(", "));
-
-        if (listener == null) { // Should not happen in normal flow, but good for safety
-            logger.warn(
-                    "AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
-            // Set a default refresh policy if listener is unexpectedly null
-            if (isEmpty || durationMs > 3 * 6000) {
-                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.MANUAL);
-            } else if (durationMs > 5000) {
-                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.ON_RESTART);
-            } else {
-                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.AUTO);
-            }
-            return;
-        }
-
-        if (isEmpty) {
-            logger.info("Empty {} analyzer", langNames);
-            listener.afterFirstBuild("");
-        } else if (durationMs > 3 * 6000) {
-            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.MANUAL);
-            var msg =
-                    """
-                            Code Intelligence for %s found %d declarations in %,d ms.
-                            Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
-                            You can change this in the Settings -> Project dialog.
-                            """
-                            .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs);
-            listener.afterFirstBuild(msg);
-            logger.info(msg);
-        } else if (durationMs > 5000) {
-            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.ON_RESTART);
-            var msg =
-                    """
-                            Code Intelligence for %s found %d declarations in %,d ms.
-                            Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
-                            You can change this in the Settings -> Project dialog.
-                            """
-                            .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs);
-            listener.afterFirstBuild(msg);
-            logger.info(msg);
-        } else {
-            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.AUTO);
-            var msg =
-                    """
-                            Code Intelligence for %s found %d declarations in %,d ms.
-                            If this is fewer than expected, it's probably because Brokk only looks for %s files.
-                            If this is not a useful subset of your project, you can change it in the Settings -> Project
-                            dialog, or disable Code Intelligence by setting the language(s) to NONE.
-                            """
-                            .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs, langExtensions, Languages.NONE.name());
-            listener.afterFirstBuild(msg);
-            logger.info(msg);
-        }
     }
 
     public boolean providesInterproceduralAnalysis() {

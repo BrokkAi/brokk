@@ -141,15 +141,9 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default AnalyzerRefresh getAnalyzerRefresh() {
-        throw new UnsupportedOperationException();
-    }
-
     default BuildAgent.BuildDetails awaitBuildDetails() {
         throw new UnsupportedOperationException();
     }
-
-    default void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {}
 
     default boolean isDataShareAllowed() {
         return false;
@@ -344,13 +338,6 @@ public interface IProject extends AutoCloseable {
 
     default IConsoleIO getConsoleIO() {
         throw new UnsupportedOperationException();
-    }
-
-    enum AnalyzerRefresh {
-        AUTO,
-        ON_RESTART,
-        MANUAL,
-        UNSET
     }
 
     enum CodeAgentTestScope {

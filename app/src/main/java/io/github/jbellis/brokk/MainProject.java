@@ -793,23 +793,6 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public AnalyzerRefresh getAnalyzerRefresh() {
-        String value = projectProps.getProperty("code_intelligence_refresh");
-        if (value == null) return AnalyzerRefresh.UNSET;
-        try {
-            return AnalyzerRefresh.valueOf(value.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            return AnalyzerRefresh.UNSET;
-        }
-    }
-
-    @Override
-    public void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {
-        projectProps.setProperty("code_intelligence_refresh", analyzerRefresh.name());
-        saveProjectProperties();
-    }
-
-    @Override
     public String getStyleGuide() {
         try {
             if (Files.exists(styleGuidePath)) {

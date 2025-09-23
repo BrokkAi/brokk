@@ -128,16 +128,6 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public AnalyzerRefresh getAnalyzerRefresh() {
-        return parent.getAnalyzerRefresh();
-    }
-
-    @Override
-    public void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {
-        parent.setAnalyzerRefresh(analyzerRefresh);
-    }
-
-    @Override
     public boolean isDataShareAllowed() {
         return parent.isDataShareAllowed();
     }
