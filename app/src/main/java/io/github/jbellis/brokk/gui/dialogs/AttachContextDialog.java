@@ -17,6 +17,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Frame;
 import java.awt.Insets;
+import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -75,6 +76,7 @@ public class AttachContextDialog extends JDialog {
     private final JLabel hint = new JLabel("Use glob patterns (e.g., src/**/*.java). Press Enter to attach.");
     private final OverlayPanel searchOverlay;
     private final ClosingAutoCompletion ac;
+    private final String hotkeyModifierString;
 
     // Providers bound to the single text field
     private final FilesProvider filesProvider = new FilesProvider();
@@ -109,6 +111,8 @@ public class AttachContextDialog extends JDialog {
     public AttachContextDialog(Frame parent, ContextManager cm) {
         super(parent, "Attach Context", true);
         this.cm = cm;
+        this.hotkeyModifierString =
+                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() == KeyEvent.CTRL_DOWN_MASK ? "Ctrl" : "⌘";
 
         setLayout(new BorderLayout(8, 8));
 
@@ -208,14 +212,36 @@ public class AttachContextDialog extends JDialog {
         searchField.addActionListener(e -> onConfirm());
 
         // Cancel on Escape
-        var ks = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
         getRootPane()
                 .registerKeyboardAction(
                         ev -> {
                             selection = null;
                             dispose();
                         },
-                        ks,
+                        KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+
+        // Hotkeys for tabs (1-4) - use platform menu shortcut (Cmd on macOS, Ctrl elsewhere)
+        var menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        getRootPane()
+                .registerKeyboardAction(
+                        ev -> filesBtn.doClick(),
+                        KeyStroke.getKeyStroke(KeyEvent.VK_1, menuMask),
+                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane()
+                .registerKeyboardAction(
+                        ev -> classesBtn.doClick(),
+                        KeyStroke.getKeyStroke(KeyEvent.VK_2, menuMask),
+                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane()
+                .registerKeyboardAction(
+                        ev -> methodsBtn.doClick(),
+                        KeyStroke.getKeyStroke(KeyEvent.VK_3, menuMask),
+                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane()
+                .registerKeyboardAction(
+                        ev -> usagesBtn.doClick(),
+                        KeyStroke.getKeyStroke(KeyEvent.VK_4, menuMask),
                         javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         // Register analyzer callback to manage gating lifecycle
@@ -296,7 +322,7 @@ public class AttachContextDialog extends JDialog {
 
         // Files is always enabled
         filesBtn.setEnabled(true);
-        filesBtn.setToolTipText(null);
+        filesBtn.setToolTipText(hotkeyModifierString + "-1");
 
         if (!analyzerReady) {
             classesBtn.setEnabled(false);
@@ -327,17 +353,19 @@ public class AttachContextDialog extends JDialog {
         // Classes segment
         boolean classesEnabled = hasSkeleton || hasSource;
         classesBtn.setEnabled(classesEnabled);
-        classesBtn.setToolTipText(classesEnabled ? null : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
+        classesBtn.setToolTipText(
+                classesEnabled ? hotkeyModifierString + "-2" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Methods segment
         boolean methodsEnabled = hasSource;
         methodsBtn.setEnabled(methodsEnabled);
-        methodsBtn.setToolTipText(methodsEnabled ? null : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
+        methodsBtn.setToolTipText(
+                methodsEnabled ? hotkeyModifierString + "-3" : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Usages segment
         boolean usagesEnabled = hasUsages;
         usagesBtn.setEnabled(usagesEnabled);
-        usagesBtn.setToolTipText(usagesEnabled ? null : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
+        usagesBtn.setToolTipText(usagesEnabled ? hotkeyModifierString + "-4" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Ensure the selected segment remains valid
         if ((classesBtn.isSelected() && !classesEnabled)

@@ -436,25 +436,26 @@ public class ContextHistory {
             return;
         }
         assert !frozenContext.containsDynamicFragments();
-        frozenContext.editableFiles.forEach(fragment -> {
-            assert fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH : fragment.getType();
-            assert fragment.files().size() == 1 : fragment.files();
+        frozenContext.editableFiles.stream()
+                .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .forEach(fragment -> {
+                    assert fragment.files().size() == 1 : fragment.files();
 
-            var pf = fragment.files().iterator().next();
-            try {
-                var newContent = fragment.text();
-                var currentContent = pf.exists() ? pf.read().orElse("") : "";
+                    var pf = fragment.files().iterator().next();
+                    try {
+                        var newContent = fragment.text();
+                        var currentContent = pf.exists() ? pf.read().orElse("") : "";
 
-                if (!newContent.equals(currentContent)) {
-                    pf.write(newContent);
-                    var restoredFiles = new ArrayList<String>();
-                    restoredFiles.add(pf.toString());
-                    io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
-                    io.updateWorkspace();
-                }
-            } catch (IOException e) {
-                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
-            }
-        });
+                        if (!newContent.equals(currentContent)) {
+                            pf.write(newContent);
+                            var restoredFiles = new ArrayList<String>();
+                            restoredFiles.add(pf.toString());
+                            io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
+                            io.updateWorkspace();
+                        }
+                    } catch (IOException e) {
+                        io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
+                    }
+                });
     }
 }

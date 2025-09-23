@@ -58,9 +58,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // UI Components managed by this panel
-    private JComboBox<IProject.AnalyzerRefresh> cpgRefreshComboBox = new JComboBox<>(new IProject.AnalyzerRefresh[] {
-        IProject.AnalyzerRefresh.AUTO, IProject.AnalyzerRefresh.ON_RESTART, IProject.AnalyzerRefresh.MANUAL
-    });
     private JTextField buildCleanCommandField = new JTextField();
     private JTextField allTestsCommandField = new JTextField();
     private JTextField someTestsCommandField = new JTextField();
@@ -758,10 +755,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         toolbar.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
 
-        toolbar.add(new JLabel("Analyzer Refresh:"));
-        toolbar.add(cpgRefreshComboBox);
-
-        var refreshBtn = new JButton("Refresh Now");
+        var refreshBtn = new JButton("Refresh Code Intelligence Now");
         refreshBtn.addActionListener(e -> {
             chrome.systemOutput("Requesting analyzer refresh...");
             try {
@@ -1354,7 +1348,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         someTestsCommandField,
                         runAllTestsRadio,
                         runTestsInWorkspaceRadio,
-                        cpgRefreshComboBox,
                         editLanguagesButton,
                         excludedScrollPane,
                         excludedDirectoriesList,
@@ -1479,10 +1472,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         buildTimeoutSpinner.setValue((int) project.getMainProject().getRunCommandTimeoutSeconds());
         populateJdkControlsFromProject();
 
-        var currentRefresh = project.getAnalyzerRefresh();
-        cpgRefreshComboBox.setSelectedItem(
-                currentRefresh == IProject.AnalyzerRefresh.UNSET ? IProject.AnalyzerRefresh.AUTO : currentRefresh);
-
         // Primary language
         populatePrimaryLanguageComboBox();
         var selectedLang = project.getBuildLanguage();
@@ -1579,12 +1568,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
             mainProject.setRunCommandTimeoutSeconds(timeout);
             logger.debug("Applied Run Command Timeout: {} seconds", timeout);
-        }
-
-        var selectedRefresh = (IProject.AnalyzerRefresh) cpgRefreshComboBox.getSelectedItem();
-        if (selectedRefresh != project.getAnalyzerRefresh()) {
-            project.setAnalyzerRefresh(selectedRefresh);
-            logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
         }
 
         if (!currentAnalyzerLanguagesForDialog.equals(project.getAnalyzerLanguages())) {

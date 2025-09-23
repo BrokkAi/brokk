@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.analyzer.CallSite;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.LintResult;

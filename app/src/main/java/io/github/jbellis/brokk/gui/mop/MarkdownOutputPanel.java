@@ -40,6 +40,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
     private @Nullable ContextManager currentContextManager;
+    private @Nullable String lastHistorySignature = null;
 
     @Override
     public boolean getScrollableTracksViewportHeight() {
@@ -105,12 +106,76 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return blockClearAndReset;
     }
 
+    private String getHistorySignature(List<TaskEntry> entries) {
+        if (entries.isEmpty()) {
+            return "";
+        }
+        var sb = new StringBuilder();
+        for (var entry : entries) {
+            sb.append(entry.sequence()).append(":");
+            if (entry.isCompressed()) {
+                sb.append("C:").append(Objects.hashCode(entry.summary()));
+            } else {
+                sb.append("U:").append(Objects.hashCode(entry.log()));
+            }
+            sb.append(';');
+        }
+        return sb.toString();
+    }
+
+    private void setMainIfChanged(List<? extends ChatMessage> newMessages) {
+        if (isBlocking()) {
+            logger.debug("Ignoring setMainIfChanged() while blocking is enabled.");
+            return;
+        }
+        if (getRawMessages(true).equals(newMessages)) {
+            logger.debug("Skipping MOP main update, content is unchanged.");
+            return;
+        }
+        setText(newMessages);
+    }
+
+    private void setHistoryIfChanged(List<TaskEntry> entries) {
+        String newSignature = getHistorySignature(entries);
+        if (Objects.equals(lastHistorySignature, newSignature)) {
+            logger.debug("Skipping MOP history update, content is unchanged.");
+            return;
+        }
+
+        replaceHistory(entries);
+        lastHistorySignature = newSignature;
+    }
+
+    /**
+     * Ensures the main messages render first, then the history after the WebView flushes. The user want to see the main
+     * message first
+     */
+    public java.util.concurrent.CompletableFuture<Void> setMainThenHistoryAsync(
+            List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
+        if (isBlocking()) {
+            logger.debug("Ignoring setMainThenHistoryAsync() while blocking is enabled.");
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        setMainIfChanged(mainMessages);
+        return flushAsync().thenRun(() -> SwingUtilities.invokeLater(() -> setHistoryIfChanged(history)));
+    }
+
+    /** Convenience overload to accept a TaskEntry as the main content. */
+    public java.util.concurrent.CompletableFuture<Void> setMainThenHistoryAsync(
+            TaskEntry main, List<TaskEntry> history) {
+        List<? extends ChatMessage> mainMessages = main.isCompressed()
+                ? List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")))
+                : castNonNull(main.log()).messages();
+        return setMainThenHistoryAsync(mainMessages, history);
+    }
+
     public void clear() {
         if (blockClearAndReset) {
             logger.debug("Ignoring clear() request while blocking is enabled");
             return;
         }
         messages.clear();
+        lastHistorySignature = null;
         webHost.clear();
         webHost.historyReset();
         textChangeListeners.forEach(Runnable::run);
@@ -148,7 +213,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         setText(newOutput.messages());
     }
 
-    public void setText(List<ChatMessage> newMessages) {
+    public void setText(List<? extends ChatMessage> newMessages) {
         if (blockClearAndReset && !messages.isEmpty()) {
             logger.debug("Ignoring setText() while blocking is enabled and panel already has content");
             return;
@@ -325,7 +390,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     /** Re-sends the entire task history to the WebView. */
-    public void replaceHistory(List<TaskEntry> entries) {
+    private void replaceHistory(List<TaskEntry> entries) {
         webHost.historyReset();
         for (var entry : entries) {
             webHost.historyTask(entry);

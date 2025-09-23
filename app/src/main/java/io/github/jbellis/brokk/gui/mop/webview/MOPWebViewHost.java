@@ -96,6 +96,10 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     private void initializeFxPanel() {
+        // Initialize JavaFX platform before creating JFXPanel to prevent deadlock
+        // between AWT EDT and JavaFX Application Thread during class initialization
+        Platform.startup(() -> {});
+
         fxPanel = new JFXPanel();
         fxPanel.setVisible(false); // Start hidden to prevent flicker
         add(fxPanel, BorderLayout.CENTER);

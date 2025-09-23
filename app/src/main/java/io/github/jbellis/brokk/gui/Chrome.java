@@ -29,6 +29,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.*;
@@ -178,6 +179,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel workspaceTopContainer;
+
+    @SuppressWarnings("NullAway.Init")
+    private io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel dependenciesDrawerPanel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -414,12 +418,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Create a right-hand Dependencies drawer beside the Workspace
         workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
+        this.dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
         workspaceDependenciesSplit.setResizeWeight(0.67); // Give more space to workspace by default
         workspaceDependenciesSplit.setLeftComponent(workspacePanel);
-        workspaceDependenciesSplit.setRightComponent(dependenciesDrawerPanel);
-        // Open dependencies drawer before first layout to avoid initial motion
-        dependenciesDrawerPanel.openInitially();
+        workspaceDependenciesSplit.setRightComponent(this.dependenciesDrawerPanel);
+        // Drawer state will be restored from GlobalUiSettings after layout
 
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
@@ -1616,21 +1619,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     private void loadWindowSizeAndPosition() {
-        var project = getProject();
-
-        var boundsOptional = project.getMainWindowBounds();
-        if (boundsOptional.isEmpty()) {
+        // Global-first: read from global UI settings
+        var bounds = GlobalUiSettings.getMainWindowBounds();
+        if (bounds.width > 0 && bounds.height > 0) {
+            frame.setSize(bounds.width, bounds.height);
+            if (isPositionOnScreen(bounds.x, bounds.y)) {
+                frame.setLocation(bounds.x, bounds.y);
+                logger.debug("Restoring main window position from global settings.");
+            } else {
+                // Saved position is off-screen, center instead
+                frame.setLocationRelativeTo(null);
+                logger.debug("Global window position is off-screen, centering window.");
+            }
+        } else {
             // No valid saved bounds, apply default placement logic
-            logger.info("No workspace.properties found, using default window layout");
+            logger.info("No global UI bounds found, using default window layout");
             GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
             GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
             Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
-            logger.debug(
-                    "No saved window bounds found for project. Detected screen size: {}x{} at ({},{})",
-                    screenBounds.width,
-                    screenBounds.height,
-                    screenBounds.x,
-                    screenBounds.y);
 
             // Default to 1920x1080 or screen size, whichever is smaller, and center.
             int defaultWidth = Math.min(1920, screenBounds.width);
@@ -1646,30 +1652,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     defaultHeight,
                     x,
                     y);
-        } else {
-            var bounds = boundsOptional.get();
-            // Valid bounds found, use them
-            frame.setSize(bounds.width, bounds.height);
-            if (isPositionOnScreen(bounds.x, bounds.y)) {
-                frame.setLocation(bounds.x, bounds.y);
-                logger.debug("Restoring window position from saved bounds.");
-            } else {
-                // Saved position is off-screen, center instead
-                frame.setLocationRelativeTo(null);
-                logger.debug("Saved window position is off-screen, centering window.");
-            }
         }
 
-        // Listener to save bounds on move/resize
+        // Listener to save bounds on move/resize (global only)
         frame.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
-                project.saveMainWindowBounds(frame);
+                GlobalUiSettings.saveMainWindowBounds(frame);
             }
 
             @Override
             public void componentMoved(java.awt.event.ComponentEvent e) {
-                project.saveMainWindowBounds(frame);
+                GlobalUiSettings.saveMainWindowBounds(frame);
             }
         });
     }
@@ -1693,16 +1687,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.validate();
 
         // Set horizontal (sidebar) split pane divider now - it depends on frame width which is already known
-        // Note: Vertical split panes will be set after pack() when component heights are properly calculated
-
-        // Calculate the proper sidebar width with correct frame size
-        int savedHorizontalPos = project.getHorizontalSplitPosition();
+        // Global-first for horizontal split
+        int globalHorizontalPos = GlobalUiSettings.getHorizontalSplitPosition();
         int properDividerLocation;
-        if (savedHorizontalPos > 0) {
-            // Use saved position, but ensure it's safe for current window size
-            properDividerLocation = project.getSafeHorizontalSplitPosition(frame.getWidth());
+        if (globalHorizontalPos > 0) {
+            properDividerLocation = Math.min(globalHorizontalPos, Math.max(50, frame.getWidth() - 200));
         } else {
-            // No saved position, calculate based on current frame size
+            // No saved global position, calculate based on current frame size
             int computedWidth = computeInitialSidebarWidth();
             properDividerLocation = computedWidth + bottomSplitPane.getDividerSize();
         }
@@ -1717,7 +1708,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             lastExpandedSidebarLocation = properDividerLocation;
         }
 
-        // Add property change listeners for future updates
+        // Add property change listeners for future updates (also persist globally)
         addSplitPaneListeners(project);
 
         // Apply title bar now that layout is complete
@@ -1737,8 +1728,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // NOW calculate vertical split pane dividers with proper component heights
 
-        // Load and set top split position (Instructions | Workspace)
-        int topSplitPos = project.getLeftVerticalSplitPosition();
+        // Global-first for top split (Workspace | Instructions)
+        int topSplitPos = GlobalUiSettings.getLeftVerticalSplitPosition();
         if (topSplitPos > 0) {
             topSplitPane.setDividerLocation(topSplitPos);
         } else {
@@ -1748,8 +1739,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             topSplitPane.setDividerLocation(defaultTopSplitPos);
         }
 
-        // Load and set main vertical split position (Top | Bottom tabs)
-        int mainVerticalPos = project.getRightVerticalSplitPosition();
+        // Global-first for main vertical split (Output | Main)
+        int mainVerticalPos = GlobalUiSettings.getRightVerticalSplitPosition();
         if (mainVerticalPos > 0) {
             mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
         } else {
@@ -1758,15 +1749,47 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             int defaultMainVerticalPos = (int) (mainVerticalHeight * DEFAULT_OUTPUT_MAIN_SPLIT);
             mainVerticalSplitPane.setDividerLocation(defaultMainVerticalPos);
         }
+
+        // Restore drawer states from global settings
+        restoreDrawersFromGlobalSettings();
     }
 
-    /** Adds property change listeners to split panes for saving positions. */
+    /** Restore drawer (dependencies/terminal) state from global settings after layout sizing is known. */
+    private void restoreDrawersFromGlobalSettings() {
+        // Dependencies drawer
+        boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();
+        double depProp = GlobalUiSettings.getDependenciesDrawerProportion();
+        if (depOpen) {
+            // Ensure drawer is open synchronously before first layout to avoid startup motion
+            dependenciesDrawerPanel.openInitially();
+            if (depProp > 0.0 && depProp < 1.0) {
+                workspaceDependenciesSplit.setDividerLocation(depProp);
+            }
+        } else {
+            // Ensure it is collapsed
+            dependenciesDrawerPanel.collapseIfEmpty();
+        }
+
+        // Terminal drawer
+        boolean termOpen = GlobalUiSettings.isTerminalDrawerOpen();
+        double termProp = GlobalUiSettings.getTerminalDrawerProportion();
+        if (termOpen) {
+            // Open using saved proportion synchronously before first layout
+            terminalDrawer.openInitially(termProp);
+        } else {
+            terminalDrawer.collapseIfEmpty();
+        }
+    }
+
+    /** Adds property change listeners to split panes for saving positions (global-first). */
     private void addSplitPaneListeners(AbstractProject project) {
         topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
             if (topSplitPane.isShowing()) {
                 var newPos = topSplitPane.getDividerLocation();
                 if (newPos > 0) {
+                    // Keep backward-compat but persist globally as the source of truth
                     project.saveLeftVerticalSplitPosition(newPos);
+                    GlobalUiSettings.saveLeftVerticalSplitPosition(newPos);
                 }
             }
         });
@@ -1775,7 +1798,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (mainVerticalSplitPane.isShowing()) {
                 var newPos = mainVerticalSplitPane.getDividerLocation();
                 if (newPos > 0) {
+                    // Keep backward-compat but persist globally as the source of truth
                     project.saveRightVerticalSplitPosition(newPos);
+                    GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
                 }
             }
         });
@@ -1784,13 +1809,49 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (bottomSplitPane.isShowing()) {
                 var newPos = bottomSplitPane.getDividerLocation();
                 if (newPos > 0) {
+                    // Keep backward-compat but persist globally as the source of truth
                     project.saveHorizontalSplitPosition(newPos);
+                    GlobalUiSettings.saveHorizontalSplitPosition(newPos);
                     // Remember expanded locations only (ignore collapsed sidebar)
                     if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
                         lastExpandedSidebarLocation = newPos;
                     }
                 }
             }
+        });
+
+        // Persist Dependencies drawer open/proportion globally
+        workspaceDependenciesSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (workspaceDependenciesSplit.isShowing()) {
+                int total = workspaceDependenciesSplit.getWidth();
+                if (total > 0) {
+                    double prop = Math.max(
+                            0.05,
+                            Math.min(0.95, (double) workspaceDependenciesSplit.getDividerLocation() / (double) total));
+                    GlobalUiSettings.saveDependenciesDrawerProportion(prop);
+                    GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
+                }
+            }
+        });
+        workspaceDependenciesSplit.addPropertyChangeListener("dividerSize", e -> {
+            GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
+        });
+
+        // Persist Terminal drawer open/proportion globally
+        instructionsDrawerSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (instructionsDrawerSplit.isShowing()) {
+                int total = instructionsDrawerSplit.getWidth();
+                if (total > 0) {
+                    double prop = Math.max(
+                            0.05,
+                            Math.min(0.95, (double) instructionsDrawerSplit.getDividerLocation() / (double) total));
+                    GlobalUiSettings.saveTerminalDrawerProportion(prop);
+                    GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
+                }
+            }
+        });
+        instructionsDrawerSplit.addPropertyChangeListener("dividerSize", e -> {
+            GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
         });
     }
 
