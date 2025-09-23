@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import org.eclipse.lsp4j.services.LanguageClient;
 import org.jetbrains.annotations.Nullable;
 
 /** Manages a single, shared instance of the JDT Language Server process. This class is a thread-safe singleton. */
@@ -94,11 +93,6 @@ public final class SharedJdtLspServer extends LspServer {
     protected LspLanguageClient getLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
         this.languageClient = new JdtLanguageClient(language, serverReadyLatch, workspaceReadyLatchMap);
-        return this.languageClient;
-    }
-
-    /** Returns the current language client, or null if not initialized. */
-    public @Nullable LanguageClient getLanguageClient() {
         return this.languageClient;
     }
 
