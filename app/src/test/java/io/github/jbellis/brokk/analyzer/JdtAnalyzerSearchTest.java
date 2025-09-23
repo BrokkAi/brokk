@@ -20,13 +20,13 @@ import org.slf4j.LoggerFactory;
 public class JdtAnalyzerSearchTest {
 
     private static Logger logger = LoggerFactory.getLogger(JdtAnalyzerSearchTest.class);
-    private static JdtAnalyzer analyzer;
+    private static JdtClient analyzer;
     private static IProject testProject;
 
     @BeforeAll
     public static void setup() throws IOException {
         testProject = createTestProject("testcode-java");
-        analyzer = new JdtAnalyzer(testProject);
+        analyzer = new JdtClient(testProject);
     }
 
     @AfterAll

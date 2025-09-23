@@ -22,7 +22,7 @@ public class JdtAnalyzerTest {
     private static final Logger logger = LoggerFactory.getLogger(JdtAnalyzerTest.class);
 
     @Nullable
-    private static JdtAnalyzer analyzer = null;
+    private static JdtClient analyzer = null;
 
     private static IProject testProject;
 
@@ -32,7 +32,7 @@ public class JdtAnalyzerTest {
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testProject.getRoot().toAbsolutePath().normalize());
-        analyzer = new JdtAnalyzer(testProject);
+        analyzer = new JdtClient(testProject);
     }
 
     public static IProject createTestProject(String subDir) {

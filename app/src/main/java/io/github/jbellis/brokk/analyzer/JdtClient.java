@@ -2,12 +2,9 @@ package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzer;
-import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
+import io.github.jbellis.brokk.analyzer.lsp.LspClient;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
-import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtLanguageClient;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
-import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -17,7 +14,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.eclipse.lsp4j.SymbolKind;
 
-public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvider, LintingProvider {
+public class JdtClient implements LspClient, CanCommunicate {
 
     private final Path projectRoot;
     private final String workspace;
@@ -30,7 +27,7 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
      * @param project the IProject file containing the necessary project information.
      * @throws IOException if the server cannot be started.
      */
-    public JdtAnalyzer(IProject project) throws IOException {
+    public JdtClient(IProject project) throws IOException {
         Path projectRoot = project.getRoot().toAbsolutePath().normalize();
         try {
             // Follow symlinks to "canonical" path if possible
@@ -148,13 +145,6 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
     }
 
     @Override
-    public Optional<String> getClassSource(String classFullName, boolean includeComments) {
-        // JSP containers are dot-delimited and get rid of the '$'
-        final String cleanedName = classFullName.replace('$', '.');
-        return LspAnalyzer.super.getClassSource(cleanedName, includeComments);
-    }
-
-    @Override
     public String sanitizeType(String typeName) {
         // Check if the type has generic parameters
         if (typeName.contains("<")) {
@@ -203,51 +193,6 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
         return isArray ? shortName + "[]" : shortName;
     }
 
-    private Optional<String> getSkeleton(String fqName, boolean headerOnly) {
-        final Set<String> skeletons = LspAnalyzerHelper.findTypesInWorkspace(fqName, workspace, sharedServer, false)
-                .thenApply(typeSymbols -> typeSymbols.stream()
-                        .map(typeSymbol -> {
-                            // First, read the full source text of the file.
-                            final Optional<String> fullSourceOpt = LspAnalyzerHelper.getSourceForUriString(
-                                    typeSymbol.getLocation().getLeft().getUri());
-                            if (fullSourceOpt.isEmpty()) {
-                                return Optional.<String>empty();
-                            } else {
-                                final String fullSource = fullSourceOpt.get();
-                                final var eitherLocationForType = typeSymbol.getLocation();
-                                if (eitherLocationForType.isLeft()) {
-                                    return JdtSkeletonHelper.getSymbolSkeleton(
-                                                    sharedServer,
-                                                    eitherLocationForType.getLeft(),
-                                                    fullSource,
-                                                    headerOnly)
-                                            .join();
-                                } else {
-                                    return Optional.<String>empty();
-                                }
-                            }
-                        })
-                        .flatMap(Optional::stream)
-                        .collect(Collectors.toSet()))
-                .join();
-
-        if (skeletons.isEmpty()) {
-            return Optional.empty();
-        } else {
-            return Optional.of(String.join(System.lineSeparator(), skeletons));
-        }
-    }
-
-    @Override
-    public Optional<String> getSkeleton(String fqName) {
-        return getSkeleton(fqName, false);
-    }
-
-    @Override
-    public Optional<String> getSkeletonHeader(String className) {
-        return getSkeleton(className, true);
-    }
-
     // A regex to match anonymous class instantiation patterns from symbol names.
     private static final Pattern ANONYMOUS_CLASS_PATTERN =
             Pattern.compile("(?s)^new\\s+[\\w.]+(?:<.*?>)?\\s*\\(.*\\)\\s*\\{.*\\}.*", Pattern.DOTALL);
@@ -264,44 +209,6 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
         } else {
             return false;
         }
-    }
-
-    @Override
-    public LintResult lintFiles(List<ProjectFile> files) {
-        if (files.isEmpty()) {
-            return new LintResult(List.of());
-        }
-
-        // Get the language client to access diagnostics
-        var languageClient = (JdtLanguageClient) sharedServer.getLanguageClient();
-        if (languageClient == null) {
-            logger.warn("JDT language client not available for linting");
-            return new LintResult(List.of());
-        }
-
-        // Clear existing diagnostics for these files
-        languageClient.clearDiagnosticsForFiles(files);
-        // Update files
-        this.update(new HashSet<>(files));
-
-        // Trigger analysis by refreshing the workspace
-        // This will cause the LSP server to re-analyze the files and generate diagnostics
-        try {
-            sharedServer.refreshWorkspace(getWorkspace()).join();
-        } catch (Exception e) {
-            logger.warn("Error refreshing workspace for linting", e);
-            return new LintResult(List.of());
-        }
-
-        try {
-            languageClient.waitForDiagnosticsToSettle().join();
-        } catch (Exception e) {
-            logger.warn("Error waiting for diagnostics to settle, continuing", e);
-        }
-
-        // Collect diagnostics for the specified files
-        var diagnostics = languageClient.getDiagnosticsForFiles(files);
-        return new LintResult(diagnostics);
     }
 
     @Override

@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.lsp.LspClient;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -9,109 +10,100 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A Java analyzer based on TreeSitter with underlying call graph, points-to, and type hierarchy analysis supplied by
- * Eclipse's JDT LSP. Use {@link HasDelayedCapabilities#isAdvancedAnalysisReady} to determine when the JDT LSP-based
- * analysis is available.
+ * Eclipse's JDT LSP.
  *
  * @see io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer
- * @see io.github.jbellis.brokk.analyzer.JdtAnalyzer
+ * @see JdtClient
  */
 public class JavaAnalyzer extends JavaTreeSitterAnalyzer
-        implements HasDelayedCapabilities, CanCommunicate, CallGraphProvider, UsagesProvider, LintingProvider {
+        implements CanCommunicate, CallGraphProvider, UsagesProvider, LintingProvider {
 
-    private volatile @Nullable JdtAnalyzer jdtAnalyzer;
-    private final CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture;
+    private static final Logger logger = LoggerFactory.getLogger(JavaAnalyzer.class);
+    private final CompletableFuture<JdtClient> jdtClientFuture;
+    private @Nullable IConsoleIO io;
 
-    protected JavaAnalyzer(IProject project, CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture) {
+    protected JavaAnalyzer(IProject project, CompletableFuture<JdtClient> jdtClientFuture) {
         super(project);
-        this.jdtAnalyzerFuture = jdtAnalyzerFuture.thenApply(analyzer -> {
-            this.jdtAnalyzer = analyzer;
-            return analyzer;
-        });
-    }
-
-    @Override
-    public CompletableFuture<Boolean> isAdvancedAnalysisReady() {
-        // If no exception raised, we're good to use the JDT analyzer
-        return this.jdtAnalyzerFuture.handleAsync(
-                (JdtAnalyzer result, @Nullable Throwable exception) -> exception == null);
+        this.jdtClientFuture = jdtClientFuture;
     }
 
     @Override
     public void setIo(IConsoleIO io) {
-        if (this.jdtAnalyzer != null) this.jdtAnalyzer.setIo(io);
-        else if (!jdtAnalyzerFuture.isDone())
-            jdtAnalyzerFuture.thenApply(analyzer -> {
-                analyzer.setIo(io);
-                return analyzer;
-            });
+        this.io = io;
+        jdtClientFuture.thenAccept(analyzer -> analyzer.setIo(io));
+    }
+
+    private <T> T safeBlockingLspOperation(Function<LspClient, T> function, T defaultValue, String errMessage) {
+        try {
+            return jdtClientFuture.thenApply(function).join();
+        } catch (RuntimeException e) {
+            logger.error(errMessage, e);
+            if (io != null) io.systemOutput(errMessage);
+            return defaultValue;
+        }
+    }
+
+    private void safeBlockingLspOperation(Consumer<LspClient> clientConsumer, String errMessage) {
+        try {
+            jdtClientFuture.thenAccept(clientConsumer).join();
+        } catch (RuntimeException e) {
+            logger.error(errMessage, e);
+            if (io != null) io.systemOutput(errMessage);
+        }
     }
 
     @Override
     public List<CodeUnit> getUses(String fqName) {
-        if (jdtAnalyzer != null) {
-            return jdtAnalyzer.getUses(fqName);
-        } else {
-            return Collections.emptyList();
-        }
+        return safeBlockingLspOperation(
+                client -> client.getUses(fqName),
+                Collections.emptyList(),
+                "Unable to determine symbol usages due to error in language server!");
     }
 
     @Override
     public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        if (jdtAnalyzer != null) {
-            return jdtAnalyzer.getCallgraphTo(methodName, depth);
-        } else {
-            return Collections.emptyMap();
-        }
+        return safeBlockingLspOperation(
+                client -> client.getCallgraphTo(methodName, depth),
+                Collections.emptyMap(),
+                "Unable to determine symbol call graph due to error in language server!");
     }
 
     @Override
     public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        if (jdtAnalyzer != null) {
-            return jdtAnalyzer.getCallgraphFrom(methodName, depth);
-        } else {
-            return Collections.emptyMap();
-        }
-    }
-
-    @Override
-    public FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
-        if (jdtAnalyzer != null) {
-            return jdtAnalyzer.getFunctionLocation(fqMethodName, paramNames);
-        } else {
-            return super.getFunctionLocation(fqMethodName, paramNames);
-        }
+        return safeBlockingLspOperation(
+                client -> client.getCallgraphFrom(methodName, depth),
+                Collections.emptyMap(),
+                "Unable to determine symbol call graph due to error in language server!");
     }
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-        if (jdtAnalyzer != null) {
-            jdtAnalyzer.update(changedFiles);
-        }
+        safeBlockingLspOperation(
+                client -> client.update(changedFiles), "Unable to update language server due to error!");
+        jdtClientFuture.thenAccept(client -> client.update(changedFiles));
         return super.update(changedFiles);
     }
 
     @Override
     public IAnalyzer update() {
-        if (jdtAnalyzer != null) {
-            jdtAnalyzer.update();
-        }
+        safeBlockingLspOperation(LspClient::update, "Unable to update language server due to error!");
         return super.update();
     }
 
     @Override
     public LintResult lintFiles(List<ProjectFile> files) {
-        if (jdtAnalyzer != null) {
-            return jdtAnalyzer.lintFiles(files);
-        } else {
-            return super.as(LintingProvider.class)
-                    .filter(provider -> provider != this)
-                    .map(provider -> provider.lintFiles(files))
-                    .orElse(new LintResult(Collections.emptyList()));
-        }
+        return safeBlockingLspOperation(
+                client -> client.lintFiles(files),
+                new LintResult(Collections.emptyList()),
+                "Unable to lint files due to error in language server!");
     }
 
     public Path getProjectRoot() {
@@ -122,7 +114,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
         final var jdtAnalyzerFuture = CompletableFuture.supplyAsync(() -> {
             try {
                 log.debug("Creating JDT LSP Analyzer in the background.");
-                return new JdtAnalyzer(project);
+                return new JdtClient(project);
             } catch (IOException e) {
                 log.error("Exception encountered while creating JDT analyzer");
                 throw new RuntimeException(e);

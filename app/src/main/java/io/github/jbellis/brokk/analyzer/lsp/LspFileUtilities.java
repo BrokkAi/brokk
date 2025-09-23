@@ -35,7 +35,7 @@ public final class LspFileUtilities {
         final var tempDir = Files.createTempDirectory(name + "-ls-unpacked-");
         tempDir.toFile().deleteOnExit(); // Clean up on JVM exit
 
-        try (final var resourceStream = LspAnalyzer.class.getResourceAsStream("/lsp/" + name + ".tar.gz")) {
+        try (final var resourceStream = LspClient.class.getResourceAsStream("/lsp/" + name + ".tar.gz")) {
             if (resourceStream == null) {
                 throw new FileNotFoundException("LSP server archive not found at /lsp/" + name + ".tar.gz");
             }
