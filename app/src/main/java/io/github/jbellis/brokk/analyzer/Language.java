@@ -151,7 +151,7 @@ public interface Language {
      * languages and combines the results.
      *
      * <p>Only the operations that make sense for a multi‑language view are implemented. Methods tied to a
-     * single‐language identity ‑such as {@link #internalName()} or {@link #getStoragePath(IProject)}‑ throw
+     * single‐language identity ‑ such as {@link #internalName()} or {@link #getStoragePath(IProject)} ‑ throw
      * {@link UnsupportedOperationException}.
      */
     class MultiLanguage implements Language {
