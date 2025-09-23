@@ -119,8 +119,9 @@ public class MergeDialogUtil {
 
         // Populate targetBranchComboBox
         if (!(mainProject.getRepo() instanceof GitRepo repo)) {
-            logger.error("Merge operation requires Git repository, got: {}",
-                         mainProject.getRepo().getClass().getSimpleName());
+            logger.error(
+                    "Merge operation requires Git repository, got: {}",
+                    mainProject.getRepo().getClass().getSimpleName());
             JOptionPane.showMessageDialog(
                     options.parentComponent(),
                     "This operation requires a Git repository",
@@ -338,8 +339,9 @@ public class MergeDialogUtil {
         }
 
         if (!(mainProject.getRepo() instanceof GitRepo gitRepo)) {
-            logger.error("Conflict check requires Git repository, got: {}",
-                         mainProject.getRepo().getClass().getSimpleName());
+            logger.error(
+                    "Conflict check requires Git repository, got: {}",
+                    mainProject.getRepo().getClass().getSimpleName());
             SwingUtilities.invokeLater(() -> {
                 conflictStatusLabel.setText("Repository type not supported for merge operations");
                 conflictStatusLabel.setForeground(Color.RED);

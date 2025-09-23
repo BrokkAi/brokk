@@ -21,10 +21,8 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.swing.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.geometry.Pos;
@@ -34,8 +32,10 @@ import javafx.scene.layout.StackPane;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
-import javafx.animation.Timeline;
-import javafx.animation.KeyFrame;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
@@ -642,12 +642,7 @@ public class Environment {
 
                 stage.show();
 
-                var timeline = new Timeline(
-                    new KeyFrame(
-                        javafx.util.Duration.seconds(3),
-                        e -> stage.close()
-                    )
-                );
+                var timeline = new Timeline(new KeyFrame(javafx.util.Duration.seconds(3), e -> stage.close()));
                 timeline.play();
 
                 logger.debug("JavaFX notification displayed");

@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
