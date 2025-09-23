@@ -36,6 +36,7 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
@@ -698,8 +699,10 @@ public class GitRepo implements Closeable, IGitRepo {
         var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", localBranchName, remoteBranchName));
 
         // 1. Push the branch
-        Iterable<PushResult> results =
-                git.push().setRemote(remoteName).setRefSpecs(refSpec).call();
+        var pushCommand = git.push().setRemote(remoteName).setRefSpecs(refSpec);
+        var remoteUrl = getRemoteUrl(remoteName);
+
+        Iterable<PushResult> results = performPushWithAuthentication(pushCommand, remoteUrl);
 
         List<String> rejectionMessages = new ArrayList<>();
         for (var result : results) {
@@ -748,6 +751,27 @@ public class GitRepo implements Closeable, IGitRepo {
         invalidateCaches();
 
         return results;
+    }
+
+    /**
+     * Performs push with authentication for HTTPS URLs using GitHub token. SSH URLs use JGit's default SSH
+     * authentication.
+     */
+    private Iterable<PushResult> performPushWithAuthentication(PushCommand pushCommand, @Nullable String remoteUrl)
+            throws GitAPIException {
+        if (remoteUrl != null && remoteUrl.startsWith("https://")) {
+            // HTTPS URL - use GitHub token authentication
+            logger.debug("Using HTTPS token authentication for: {}", remoteUrl);
+            var githubToken = io.github.jbellis.brokk.MainProject.getGitHubToken();
+            if (!githubToken.trim().isEmpty()) {
+                pushCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", githubToken));
+            } else {
+                throw new GitAPIException("GitHub token is required for HTTPS authentication. "
+                        + "Please configure your token in Settings → Global → GitHub.") {};
+            }
+        }
+        // For SSH URLs (git@, ssh://, etc.) and other protocols, use JGit's default handling
+        return pushCommand.call();
     }
 
     /**
