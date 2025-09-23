@@ -259,19 +259,30 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         controls.add(input, gbc);
 
         removeBtn.setIcon(Icons.REMOVE);
-        removeBtn.setToolTipText("Remove selected task");
+        // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
+        removeBtn.setAppendShortcutToTooltip(true);
+        removeBtn.setShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), null, null, null);
+        removeBtn.setToolTipText("<html><body style='width:300px'>Remove the selected tasks from the list.<br>Tasks that are running or queued cannot be removed.</body></html>");
         removeBtn.addActionListener(e -> removeSelected());
 
         toggleDoneBtn.setIcon(Icons.CHECK);
-        toggleDoneBtn.setToolTipText("Toggle selected done");
+        // Show a concise HTML tooltip and append the Space shortcut (display only; no action registered).
+        toggleDoneBtn.setAppendShortcutToTooltip(true);
+        toggleDoneBtn.setShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), null, null, null);
+        toggleDoneBtn.setToolTipText("<html><body style='width:300px'>Mark the selected tasks as done or not done.<br>Running or queued tasks cannot be toggled.</body></html>");
         toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
 
         playBtn.setIcon(Icons.PLAY);
-        playBtn.setToolTipText("Run Architect on selected task");
+        // Show a helpful HTML tooltip and append the platform Enter shortcut (Ctrl/Cmd+Enter display only).
+        playBtn.setAppendShortcutToTooltip(true);
+        playBtn.setShortcut(
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                null, null, null);
+        playBtn.setToolTipText("<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
         clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
-        clearCompletedBtn.setToolTipText("Clear all completed tasks");
+        clearCompletedBtn.setToolTipText("<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
         clearCompletedBtn.addActionListener(e -> clearCompletedTasks());
 
         {
