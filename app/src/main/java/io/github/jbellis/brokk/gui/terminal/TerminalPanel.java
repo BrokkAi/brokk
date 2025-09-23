@@ -5,6 +5,7 @@ import com.jediterm.terminal.CursorShape;
 import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.TtyConnector;
+import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
@@ -15,6 +16,7 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Cursor;
@@ -22,6 +24,9 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -36,6 +41,7 @@ import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -94,6 +100,23 @@ class MutableSettingsProvider extends DefaultSettingsProvider {
 
     public void setSelectionForeground(TerminalColor c) {
         selFg = c;
+    }
+
+    @Override
+    public @NotNull TerminalActionPresentation getSelectAllActionPresentation() {
+        // Preserve the default action name (for consistency/localization)
+        TerminalActionPresentation def = super.getSelectAllActionPresentation();
+        String name = def.getName();
+
+        boolean isMac = Environment.isMacOs();
+        KeyStroke ks;
+        if (isMac) {
+            int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // maps to Cmd on macOS
+            ks = KeyStroke.getKeyStroke(KeyEvent.VK_A, menuMask);
+        } else {
+            ks = KeyStroke.getKeyStroke(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
+        }
+        return new TerminalActionPresentation(name, ks);
     }
 }
 
