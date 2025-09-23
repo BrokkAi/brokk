@@ -1619,50 +1619,71 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     private void loadWindowSizeAndPosition() {
-        // Global-first: read from global UI settings
-        var bounds = GlobalUiSettings.getMainWindowBounds();
-        if (bounds.width > 0 && bounds.height > 0) {
+        // Per-project first: read from project settings
+        var boundsOpt = getProject().getMainWindowBounds();
+        if (boundsOpt.isPresent()) {
+            var bounds = boundsOpt.get();
             frame.setSize(bounds.width, bounds.height);
             if (isPositionOnScreen(bounds.x, bounds.y)) {
                 frame.setLocation(bounds.x, bounds.y);
-                logger.debug("Restoring main window position from global settings.");
+                logger.debug("Restoring main window position from project settings.");
             } else {
                 // Saved position is off-screen, center instead
                 frame.setLocationRelativeTo(null);
-                logger.debug("Global window position is off-screen, centering window.");
+                logger.debug("Project window position is off-screen, centering window.");
             }
         } else {
-            // No valid saved bounds, apply default placement logic
-            logger.info("No global UI bounds found, using default window layout");
-            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-            GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
-            Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
+            // No project bounds, try global bounds with offset
+            var globalBounds = GlobalUiSettings.getMainWindowBounds();
+            if (globalBounds.width > 0 && globalBounds.height > 0) {
+                // Apply slight offset (30px down and right) for window cascading
+                int offsetX = globalBounds.x + 30;
+                int offsetY = globalBounds.y + 30;
 
-            // Default to 1920x1080 or screen size, whichever is smaller, and center.
-            int defaultWidth = Math.min(1920, screenBounds.width);
-            int defaultHeight = Math.min(1080, screenBounds.height);
+                frame.setSize(globalBounds.width, globalBounds.height);
+                if (isPositionOnScreen(offsetX, offsetY)) {
+                    frame.setLocation(offsetX, offsetY);
+                    logger.debug("Using global window position with offset as fallback.");
+                } else {
+                    // Offset position is off-screen, center instead
+                    frame.setLocationRelativeTo(null);
+                    logger.debug("Global window position with offset is off-screen, centering window.");
+                }
+            } else {
+                // No valid saved bounds anywhere, apply default placement logic
+                logger.info("No UI bounds found, using default window layout");
+                GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+                GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
+                Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
 
-            int x = screenBounds.x + (screenBounds.width - defaultWidth) / 2;
-            int y = screenBounds.y + (screenBounds.height - defaultHeight) / 2;
+                // Default to 1920x1080 or screen size, whichever is smaller, and center.
+                int defaultWidth = Math.min(1920, screenBounds.width);
+                int defaultHeight = Math.min(1080, screenBounds.height);
 
-            frame.setBounds(x, y, defaultWidth, defaultHeight);
-            logger.debug(
-                    "Applying default window placement: {}x{} at ({},{}), centered on screen.",
-                    defaultWidth,
-                    defaultHeight,
-                    x,
-                    y);
+                int x = screenBounds.x + (screenBounds.width - defaultWidth) / 2;
+                int y = screenBounds.y + (screenBounds.height - defaultHeight) / 2;
+
+                frame.setBounds(x, y, defaultWidth, defaultHeight);
+                logger.debug(
+                        "Applying default window placement: {}x{} at ({},{}), centered on screen.",
+                        defaultWidth,
+                        defaultHeight,
+                        x,
+                        y);
+            }
         }
 
-        // Listener to save bounds on move/resize (global only)
+        // Listener to save bounds on move/resize (both per-project and global)
         frame.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
+                getProject().saveMainWindowBounds(frame);
                 GlobalUiSettings.saveMainWindowBounds(frame);
             }
 
             @Override
             public void componentMoved(java.awt.event.ComponentEvent e) {
+                getProject().saveMainWindowBounds(frame);
                 GlobalUiSettings.saveMainWindowBounds(frame);
             }
         });
