@@ -4,12 +4,10 @@ import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.util.ExecutorServiceUtil;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -169,25 +167,6 @@ public interface Language {
             this.languages = Collections.unmodifiableSet(ordered);
         }
 
-        private static ExecutorService newExecutor(int parallelism) {
-            assert parallelism >= 1 : "parallelism must be >= 1";
-            var factory = new ThreadFactory() {
-                private final ThreadFactory delegate = Executors.defaultThreadFactory();
-                private int count = 0;
-
-                @Override
-                public synchronized Thread newThread(Runnable r) {
-                    var t = delegate.newThread(r);
-                    t.setName("brokk-multilang-" + ++count);
-                    t.setDaemon(true);
-                    t.setUncaughtExceptionHandler(
-                            (thr, ex) -> logger.error("Unhandled exception in " + thr.getName(), ex));
-                    return t;
-                }
-            };
-            return Executors.newFixedThreadPool(parallelism, factory);
-        }
-
         @Override
         public List<String> getExtensions() {
             return languages.stream()
@@ -215,7 +194,7 @@ public interface Language {
         public IAnalyzer createAnalyzer(IProject project) {
             var parallelism = Math.min(languages.size(), Runtime.getRuntime().availableProcessors());
 
-            try (var executor = newExecutor(parallelism)) {
+            try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "brokk-multilang-")) {
                 var futures = languages.stream()
                         .map(lang -> CompletableFuture.supplyAsync(
                                 () -> {
@@ -248,7 +227,7 @@ public interface Language {
         public IAnalyzer loadAnalyzer(IProject project) {
             var parallelism = Math.min(languages.size(), Runtime.getRuntime().availableProcessors());
 
-            try (var executor = newExecutor(parallelism)) {
+            try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "brokk-multilang-")) {
                 var futures = languages.stream()
                         .map(lang -> CompletableFuture.supplyAsync(
                                 () -> {
