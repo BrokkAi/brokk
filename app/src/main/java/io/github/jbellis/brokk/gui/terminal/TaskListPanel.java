@@ -91,7 +91,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         super(new BorderLayout(4, 4));
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
-                "Session Task List",
+                "Task List",
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
