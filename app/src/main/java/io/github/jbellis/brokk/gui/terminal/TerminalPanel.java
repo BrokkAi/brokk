@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.terminal;
 import com.jediterm.pty.PtyProcessTtyConnector;
 import com.jediterm.terminal.CursorShape;
 import com.jediterm.terminal.TerminalColor;
+import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
@@ -48,6 +49,10 @@ class MutableSettingsProvider extends DefaultSettingsProvider {
     private TerminalColor bg = TerminalColor.BLACK;
     private TerminalColor fg = TerminalColor.WHITE;
 
+    // Selection colors: defaults chosen to be visible on dark background
+    private TerminalColor selBg = new TerminalColor(60, 100, 170);
+    private TerminalColor selFg = TerminalColor.WHITE;
+
     @Override
     public @NotNull TerminalColor getDefaultBackground() {
         return bg;
@@ -63,12 +68,32 @@ class MutableSettingsProvider extends DefaultSettingsProvider {
         return MainProject.getTerminalFontSize();
     }
 
+    @Override
+    public boolean useInverseSelectionColor() {
+        // Explicit selection coloring instead of inverse
+        return false;
+    }
+
+    @Override
+    public @NotNull TextStyle getSelectionColor() {
+        // Provide explicit selection background/foreground to ensure visibility
+        return new TextStyle(selFg, selBg);
+    }
+
     public void setBackground(TerminalColor c) {
         bg = c;
     }
 
     public void setForeground(TerminalColor c) {
         fg = c;
+    }
+
+    public void setSelectionBackground(TerminalColor c) {
+        selBg = c;
+    }
+
+    public void setSelectionForeground(TerminalColor c) {
+        selFg = c;
     }
 }
 
@@ -361,10 +386,15 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         // Define terminal colors based on theme
         TerminalColor bg = dark ? new TerminalColor(30, 30, 30) : new TerminalColor(255, 255, 255);
         TerminalColor fg = dark ? new TerminalColor(221, 221, 221) : new TerminalColor(0, 0, 0);
+        // Selection colors: explicit background/foreground to ensure visibility
+        TerminalColor selBg = dark ? new TerminalColor(60, 100, 170) : new TerminalColor(173, 214, 255);
+        TerminalColor selFg = dark ? new TerminalColor(255, 255, 255) : new TerminalColor(0, 0, 0);
 
         // Apply colors through JediTerm's settings system
         settings.setBackground(bg);
         settings.setForeground(fg);
+        settings.setSelectionBackground(selBg);
+        settings.setSelectionForeground(selFg);
 
         // Trigger repaint to apply the changes
         var w = widget;
