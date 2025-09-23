@@ -12,7 +12,11 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
+import io.github.jbellis.brokk.analyzer.LintResult;
+import io.github.jbellis.brokk.analyzer.LintingProvider;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.lsp.LspLanguageClient;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
@@ -30,6 +34,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -671,12 +677,17 @@ public class CodeAgent {
     }
 
     Step verifyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
-        // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
+        // Plan Invariant: Verify only runs when editsSinceLastBuild > 0.
         if (es.blocksAppliedWithoutBuild() == 0) {
             reportComplete("No edits found or applied in response, and no changes since last build; ending task.");
             TaskResult.StopDetails stopDetails;
             if (es.lastBuildError().isEmpty()) {
-                var text = Messages.getText(cs.taskMessages().getLast());
+                String text = "";
+                if (!cs.taskMessages().isEmpty()) {
+                    text = Messages.getText(cs.taskMessages().getLast());
+                } else if (cs.nextRequest() != null) {
+                    text = Messages.getText(cs.nextRequest());
+                }
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, text);
             } else {
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, es.lastBuildError());
@@ -684,22 +695,87 @@ public class CodeAgent {
             return new Step.Fatal(stopDetails);
         }
 
-        String latestBuildError;
+        // Should we allow LSP lint to gate the build? Defaults to false (always run the build).
+        boolean useLintGate = Environment.envBoolean("BRK_USE_LSP_LINT_FOR_BUILD_GATE", false, false);
+
+        String latestErrorMessage = "";
         try {
-            latestBuildError = performBuildVerification();
-            latestBuildError = sanitizeBuildOutput(latestBuildError);
+            // Gather lint diagnostics first
+            Optional<LintResult> lintResultOpt = contextManager
+                    .getAnalyzer()
+                    .as(LintingProvider.class)
+                    .map(analyzer -> analyzer.lintFiles(new ArrayList<>(es.changedFiles())));
+
+            // Determine workspace health (JDT shared state). If unknown, treat as healthy for simplicity.
+            var buildHealth = SharedJdtLspServer.getInstance().getBuildHealth();
+            boolean unhealthy = buildHealth != LspLanguageClient.BuildHealth.HEALTHY;
+
+            // Helper to classify unresolved-like messages
+            Predicate<String> isUnresolvedLike = (msg) -> {
+                var m = msg.toLowerCase(Locale.ROOT);
+                return m.contains("cannot be resolved")
+                        || m.contains("classpath is incomplete")
+                        || m.contains("class path is incomplete")
+                        || m.contains("build path is incomplete")
+                        || m.contains("project configuration is not up-to-date");
+            };
+
+            // Render lint errors into text
+            Function<LintResult, String> renderLintErrors = (lr) -> lr.getErrors().stream()
+                    .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
+                    .collect(Collectors.joining("\n"));
+
+            // Unwrap optional for NullAway-friendly checks
+            @Nullable LintResult lintResult = lintResultOpt.orElse(null);
+            var lintErrors = (lintResult == null) ? List.<LintResult.LintDiagnostic>of() : lintResult.getErrors();
+            boolean haveLintErrors = !lintErrors.isEmpty();
+            boolean allUnresolvedLike =
+                    haveLintErrors && lintErrors.stream().allMatch(d -> isUnresolvedLike.test(d.message()));
+
+            if (useLintGate) {
+                // Legacy behavior (optional): allow lint to gate the build unless they're all unresolved-like in an
+                // unhealthy workspace
+                if (haveLintErrors && !(unhealthy && allUnresolvedLike)) {
+                    latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                } else {
+                    latestErrorMessage = performBuildVerification();
+                }
+            } else {
+                // Health-aware default:
+                // - If server is healthy and we have lint errors, trust and report them immediately (cheap feedback).
+                // - Otherwise, run the build; prefer build errors, and only fall back to lint if build succeeds.
+                if (!unhealthy && haveLintErrors) {
+                    latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                } else {
+                    var buildOutput = performBuildVerification();
+                    if (!buildOutput.isEmpty()) {
+                        latestErrorMessage = buildOutput;
+                    } else if (haveLintErrors) {
+                        // If unhealthy and all are unresolved-like, ignore them; otherwise report
+                        if (!(unhealthy && allUnresolvedLike)) {
+                            latestErrorMessage = renderLintErrors.apply(requireNonNull(lintResult));
+                        } else {
+                            latestErrorMessage = "";
+                        }
+                    } else {
+                        latestErrorMessage = "";
+                    }
+                }
+            }
+
+            latestErrorMessage = sanitizeBuildOutput(latestErrorMessage);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
 
-        if (latestBuildError.isEmpty()) {
-            // Build succeeded or was skipped by performBuildVerification
+        if (latestErrorMessage.isEmpty()) {
+            // Build succeeded and no actionable lint issues
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {
-            // Build failed
+            // Build or lint failed
             if (metrics != null) {
                 metrics.buildFailures++;
             }
@@ -709,14 +785,14 @@ public class CodeAgent {
                 reportComplete("Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
                 return new Step.Fatal(new TaskResult.StopDetails(
                         TaskResult.StopReason.BUILD_ERROR,
-                        "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, latestBuildError)));
+                        "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, latestErrorMessage)));
             }
-            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
+            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestErrorMessage));
             var newCs = new ConversationState(
                     cs.taskMessages(),
                     nextRequestForBuildFailure,
                     cs.taskMessages().size());
-            var newEs = es.afterBuildFailure(latestBuildError);
+            var newEs = es.afterBuildFailure(latestErrorMessage);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
         }
