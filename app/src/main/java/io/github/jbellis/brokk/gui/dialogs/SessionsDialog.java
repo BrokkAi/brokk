@@ -177,6 +177,7 @@ public class SessionsDialog extends JDialog {
         JPanel activityPanel = new JPanel(new BorderLayout());
         activityPanel.setBorder(BorderFactory.createTitledBorder("Activity"));
         JScrollPane activityScrollPane = new JScrollPane(activityTable);
+        activityScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 10, 5)); // slight bottom pad to align with Output
         var layer = new JLayer<>(activityScrollPane, arrowLayerUI);
         activityScrollPane.getViewport().addChangeListener(e -> layer.repaint());
         activityPanel.add(layer, BorderLayout.CENTER);
