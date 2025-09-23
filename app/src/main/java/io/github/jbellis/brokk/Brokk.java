@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.MenuBar;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
@@ -396,7 +397,7 @@ public class Brokk {
         boolean isDark = MainProject.getTheme().equals("dark");
         initializeLookAndFeelAndSplashScreen(isDark);
 
-        // Register native macOS “About” handler (only if running on macOS)
+        // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {
             SwingUtilities.invokeLater(() -> {
                 try {
@@ -405,6 +406,9 @@ public class Brokk {
                     // AboutHandler not supported on this platform/JVM – safe to ignore
                 }
             });
+
+            // Set up global preferences handler for all Chrome windows
+            MenuBar.setupGlobalMacOSPreferencesHandler();
         }
 
         // run this after we show the splash screen, it's expensive

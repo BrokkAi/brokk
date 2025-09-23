@@ -27,12 +27,16 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
+import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
+    // Track all active Chrome instances for global preferences handling
+    private static final Set<Chrome> activeChromeInstances = ConcurrentHashMap.newKeySet();
     /**
      * Builds the menu bar
      *
@@ -89,20 +93,8 @@ public class MenuBar {
                 KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
 
         if (isMac) {
-            try {
-                if (Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().setPreferencesHandler(new PreferencesHandler() {
-                        @Override
-                        public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
-                            SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
-                        }
-                    });
-                }
-            } catch (Throwable t) {
-                // Best-effort; if registering the Preferences handler fails, fall back to putting the menu
-                // entry into the File menu so Settings remains reachable.
-                fileMenu.add(settingsItem);
-            }
+            // Register this Chrome instance for global preferences handling
+            registerChromeInstance(chrome);
 
             // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
             var rootPane = chrome.getFrame().getRootPane();
@@ -546,6 +538,83 @@ public class MenuBar {
     static void openSettingsDialog(Chrome chrome) {
         var dialog = new SettingsDialog(chrome.frame, chrome);
         dialog.setVisible(true);
+    }
+
+    /**
+     * Registers a Chrome instance for global preferences handling on macOS. Should be called when a Chrome window is
+     * created.
+     *
+     * @param chrome the Chrome instance to register
+     */
+    public static void registerChromeInstance(Chrome chrome) {
+        activeChromeInstances.add(chrome);
+    }
+
+    /**
+     * Unregisters a Chrome instance from global preferences handling. Should be called when a Chrome window is being
+     * closed.
+     *
+     * @param chrome the Chrome instance to unregister
+     */
+    public static void unregisterChromeInstance(Chrome chrome) {
+        activeChromeInstances.remove(chrome);
+    }
+
+    /**
+     * Sets up the global macOS preferences handler that works across all Chrome windows. This should be called once
+     * during application startup.
+     */
+    public static void setupGlobalMacOSPreferencesHandler() {
+        if (!Environment.instance.isMacOs()) {
+            return;
+        }
+
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().setPreferencesHandler(new PreferencesHandler() {
+                    @Override
+                    public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
+                        SwingUtilities.invokeLater(() -> {
+                            // Find the focused Chrome window, or fallback to any active window
+                            var targetChrome = findFocusedOrActiveChromeWindow();
+                            if (targetChrome != null) {
+                                openSettingsDialog(targetChrome);
+                            }
+                        });
+                    }
+                });
+            }
+        } catch (Throwable t) {
+            // If global handler setup fails, individual windows will fall back to their own handlers
+        }
+    }
+
+    /**
+     * Finds the currently focused Chrome window, or returns any active Chrome window as fallback.
+     *
+     * @return the focused Chrome window, or null if no windows are active
+     */
+    @Nullable
+    private static Chrome findFocusedOrActiveChromeWindow() {
+        // First try to find the focused window
+        for (Chrome chrome : activeChromeInstances) {
+            if (chrome.getFrame().isFocused()) {
+                return chrome;
+            }
+        }
+
+        // Fallback: try to find the active window (not minimized)
+        for (Chrome chrome : activeChromeInstances) {
+            var frame = chrome.getFrame();
+            if (frame.isActive() && (frame.getExtendedState() & Frame.ICONIFIED) == 0) {
+                return chrome;
+            }
+        }
+
+        // Last resort: return any active Chrome instance
+        return activeChromeInstances.isEmpty()
+                ? null
+                : activeChromeInstances.iterator().next();
     }
 
     /**
