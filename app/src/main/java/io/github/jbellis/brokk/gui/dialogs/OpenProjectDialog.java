@@ -7,28 +7,27 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.net.ConnectException;
-import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.Objects;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
@@ -41,6 +40,7 @@ import org.slf4j.LoggerFactory;
 
 public class OpenProjectDialog extends JDialog {
     private static final Logger logger = LoggerFactory.getLogger(OpenProjectDialog.class);
+
     private static record GitHubRepoInfo(
             String fullName,
             String description,
@@ -427,19 +427,45 @@ public class OpenProjectDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(protocolPanel, gbc);
 
+        // Shallow clone controls
+        var shallowCloneCheckbox = new JCheckBox("Shallow clone with");
+        var depthSpinner = new JSpinner(new SpinnerNumberModel(1, 1, Integer.MAX_VALUE, 1));
+        depthSpinner.setEnabled(false);
+        ((JSpinner.DefaultEditor) depthSpinner.getEditor()).getTextField().setColumns(3);
+        var commitsLabel = new JLabel("commits");
+
+        var shallowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        shallowPanel.add(shallowCloneCheckbox);
+        shallowPanel.add(depthSpinner);
+        shallowPanel.add(commitsLabel);
+
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
+        panel.add(shallowPanel, gbc);
+
+        shallowCloneCheckbox.addActionListener(e -> depthSpinner.setEnabled(shallowCloneCheckbox.isSelected()));
+
         var refreshButton = new JButton("Refresh");
         refreshButton.addActionListener(e -> loadRepositoriesAsync(tableModel, true));
 
         var cloneButton = new JButton("Clone and Open");
-        cloneButton.addActionListener(
-                e -> cloneSelectedRepository(table, tableModel, dirField.getText(), httpsRadio.isSelected()));
+        cloneButton.addActionListener(e -> cloneSelectedRepository(
+                table,
+                tableModel,
+                dirField.getText(),
+                httpsRadio.isSelected(),
+                shallowCloneCheckbox.isSelected(),
+                (Integer) depthSpinner.getValue()));
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(refreshButton);
         buttonPanel.add(cloneButton);
 
         gbc.gridx = 0;
-        gbc.gridy = 2;
+        gbc.gridy = 3;
         gbc.gridwidth = 2;
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.NONE;
@@ -661,21 +687,15 @@ public class OpenProjectDialog extends JDialog {
 
     private void showTokenMissingMessage(DefaultTableModel tableModel) {
         tableModel.setRowCount(0);
-        tableModel.addRow(new Object[]{
-            "No GitHub token configured",
-            "Go to Settings → GitHub to configure your token",
-            "",
-            Instant.now()
+        tableModel.addRow(new Object[] {
+            "No GitHub token configured", "Go to Settings → GitHub to configure your token", "", Instant.now()
         });
     }
 
     private void showTokenInvalidMessage(DefaultTableModel tableModel) {
         tableModel.setRowCount(0);
-        tableModel.addRow(new Object[]{
-            "GitHub token is invalid or expired",
-            "Go to Settings → GitHub to update your token",
-            "",
-            Instant.now()
+        tableModel.addRow(new Object[] {
+            "GitHub token is invalid or expired", "Go to Settings → GitHub to update your token", "", Instant.now()
         });
     }
 
@@ -685,7 +705,12 @@ public class OpenProjectDialog extends JDialog {
     }
 
     private void cloneSelectedRepository(
-            JTable table, DefaultTableModel tableModel, String directory, boolean useHttps) {
+            JTable table,
+            DefaultTableModel tableModel,
+            String directory,
+            boolean useHttps,
+            boolean shallow,
+            int depth) {
         int viewRow = table.getSelectedRow();
         if (viewRow < 0) {
             JOptionPane.showMessageDialog(this, "Please select a repository to clone.");
@@ -702,13 +727,47 @@ public class OpenProjectDialog extends JDialog {
         }
         var repoInfo = repoInfoOpt.get();
 
+        // Validate directory before proceeding
+        if (directory.isBlank()) {
+            JOptionPane.showMessageDialog(this, "Directory must be provided.", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        var targetPath = Paths.get(directory);
+        if (!Files.exists(targetPath)) {
+            try {
+                Files.createDirectories(targetPath);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot create target directory: " + e.getMessage(),
+                        "Directory Error",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+
+        if (!Files.isDirectory(targetPath) || !Files.isWritable(targetPath)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Target path is not a writable directory: " + directory,
+                    "Directory Error",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
         var cloneUrl = useHttps ? repoInfo.httpsUrl() : repoInfo.sshUrl();
         var protocol = useHttps ? "HTTPS" : "SSH";
 
-        logger.info("User initiated clone: repository={}, protocol={}, targetDir={}",
-                   repoFullName, protocol, directory);
+        logger.info(
+                "User initiated clone: repository={}, protocol={}, targetDir={}, shallow={}, depth={}",
+                repoFullName,
+                protocol,
+                directory,
+                shallow,
+                depth);
 
-        cloneAndOpen(cloneUrl, directory, false, 0);
+        cloneAndOpen(cloneUrl, directory, shallow, depth);
     }
 
     private Optional<GitHubRepoInfo> findRepositoryByName(String fullName) {
@@ -732,25 +791,25 @@ public class OpenProjectDialog extends JDialog {
                 if (++count >= 100) break;
             }
             return repositories.stream()
-                .map(repo -> {
-                    try {
-                        return new GitHubRepoInfo(
-                                repo.getFullName(),
-                                repo.getDescription() != null ? repo.getDescription() : "",
-                                repo.getHttpTransportUrl(),
-                                repo.getSshUrl(),
-                                repo.getUpdatedAt() != null
-                                        ? repo.getUpdatedAt().toInstant()
-                                        : Instant.now(),
-                                repo.isPrivate());
-                    } catch (Exception e) {
-                        logger.warn("Failed to process repository {}: {}", repo.getFullName(), e.getMessage());
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
-                .toList();
+                    .map(repo -> {
+                        try {
+                            return new GitHubRepoInfo(
+                                    repo.getFullName(),
+                                    repo.getDescription() != null ? repo.getDescription() : "",
+                                    repo.getHttpTransportUrl(),
+                                    repo.getSshUrl(),
+                                    repo.getUpdatedAt() != null
+                                            ? repo.getUpdatedAt().toInstant()
+                                            : Instant.now(),
+                                    repo.isPrivate());
+                        } catch (Exception e) {
+                            logger.warn("Failed to process repository {}: {}", repo.getFullName(), e.getMessage());
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
+                    .toList();
         } catch (HttpException e) {
             if (e.getResponseCode() == 401) {
                 throw new IllegalStateException("GitHub token is invalid or expired");
@@ -784,11 +843,13 @@ public class OpenProjectDialog extends JDialog {
      * @return Optional containing the selected project path; empty if the user cancelled
      */
     public static Optional<Path> showDialog(@Nullable Frame owner) {
-        var selectedPath = SwingUtil.runOnEdt(() -> {
-            var dlg = new OpenProjectDialog(owner);
-            dlg.setVisible(true); // modal; blocks
-            return dlg.selectedProjectPath;
-        }, null);
+        var selectedPath = SwingUtil.runOnEdt(
+                () -> {
+                    var dlg = new OpenProjectDialog(owner);
+                    dlg.setVisible(true); // modal; blocks
+                    return dlg.selectedProjectPath;
+                },
+                null);
         return Optional.ofNullable(selectedPath);
     }
 }

@@ -203,7 +203,6 @@ public class GitHubAuth {
         return !token.isBlank();
     }
 
-
     public static boolean validateStoredToken() {
         String token = getStoredToken();
         if (token.isEmpty()) {
