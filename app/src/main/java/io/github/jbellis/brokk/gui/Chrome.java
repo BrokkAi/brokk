@@ -1794,8 +1794,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         restoreDrawersFromGlobalSettings();
     }
 
-    /** Restore drawer (dependencies) state from global settings after layout sizing is known.
-     * Terminal drawer restore is handled by TerminalDrawerPanel itself to respect per-project settings. */
+    /**
+     * Restore drawer (dependencies) state from global settings after layout sizing is known. Terminal drawer restore is
+     * handled by TerminalDrawerPanel itself to respect per-project settings.
+     */
     private void restoreDrawersFromGlobalSettings() {
         // Dependencies drawer (global)
         boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();

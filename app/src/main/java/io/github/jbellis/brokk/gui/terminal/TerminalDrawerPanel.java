@@ -1,23 +1,23 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
-import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.BorderLayout;
-import java.awt.Dimension;
 import java.awt.Component;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
+import java.awt.Dimension;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
-import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -32,13 +32,13 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     // Core components
     private final JPanel drawerContentPanel;
-  private final JPanel buttonBar;
-  private final MaterialToggleButton terminalToggle;
-  private final MaterialToggleButton tasksToggle;
-  private @Nullable TerminalPanel activeTerminal;
-  private @Nullable TaskListPanel activeTaskList;
+    private final JPanel buttonBar;
+    private final MaterialToggleButton terminalToggle;
+    private final MaterialToggleButton tasksToggle;
+    private @Nullable TerminalPanel activeTerminal;
+    private @Nullable TaskListPanel activeTaskList;
 
-  // Drawer state management
+    // Drawer state management
     private double lastDividerLocation = 0.5;
     private int originalDividerSize;
     private static final int MIN_OPEN_WIDTH = 200;
@@ -110,7 +110,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     if (activeTerminal.isReady()) {
                         activeTerminal.requestFocusInTerminal();
                     } else {
-                        activeTerminal.whenReady().thenAccept(t -> SwingUtilities.invokeLater(t::requestFocusInTerminal));
+                        activeTerminal
+                                .whenReady()
+                                .thenAccept(t -> SwingUtilities.invokeLater(t::requestFocusInTerminal));
                     }
                 }
             } else {
@@ -172,8 +174,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         // Restore drawer state (per-project or global), or collapse if none is configured
         SwingUtilities.invokeLater(this::restoreInitialState);
     }
-
-
 
     /** Opens the terminal in the drawer. If already open, ensures it has focus. */
     public void openTerminal() {
@@ -451,9 +451,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             var ap = getCurrentProject();
 
             // Last tab
-            var lastTab = usePerProject && ap != null
-                    ? ap.getTerminalDrawerLastTab()
-                    : null;
+            var lastTab = usePerProject && ap != null ? ap.getTerminalDrawerLastTab() : null;
             if (lastTab == null) {
                 lastTab = GlobalUiSettings.getTerminalDrawerLastTab();
             }
