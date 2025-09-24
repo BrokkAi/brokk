@@ -4,34 +4,30 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
-import java.awt.Component;
 import java.awt.Dimension;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A drawer panel that can host development tools like terminals. Currently supports a terminal that can be toggled
- * on/off. The drawer can be collapsed when no tools are active.
+ * A drawer panel that can host development tools like terminals and task lists. Uses a right-side JTabbedPane
+ * (icon-only tabs) to switch between tools. The drawer collapses to the tab strip when no tool content is displayed.
  */
 public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TerminalDrawerPanel.class);
 
     // Core components
     private final JPanel drawerContentPanel;
-    private final JPanel drawerToolBar;
-    private final MaterialToggleButton terminalToggle;
-    private final MaterialToggleButton taskListToggle;
+    private final JTabbedPane sideTabs;
     private @Nullable TerminalPanel activeTerminal;
     private @Nullable TaskListPanel activeTaskList;
 
@@ -57,87 +53,61 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         setBorder(BorderFactory.createEmptyBorder());
 
-        // Create vertical icon bar on the EAST side
-        drawerToolBar = new JPanel();
-        drawerToolBar.setLayout(new BoxLayout(drawerToolBar, BoxLayout.Y_AXIS));
-        drawerToolBar.setOpaque(false);
-        drawerToolBar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
-        terminalToggle = new MaterialToggleButton(Icons.TERMINAL);
-        terminalToggle.setToolTipText("Toggle Terminal");
-        terminalToggle.setBorderHighlightOnly(true);
-        terminalToggle.setFocusPainted(false);
-        terminalToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        terminalToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        // Edge selection highlight is applied by MaterialToggleButton; LAF handles hover background.
-
-        drawerToolBar.add(terminalToggle);
-
-        // Task List toggle placed just south of the terminal toggle
-        taskListToggle = new MaterialToggleButton(Icons.LIST);
-        taskListToggle.setToolTipText("Toggle Task List");
-        taskListToggle.setBorderHighlightOnly(true);
-        taskListToggle.setFocusPainted(false);
-        taskListToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        taskListToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        drawerToolBar.add(taskListToggle);
-
-        add(drawerToolBar, BorderLayout.EAST);
+        // Side tab strip on the EAST edge with icon-only tabs
+        sideTabs = new JTabbedPane(JTabbedPane.RIGHT);
+        sideTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        sideTabs.addTab(null, Icons.TERMINAL, createTabPlaceholder());
+        sideTabs.setToolTipTextAt(0, "Terminal");
+        sideTabs.addTab(null, Icons.LIST, createTabPlaceholder());
+        sideTabs.setToolTipTextAt(1, "Task List");
+        sideTabs.addChangeListener(e -> handleTabSelection());
+        add(sideTabs, BorderLayout.EAST);
 
         // Content area for the drawer (where TerminalPanel and future tools will appear)
         drawerContentPanel = new JPanel(new BorderLayout());
         add(drawerContentPanel, BorderLayout.CENTER);
 
-        // Wire the toggle to create/show/hide a TerminalPanel
-        terminalToggle.addActionListener(ev -> {
-            if (terminalToggle.isSelected()) {
-                // Only one tool at a time
-                if (taskListToggle.isSelected()) {
-                    taskListToggle.setSelected(false);
-                    hideTaskListDrawer();
-                }
-                openTerminal();
-            } else {
-                if (activeTerminal != null) {
-                    hideTerminalDrawer();
-                }
-            }
-        });
-
-        // Wire the Task List toggle to create/show/hide the TaskListPanel
-        taskListToggle.addActionListener(ev -> {
-            if (taskListToggle.isSelected()) {
-                // Only one tool at a time
-                if (terminalToggle.isSelected()) {
-                    terminalToggle.setSelected(false);
-                    hideTerminalDrawer();
-                }
-                openTaskList();
-            } else {
-                if (activeTaskList != null) {
-                    hideTaskListDrawer();
-                }
-            }
-        });
-
-        // Ensure drawer is initially collapsed (hides the split divider and reserves space for the toolbar).
-        // Use invokeLater so parentSplitPane has valid size when collapseIfEmpty() runs.
+        // Ensure drawer is initially collapsed (hides the split divider and reserves space for the tab strip).
         SwingUtilities.invokeLater(this::collapseIfEmpty);
+    }
+
+    private JPanel createTabPlaceholder() {
+        JPanel p = new JPanel();
+        p.setPreferredSize(new Dimension(0, 0));
+        p.setMinimumSize(new Dimension(0, 0));
+        p.setMaximumSize(new Dimension(0, 0));
+        return p;
+    }
+
+    private void handleTabSelection() {
+        int idx = sideTabs.getSelectedIndex();
+        if (idx == 0) {
+            // Terminal
+            if (activeTerminal == null) {
+                createTerminal();
+            } else {
+                showDrawer();
+                if (activeTerminal.isReady()) {
+                    activeTerminal.requestFocusInTerminal();
+                } else {
+                    activeTerminal.whenReady().thenAccept(t -> SwingUtilities.invokeLater(t::requestFocusInTerminal));
+                }
+            }
+        } else if (idx == 1) {
+            // Task list
+            openTaskList();
+        }
     }
 
     /** Opens the terminal in the drawer. If already open, ensures it has focus. */
     public void openTerminal() {
-        // Ensure only one tool is active at a time
-        taskListToggle.setSelected(false);
         openTerminalAsync().exceptionally(ex -> {
             logger.debug("Failed to open terminal", ex);
             return null;
         });
     }
 
-    /** Closes the terminal and collapses the drawer if empty. */
+    /** Opens the terminal and returns a future when it's ready (focused). */
     public CompletableFuture<TerminalPanel> openTerminalAsync() {
         var promise = new CompletableFuture<TerminalPanel>();
         SwingUtilities.invokeLater(() -> {
@@ -146,7 +116,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     createTerminal();
                 } else {
                     showDrawer();
-                    terminalToggle.setSelected(true);
                 }
                 var term = activeTerminal;
                 if (term == null) {
@@ -189,8 +158,12 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 activeTerminal = null;
             }
 
-            terminalToggle.setSelected(false);
-            collapseIfEmpty();
+            if (activeTaskList != null) {
+                sideTabs.setSelectedIndex(1);
+                showDrawer();
+            } else {
+                collapseIfEmpty();
+            }
         });
     }
 
@@ -200,35 +173,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         if (activeTaskList == null) {
             activeTaskList = new TaskListPanel(console);
         }
-        // Ensure mutual exclusivity with the terminal
-        terminalToggle.setSelected(false);
-
         showDrawer();
-        taskListToggle.setSelected(true);
-
         return activeTaskList;
-    }
-
-    private void hideTaskListDrawer() {
-        SwingUtilities.invokeLater(() -> {
-            if (activeTaskList != null) {
-                drawerContentPanel.remove(activeTaskList);
-                drawerContentPanel.revalidate();
-                drawerContentPanel.repaint();
-                collapseIfEmpty();
-            }
-        });
-    }
-
-    private void hideTerminalDrawer() {
-        SwingUtilities.invokeLater(() -> {
-            if (activeTerminal != null) {
-                drawerContentPanel.remove(activeTerminal);
-                drawerContentPanel.revalidate();
-                drawerContentPanel.repaint();
-                collapseIfEmpty();
-            }
-        });
     }
 
     /** Shows the drawer by restoring the divider to its last known position. */
@@ -237,9 +183,10 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             // Ensure only the selected tool is shown
             drawerContentPanel.removeAll();
 
-            if (terminalToggle.isSelected() && activeTerminal != null) {
+            int idx = sideTabs.getSelectedIndex();
+            if (idx == 0 && activeTerminal != null) {
                 drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
-            } else if (taskListToggle.isSelected() && activeTaskList != null) {
+            } else if (idx == 1 && activeTaskList != null) {
                 drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
             }
 
@@ -280,7 +227,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Collapses the drawer if no tools are active, showing only the toolbar. */
+    /** Collapses the drawer if no tools are active, showing only the tab strip. */
     public void collapseIfEmpty() {
         SwingUtilities.invokeLater(() -> {
             if (drawerContentPanel.getComponentCount() == 0) {
@@ -295,9 +242,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                         }
                     }
 
-                    // Calculate the minimum width needed for the toolbar
-                    int toolbarWidth = drawerToolBar.getPreferredSize().width;
-                    final int MIN_COLLAPSE_WIDTH = toolbarWidth;
+                    // Calculate the minimum width needed for the side tab strip
+                    int tabStripWidth = sideTabs.getPreferredSize().width;
+                    final int MIN_COLLAPSE_WIDTH = tabStripWidth;
 
                     int totalWidth = parentSplitPane.getWidth();
                     if (totalWidth <= 0) {
@@ -309,10 +256,10 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     // Set resize weight so left panel gets all extra space
                     parentSplitPane.setResizeWeight(1.0);
 
-                    // Set minimum size on this drawer panel to keep toolbar visible
+                    // Set minimum size on this drawer panel to keep tab strip visible
                     setMinimumSize(new Dimension(MIN_COLLAPSE_WIDTH, 0));
 
-                    // Position divider to show only the toolbar
+                    // Position divider to show only the tab strip
                     int dividerLocation = totalWidth - MIN_COLLAPSE_WIDTH;
                     parentSplitPane.setDividerLocation(dividerLocation);
 
@@ -363,14 +310,16 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
         parentSplitPane.setDividerLocation(loc);
 
-        // Reflect toggle selected state without firing its action
-        terminalToggle.setSelected(true);
+        // Select Terminal tab to reflect visible content
+        sideTabs.setSelectedIndex(0);
 
         revalidate();
         repaint();
     }
 
     public void openTerminalAndPasteText(String text) {
+        // Ensure the Terminal tab is selected so the terminal is visible
+        sideTabs.setSelectedIndex(0);
         openTerminalAsync()
                 .thenAccept(tp -> {
                     try {
@@ -413,11 +362,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             drawerContentPanel.revalidate();
             drawerContentPanel.repaint();
             showDrawer();
-            terminalToggle.setSelected(true);
-            taskListToggle.setSelected(false);
         } catch (Exception ex) {
             logger.warn("Failed to create terminal in drawer: {}", ex.getMessage());
-            terminalToggle.setSelected(false);
         }
     }
 
