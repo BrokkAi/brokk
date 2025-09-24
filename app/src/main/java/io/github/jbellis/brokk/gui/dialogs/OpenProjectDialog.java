@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -25,8 +26,11 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GitHubBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class OpenProjectDialog extends JDialog {
+    private static final Logger logger = LoggerFactory.getLogger(OpenProjectDialog.class);
     public record GitHubRepoInfo(
             String fullName,
             String description,
@@ -336,7 +340,7 @@ public class OpenProjectDialog extends JDialog {
         table.setRowSorter(sorter);
         sorter.setSortKeys(List.of(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
         sorter.setComparator(0, Comparator.comparing(Object::toString));
-        sorter.setComparator(3, Comparator.comparing(obj -> (Instant) obj));
+        sorter.setComparator(3, Comparator.comparing(obj -> obj instanceof Instant instant ? instant : Instant.MIN));
 
         var scrollPane = new JScrollPane(table);
         panel.add(scrollPane, BorderLayout.CENTER);
@@ -418,9 +422,16 @@ public class OpenProjectDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(protocolPanel, gbc);
 
+        var refreshButton = new JButton("Refresh");
+        refreshButton.addActionListener(e -> loadRepositoriesAsync(tableModel));
+
         var cloneButton = new JButton("Clone and Open");
         cloneButton.addActionListener(
                 e -> cloneSelectedRepository(table, tableModel, dirField.getText(), httpsRadio.isSelected()));
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.add(refreshButton);
+        buttonPanel.add(cloneButton);
 
         gbc.gridx = 0;
         gbc.gridy = 2;
@@ -428,7 +439,7 @@ public class OpenProjectDialog extends JDialog {
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0.0;
-        panel.add(cloneButton, gbc);
+        panel.add(buttonPanel, gbc);
 
         return panel;
     }
@@ -488,22 +499,22 @@ public class OpenProjectDialog extends JDialog {
 
             @Override
             protected void done() {
-                // Always dispose dialog on EDT
-                SwingUtilities.invokeLater(() -> {
-                    progressDialog.dispose();
-                    try {
-                        Path projectPath = get();
-                        if (projectPath != null) {
-                            openProject(projectPath);
-                        }
-                    } catch (Exception e) {
-                        JOptionPane.showMessageDialog(
-                                OpenProjectDialog.this,
-                                "Failed to clone repository: " + e.getMessage(),
-                                "Clone Failed",
-                                JOptionPane.ERROR_MESSAGE);
+                progressDialog.dispose();
+                if (!isDisplayable()) {
+                    return;
+                }
+                try {
+                    Path projectPath = get();
+                    if (projectPath != null) {
+                        openProject(projectPath);
                     }
-                });
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(
+                            OpenProjectDialog.this,
+                            "Failed to clone repository: " + e.getMessage(),
+                            "Clone Failed",
+                            JOptionPane.ERROR_MESSAGE);
+                }
             }
         };
         worker.execute();
@@ -534,18 +545,19 @@ public class OpenProjectDialog extends JDialog {
 
             @Override
             protected void done() {
+                if (!isDisplayable()) {
+                    return;
+                }
                 try {
                     var repositories = get();
                     loadedRepositories = repositories;
-                    SwingUtilities.invokeLater(() -> populateTable(tableModel, repositories));
+                    populateTable(tableModel, repositories);
                 } catch (ExecutionException e) {
                     var cause = e.getCause();
                     var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
-                    SwingUtilities.invokeLater(
-                            () -> showErrorMessage("Failed to load GitHub repositories: " + errorMessage));
+                    showErrorMessage("Failed to load GitHub repositories: " + errorMessage);
                 } catch (Exception e) {
-                    SwingUtilities.invokeLater(
-                            () -> showErrorMessage("Failed to load GitHub repositories: " + e.getMessage()));
+                    showErrorMessage("Failed to load GitHub repositories: " + e.getMessage());
                 }
             }
         };
@@ -583,13 +595,14 @@ public class OpenProjectDialog extends JDialog {
 
     private void cloneSelectedRepository(
             JTable table, DefaultTableModel tableModel, String directory, boolean useHttps) {
-        int selectedRow = table.getSelectedRow();
-        if (selectedRow < 0) {
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0) {
             JOptionPane.showMessageDialog(this, "Please select a repository to clone.");
             return;
         }
 
-        var repoFullName = (String) tableModel.getValueAt(selectedRow, 0);
+        int modelRow = table.convertRowIndexToModel(viewRow);
+        var repoFullName = (String) tableModel.getValueAt(modelRow, 0);
 
         var repoInfoOpt = findRepositoryByName(repoFullName);
         if (repoInfoOpt.isEmpty()) {
@@ -610,14 +623,14 @@ public class OpenProjectDialog extends JDialog {
     }
 
     private static List<GitHubRepoInfo> getUserRepositories() throws Exception {
-        var token = MainProject.getGitHubToken();
+        var token = GitHubAuth.getStoredToken();
         if (token.isBlank()) {
             throw new IllegalStateException("No GitHub token available");
         }
 
-        var github = new GitHubBuilder().withOAuthToken(token).build();
-
-        return github.getMyself().listRepositories().toList().stream()
+        try {
+            var github = new GitHubBuilder().withOAuthToken(token).build();
+            return github.getMyself().listRepositories().toList().stream()
                 .map(repo -> {
                     try {
                         return new GitHubRepoInfo(
@@ -630,12 +643,26 @@ public class OpenProjectDialog extends JDialog {
                                         : Instant.now(),
                                 repo.isPrivate());
                     } catch (Exception e) {
+                        logger.warn("Failed to process repository {}: {}", repo.getFullName(), e.getMessage());
                         return null;
                     }
                 })
-                .filter(java.util.Objects::nonNull)
-                .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
-                .collect(Collectors.toList());
+                    .filter(java.util.Objects::nonNull)
+                    .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
+                    .collect(Collectors.toList());
+        } catch (org.kohsuke.github.HttpException e) {
+            if (e.getResponseCode() == 401) {
+                throw new IllegalStateException("GitHub token is invalid or expired");
+            } else if (e.getResponseCode() == 403) {
+                throw new IllegalStateException("GitHub API rate limit exceeded or access forbidden");
+            } else {
+                throw new IOException("GitHub API error (HTTP " + e.getResponseCode() + "): " + e.getMessage(), e);
+            }
+        } catch (java.net.ConnectException | java.net.UnknownHostException e) {
+            throw new IOException("Network connection failed. Please check your internet connection.", e);
+        } catch (java.net.SocketTimeoutException e) {
+            throw new IOException("GitHub API request timed out. Please try again.", e);
+        }
     }
 
     private void openProject(Path projectPath) {
