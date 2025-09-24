@@ -4,8 +4,10 @@ import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import javax.swing.*;
@@ -90,6 +92,10 @@ public class JdkSelector extends JPanel {
      */
     public void setSelectedJdkPath(@Nullable String path) {
         if (path == null || path.isBlank()) {
+            // Select the system default (first item if it exists)
+            if (combo.getItemCount() > 0) {
+                combo.setSelectedIndex(0);
+            }
             return;
         }
 
@@ -203,6 +209,10 @@ public class JdkSelector extends JPanel {
             var finder = new Finder();
             var distros = finder.getDistributions();
             var items = new ArrayList<JdkItem>();
+
+            // Add system default entry at the top
+            String systemDefaultDisplay = getSystemDefaultDisplay();
+            items.add(new JdkItem(systemDefaultDisplay, null));
             for (Distro d : distros) {
                 var name = d.getName();
                 var ver = d.getVersion();
@@ -227,22 +237,130 @@ public class JdkSelector extends JPanel {
                 items.add(new JdkItem(label, path));
             }
 
-            // Sort with prioritization: non-JDeploy JDKs first, then JDeploy JDKs
-            items.sort((a, b) -> {
-                boolean aIsJDeploy = isJDeployJdk(a.path);
-                boolean bIsJDeploy = isJDeployJdk(b.path);
-
-                if (aIsJDeploy != bIsJDeploy) {
-                    return aIsJDeploy ? 1 : -1; // Non-JDeploy first
-                }
-                return a.display.compareTo(b.display); // Alphabetical within groups
-            });
+            // Sort alphabetically by display name, but keep system default first
+            var systemDefault = items.get(0); // Save the system default
+            items.remove(0);
+            items.sort((a, b) -> a.display.compareTo(b.display));
+            items.add(0, systemDefault); // Put system default back at top
 
             return items;
         } catch (Throwable t) {
             logger.warn("Failed to discover installed JDKs", t);
             return List.of();
         }
+    }
+
+    /**
+     * Get display text for the system default JDK by detecting JAVA_HOME or java command location.
+     *
+     * @return formatted display string for system default
+     */
+    private static String getSystemDefaultDisplay() {
+        try {
+            // First try JAVA_HOME
+            String javaHome = System.getenv("JAVA_HOME");
+            if (javaHome != null && !javaHome.isBlank() && isValidJdk(javaHome)) {
+                String version = getJdkVersion(javaHome);
+                return String.format("System Default (%s) - %s", version != null ? version : "Unknown version", javaHome);
+            }
+
+            // Try to find java executable in PATH
+            String javaPath = findJavaInPath();
+            if (javaPath != null) {
+                // Try to derive JDK home from java executable path
+                var javaFile = new File(javaPath);
+                var binDir = javaFile.getParentFile();
+                if (binDir != null && binDir.getName().equals("bin")) {
+                    var jdkHome = binDir.getParent();
+                    if (jdkHome != null && isValidJdk(jdkHome)) {
+                        String version = getJdkVersion(jdkHome);
+                        return String.format("System Default (%s) - %s", version != null ? version : "Unknown version", jdkHome);
+                    }
+                }
+
+                // Fall back to showing just the java executable
+                String version = getJavaVersionFromExecutable(javaPath);
+                return String.format("System Default (%s) - %s", version != null ? version : "Unknown version", javaPath);
+            }
+
+            return "System Default (No JDK detected)";
+        } catch (Exception e) {
+            logger.debug("Failed to detect system default JDK", e);
+            return "System Default (Auto-detect)";
+        }
+    }
+
+    /**
+     * Get JDK version from a JDK home directory by checking release file or running java -version.
+     */
+    private static @Nullable String getJdkVersion(String jdkHome) {
+        try {
+            // Try to read version from release file first (faster)
+            var releaseFile = new File(jdkHome, "release");
+            if (releaseFile.exists()) {
+                var lines = java.nio.file.Files.readAllLines(releaseFile.toPath());
+                for (String line : lines) {
+                    if (line.startsWith("JAVA_VERSION=")) {
+                        String version = line.substring("JAVA_VERSION=".length()).replaceAll("\"", "");
+                        return "JDK " + version;
+                    }
+                }
+            }
+
+            // Fall back to running java -version
+            var javaExe = new File(jdkHome, "bin/java");
+            if (javaExe.exists()) {
+                return getJavaVersionFromExecutable(javaExe.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to get JDK version from {}", jdkHome, e);
+        }
+        return null;
+    }
+
+    /**
+     * Get Java version by running java -version command.
+     */
+    private static @Nullable String getJavaVersionFromExecutable(String javaPath) {
+        try {
+            var process = new ProcessBuilder(javaPath, "-version").start();
+            process.waitFor();
+            var stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+
+            // Parse version from output like: openjdk version "21.0.1" 2023-10-17
+            for (String line : stderr.split("\n", -1)) {
+                if (line.contains("version \"")) {
+                    int start = line.indexOf("version \"") + "version \"".length();
+                    int end = line.indexOf("\"", start);
+                    if (end > start) {
+                        String version = line.substring(start, end);
+                        String jdkType = line.toLowerCase(Locale.ROOT).contains("openjdk") ? "OpenJDK" : "JDK";
+                        return jdkType + " " + version;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to get Java version from {}", javaPath, e);
+        }
+        return null;
+    }
+
+    /**
+     * Find java executable in system PATH.
+     */
+    private static @Nullable String findJavaInPath() {
+        try {
+            String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+            String javaCommand = os.contains("win") ? "java.exe" : "java";
+
+            var process = new ProcessBuilder("which", javaCommand).start();
+            if (process.waitFor() == 0) {
+                return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to find java in PATH", e);
+        }
+        return null;
     }
 
     /** Check if the given path is a valid JDK (has both java and javac). */
@@ -265,19 +383,11 @@ public class JdkSelector extends JPanel {
         return javaPath.exists();
     }
 
-    /** Check if the given JDK path is from JDeploy based on path pattern and runtime detection. */
-    private static boolean isJDeployJdk(@Nullable String path) {
-        if (path == null) return false;
-
-        // check if we're currently running from JDeploy
-        return System.getProperty("jdeploy.war.path") != null || System.getenv("JDEPLOY_HOME") != null;
-    }
-
     private static class JdkItem {
         final String display;
-        final String path;
+        final @Nullable String path;
 
-        JdkItem(String display, String path) {
+        JdkItem(String display, @Nullable String path) {
             this.display = display;
             this.path = path;
         }
