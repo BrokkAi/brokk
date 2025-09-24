@@ -17,12 +17,9 @@ import javax.swing.UIManager;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
-import javax.swing.text.SimpleAttributeSet;
-import javax.swing.text.StyleConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.Nullable;
 
@@ -177,109 +174,36 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         }
     }
 
-    /** Apply syntax highlighting based on detected file type. */
+    /** Apply syntax highlighting based on detected file type using BufferDiffPanel's robust logic. */
     private void applySyntaxHighlighting() {
-        var syntaxStyle = detectSyntaxStyle();
-        textArea.setSyntaxEditingStyle(syntaxStyle);
-
-        logger.debug("Applied syntax highlighting: {}", syntaxStyle);
+        updateSyntaxStyle(); // Use same logic as BufferDiffPanel
+        logger.debug("Applied syntax highlighting using BufferDiffPanel logic");
     }
 
-    /** Apply diff-specific coloring to the text area. */
-    private void applyDiffColoring() {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Document is available as textArea.getDocument() if needed
-                if (unifiedDocument == null) {
-                    logger.warn("Cannot apply diff coloring - unifiedDocument is null");
-                    return;
-                }
-                var lines = unifiedDocument.getFilteredLines();
-
-                // Apply coloring to each line based on its type
-                for (int i = 0; i < lines.size(); i++) {
-                    var diffLine = lines.get(i);
-                    var lineStart = textArea.getLineStartOffset(i);
-                    var lineEnd = textArea.getLineEndOffset(i);
-                    var length = lineEnd - lineStart;
-
-                    if (length > 0) {
-                        // Create attributes for this line
-                        var attrs = new SimpleAttributeSet();
-                        var diffColors = UnifiedDiffSyntaxScheme.createDiffColors(theme.isDarkTheme());
-                        var color = UnifiedDiffSyntaxScheme.getColorForLineType(diffLine.getType(), diffColors);
-                        var bgColor =
-                                UnifiedDiffSyntaxScheme.getBackgroundColorForLineType(diffLine.getType(), diffColors);
-                        var font = UnifiedDiffSyntaxScheme.getFontForLineType(textArea.getFont(), diffLine.getType());
-
-                        StyleConstants.setForeground(attrs, color);
-                        if (bgColor != null) {
-                            StyleConstants.setBackground(attrs, bgColor);
-                        }
-                        StyleConstants.setFontFamily(attrs, font.getFamily());
-                        StyleConstants.setFontSize(attrs, font.getSize());
-                        StyleConstants.setBold(attrs, font.isBold());
-                        StyleConstants.setItalic(attrs, font.isItalic());
-
-                        // Apply the styling (this may not work perfectly with RSyntaxTextArea)
-                        // RSyntaxTextArea has its own syntax highlighting system
-                        logger.trace("Applied styling to line {} (type: {})", i, diffLine.getType());
-                    }
-                }
-            } catch (BadLocationException e) {
-                logger.warn("Failed to apply diff coloring", e);
-            }
-        });
-    }
-
-    /** Detect the appropriate syntax style based on file sources. */
-    private String detectSyntaxStyle() {
-        // Try to detect from left source first, then right source
-        var filename = detectFilename();
-        if (filename != null) {
-            return SyntaxDetector.fromExtension(filename);
-        }
-
-        // Fallback to plain text
-        return SyntaxConstants.SYNTAX_STYLE_NONE;
-    }
-
-    /** Detect filename from sources or JMDiffNode for syntax highlighting. */
-    @Nullable
-    private String detectFilename() {
-        // First try to get filename from JMDiffNode (preferred approach)
+    /**
+     * Chooses a syntax style for the current document based on its filename.
+     * Uses shared logic from AbstractDiffPanel.detectSyntaxStyle().
+     */
+    private void updateSyntaxStyle() {
         var diffNode = getDiffNode();
-        if (diffNode != null) {
-            var nodeName = diffNode.getName();
-            if (nodeName != null && !nodeName.isEmpty()) {
-                // Extract filename from path
-                var lastSlash = nodeName.lastIndexOf('/');
-                if (lastSlash >= 0 && lastSlash < nodeName.length() - 1) {
-                    return nodeName.substring(lastSlash + 1);
-                }
-                return nodeName;
-            }
-        }
+        var filename = diffNode != null ? diffNode.getName() : null;
 
-        // Fallback to legacy BufferSource approach (deprecated)
-        if (leftSource != null) {
-            if (leftSource instanceof BufferSource.FileSource fs) {
-                return fs.file().getName();
-            } else if (leftSource instanceof BufferSource.StringSource ss && ss.filename() != null) {
-                return ss.filename();
-            }
-        }
+        // Note: In unified diff view, we can't inherit from side-by-side panels
+        // since they may not exist, so we pass null for fallbackEditor
+        var style = AbstractDiffPanel.detectSyntaxStyle(filename, null);
 
-        if (rightSource != null) {
-            if (rightSource instanceof BufferSource.FileSource fs) {
-                return fs.file().getName();
-            } else if (rightSource instanceof BufferSource.StringSource ss && ss.filename() != null) {
-                return ss.filename();
-            }
-        }
-
-        return null;
+        textArea.setSyntaxEditingStyle(style);
+        logger.debug("Set syntax style to: {} for unified diff", style);
     }
+
+    /** Apply diff-specific coloring to the text area (now handled by syntax highlighting). */
+    private void applyDiffColoring() {
+        // Diff coloring is now integrated with syntax highlighting in applySyntaxHighlighting()
+        // This method is kept for compatibility but no longer needed
+        logger.debug("Diff coloring integrated with syntax highlighting - no separate coloring needed");
+    }
+
+
 
     /** Set the context mode for the unified diff. */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {

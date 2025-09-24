@@ -3,7 +3,10 @@ package io.github.jbellis.brokk.difftool.ui.unified;
 import java.awt.Color;
 import java.awt.Font;
 import javax.swing.UIManager;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.Style;
+import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
+import org.fife.ui.rsyntaxtextarea.TokenTypes;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -188,4 +191,45 @@ public class UnifiedDiffSyntaxScheme {
 
         return baseFont.deriveFont(style);
     }
+
+    /**
+     * Create a custom SyntaxScheme for RSyntaxTextArea that includes diff coloring.
+     * This scheme extends the default scheme with diff-specific token colors.
+     *
+     * @param textArea The RSyntaxTextArea to configure
+     * @param colors The diff colors to use
+     * @return The configured SyntaxScheme
+     */
+    public static SyntaxScheme createDiffSyntaxScheme(RSyntaxTextArea textArea, DiffColors colors) {
+        // Start with the current syntax scheme
+        var scheme = textArea.getSyntaxScheme();
+        if (scheme == null) {
+            scheme = new SyntaxScheme(true); // Create new scheme with default colors
+        } else {
+            scheme = (SyntaxScheme) scheme.clone(); // Clone to avoid modifying original
+        }
+
+        var baseFont = textArea.getFont();
+
+        // Configure diff-specific token types using standard RSyntaxTextArea token types
+        // Addition lines (using RESERVED_WORD_2 token type)
+        var additionStyle = new Style(colors.additionForeground(), colors.additionBackground(), baseFont);
+        scheme.setStyle(TokenTypes.RESERVED_WORD_2, additionStyle);
+
+        // Deletion lines (using ERROR_IDENTIFIER token type)
+        var deletionStyle = new Style(colors.deletionForeground(), colors.deletionBackground(), baseFont);
+        scheme.setStyle(TokenTypes.ERROR_IDENTIFIER, deletionStyle);
+
+        // Header lines (using COMMENT_KEYWORD token type)
+        var headerFont = baseFont.deriveFont(Font.BOLD);
+        var headerStyle = new Style(colors.headerForeground(), colors.headerBackground(), headerFont);
+        scheme.setStyle(TokenTypes.COMMENT_KEYWORD, headerStyle);
+
+        // Context lines (using IDENTIFIER token type)
+        var contextStyle = new Style(colors.defaultForeground(), null, baseFont);
+        scheme.setStyle(TokenTypes.IDENTIFIER, contextStyle);
+
+        return scheme;
+    }
+
 }

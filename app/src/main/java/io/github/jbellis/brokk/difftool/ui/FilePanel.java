@@ -884,52 +884,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             return;
         }
 
-        /*
-         * Heuristic 1: strip well-known VCS/backup suffixes and decide
-         *              the style from the remaining extension.
-         * Heuristic 2: if still undecided, inherit the style of the
-         */
-        var style = SyntaxConstants.SYNTAX_STYLE_NONE;
+        // Use shared syntax detection logic from AbstractDiffPanel
+        var filename = bufferDocument != null ? bufferDocument.getName() : null;
 
-        // --------------------------- Heuristic 1 -----------------------------
-        if (bufferDocument != null) {
-            var fileName = bufferDocument.getName();
-            if (!fileName.isBlank()) {
-                // Remove trailing '~'
-                var candidate = fileName.endsWith("~") ? fileName.substring(0, fileName.length() - 1) : fileName;
+        // Get fallback editor from the other panel (same logic as before)
+        RSyntaxTextArea fallbackEditor = null;
+        var otherPanel = BufferDocumentIF.ORIGINAL.equals(name)
+                ? diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT)
+                : diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
 
-                // Remove dotted suffixes (case-insensitive)
-                for (var suffix : List.of("orig", "base", "mine", "theirs", "backup")) {
-                    var sfx = "." + suffix;
-                    if (candidate.toLowerCase(Locale.ROOT).endsWith(sfx)) {
-                        candidate = candidate.substring(0, candidate.length() - sfx.length());
-                        break;
-                    }
-                }
-
-                // Extract extension
-                var lastDot = candidate.lastIndexOf('.');
-                if (lastDot > 0 && lastDot < candidate.length() - 1) {
-                    var ext = candidate.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-                    style = SyntaxDetector.fromExtension(ext);
-                }
-            }
+        if (otherPanel != null) {
+            fallbackEditor = otherPanel.getEditor();
         }
 
-        // --------------------------- Heuristic 2 -----------------------------
-        if (SyntaxConstants.SYNTAX_STYLE_NONE.equals(style)) {
-            var otherPanel = BufferDocumentIF.ORIGINAL.equals(name)
-                    ? diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT)
-                    : diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-
-            if (otherPanel != null) {
-                var otherStyle = otherPanel.getEditor().getSyntaxEditingStyle();
-                if (!SyntaxConstants.SYNTAX_STYLE_NONE.equals(otherStyle)) {
-                    style = otherStyle;
-                }
-            }
-        }
-
+        var style = AbstractDiffPanel.detectSyntaxStyle(filename, fallbackEditor);
         editor.setSyntaxEditingStyle(style);
 
         // Scroll to first diff only after document has been set up
