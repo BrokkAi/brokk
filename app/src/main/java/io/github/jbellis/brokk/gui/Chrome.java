@@ -1096,9 +1096,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void close() {
         logger.info("Closing Chrome UI");
 
-        // Unregister from global macOS preferences handling
-        MenuBar.unregisterChromeInstance(this);
-
         contextManager.close();
         frame.dispose();
     }

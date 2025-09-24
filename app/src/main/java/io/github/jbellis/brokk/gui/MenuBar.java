@@ -27,7 +27,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
@@ -91,9 +90,6 @@ public class MenuBar {
                 KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
 
         if (isMac) {
-            // Register this Chrome instance for global preferences handling
-            registerChromeInstance(chrome);
-
             // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
             var rootPane = chrome.getFrame().getRootPane();
             var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -538,7 +534,6 @@ public class MenuBar {
         dialog.setVisible(true);
     }
 
-
     /**
      * Sets up the global macOS preferences handler that works across all Chrome windows. This should be called once
      * during application startup.
@@ -575,25 +570,44 @@ public class MenuBar {
      */
     @Nullable
     private static Chrome findFocusedOrActiveChromeWindow() {
-        // First try to find the focused window
-        for (Chrome chrome : activeChromeInstances) {
-            if (chrome.getFrame().isFocused()) {
-                return chrome;
-            }
+        var openChromeInstances = Brokk.getOpenProjectWindows().values();
+        if (openChromeInstances.isEmpty()) {
+            return null;
         }
 
-        // Fallback: try to find the active window (not minimized)
-        for (Chrome chrome : activeChromeInstances) {
-            var frame = chrome.getFrame();
-            if (frame.isActive() && (frame.getExtendedState() & Frame.ICONIFIED) == 0) {
-                return chrome;
-            }
+        // First try to find the focused window that is displayable and showing
+        var focusedWindow = openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isFocused() && frame.isDisplayable() && frame.isShowing();
+                })
+                .findFirst();
+        if (focusedWindow.isPresent()) {
+            return focusedWindow.get();
         }
 
-        // Last resort: return any active Chrome instance
-        return activeChromeInstances.isEmpty()
-                ? null
-                : activeChromeInstances.iterator().next();
+        // Fallback: try to find the active window (not minimized) that is displayable and showing
+        var activeWindow = openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isActive()
+                            && (frame.getExtendedState() & Frame.ICONIFIED) == 0
+                            && frame.isDisplayable()
+                            && frame.isShowing();
+                })
+                .findFirst();
+        if (activeWindow.isPresent()) {
+            return activeWindow.get();
+        }
+
+        // Last resort: return any displayable and showing Chrome instance
+        return openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isDisplayable() && frame.isShowing();
+                })
+                .findFirst()
+                .orElse(null);
     }
 
     /**
