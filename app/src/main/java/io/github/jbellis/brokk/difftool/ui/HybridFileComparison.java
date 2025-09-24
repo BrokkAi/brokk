@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -134,7 +135,7 @@ public class HybridFileComparison {
                 // Create appropriate panel type based on view mode
                 IDiffPanel panel;
                 if (mainPanel.isUnifiedView()) {
-                    panel = createUnifiedDiffPanel(leftSource, rightSource, mainPanel, theme);
+                    panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
                 } else {
                     var bufferPanel = new BufferDiffPanel(mainPanel, theme);
                     bufferPanel.setDiffNode(diffNode);
@@ -200,7 +201,7 @@ public class HybridFileComparison {
                         // Create appropriate panel type based on view mode
                         IDiffPanel panel;
                         if (mainPanel.isUnifiedView()) {
-                            panel = createUnifiedDiffPanel(leftSource, rightSource, mainPanel, theme);
+                            panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
                         } else {
                             var bufferPanel = new BufferDiffPanel(mainPanel, theme);
                             bufferPanel.setDiffNode(diffNode);
@@ -287,14 +288,13 @@ public class HybridFileComparison {
         LOW // Rough estimate or fallback (e.g., unknown types, errors)
     }
 
-    /** Creates a UnifiedDiffPanel for the given buffer sources. */
-    private static IDiffPanel createUnifiedDiffPanel(
-            BufferSource leftSource, BufferSource rightSource, BrokkDiffPanel mainPanel, GuiTheme theme) {
+    /** Creates a UnifiedDiffPanel using the provided JMDiffNode. */
+    private static IDiffPanel createUnifiedDiffPanel(JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme) {
         try {
-            var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, leftSource, rightSource);
+            var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
             return unifiedPanel;
         } catch (Exception e) {
-            logger.error("Failed to create unified diff panel", e);
+            logger.error("Failed to create unified diff panel from JMDiffNode {}", diffNode.getName(), e);
             // Fallback to empty panel that shows the error
             throw new RuntimeException("Failed to create unified diff panel: " + e.getMessage(), e);
         }

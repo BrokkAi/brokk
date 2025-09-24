@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.difftool.ui.unified;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
+import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -16,7 +17,67 @@ public class UnifiedDiffGenerator {
     private static final int STANDARD_CONTEXT_LINES = 3;
 
     /**
-     * Generate a unified diff document from two buffer sources.
+     * Generate a unified diff document from a JMDiffNode (preferred method). This uses the pre-processed diff
+     * information from the existing diff engine.
+     *
+     * @param diffNode The JMDiffNode containing processed diff information
+     * @param contextMode Context mode to use
+     * @return Generated UnifiedDiffDocument
+     */
+    public static UnifiedDiffDocument generateFromDiffNode(
+            JMDiffNode diffNode, UnifiedDiffDocument.ContextMode contextMode) {
+
+        try {
+            // Get the pre-processed patch from the diff node
+            var patch = diffNode.getPatch();
+            if (patch == null) {
+                logger.warn("JMDiffNode {} has no patch - no differences detected", diffNode.getName());
+                return new UnifiedDiffDocument(new ArrayList<>(), contextMode);
+            }
+
+            // Get the source content from buffer nodes
+            var leftBufferNode = diffNode.getBufferNodeLeft();
+            var rightBufferNode = diffNode.getBufferNodeRight();
+
+            List<String> leftLines;
+            List<String> rightLines;
+            String leftTitle = "left";
+            String rightTitle = "right";
+
+            if (leftBufferNode != null) {
+                leftLines = leftBufferNode.getDocument().getLineList();
+                leftTitle = leftBufferNode.getDocument().getName();
+            } else {
+                leftLines = new ArrayList<>();
+                leftTitle = "<empty>";
+            }
+
+            if (rightBufferNode != null) {
+                rightLines = rightBufferNode.getDocument().getLineList();
+                rightTitle = rightBufferNode.getDocument().getName();
+            } else {
+                rightLines = new ArrayList<>();
+                rightTitle = "<empty>";
+            }
+
+            List<UnifiedDiffDocument.DiffLine> diffLines;
+            if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
+                diffLines = generateFullContextFromPatch(leftLines, rightLines, patch);
+            } else {
+                diffLines = generateStandardContextFromPatch(leftLines, rightLines, patch, leftTitle, rightTitle);
+            }
+
+            return new UnifiedDiffDocument(diffLines, contextMode);
+
+        } catch (Exception e) {
+            logger.error("Failed to generate unified diff from JMDiffNode {}", diffNode.getName(), e);
+            throw new RuntimeException("Failed to generate unified diff from JMDiffNode", e);
+        }
+    }
+
+    /**
+     * Generate a unified diff document from two buffer sources. Note: This method is retained for backward
+     * compatibility but generateFromDiffNode() is preferred.
      *
      * @param leftSource Source for the left side (original)
      * @param rightSource Source for the right side (revised)
@@ -94,6 +155,124 @@ public class UnifiedDiffGenerator {
                 leftLineNum++;
                 rightLineNum++;
             }
+        }
+
+        return diffLines;
+    }
+
+    /** Generate standard context diff using pre-processed patch from JMDiffNode. */
+    private static List<UnifiedDiffDocument.DiffLine> generateStandardContextFromPatch(
+            List<String> leftLines,
+            @SuppressWarnings("unused") List<String> rightLines, // rightLines not needed - patch contains target lines
+            Patch<String> patch,
+            String leftTitle,
+            String rightTitle) {
+
+        // Use UnifiedDiffUtils to generate standard unified diff from the existing patch
+        var unifiedLines =
+                UnifiedDiffUtils.generateUnifiedDiff(leftTitle, rightTitle, leftLines, patch, STANDARD_CONTEXT_LINES);
+
+        var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
+        int leftLineNum = 0;
+        int rightLineNum = 0;
+
+        for (var line : unifiedLines) {
+            if (line.startsWith("---") || line.startsWith("+++")) {
+                // Skip file headers
+            } else if (line.startsWith("@@")) {
+                // Hunk header - extract line numbers
+                var lineNumbers = parseHunkHeader(line);
+                leftLineNum = lineNumbers[0];
+                rightLineNum = lineNumbers[1];
+
+                diffLines.add(
+                        new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, line, -1, -1, false));
+            } else if (line.startsWith("+")) {
+                // Addition - increment right line number
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.ADDITION, line, -1, rightLineNum, true));
+                rightLineNum++;
+            } else if (line.startsWith("-")) {
+                // Deletion - increment left line number
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.DELETION, line, leftLineNum, -1, false));
+                leftLineNum++;
+            } else if (line.startsWith(" ")) {
+                // Context - increment both line numbers
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.CONTEXT, line, leftLineNum, rightLineNum, true));
+                leftLineNum++;
+                rightLineNum++;
+            }
+        }
+
+        return diffLines;
+    }
+
+    /** Generate full context diff using pre-processed patch from JMDiffNode. */
+    private static List<UnifiedDiffDocument.DiffLine> generateFullContextFromPatch(
+            List<String> leftLines, List<String> rightLines, Patch<String> patch) {
+
+        var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
+        var deltas = patch.getDeltas();
+
+        int leftIndex = 0;
+        int rightIndex = 0;
+
+        for (var delta : deltas) {
+            // Add context lines before this delta
+            while (leftIndex < delta.getSource().getPosition()
+                    || rightIndex < delta.getTarget().getPosition()) {
+
+                if (leftIndex < leftLines.size()
+                        && rightIndex < rightLines.size()
+                        && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+                    // Context line - same in both files
+                    var line = " " + leftLines.get(leftIndex);
+                    diffLines.add(new UnifiedDiffDocument.DiffLine(
+                            UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                    leftIndex++;
+                    rightIndex++;
+                } else {
+                    // This shouldn't happen in a proper diff, but handle gracefully
+                    break;
+                }
+            }
+
+            // Add hunk header before delta
+            var hunkHeader = String.format(
+                    "@@ -%d,%d +%d,%d @@",
+                    delta.getSource().getPosition() + 1,
+                    delta.getSource().size(),
+                    delta.getTarget().getPosition() + 1,
+                    delta.getTarget().size());
+            diffLines.add(
+                    new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, hunkHeader, -1, -1, false));
+
+            // Add deleted lines
+            for (var deletedLine : delta.getSource().getLines()) {
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.DELETION, "-" + deletedLine, leftIndex + 1, -1, false));
+                leftIndex++;
+            }
+
+            // Add added lines
+            for (var addedLine : delta.getTarget().getLines()) {
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.ADDITION, "+" + addedLine, -1, rightIndex + 1, true));
+                rightIndex++;
+            }
+        }
+
+        // Add remaining context lines after all deltas
+        while (leftIndex < leftLines.size()
+                && rightIndex < rightLines.size()
+                && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+            var line = " " + leftLines.get(leftIndex);
+            diffLines.add(new UnifiedDiffDocument.DiffLine(
+                    UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+            leftIndex++;
+            rightIndex++;
         }
 
         return diffLines;

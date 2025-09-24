@@ -1709,9 +1709,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Verify the cache is actually clear
         var verifyPanel = panelCache.get(currentFileIndex);
         if (verifyPanel != null) {
-            logger.error("Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
+            logger.error(
+                    "Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
         } else {
-            logger.debug("Successfully cleared cache - panel will be recreated with {} view", useUnifiedView ? "unified" : "side-by-side");
+            logger.debug(
+                    "Successfully cleared cache - panel will be recreated with {} view",
+                    useUnifiedView ? "unified" : "side-by-side");
         }
 
         // Refresh the current file with the new view mode

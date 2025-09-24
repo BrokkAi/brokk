@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui.unified;
 
+import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.ui.AbstractDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
@@ -32,19 +33,60 @@ import org.jetbrains.annotations.Nullable;
 public class UnifiedDiffPanel extends AbstractDiffPanel {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffPanel.class);
 
+    // Legacy fields for backward compatibility (deprecated)
+    @Deprecated
+    @Nullable
     private final BufferSource leftSource;
+
+    @Deprecated
+    @Nullable
     private final BufferSource rightSource;
+
     private final RSyntaxTextArea textArea;
     private final RTextScrollPane scrollPane;
 
+    @Nullable
     private UnifiedDiffDocument unifiedDocument;
+
+    @Nullable
     private UnifiedDiffNavigator navigator;
+
     private boolean autoScrollFlag = true;
 
     // Custom document filter for line-level editing control (initialized in setupUI)
     @SuppressWarnings("unused") // Will be used for future editing support
     private UnifiedDiffDocumentFilter documentFilter;
 
+    /**
+     * Preferred constructor using JMDiffNode (integrates with existing diff processing pipeline).
+     *
+     * @param parent The parent BrokkDiffPanel
+     * @param theme The GUI theme
+     * @param diffNode The JMDiffNode containing pre-processed diff information
+     */
+    public UnifiedDiffPanel(BrokkDiffPanel parent, GuiTheme theme, JMDiffNode diffNode) {
+        super(parent, theme);
+        this.leftSource = null;
+        this.rightSource = null;
+
+        // Create text area for unified diff display
+        this.textArea = new RSyntaxTextArea();
+        this.scrollPane = new RTextScrollPane(textArea);
+
+        setupUI();
+        setDiffNode(diffNode);
+    }
+
+    /**
+     * Legacy constructor using BufferSource (deprecated - use JMDiffNode constructor instead). This constructor is
+     * retained for backward compatibility.
+     *
+     * @param parent The parent BrokkDiffPanel
+     * @param theme The GUI theme
+     * @param leftSource Source for left side
+     * @param rightSource Source for right side
+     */
+    @Deprecated
     public UnifiedDiffPanel(BrokkDiffPanel parent, GuiTheme theme, BufferSource leftSource, BufferSource rightSource) {
         super(parent, theme);
         this.leftSource = leftSource;
@@ -55,7 +97,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         this.scrollPane = new RTextScrollPane(textArea);
 
         setupUI();
-        generateDiff();
+        generateDiffFromBufferSources();
     }
 
     /** Set up the UI components and layout. */
@@ -81,8 +123,32 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         logger.debug("UnifiedDiffPanel UI setup complete");
     }
 
-    /** Generate the unified diff content. */
-    private void generateDiff() {
+    /** Generate the unified diff content from JMDiffNode (preferred approach). */
+    private void generateDiffFromDiffNode(JMDiffNode diffNode) {
+        var contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES; // Default
+        this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
+
+        textArea.setDocument(unifiedDocument);
+        this.navigator = new UnifiedDiffNavigator(unifiedDocument, textArea);
+
+        // Apply syntax highlighting and theme
+        applySyntaxHighlighting();
+        applyDiffColoring();
+
+        logger.debug(
+                "Generated unified diff from JMDiffNode {} with {} lines",
+                diffNode.getName(),
+                unifiedDocument.getLineCount());
+    }
+
+    /** Generate the unified diff content from BufferSources (legacy approach). */
+    @Deprecated
+    private void generateDiffFromBufferSources() {
+        if (leftSource == null || rightSource == null) {
+            logger.error("Cannot generate diff from BufferSources - one or both sources are null");
+            throw new IllegalStateException("Cannot generate diff - BufferSources are null");
+        }
+
         var contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES; // Default
         this.unifiedDocument = UnifiedDiffGenerator.generateUnifiedDiff(leftSource, rightSource, contextMode);
 
@@ -93,7 +159,22 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         applySyntaxHighlighting();
         applyDiffColoring();
 
-        logger.debug("Generated unified diff with {} lines", unifiedDocument.getLineCount());
+        logger.debug("Generated unified diff from BufferSources with {} lines", unifiedDocument.getLineCount());
+    }
+
+    @Override
+    public void setDiffNode(@Nullable JMDiffNode diffNode) {
+        super.setDiffNode(diffNode);
+        if (diffNode != null) {
+            generateDiffFromDiffNode(diffNode);
+        } else {
+            logger.warn("setDiffNode called with null - clearing unified diff content");
+            // Clear the content when no diff node is provided
+            this.unifiedDocument = new UnifiedDiffDocument(
+                    new java.util.ArrayList<>(), UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
+            textArea.setDocument(unifiedDocument);
+            this.navigator = new UnifiedDiffNavigator(unifiedDocument, textArea);
+        }
     }
 
     /** Apply syntax highlighting based on detected file type. */
@@ -109,6 +190,10 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         SwingUtilities.invokeLater(() -> {
             try {
                 // Document is available as textArea.getDocument() if needed
+                if (unifiedDocument == null) {
+                    logger.warn("Cannot apply diff coloring - unifiedDocument is null");
+                    return;
+                }
                 var lines = unifiedDocument.getFilteredLines();
 
                 // Apply coloring to each line based on its type
@@ -159,21 +244,38 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         return SyntaxConstants.SYNTAX_STYLE_NONE;
     }
 
-    /** Detect filename from sources for syntax highlighting. */
+    /** Detect filename from sources or JMDiffNode for syntax highlighting. */
     @Nullable
     private String detectFilename() {
-        // Check left source
-        if (leftSource instanceof BufferSource.FileSource fs) {
-            return fs.file().getName();
-        } else if (leftSource instanceof BufferSource.StringSource ss && ss.filename() != null) {
-            return ss.filename();
+        // First try to get filename from JMDiffNode (preferred approach)
+        var diffNode = getDiffNode();
+        if (diffNode != null) {
+            var nodeName = diffNode.getName();
+            if (nodeName != null && !nodeName.isEmpty()) {
+                // Extract filename from path
+                var lastSlash = nodeName.lastIndexOf('/');
+                if (lastSlash >= 0 && lastSlash < nodeName.length() - 1) {
+                    return nodeName.substring(lastSlash + 1);
+                }
+                return nodeName;
+            }
         }
 
-        // Check right source
-        if (rightSource instanceof BufferSource.FileSource fs) {
-            return fs.file().getName();
-        } else if (rightSource instanceof BufferSource.StringSource ss && ss.filename() != null) {
-            return ss.filename();
+        // Fallback to legacy BufferSource approach (deprecated)
+        if (leftSource != null) {
+            if (leftSource instanceof BufferSource.FileSource fs) {
+                return fs.file().getName();
+            } else if (leftSource instanceof BufferSource.StringSource ss && ss.filename() != null) {
+                return ss.filename();
+            }
+        }
+
+        if (rightSource != null) {
+            if (rightSource instanceof BufferSource.FileSource fs) {
+                return fs.file().getName();
+            } else if (rightSource instanceof BufferSource.StringSource ss && ss.filename() != null) {
+                return ss.filename();
+            }
         }
 
         return null;
@@ -185,7 +287,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
             logger.debug("Switching context mode from {} to {}", unifiedDocument.getContextMode(), contextMode);
 
             unifiedDocument.switchContextMode(contextMode);
-            navigator.refreshHunkPositions();
+            if (navigator != null) {
+                navigator.refreshHunkPositions();
+            }
 
             // Reapply coloring after content change
             applyDiffColoring();
@@ -223,13 +327,16 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
 
     @Override
     public void diff(boolean autoScroll) {
-        // Regenerate diff if needed
-        generateDiff();
+        // Note: No need to regenerate diff since it's already processed in JMDiffNode
+        // This method is primarily for navigation and scrolling
 
         if (autoScroll && autoScrollFlag) {
             resetToFirstDifference();
             autoScrollFlag = false;
         }
+
+        // Ensure diff coloring is applied (in case theme changed)
+        applyDiffColoring();
     }
 
     @Override
@@ -265,12 +372,31 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
 
     @Override
     public String getTitle() {
-        var leftName = leftSource.title();
-        var rightName = rightSource.title();
-        var title = leftName.equals(rightName) ? leftName : leftName + " vs " + rightName;
+        // Try to get title from JMDiffNode first (preferred)
+        var diffNode = getDiffNode();
+        if (diffNode != null) {
+            var nodeName = diffNode.getName();
+            if (nodeName != null && !nodeName.isEmpty()) {
+                // Extract filename from path for display
+                var lastSlash = nodeName.lastIndexOf('/');
+                var displayName = lastSlash >= 0 && lastSlash < nodeName.length() - 1
+                        ? nodeName.substring(lastSlash + 1)
+                        : nodeName;
+                return displayName + " (Unified)";
+            }
+        }
 
-        // Add unified indicator
-        return title + " (Unified)";
+        // Fallback to legacy BufferSource approach
+        if (leftSource != null && rightSource != null) {
+            var leftName = leftSource.title();
+            var rightName = rightSource.title();
+            var title = leftName.equals(rightName) ? leftName : leftName + " vs " + rightName;
+            // Add unified indicator
+            return title + " (Unified)";
+        }
+
+        // Ultimate fallback
+        return "Unified Diff";
     }
 
     @Override
