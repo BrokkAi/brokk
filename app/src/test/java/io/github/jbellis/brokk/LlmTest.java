@@ -41,7 +41,7 @@ public class LlmTest {
 
     // Simple tool for testing
     static class WeatherTool {
-        @Tool("Get the current weather")
+        @Tool(value = "Get the current weather")
         public String getWeather(@P("Location at which to perform the weather lookup") String location) {
             return "The weather in " + location + " is sunny.";
         }

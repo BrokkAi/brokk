@@ -241,7 +241,8 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace using their unique string IDs")
+            value =
+                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace using their unique string IDs")
     public String dropWorkspaceFragments(
             @P(
                             "List of string IDs corresponding to the fragments visible in the workspace that you want to remove. Must not be empty.")
@@ -268,8 +269,7 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                   Finds usages of a specific symbol (class, method, field) and adds the full source of the calling methods to the Workspace. Only call when you have identified specific symbols.")
                   """)
     public String addSymbolUsagesToWorkspace(
@@ -291,8 +291,7 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                   Retrieves summaries (fields and method signatures) for specified classes and adds them to the Workspace.
                   Faster and more efficient than reading entire files or classes when you just need the API and not the full source code.
                   Only call when you have identified specific class names.")
@@ -325,8 +324,7 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                   Retrieves summaries (fields and method signatures) for all classes defined within specified project files and adds them to the Workspace.
                   Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
                   Faster and more efficient than reading entire files when you just need the API definitions.
@@ -363,8 +361,7 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                   Retrieves the full source code of specific methods and adds to the Workspace each as a separate read-only text fragment.
                   Faster and more efficient than including entire files or classes when you only need a few methods.
                   """)
@@ -451,8 +448,7 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                   Generates a call graph showing methods that call the specified target method (callers) up to a certain depth, and adds it to the Workspace.
                   The single line of the call sites (but not full method sources) are included
                   """)
@@ -478,8 +474,7 @@ public class WorkspaceTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                   Generates a call graph showing methods called by the specified source method (callees) up to a certain depth, and adds it to the workspace
                   The single line of the call sites (but not full method sources) are included
                   """)

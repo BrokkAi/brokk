@@ -292,9 +292,7 @@ public class BuildAgent {
         return messages;
     }
 
-    @Tool(
-            value =
-                    "Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
+    @Tool("Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
     public String reportBuildDetails(
             @P(
                             "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.")
@@ -321,9 +319,7 @@ public class BuildAgent {
         return "Build details report received and processed.";
     }
 
-    @Tool(
-            value =
-                    "Abort the process if you cannot determine the build details or the project structure is unsupported.")
+    @Tool("Abort the process if you cannot determine the build details or the project structure is unsupported.")
     public String abortBuildDetails(
             @P("Explanation of why the build details cannot be determined") String explanation) {
         // Store the explanation in the agent's field

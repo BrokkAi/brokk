@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.*;
 import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -29,103 +28,58 @@ public class ToolRegistry {
     // Maps tool name to its invocation target (method + instance)
     private final Map<String, ToolInvocationTarget> toolMap = new ConcurrentHashMap<>();
 
-    /** Gets human-readable parameter information from a tool call */
-    public static String formatListParameter(Map<String, Object> arguments, String paramName) {
-        @SuppressWarnings("unchecked")
-        List<String> items = (List<String>) arguments.get(paramName);
-        if (items != null && !items.isEmpty()) {
-            // turn it back into a JSON list or the LLM will be lazy too
-            var mapper = new ObjectMapper();
-            try {
-                return "%s=%s".formatted(paramName, mapper.writeValueAsString(items));
-            } catch (IOException e) {
-                logger.error("Error formatting list parameter", e);
-            }
-        }
-        return "";
-    }
-
     /** Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting. */
-    public static String getExplanationForToolRequest(ToolExecutionRequest request) {
-        try {
-            // Get tool display metadata
-            var displayMeta = ToolDisplayMeta.fromToolName(request.name());
+    public String getExplanationForToolRequest(Object toolOwner, ToolExecutionRequest request) {
+        var displayMeta = ToolDisplayMeta.fromToolName(request.name());
 
-            // Skip empty explanations for answer/abort
-            if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
-                return "";
-            }
-
-            // Parse the arguments
-            var mapper = new ObjectMapper();
-            Map<String, Object> args = mapper.readValue(request.arguments(), new TypeReference<>() {});
-
-            // Convert to YAML format
-            StringBuilder yamlBuilder = new StringBuilder();
-
-            // Process each argument entry
-            for (var entry : args.entrySet()) {
-                String key = entry.getKey();
-                Object value = entry.getValue();
-
-                // Handle different value types
-                if (value instanceof List<?> list) {
-                    yamlBuilder.append(key).append(":\n");
-                    for (Object item : list) {
-                        yamlBuilder.append("  - ").append(item).append("\n");
-                    }
-                } else if (value instanceof String str && str.contains("\n")) {
-                    // Use YAML block scalar for multi-line strings
-                    yamlBuilder.append(key).append(": |\n");
-                    for (String line :
-                            com.google.common.base.Splitter.on('\n').splitToList(str)) { // Use Splitter fully qualified
-                        yamlBuilder.append("  ").append(line).append("\n");
-                    }
-                } else {
-                    yamlBuilder.append(key).append(": ").append(value).append("\n");
-                }
-            }
-
-            // Create the Markdown code fence with icon and headline
-            return """
-                   ### %s %s
-                   ```yaml
-                   %s```
-                   """
-                    .formatted(displayMeta.getIcon(), displayMeta.getHeadline(), yamlBuilder);
-        } catch (Exception e) {
-            logger.error("Error formatting tool request explanation", e);
-            String paramInfo = getToolParameterInfoFromRequest(request);
-            var displayMeta = ToolDisplayMeta.fromToolName(request.name());
-            return paramInfo.isBlank() ? displayMeta.getHeadline() : displayMeta.getHeadline() + " (" + paramInfo + ")";
-        }
-    }
-
-    /** Gets parameter info directly from a request for explanation purposes. */
-    private static String getToolParameterInfoFromRequest(ToolExecutionRequest request) {
-        try {
-            var mapper = new ObjectMapper();
-            var arguments = mapper.readValue(request.arguments(), new TypeReference<Map<String, Object>>() {});
-
-            return switch (request.name()) {
-                case "searchSymbols", "searchSubstrings", "searchFilenames" ->
-                    formatListParameter(arguments, "patterns");
-                case "getFileContents" -> formatListParameter(arguments, "filenames");
-                case "getFileSummaries" -> formatListParameter(arguments, "filePaths");
-                case "getUsages" -> formatListParameter(arguments, "symbols");
-                case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
-                    formatListParameter(arguments, "classNames");
-                case "getMethodSources" -> formatListParameter(arguments, "methodNames");
-                case "getCallGraphTo", "getCallGraphFrom" ->
-                    arguments.getOrDefault("methodName", "").toString();
-                case "answerSearch", "abortSearch" -> "";
-                default -> "";
-            };
-        } catch (Exception e) {
-            logger.error("Error getting parameter info for request {}: {}", request.name(), e);
+        // Skip empty explanations for answer/abort
+        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
             return "";
         }
+
+        // Resolve target and perform typed conversion via validateTool; let ToolValidationException propagate.
+        var vi = validateTool(toolOwner, request);
+        var argsYaml = toYaml(vi);
+
+        return """
+               ### %s %s
+               ```yaml
+               %s```
+               """
+                .formatted(displayMeta.getIcon(), displayMeta.getHeadline(), argsYaml);
     }
+
+    // Helper to render a simple YAML block from a map of arguments
+    private static String toYaml(ValidatedInvocation vi) {
+        var named = new LinkedHashMap<String, Object>();
+        var params = vi.method().getParameters();
+        var values = vi.parameters();
+        assert params.length == values.size();
+        for (int i = 0; i < params.length; i++) {
+            named.put(params[i].getName(), values.get(i));
+        }
+        var args = (Map<String, Object>) named;
+
+        var sb = new StringBuilder();
+        for (var entry : args.entrySet()) {
+            var key = entry.getKey();
+            var value = entry.getValue();
+            if (value instanceof Collection<?> list) {
+                sb.append(key).append(":\n");
+                for (var item : list) {
+                    sb.append("  - ").append(item).append("\n");
+                }
+            } else if (value instanceof String s && s.contains("\n")) {
+                sb.append(key).append(": |\n");
+                s.lines().forEach(line -> sb.append("  ").append(line).append("\n"));
+            } else {
+                sb.append(key).append(": ").append(value).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    // Helper to find a @Tool instance method by effective tool name on the provided instance
 
     /** Enum that defines display metadata for each tool */
     private enum ToolDisplayMeta {
@@ -227,27 +181,26 @@ public class ToolRegistry {
 
     /** Validates a tool request against the provided instance's @Tool methods (falling back to globals). */
     public ValidatedInvocation validateTool(Object instance, ToolExecutionRequest request) {
-        Objects.requireNonNull(instance, "toolInstance cannot be null");
-        Class<?> cls = instance.getClass();
+        String toolName = request.name();
+        if (toolName.isBlank()) {
+            throw new ToolValidationException("Tool name cannot be empty");
+        }
 
+        // first check the instance
+        Class<?> cls = instance.getClass();
         Method targetMethod = Arrays.stream(cls.getDeclaredMethods())
-                .filter(m -> m.isAnnotationPresent(dev.langchain4j.agent.tool.Tool.class))
+                .filter(m -> m.isAnnotationPresent(Tool.class))
                 .filter(m -> !Modifier.isStatic(m.getModifiers()))
                 .filter(m -> {
-                    var toolAnnotation = m.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
-                    String name = toolAnnotation.name().isEmpty() ? m.getName() : toolAnnotation.name();
-                    return name.equals(request.name());
+                    String name = m.getName();
+                    return name.equals(toolName);
                 })
                 .findFirst()
                 .orElse(null);
 
-        ToolInvocationTarget target;
-        if (targetMethod == null) {
-            target = toolMap.get(request.name());
-        } else {
-            target = new ToolInvocationTarget(targetMethod, instance);
-        }
-
+        // then check the global tool map
+        ToolInvocationTarget target =
+                (targetMethod != null) ? new ToolInvocationTarget(targetMethod, instance) : toolMap.get(request.name());
         if (target == null) {
             throw new ToolValidationException("Tool not found: " + request.name());
         }
@@ -256,7 +209,7 @@ public class ToolRegistry {
         return new ValidatedInvocation(target.method(), target.instance(), args);
     }
 
-    private List<Object> parseArguments(ToolExecutionRequest request, Method method) {
+    private static List<Object> parseArguments(ToolExecutionRequest request, Method method) {
         try {
             Map<String, Object> argumentsMap =
                     OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<HashMap<String, Object>>() {});
@@ -286,7 +239,7 @@ public class ToolRegistry {
                         if (contentClass != Object.class) {
                             if (converted instanceof java.util.Collection<?> coll) {
                                 for (Object elem : coll) {
-                                    if (elem != null && !contentClass.isInstance(elem)) {
+                                    if (!contentClass.isInstance(elem)) {
                                         throw new ToolValidationException(
                                                 "Parameter '%s' expected elements of type %s but got %s"
                                                         .formatted(
@@ -329,8 +282,7 @@ public class ToolRegistry {
      * process explicitly.
      */
     @Tool(
-            value =
-                    """
+            """
     Think carefully step by step about a complex problem. Use this tool to reason through difficult questions
     or break problems into smaller pieces. Call it concurrently with other tools.
     """)
@@ -350,10 +302,7 @@ public class ToolRegistry {
 
         for (Method method : clazz.getMethods()) {
             if (method.isAnnotationPresent(dev.langchain4j.agent.tool.Tool.class)) {
-                dev.langchain4j.agent.tool.Tool toolAnnotation =
-                        method.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
-                String toolName = toolAnnotation.name().isEmpty() ? method.getName() : toolAnnotation.name();
-
+                String toolName = method.getName();
                 if (toolMap.containsKey(toolName)) {
                     throw new IllegalArgumentException(
                             "Duplicate tool name registration attempted: '%s'".formatted(toolName));
@@ -406,8 +355,7 @@ public class ToolRegistry {
         return toolNames.stream()
                 .map(toolName -> annotatedMethods.stream()
                         .filter(m -> {
-                            var toolAnnotation = m.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
-                            String name = toolAnnotation.name().isEmpty() ? m.getName() : toolAnnotation.name();
+                            String name = m.getName();
                             return name.equals(toolName);
                         })
                         .findFirst()

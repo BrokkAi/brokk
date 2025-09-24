@@ -506,9 +506,7 @@ public class SearchAgent {
     // Answer/abort tools
     // =======================
 
-    @Tool(
-            value =
-                    "Provide a final answer to a purely informational request. Use this when no code changes are required.")
+    @Tool("Provide a final answer to a purely informational request. Use this when no code changes are required.")
     public String answer(
             @P(
                             "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
@@ -555,14 +553,13 @@ public class SearchAgent {
     }
 
     @Tool(
-            value =
-                    "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
+            "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
     public String workspaceComplete() {
         logger.debug("workspaceComplete selected");
         return "Workspace marked complete for the current goal.";
     }
 
-    @Tool(value = "Abort when you determine the question is not answerable from this codebase or is out of scope.")
+    @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
         logger.debug("abortSearch selected with explanation length {}", explanation.length());

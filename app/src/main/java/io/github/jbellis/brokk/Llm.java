@@ -532,18 +532,21 @@ public class Llm {
         var sr = doSingleStreamingCall(request, echo);
 
         // Pretty-print native tool calls when echo is enabled
+        // (For emulated calls, echo means we get the raw json in the response which is not ideal but
+        // there's no reason to add a second print of it)
         if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
-            prettyPrintToolCalls(sr.toolRequests());
+            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests());
         }
         return sr;
     }
 
-    private void prettyPrintToolCalls(List<ToolExecutionRequest> requests) {
+    private void prettyPrintToolCalls(Object toolOwner, List<ToolExecutionRequest> requests) {
         if (requests.isEmpty()) {
             return;
         }
+        var registry = contextManager.getToolRegistry();
         var rendered = requests.stream()
-                .map(ToolRegistry::getExplanationForToolRequest)
+                .map(tr -> registry.getExplanationForToolRequest(toolOwner, tr))
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {

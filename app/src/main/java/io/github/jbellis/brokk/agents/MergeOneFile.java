@@ -182,7 +182,7 @@ public final class MergeOneFile {
             for (var req : sorted) {
                 if (Thread.interrupted()) throw new InterruptedException();
 
-                var explanation = ToolRegistry.getExplanationForToolRequest(req);
+                var explanation = cm.getToolRegistry().getExplanationForToolRequest(this, req);
                 if (!explanation.isBlank()) {
                     io.llmOutput("\n" + explanation, ChatMessageType.AI);
                 }
