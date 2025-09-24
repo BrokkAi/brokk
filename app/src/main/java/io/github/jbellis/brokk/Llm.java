@@ -133,7 +133,7 @@ public class Llm {
     }
 
     private static String logFileTimestamp() {
-        return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm.ss"));
+        return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
     }
 
     /** Write the request JSON before sending to the model, to a file named "<base>-request.json". */
