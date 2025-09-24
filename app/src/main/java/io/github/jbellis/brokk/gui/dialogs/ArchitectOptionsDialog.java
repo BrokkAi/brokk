@@ -489,7 +489,7 @@ public class ArchitectOptionsDialog {
         boolean prDisabled = !gitState.gitAvailable()
                 || gitState.onDefaultBranch()
                 || project == null
-                || !GitHubAuth.tokenPresent(project)
+                || !GitHubAuth.tokenPresent()
                 || gitState.repo() == null
                 || gitState.repo().getRemoteUrl("origin") == null;
 
@@ -505,7 +505,7 @@ public class ArchitectOptionsDialog {
         } else if (gitState.onDefaultBranch()) {
             prCb.setToolTipText(
                     "Cannot create PR from the default branch (%s).".formatted(gitState.defaultBranchName()));
-        } else if (project == null || !GitHubAuth.tokenPresent(project)) {
+        } else if (project == null || !GitHubAuth.tokenPresent()) {
             prCb.setToolTipText("No GitHub credentials found (e.g. GITHUB_TOKEN environment variable).");
         } else if (gitState.repo() == null || gitState.repo().getRemoteUrl("origin") == null) {
             prCb.setToolTipText("Git repository does not have a remote named 'origin'.");

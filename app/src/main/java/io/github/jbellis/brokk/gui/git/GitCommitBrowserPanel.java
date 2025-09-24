@@ -1356,7 +1356,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         }
 
         // Token check first, as it's cheap and local.
-        if (!GitHubAuth.tokenPresent(contextManager.getProject())) {
+        if (!GitHubAuth.tokenPresent()) {
             return new ButtonConfig(
                     false,
                     "A GitHub token is required to create pull requests. Please configure it in settings.",

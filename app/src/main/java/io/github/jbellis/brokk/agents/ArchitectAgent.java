@@ -344,7 +344,7 @@ public class ArchitectAgent {
                 throw new IllegalStateException("Uncommitted changes present; commit first.");
             }
 
-            if (!GitHubAuth.tokenPresent(project)) {
+            if (!GitHubAuth.tokenPresent()) {
                 throw new IllegalStateException(
                         "No GitHub credentials configured (e.g. GITHUB_TOKEN environment variable).");
             }

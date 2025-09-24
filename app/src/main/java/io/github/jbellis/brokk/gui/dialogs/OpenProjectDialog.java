@@ -21,12 +21,21 @@ import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,9 +157,9 @@ public class OpenProjectDialog extends JDialog {
         table.setRowSorter(sorter);
         sorter.setSortKeys(List.of(new RowSorter.SortKey(1, SortOrder.DESCENDING)));
 
-        table.addMouseListener(new java.awt.event.MouseAdapter() {
+        table.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent evt) {
+            public void mouseClicked(MouseEvent evt) {
                 if (evt.getClickCount() == 2) {
                     int viewRow = table.getSelectedRow();
                     if (viewRow >= 0) {
@@ -533,8 +542,7 @@ public class OpenProjectDialog extends JDialog {
     }
 
     private void validateTokenAndLoadRepositories(DefaultTableModel tableModel) {
-        var token = GitHubAuth.getStoredToken();
-        if (token.isBlank()) {
+        if (!GitHubAuth.tokenPresent()) {
             showTokenMissingMessage(tableModel);
             return;
         }
@@ -544,6 +552,7 @@ public class OpenProjectDialog extends JDialog {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
                 // First validate the token with a simple API call
+                var token = GitHubAuth.getStoredToken();
                 var github = new GitHubBuilder().withOAuthToken(token).build();
                 github.getMyself(); // This will throw if token is invalid
 
@@ -563,7 +572,7 @@ public class OpenProjectDialog extends JDialog {
                     populateTable(tableModel, repositories);
                 } catch (ExecutionException e) {
                     var cause = e.getCause();
-                    if (cause instanceof org.kohsuke.github.HttpException httpEx && httpEx.getResponseCode() == 401) {
+                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
                         logger.warn("GitHub token is invalid, clearing stored token");
                         GitHubAuth.invalidateInstance();
                         showTokenInvalidMessage(tableModel);
@@ -590,8 +599,7 @@ public class OpenProjectDialog extends JDialog {
             return;
         }
 
-        var token = GitHubAuth.getStoredToken();
-        if (token.isBlank()) {
+        if (!GitHubAuth.tokenPresent()) {
             showTokenMissingMessage(tableModel);
             return;
         }
@@ -717,7 +725,7 @@ public class OpenProjectDialog extends JDialog {
 
         try {
             var github = new GitHubBuilder().withOAuthToken(token).build();
-            var repositories = new java.util.ArrayList<org.kohsuke.github.GHRepository>();
+            var repositories = new ArrayList<GHRepository>();
             int count = 0;
             for (var repo : github.getMyself().listRepositories()) {
                 repositories.add(repo);
@@ -740,10 +748,10 @@ public class OpenProjectDialog extends JDialog {
                         return null;
                     }
                 })
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
                 .toList();
-        } catch (org.kohsuke.github.HttpException e) {
+        } catch (HttpException e) {
             if (e.getResponseCode() == 401) {
                 throw new IllegalStateException("GitHub token is invalid or expired");
             } else if (e.getResponseCode() == 403) {
@@ -751,9 +759,9 @@ public class OpenProjectDialog extends JDialog {
             } else {
                 throw new IOException("GitHub API error (HTTP " + e.getResponseCode() + "): " + e.getMessage(), e);
             }
-        } catch (java.net.ConnectException | java.net.UnknownHostException e) {
+        } catch (ConnectException | UnknownHostException e) {
             throw new IOException("Network connection failed. Please check your internet connection.", e);
-        } catch (java.net.SocketTimeoutException e) {
+        } catch (SocketTimeoutException e) {
             throw new IOException("GitHub API request timed out. Please try again.", e);
         }
     }
