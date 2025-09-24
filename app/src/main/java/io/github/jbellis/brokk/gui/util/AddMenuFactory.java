@@ -53,12 +53,6 @@ public final class AddMenuFactory {
             parent.add(editMenuItem);
         }
 
-        JMenuItem readMenuItem = new JMenuItem("Read Files");
-        readMenuItem.addActionListener(e -> {
-            wp.performContextActionAsync(WorkspacePanel.ContextAction.READ, List.<ContextFragment>of());
-        });
-        parent.add(readMenuItem);
-
         JMenuItem summarizeMenuItem = new JMenuItem("Summarize Files");
         summarizeMenuItem.addActionListener(e -> {
             wp.performContextActionAsync(WorkspacePanel.ContextAction.SUMMARIZE, List.<ContextFragment>of());

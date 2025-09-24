@@ -2,17 +2,16 @@ package io.github.jbellis.brokk.context;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
-import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -39,14 +38,17 @@ public class Context {
     public static final Context EMPTY = new Context(new IContextManager() {}, null);
 
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
-    private static final String WELCOME_ACTION = "Welcome to Brokk";
+    private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
     private final transient IContextManager contextManager;
-    final List<ContextFragment> editableFiles; // Can hold PathFragment or FrozenFragment
-    final List<ContextFragment> readonlyFiles; // Can hold PathFragment or FrozenFragment
-    final List<ContextFragment.VirtualFragment> virtualFragments;
+
+    // Unified list for all fragments (paths and virtuals)
+    final List<ContextFragment> fragments;
+    // Legacy alias fields for compatibility with modules referencing these directly (e.g., ContextHistory)
+    final List<ContextFragment> editableFiles;
+    final List<ContextFragment> readonlyFiles;
 
     /** Task history list. Each entry represents a user request and the subsequent conversation */
     final List<TaskEntry> taskHistory;
@@ -61,135 +63,63 @@ public class Context {
     /** Constructor for initial empty context */
     public Context(IContextManager contextManager, @Nullable String initialOutputText) {
         this(
+                newContextId(),
                 contextManager,
                 List.of(),
                 List.of(),
-                List.of(),
-                new ArrayList<>(),
-                getWelcomeOutput(contextManager, initialOutputText),
+                null,
                 CompletableFuture.completedFuture(WELCOME_ACTION));
-    }
-
-    private static ContextFragment.TaskFragment getWelcomeOutput(
-            IContextManager contextManager, @Nullable String initialOutputText) {
-        var messages = initialOutputText == null
-                ? List.<ChatMessage>of()
-                : List.<ChatMessage>of(Messages.customSystem(initialOutputText));
-        return new ContextFragment.TaskFragment(contextManager, messages, "Welcome");
     }
 
     private Context(
             UUID id,
             IContextManager contextManager,
-            List<ContextFragment> editableFiles,
-            List<ContextFragment> readonlyFiles,
-            List<ContextFragment.VirtualFragment> virtualFragments,
+            List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action) {
         this.id = id;
         this.contextManager = contextManager;
-        this.editableFiles = List.copyOf(editableFiles);
-        this.readonlyFiles = List.copyOf(readonlyFiles);
-        this.virtualFragments = List.copyOf(virtualFragments);
-        this.taskHistory = List.copyOf(taskHistory); // Ensure immutability
+        this.fragments = List.copyOf(fragments);
+        this.editableFiles = this.fragments;
+        this.readonlyFiles = List.of();
+        this.taskHistory = List.copyOf(taskHistory);
         this.action = action;
         this.parsedOutput = parsedOutput;
     }
 
     public Context(
             IContextManager contextManager,
-            List<ContextFragment> editableFiles,
-            List<ContextFragment> readonlyFiles,
-            List<ContextFragment.VirtualFragment> virtualFragments,
+            List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action) {
-        this(
-                newContextId(),
-                contextManager,
-                editableFiles,
-                readonlyFiles,
-                virtualFragments,
-                taskHistory,
-                parsedOutput,
-                action);
+        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
     }
 
-    /**
-     * Produces a *live* context whose fragments are un-frozen versions of those in {@code frozen}. Used by the UI when
-     * the user selects an old snapshot.
-     */
+    /** Produces a live context whose fragments are un-frozen versions of those in {@code frozen}. */
     public static Context unfreeze(Context frozen) {
         var cm = frozen.getContextManager();
 
-        var editable = new ArrayList<ContextFragment>(); // Use general ContextFragment
-        var readonly = new ArrayList<ContextFragment>(); // Use general ContextFragment
-        var virtuals = new ArrayList<ContextFragment.VirtualFragment>();
+        var newFragments = new ArrayList<ContextFragment>();
 
-        // Iterate over frozen.editableFiles() and unfreeze any FrozenFragment found
-        frozen.editableFiles().forEach(f -> {
+        frozen.allFragments().forEach(f -> {
             if (f instanceof FrozenFragment ff) {
                 try {
-                    editable.add(ff.unfreeze(cm));
+                    newFragments.add(ff.unfreeze(cm));
                 } catch (IOException e) {
-                    logger.warn("Unable to unfreeze editable fragment {}: {}", ff.description(), e.getMessage());
-                    editable.add(ff); // fall back to frozen
+                    logger.warn("Unable to unfreeze fragment {}: {}", ff.description(), e.getMessage());
+                    newFragments.add(ff); // fall back to frozen
                 }
             } else {
-                editable.add(f); // Already live or non-dynamic
+                newFragments.add(f); // Already live or non-dynamic
             }
         });
-
-        // Iterate over frozen.readonlyFiles() and unfreeze any FrozenFragment found
-        frozen.readonlyFiles().forEach(f -> {
-            if (f instanceof FrozenFragment ff) {
-                try {
-                    readonly.add(ff.unfreeze(cm));
-                } catch (IOException e) {
-                    logger.warn("Unable to unfreeze readonly fragment {}: {}", ff.description(), e.getMessage());
-                    readonly.add(ff); // fall back to frozen
-                }
-            } else {
-                readonly.add(f); // Already live or non-dynamic
-            }
-        });
-
-        // Iterate over frozen.virtualFragments() and unfreeze any FrozenFragment found
-        frozen.virtualFragments()
-                .forEach(
-                        vf -> { // vf is a VirtualFragment (could be a FrozenFragment of one)
-                            if (vf instanceof FrozenFragment ff) {
-                                try {
-                                    var liveUnfrozen = ff.unfreeze(cm);
-                                    // Ensure only VirtualFragments are added to virtuals list
-                                    if (liveUnfrozen instanceof ContextFragment.VirtualFragment liveVf) {
-                                        virtuals.add(liveVf);
-                                    } else {
-                                        // This case should be rare if Context.freeze() is correct.
-                                        logger.warn(
-                                                "FrozenFragment from virtuals un-froze to non-VirtualFragment: {}. Retaining frozen.",
-                                                ff.description());
-                                        virtuals.add(ff); // fall back to frozen
-                                    }
-                                } catch (IOException e) {
-                                    logger.warn(
-                                            "Unable to unfreeze virtual fragment {}: {}",
-                                            ff.description(),
-                                            e.getMessage());
-                                    virtuals.add(ff); // fall back to frozen
-                                }
-                            } else {
-                                virtuals.add(vf); // Already a live VirtualFragment
-                            }
-                        });
 
         return new Context(
                 frozen.id(),
                 cm,
-                List.copyOf(editable),
-                List.copyOf(readonly),
-                List.copyOf(virtuals),
+                List.copyOf(newFragments),
                 frozen.getTaskHistory(),
                 frozen.getParsedOutput(),
                 frozen.action);
@@ -199,93 +129,62 @@ public class Context {
         return UuidCreator.getTimeOrderedEpoch();
     }
 
-    /** Creates a new Context with an additional set of editable files. Rebuilds autoContext if toggled on. */
-    public Context addEditableFiles(
-            Collection<ContextFragment.ProjectPathFragment> paths) { // IContextManager is already member
-        var toAdd = paths.stream()
-                .filter(Objects::nonNull) // Ensure correct type for contains check
-                .filter(fragment -> !editableFiles.contains(fragment))
-                .toList();
+    public String getEditableToc() {
+        return getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining(", "));
+    }
+
+    public String getReadOnlyToc() {
+        return getReadOnlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining(", "));
+    }
+
+    public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
+        var toAdd = paths.stream().filter(p -> !fragments.contains(p)).toList();
         if (toAdd.isEmpty()) {
             return this;
         }
-        var newEditable = new ArrayList<>(editableFiles);
-        newEditable.addAll(toAdd);
+        var newFragments = new ArrayList<>(fragments);
+        newFragments.addAll(toAdd);
 
         String actionDetails =
                 toAdd.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
         String action = "Edit " + actionDetails;
-        return getWithFragments(newEditable, readonlyFiles, virtualFragments, action);
+        return withFragments(newFragments, CompletableFuture.completedFuture(action));
     }
 
-    public Context addReadonlyFiles(
-            Collection<ContextFragment.PathFragment> paths) { // IContextManager is already member
-        var toAdd = paths.stream()
-                .filter(Objects::nonNull) // Ensure correct type for contains check
-                .filter(fragment -> !readonlyFiles.contains(fragment))
-                .toList();
-        if (toAdd.isEmpty()) {
+    public Context removePathFragments(List<? extends ContextFragment> toRemove, String actionPrefix) {
+        var newFragments = new ArrayList<>(fragments);
+        if (!newFragments.removeAll(toRemove)) {
             return this;
         }
-        var newReadOnly = new ArrayList<>(readonlyFiles);
-        newReadOnly.addAll(toAdd);
-
         String actionDetails =
-                toAdd.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
-        String action = "Read " + actionDetails;
-        return getWithFragments(editableFiles, newReadOnly, virtualFragments, action);
+                toRemove.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
+        return withFragments(newFragments, CompletableFuture.completedFuture(actionPrefix + actionDetails));
     }
 
-    public Context removeEditableFiles(List<? extends ContextFragment> fragments) { // IContextManager is already member
-        var newEditable = new ArrayList<>(editableFiles);
-        if (!newEditable.removeAll(fragments)) { // removeAll returns true if list changed
-            return this;
-        }
-
-        String actionDetails =
-                fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
-        String action = "Removed " + actionDetails;
-        return getWithFragments(newEditable, readonlyFiles, virtualFragments, action);
-    }
-
-    public Context removeReadonlyFiles(List<? extends ContextFragment> fragments) { // IContextManager is already member
-        var newReadOnly = new ArrayList<>(readonlyFiles);
-        if (!newReadOnly.removeAll(fragments)) { // removeAll returns true if list changed
-            return this;
-        }
-
-        String actionDetails =
-                fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
-        String action = "Removed " + actionDetails;
-        return getWithFragments(editableFiles, newReadOnly, virtualFragments, action);
-    }
-
-    public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) { // IContextManager is already member
-        // Avoid duplicates:
-        // - For pasted images, compare by id (content hash), since text() is a placeholder string.
-        // - For all other virtual fragments, preserve existing text-based de-duplication.
+    public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
+        // Deduplicate among existing virtual fragments only
         boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
-                ? virtualFragments.stream().anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                : virtualFragments.stream().anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+                ? fragments.stream()
+                        .filter(f -> f.getType().isVirtual())
+                        .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
+                : fragments.stream()
+                        .filter(f -> f.getType().isVirtual())
+                        .map(f -> (ContextFragment.VirtualFragment) f)
+                        .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
 
         if (isDuplicate) {
-            return this; // Duplicate fragment detected, no change
+            return this;
         }
 
-        var newFragments = new ArrayList<>(virtualFragments);
+        var newFragments = new ArrayList<>(fragments);
         newFragments.add(fragment);
 
         String action = "Added " + fragment.shortDescription();
-        return getWithFragments(editableFiles, readonlyFiles, newFragments, action);
+        return withFragments(newFragments, CompletableFuture.completedFuture(action));
     }
 
-    private Context getWithFragments(
-            List<ContextFragment> newEditableFiles,
-            List<ContextFragment> newReadonlyFiles,
-            List<ContextFragment.VirtualFragment> newVirtualFragments,
-            String action) {
-        return withFragments(
-                newEditableFiles, newReadonlyFiles, newVirtualFragments, CompletableFuture.completedFuture(action));
+    private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
+        return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action);
     }
 
     /**
@@ -293,36 +192,27 @@ public class Context {
      * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.
      */
     public SkeletonFragment buildAutoContext(int topK) throws InterruptedException {
-        IAnalyzer analyzer;
-        analyzer = contextManager.getAnalyzer();
+        IAnalyzer analyzer = contextManager.getAnalyzer();
 
-        // Collect ineligible classnames from fragments not eligible for auto-context
-        var ineligibleSources = Streams.concat(
-                        editableFiles.stream(), readonlyFiles.stream(), virtualFragments.stream())
+        // Collect ineligible sources from fragments not eligible for auto-context
+        var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
 
-        // Collect initial seeds
+        // All file fragments have a weight of 1.0 each; virtuals share a weight of 1.0
         HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
-        // editable files have a weight of 1.0, each
-        editableFiles.stream().flatMap(cf -> cf.files().stream()).forEach(f -> {
-            weightedSeeds.put(f, 1.0);
-        });
-        // everything else splits a weight of 1.0
-        Streams.concat(readonlyFiles.stream(), virtualFragments.stream())
-                .flatMap(cf -> cf.files().stream()) // No analyzer
-                .forEach(f -> {
-                    weightedSeeds.merge(f, 1.0 / (readonlyFiles.size() + virtualFragments.size()), Double::sum);
-                });
+        var fileFragments = fragments.stream().filter(f -> f.getType().isPath()).toList();
+        var virtuals = fragments.stream().filter(f -> f.getType().isVirtual()).toList();
 
-        // If no seeds, we can't compute pagerank
+        fileFragments.stream().flatMap(cf -> cf.files().stream()).forEach(f -> weightedSeeds.put(f, 1.0));
+        int virtualCount = Math.max(1, virtuals.size());
+        virtuals.stream()
+                .flatMap(cf -> cf.files().stream())
+                .forEach(f -> weightedSeeds.merge(f, 1.0 / virtualCount, Double::sum));
+
         if (weightedSeeds.isEmpty()) {
-            // Pass contextManager to SkeletonFragment constructor
-            return new SkeletonFragment(
-                    contextManager,
-                    List.of(),
-                    ContextFragment.SummaryType.CODEUNIT_SKELETON); // Empty skeleton fragment
+            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
 
         return buildAutoContextFragment(contextManager, analyzer, weightedSeeds, ineligibleSources, topK);
@@ -334,28 +224,20 @@ public class Context {
             Map<ProjectFile, Double> weightedSeeds,
             Set<ProjectFile> ineligibleSources,
             int topK) {
-        var skp = analyzer.as(SkeletonProvider.class)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Cannot find related classes: Code Intelligence is not available."));
-
         var pagerankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
 
         List<String> targetFqns = new ArrayList<>();
         for (var sourceFile : pagerankResults) {
-            // Check if the class or its parent is in ineligible classnames
             boolean eligible = !ineligibleSources.contains(sourceFile);
-            if (!eligible) {
-                continue;
-            }
+            if (!eligible) continue;
 
-            targetFqns.addAll(skp.getSkeletons(sourceFile).values());
-            if (targetFqns.size() >= topK) {
-                break;
-            }
+            targetFqns.addAll(analyzer.getDeclarationsInFile(sourceFile).stream()
+                    .map(CodeUnit::fqName)
+                    .toList());
+            if (targetFqns.size() >= topK) break;
         }
         if (targetFqns.isEmpty()) {
-            return new SkeletonFragment(
-                    contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON); // Empty
+            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
         return new SkeletonFragment(contextManager, targetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON);
     }
@@ -368,32 +250,25 @@ public class Context {
         return id;
     }
 
-    public Stream<ContextFragment> editableFiles() {
-        return editableFiles.stream();
-    }
-
-    public Stream<ContextFragment> readonlyFiles() {
-        return readonlyFiles.stream();
+    public Stream<ContextFragment> fileFragments() {
+        return fragments.stream().filter(f -> f.getType().isPath());
     }
 
     public Stream<ContextFragment.VirtualFragment> virtualFragments() {
-        // this.virtualFragments is guaranteed to be non-null and deduplicated by the constructor.
-        return this.virtualFragments.stream();
+        return fragments.stream().filter(f -> f.getType().isVirtual()).map(f -> (ContextFragment.VirtualFragment) f);
     }
 
     /** Returns readonly files and virtual fragments (excluding usage fragments) as a combined stream */
     public Stream<ContextFragment> getReadOnlyFragments() {
-        return Streams.concat(
-                readonlyFiles.stream(),
-                virtualFragments.stream().filter(f -> f.getType() != ContextFragment.FragmentType.USAGE));
+        return fragments.stream().filter(f -> !f.getType().isEditable());
     }
 
-    /** Returns editable files and usage fragments as a combined stream */
+    /** Returns file fragments and editable virtual fragments (usage), ordered with most-recently-modified last */
     public Stream<ContextFragment> getEditableFragments() {
         // Helper record for associating a fragment with its mtime for safe sorting and filtering
         record EditableFileWithMtime(ContextFragment.ProjectPathFragment fragment, long mtime) {}
 
-        Stream<ContextFragment.ProjectPathFragment> sortedProjectFiles = editableFiles.stream()
+        Stream<ContextFragment.ProjectPathFragment> sortedProjectFiles = fragments.stream()
                 .filter(ContextFragment.ProjectPathFragment.class::isInstance)
                 .map(ContextFragment.ProjectPathFragment.class::cast)
                 .map(pf -> {
@@ -404,140 +279,75 @@ public class Context {
                                 "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
                                 pf.shortDescription(),
                                 e);
-                        return new EditableFileWithMtime(pf, -1L); // Mark for filtering
+                        return new EditableFileWithMtime(pf, -1L);
                     }
                 })
-                .filter(mf -> mf.mtime() >= 0) // Filter out files with errors or negative mtime
-                .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime)) // Sort by mtime
-                .map(EditableFileWithMtime::fragment); // Extract the original fragment
+                .filter(mf -> mf.mtime() >= 0)
+                .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime))
+                .map(EditableFileWithMtime::fragment);
 
-        // Include FrozenFragments that originated from editable files, and other non-ProjectPathFragment types if any.
-        // These will not be sorted by mtime but will appear after usage fragments and before mtime-sorted project
-        // files.
-        // This ordering might need refinement based on desired UX. For now, keeping it simple.
-        Stream<ContextFragment> otherEditableFragments =
-                editableFiles.stream().filter(f -> !(f instanceof ContextFragment.ProjectPathFragment));
+        Stream<ContextFragment> otherEditablePathFragments = fragments.stream()
+                .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
+
+        Stream<ContextFragment> editableVirtuals = fragments.stream()
+                .filter(f -> f.getType().isVirtual() && f.getType().isEditable())
+                .map(f -> (ContextFragment) f);
 
         return Streams.concat(
-                virtualFragments.stream().filter(f -> f.getType() == ContextFragment.FragmentType.USAGE),
-                otherEditableFragments,
-                sortedProjectFiles.map(ContextFragment.class::cast));
+                editableVirtuals, otherEditablePathFragments, sortedProjectFiles.map(ContextFragment.class::cast));
     }
 
     public Stream<ContextFragment> allFragments() {
-        return Streams.concat(editableFiles.stream(), readonlyFiles.stream(), virtualFragments.stream());
+        return fragments.stream();
     }
 
-    /**
-     * Removes fragments from this context by their IDs.
-     *
-     * @param idsToRemove Collection of fragment IDs to remove
-     * @return A new Context with the specified fragments removed, or this context if no changes were made
-     */
+    /** Removes fragments from this context by their IDs. */
     public Context removeFragmentsByIds(Collection<String> idsToRemove) {
         if (idsToRemove.isEmpty()) {
             return this;
         }
 
-        var newEditableFiles = editableFiles.stream()
-                .filter(f -> !idsToRemove.contains(f.id()))
-                .toList();
-        var newReadonlyFiles = readonlyFiles.stream()
-                .filter(f -> !idsToRemove.contains(f.id()))
-                .toList();
-        var newVirtualFragments = virtualFragments.stream()
-                .filter(f -> !idsToRemove.contains(f.id()))
-                .toList();
+        var newFragments =
+                fragments.stream().filter(f -> !idsToRemove.contains(f.id())).toList();
 
-        // Count how many fragments were actually removed
-        int originalCount = editableFiles.size() + readonlyFiles.size() + virtualFragments.size();
-        int newCount = newEditableFiles.size() + newReadonlyFiles.size() + newVirtualFragments.size();
-        int removedCount = originalCount - newCount;
-
+        int removedCount = fragments.size() - newFragments.size();
         if (removedCount == 0) {
-            return this; // No changes made
+            return this;
         }
 
         String actionString = "Removed " + removedCount + " fragment" + (removedCount == 1 ? "" : "s");
-        return withFragments(
-                newEditableFiles,
-                newReadonlyFiles,
-                newVirtualFragments,
-                CompletableFuture.completedFuture(actionString));
-    }
-
-    /** Creates a new context with custom collections and action description, refreshing auto-context if needed. */
-    private Context withFragments(
-            List<ContextFragment> newEditableFiles,
-            List<ContextFragment> newReadonlyFiles,
-            List<ContextFragment.VirtualFragment> newVirtualFragments,
-            Future<String> action) {
-        return new Context(
-                contextManager, newEditableFiles, newReadonlyFiles, newVirtualFragments, taskHistory, null, action);
+        return withFragments(newFragments, CompletableFuture.completedFuture(actionString));
     }
 
     public Context removeAll() {
-        String action = "Dropped all context";
-        return new Context(
-                contextManager,
-                List.of(), // editable
-                List.of(), // readonly
-                List.of(), // virtual
-                List.of(), // task history
-                null, // parsed output
-                CompletableFuture.completedFuture(action));
+        String action = ActivityTableRenderers.DROPPED_ALL_CONTEXT;
+        return new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture(action));
     }
-
-    // Method removed in favor of toFragment(int position)
 
     public boolean isEmpty() {
-        return editableFiles.isEmpty()
-                && readonlyFiles.isEmpty()
-                && virtualFragments.isEmpty()
-                && taskHistory.isEmpty();
+        return fragments.isEmpty() && taskHistory.isEmpty();
     }
 
-    /**
-     * Creates a new TaskEntry with the correct sequence number based on the current history.
-     *
-     * @return A new TaskEntry.
-     */
     public TaskEntry createTaskEntry(TaskResult result) {
         int nextSequence = taskHistory.isEmpty() ? 1 : taskHistory.getLast().sequence() + 1;
         return TaskEntry.fromSession(nextSequence, result);
     }
 
-    /**
-     * Adds a new TaskEntry to the history.
-     *
-     * @param taskEntry The pre-constructed TaskEntry to add.
-     * @param parsed The parsed output associated with this task.
-     * @param action A future describing the action that created this history entry.
-     * @return A new Context instance with the added task history.
-     */
     public Context addHistoryEntry(
             TaskEntry taskEntry, @Nullable ContextFragment.TaskFragment parsed, Future<String> action) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
-        return new Context(
-                contextManager,
-                editableFiles,
-                readonlyFiles,
-                virtualFragments,
-                newTaskHistory, // new task history list
-                parsed,
-                action);
+        return new Context(newContextId(), contextManager, fragments, newTaskHistory, parsed, action);
     }
 
     public Context clearHistory() {
         return new Context(
+                newContextId(),
                 contextManager,
-                editableFiles,
-                readonlyFiles,
-                virtualFragments,
-                List.of(), // Cleared task history
+                fragments,
+                List.of(),
                 null,
-                CompletableFuture.completedFuture("Cleared task history"));
+                CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY));
     }
 
     /** @return an immutable copy of the task history. */
@@ -563,46 +373,38 @@ public class Context {
     }
 
     /**
-     * Returns all fragments in display order: 0 => conversation history (if not empty) 1 => autoContext (always
-     * present, even when DISABLED) next => read-only (readonlyFiles + virtualFragments) finally => editable
+     * Returns all fragments in display order: - conversation history (if not empty) - file fragments - virtual
+     * fragments
      */
     public List<ContextFragment> getAllFragmentsInDisplayOrder() {
         var result = new ArrayList<ContextFragment>();
 
-        // Then conversation history
         if (!taskHistory.isEmpty()) {
             result.add(new HistoryFragment(contextManager, taskHistory));
         }
 
-        // then read-only
-        result.addAll(readonlyFiles);
-        result.addAll(virtualFragments);
-
-        // then editable
-        result.addAll(editableFiles);
+        result.addAll(fragments.stream().filter(f -> f.getType().isPath()).toList());
+        result.addAll(fragments.stream().filter(f -> f.getType().isVirtual()).toList());
 
         return result;
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
-        return new Context(
-                contextManager, editableFiles, readonlyFiles, virtualFragments, taskHistory, parsedOutput, action);
+        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
         return new Context(
+                newContextId(),
                 contextManager,
-                editableFiles,
-                readonlyFiles,
-                virtualFragments,
+                fragments,
                 taskHistory,
                 parsedOutput,
                 CompletableFuture.completedFuture(action));
     }
 
     public Context withAction(Future<String> action) {
-        return new Context(
-                contextManager, editableFiles, readonlyFiles, virtualFragments, taskHistory, parsedOutput, action);
+        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
     }
 
     public static Context createWithId(
@@ -614,25 +416,25 @@ public class Context {
             List<TaskEntry> history,
             @Nullable ContextFragment.TaskFragment parsed,
             java.util.concurrent.Future<String> action) {
-        return new Context(id, cm, editable, readonly, virtuals, history, parsed, action);
+        var combined = Streams.concat(
+                        Streams.concat(editable.stream(), readonly.stream()),
+                        virtuals.stream().map(v -> (ContextFragment) v))
+                .toList();
+        return new Context(id, cm, combined, history, parsed, action);
     }
 
     /**
      * Creates a new Context with a modified task history list. This generates a new context state with a new ID and
      * action.
-     *
-     * @param newHistory The new list of TaskEntry objects.
-     * @return A new Context instance with the updated history.
      */
     public Context withCompressedHistory(List<TaskEntry> newHistory) {
         return new Context(
+                newContextId(),
                 contextManager,
-                editableFiles,
-                readonlyFiles,
-                virtualFragments,
-                newHistory, // Use the new history
-                null, // parsed output
-                CompletableFuture.completedFuture("Compressed History"));
+                fragments,
+                newHistory,
+                null,
+                CompletableFuture.completedFuture("Compress History"));
     }
 
     @Nullable
@@ -640,34 +442,17 @@ public class Context {
         return parsedOutput;
     }
 
-    /**
-     * Creates a new (live) Context that copies specific elements from the provided context. This creates a reset point
-     * by: - Using the files and fragments from the source context - Keeping the history messages from the current
-     * context - Setting up properly for rebuilding autoContext - Clearing parsed output and original contents - Setting
-     * a suitable action description
-     */
+    /** Creates a new (live) Context that copies specific elements from the provided context. */
     public static Context createFrom(Context sourceContext, Context currentContext, List<TaskEntry> newHistory) {
-        // Unfreeze fragments from the source context if they are frozen
-        var unfrozenEditableFiles = sourceContext
-                .editableFiles()
-                .map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager))
-                .toList();
-        var unfrozenReadonlyFiles = sourceContext
-                .readonlyFiles()
-                .map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager))
-                .toList();
-        var unfrozenVirtualFragments = sourceContext
-                .virtualFragments()
+        var unfrozenFragments = sourceContext
+                .allFragments()
                 .map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager))
                 .toList();
 
-        // New ID for the reset point
         return new Context(
                 newContextId(),
                 currentContext.contextManager,
-                unfrozenEditableFiles,
-                unfrozenReadonlyFiles,
-                unfrozenVirtualFragments,
+                unfrozenFragments,
                 newHistory,
                 null,
                 CompletableFuture.completedFuture("Reset context to historical state"));
@@ -681,103 +466,42 @@ public class Context {
     public FreezeResult freezeAndCleanup() {
         assert !containsFrozenFragments();
 
-        var liveEditableFiles = new ArrayList<ContextFragment>();
-        var frozenEditableFiles = new ArrayList<ContextFragment>();
+        var liveFragments = new ArrayList<ContextFragment>();
+        var frozenFragments = new ArrayList<ContextFragment>();
 
-        for (var fragment : this.editableFiles) {
+        for (var fragment : this.fragments) {
             try {
                 var frozen = FrozenFragment.freeze(fragment, contextManager);
-                liveEditableFiles.add(fragment);
-                frozenEditableFiles.add(frozen);
+                liveFragments.add(fragment);
+                frozenFragments.add(frozen);
             } catch (IOException e) {
-                logger.warn("Failed to freeze editable fragment {}: {}", fragment.description(), e.getMessage());
+                logger.warn("Failed to freeze fragment {}: {}", fragment.description(), e.getMessage());
             } catch (InterruptedException e) {
-                throw new RuntimeException(e); // we should not be interrupted here
+                throw new RuntimeException(e);
             }
         }
 
-        var liveReadonlyFiles = new ArrayList<ContextFragment>();
-        var frozenReadonlyFiles = new ArrayList<ContextFragment>();
-
-        for (var fragment : this.readonlyFiles) {
-            try {
-                var frozen = FrozenFragment.freeze(fragment, contextManager);
-                liveReadonlyFiles.add(fragment);
-                frozenReadonlyFiles.add(frozen);
-            } catch (IOException e) {
-                logger.warn("Failed to freeze readonly fragment {}: {}", fragment.description(), e.getMessage());
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e); // we should not be interrupted here
-            }
-        }
-
-        var liveVirtualFragments = new ArrayList<ContextFragment.VirtualFragment>();
-        var frozenVirtualFragments = new ArrayList<ContextFragment.VirtualFragment>();
-
-        for (var fragment : this.virtualFragments) {
-            try {
-                var frozen = FrozenFragment.freeze(fragment, contextManager);
-                liveVirtualFragments.add(fragment);
-                frozenVirtualFragments.add((ContextFragment.VirtualFragment) frozen);
-            } catch (IOException e) {
-                logger.warn("Failed to freeze virtual fragment {}: {}", fragment.description(), e.getMessage());
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e); // we should not be interrupted here
-            }
-        }
-
-        // Create live context with bad fragments removed
         Context liveContext;
-        if (!liveEditableFiles.equals(editableFiles)
-                || !liveReadonlyFiles.equals(readonlyFiles)
-                || !liveVirtualFragments.equals(virtualFragments)) {
-            liveContext = new Context(
-                    this.contextManager,
-                    liveEditableFiles,
-                    liveReadonlyFiles,
-                    liveVirtualFragments,
-                    this.taskHistory,
-                    this.parsedOutput,
-                    this.action);
+        if (!liveFragments.equals(fragments)) {
+            liveContext =
+                    new Context(this.contextManager, liveFragments, this.taskHistory, this.parsedOutput, this.action);
         } else {
             liveContext = this;
         }
 
-        // Create frozen context
         var frozenContext = new Context(
-                this.id,
-                this.contextManager,
-                frozenEditableFiles,
-                frozenReadonlyFiles,
-                frozenVirtualFragments,
-                this.taskHistory,
-                this.parsedOutput,
-                this.action);
+                this.id, this.contextManager, frozenFragments, this.taskHistory, this.parsedOutput, this.action);
 
         return new FreezeResult(liveContext, frozenContext);
     }
 
-    /**
-     * Creates a new Context with dynamic fragments replaced by their frozen counterparts. Dynamic PathFragments (from
-     * editable or readonly lists) are frozen and remain in their respective lists as FrozenFragment instances. Dynamic
-     * VirtualFragments are also frozen and remain in the virtualFragments list.
-     *
-     * <p>Use with care since this method throws away the changes made by excluding newly-invalid fragments!
-     *
-     * @return A new Context instance with dynamic fragments frozen
-     */
     public Context freeze() {
         if (!containsDynamicFragments()) {
             return this;
         }
-
         return freezeAndCleanup().frozenContext;
     }
 
-    /**
-     * Helper method to unfreeze a fragment if it's a FrozenFragment, otherwise return as-is. Used when restoring
-     * contexts from history to get live fragments.
-     */
     @SuppressWarnings("unchecked")
     public static <T extends ContextFragment> T unfreezeFragmentIfNeeded(T fragment, IContextManager contextManager) {
         if (fragment instanceof FrozenFragment frozen) {
@@ -785,7 +509,6 @@ public class Context {
                 return (T) frozen.unfreeze(contextManager);
             } catch (IOException e) {
                 logger.warn("Failed to unfreeze fragment {}: {}", frozen.description(), e.getMessage());
-                // Return the frozen fragment if unfreezing fails
                 return fragment;
             }
         }
@@ -804,12 +527,7 @@ public class Context {
         return id.hashCode();
     }
 
-    /**
-     * this is to support answering the question of, "did the dynamic components of the Context change". probably best
-     * to avoid the temptation to scope-creep further than that.
-     */
     public boolean workspaceContentEquals(Context other) {
-        // comparing live with frozen contexts will ~always fail since FrozenFragment's id is content-based
         assert !this.containsDynamicFragments();
         assert !other.containsDynamicFragments();
 

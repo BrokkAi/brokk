@@ -356,8 +356,7 @@ public class MergeAgent {
                 """
                         .formatted(otherCommitId, mode, codeAgentText);
 
-        var options = ArchitectAgent.ArchitectOptions.DEFAULTS;
-        var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, options);
+        var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions);
         var result = agent.execute();
         contextManager.addToHistory(result, true);
     }

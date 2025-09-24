@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import com.jakewharton.disklrucache.DiskLruCache;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -157,7 +158,8 @@ public final class MergeOneFile {
             if (Thread.interrupted()) throw new InterruptedException();
             io.llmOutput("\n# Merge %s (step %d)".formatted(file, step), ChatMessageType.AI, true, false);
 
-            var result = llm.sendRequest(List.copyOf(currentSessionMessages), toolSpecs, ToolChoice.REQUIRED, true);
+            var result = llm.sendRequest(
+                    List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
             if (result.error() != null || result.isEmpty()) {
                 var msg = result.error() != null ? result.error().getMessage() : "Empty response";
                 io.systemOutput("LLM error in merge loop: " + msg);
@@ -180,7 +182,7 @@ public final class MergeOneFile {
             for (var req : sorted) {
                 if (Thread.interrupted()) throw new InterruptedException();
 
-                var explanation = ToolRegistry.getExplanationForToolRequest(req);
+                var explanation = cm.getToolRegistry().getExplanationForToolRequest(this, req);
                 if (!explanation.isBlank()) {
                     io.llmOutput("\n" + explanation, ChatMessageType.AI);
                 }

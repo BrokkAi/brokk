@@ -41,4 +41,11 @@ public final class Icons {
     public static final Icon OPEN_NEW_WINDOW = SwingUtil.uiIcon("Brokk.open_in_new_window");
     public static final Icon UNDO = SwingUtil.uiIcon("Brokk.undo");
     public static final Icon REDO = SwingUtil.uiIcon("Brokk.redo");
+    public static final Icon PLAY = SwingUtil.uiIcon("Brokk.play");
+    public static final Icon LIST = SwingUtil.uiIcon("Brokk.list");
+    public static final Icon CIRCLE = SwingUtil.uiIcon("Brokk.circle");
+    public static final Icon CHECK = SwingUtil.uiIcon("Brokk.check");
+    public static final Icon PENDING = SwingUtil.uiIcon("Brokk.pending");
+    public static final Icon ARROW_UPLOAD_READY = SwingUtil.uiIcon("Brokk.arrow_upload_ready");
+    public static final Icon CLEAR_ALL = SwingUtil.uiIcon("Brokk.clear_all");
 }

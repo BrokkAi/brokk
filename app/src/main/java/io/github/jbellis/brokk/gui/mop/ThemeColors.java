@@ -51,7 +51,7 @@ public class ThemeColors {
         LIGHT_COLORS.put("custom_message_foreground", new Color(30, 30, 30));
 
         // HTML specific colors as hex strings
-        LIGHT_COLORS.put("link_color_hex", Color.decode("#678cb1"));
+        LIGHT_COLORS.put("link_color_hex", Color.decode("#2675BF"));
         LIGHT_COLORS.put("border_color_hex", Color.decode("#dddddd"));
         LIGHT_COLORS.put("codeHighlight", new Color(125, 140, 111));
         LIGHT_COLORS.put("rsyntax_background", Color.WHITE);

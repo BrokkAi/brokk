@@ -34,6 +34,13 @@ public final class TestContextManager implements IContextManager {
         this.liveContext = new Context(this, "Test context");
     }
 
+    public TestContextManager(Path tempDir, Set<String> files) {
+        this(tempDir, new TestConsoleIO());
+        for (var filename : files) {
+            addEditableFile(new ProjectFile(tempDir, filename));
+        }
+    }
+
     @Override
     public TestProject getProject() {
         return project;
@@ -45,23 +52,13 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Set<ProjectFile> getEditableFiles() {
+    public Set<ProjectFile> getFilesInContext() {
         return new HashSet<>(editableFiles);
-    }
-
-    @Override
-    public Set<BrokkFile> getReadonlyProjectFiles() {
-        return new HashSet<>(readonlyFiles);
     }
 
     public void addEditableFile(ProjectFile file) {
         this.editableFiles.add(file);
         this.readonlyFiles.remove(file); // Cannot be both
-    }
-
-    public void addReadonlyFile(ProjectFile file) {
-        this.readonlyFiles.add(file);
-        this.editableFiles.remove(file); // Cannot be both
     }
 
     public MockAnalyzer getMockAnalyzer() {
@@ -96,6 +93,11 @@ public final class TestContextManager implements IContextManager {
                     "liveContext requires IConsoleIO to be provided in TestContextManager constructor");
         }
         return liveContext;
+    }
+
+    @Override
+    public Context topContext() {
+        return liveContext().freeze();
     }
 
     @Override

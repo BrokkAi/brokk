@@ -3,7 +3,9 @@ package io.github.jbellis.brokk.gui.terminal;
 import com.jediterm.pty.PtyProcessTtyConnector;
 import com.jediterm.terminal.CursorShape;
 import com.jediterm.terminal.TerminalColor;
+import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.TtyConnector;
+import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
@@ -14,6 +16,7 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Cursor;
@@ -21,6 +24,9 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -31,10 +37,10 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
-import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -47,6 +53,10 @@ import org.jetbrains.annotations.Nullable;
 class MutableSettingsProvider extends DefaultSettingsProvider {
     private TerminalColor bg = TerminalColor.BLACK;
     private TerminalColor fg = TerminalColor.WHITE;
+
+    // Selection colors: defaults chosen to be visible on dark background
+    private TerminalColor selBg = new TerminalColor(60, 100, 170);
+    private TerminalColor selFg = TerminalColor.WHITE;
 
     @Override
     public @NotNull TerminalColor getDefaultBackground() {
@@ -63,12 +73,49 @@ class MutableSettingsProvider extends DefaultSettingsProvider {
         return MainProject.getTerminalFontSize();
     }
 
+    @Override
+    public boolean useInverseSelectionColor() {
+        // Explicit selection coloring instead of inverse
+        return false;
+    }
+
+    @Override
+    public @NotNull TextStyle getSelectionColor() {
+        // Provide explicit selection background/foreground to ensure visibility
+        return new TextStyle(selFg, selBg);
+    }
+
     public void setBackground(TerminalColor c) {
         bg = c;
     }
 
     public void setForeground(TerminalColor c) {
         fg = c;
+    }
+
+    public void setSelectionBackground(TerminalColor c) {
+        selBg = c;
+    }
+
+    public void setSelectionForeground(TerminalColor c) {
+        selFg = c;
+    }
+
+    @Override
+    public @NotNull TerminalActionPresentation getSelectAllActionPresentation() {
+        // Preserve the default action name (for consistency/localization)
+        TerminalActionPresentation def = super.getSelectAllActionPresentation();
+        String name = def.getName();
+
+        boolean isMac = Environment.isMacOs();
+        KeyStroke ks;
+        if (isMac) {
+            int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // maps to Cmd on macOS
+            ks = KeyStroke.getKeyStroke(KeyEvent.VK_A, menuMask);
+        } else {
+            ks = KeyStroke.getKeyStroke(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
+        }
+        return new TerminalActionPresentation(name, ks);
     }
 }
 
@@ -157,7 +204,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         var label = new JLabel(shellName, Icons.TERMINAL, SwingConstants.LEFT);
         label.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 
-        var closeButton = new JButton("×");
+        var closeButton = new MaterialButton("×");
         closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
         closeButton.setPreferredSize(new Dimension(18, 18));
         closeButton.setMargin(new Insets(0, 0, 0, 0));
@@ -361,10 +408,15 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         // Define terminal colors based on theme
         TerminalColor bg = dark ? new TerminalColor(30, 30, 30) : new TerminalColor(255, 255, 255);
         TerminalColor fg = dark ? new TerminalColor(221, 221, 221) : new TerminalColor(0, 0, 0);
+        // Selection colors: explicit background/foreground to ensure visibility
+        TerminalColor selBg = dark ? new TerminalColor(60, 100, 170) : new TerminalColor(173, 214, 255);
+        TerminalColor selFg = dark ? new TerminalColor(255, 255, 255) : new TerminalColor(0, 0, 0);
 
         // Apply colors through JediTerm's settings system
         settings.setBackground(bg);
         settings.setForeground(fg);
+        settings.setSelectionBackground(selBg);
+        settings.setSelectionForeground(selFg);
 
         // Trigger repaint to apply the changes
         var w = widget;

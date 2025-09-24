@@ -20,7 +20,7 @@ public class JavaAnalyzerTest {
         TestProject testProject = new TestProject(tempDir, Languages.JAVA);
 
         // Create JavaAnalyzer with a failing JDT future to ensure jdtAnalyzer is null
-        CompletableFuture<JdtAnalyzer> failingFuture = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<JdtClient> failingFuture = CompletableFuture.supplyAsync(() -> {
             throw new RuntimeException("JDT not available");
         });
 

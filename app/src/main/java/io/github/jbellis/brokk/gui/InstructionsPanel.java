@@ -28,7 +28,6 @@ import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
-import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
@@ -81,7 +80,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
-    public static final String ACTION_ASK = "Answer";
+    public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
     public static final String ACTION_RUN_TESTS = "Run Selected Tests";
@@ -103,11 +102,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox searchProjectCheckBox;
-    private final MaterialButton planOptionsLink;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
-    private final JLabel answerModeLabel = new JLabel("Answer");
-    private final JButton actionButton;
+    private final JLabel answerModeLabel = new JLabel("Ask");
+    private final MaterialButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
     private String storedAction;
@@ -185,9 +183,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 """
                 <html>
                 <b>Code Mode:</b> For generating or modifying code based on your instructions.<br>
-                <b>Answer Mode:</b> For answering questions about your project or general programming topics.<br>
+                <b>Ask Mode:</b> For answering questions about your project or general programming topics.<br>
                 <br>
-                Click to toggle between Code and Answer modes (%s).
+                Click to toggle between Code and Ask modes (%s).
                 </html>
                 """
                         .formatted(formatKeyStroke(toggleKs));
@@ -210,7 +208,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setRolloverEnabled(false);
         modeSwitch.setMargin(new Insets(0, 0, 0, 0));
         modeSwitch.setText("");
-        modeSwitch.setSelected(false); // Code by default
 
         codeCheckBox = new JCheckBox("Plan First");
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
@@ -227,7 +224,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Append the shortcut to the tooltip for discoverability
         searchProjectCheckBox.setToolTipText("<html><b>Search:</b><br><ul>"
                 + "<li><b>checked:</b> Performs an &quot;agentic&quot; search across your entire project (even files not in the Workspace) to find relevant code</li>"
-                + "<li><b>unchecked:</b> Answers using only the Workspace (faster for follow-ups)</li>"
+                + "<li><b>unchecked:</b> Asks using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
         io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
@@ -243,26 +240,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
-        planOptionsLink = new MaterialButton("Plan Options");
-        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Action listener and shortcut for click/activation
-        Runnable openOptionsAction = () -> {
-            ArchitectOptionsDialog.showDialogAndWait(chrome);
-            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-        };
-        planOptionsLink.addActionListener(e -> openOptionsAction.run());
-
-        KeyStroke planOptionsKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-        planOptionsLink.setToolTipText("Configure options for the Architect agent (Plan First)");
-        planOptionsLink.setShortcut(planOptionsKs, chrome.getFrame().getRootPane(), "PlanOptions", openOptionsAction);
-        planOptionsLink.setAppendShortcutToTooltip(true);
-
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
+        modeSwitch.setSelected(proj.getInstructionsAskMode());
         if (proj instanceof MainProject mp) {
             codeCheckBox.setSelected(mp.getPlanFirst());
+            // Default to Search checked for Ask mode, but use persisted preference when available
             searchProjectCheckBox.setSelected(mp.getSearchFirst());
         } else {
             // Fallback: both checked
@@ -270,8 +253,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             searchProjectCheckBox.setSelected(true);
         }
 
-        // default stored action: Architect
-        storedAction = ACTION_ARCHITECT;
+        // default stored action: Search (Ask + Search)
+        storedAction = ACTION_SEARCH;
 
         // Toggle listeners update visibility and storedAction
         modeSwitch.addItemListener(e2 -> {
@@ -282,8 +265,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
                 }
                 searchProjectCheckBox.setEnabled(true);
-                // Plan options are only relevant for CODE mode
-                planOptionsLink.setVisible(false);
                 // Checked => Search, Unchecked => Answer
                 storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
@@ -293,13 +274,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
-                planOptionsLink.setVisible(codeCheckBox.isSelected());
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
             // Update label emphasis
             updateModeLabels();
             refreshModeIndicator();
+            try {
+                chrome.getProject().setInstructionsAskMode(askMode);
+            } catch (Exception ex) {
+                logger.warn("Unable to persist instructions mode", ex);
+            }
         });
 
         codeCheckBox.addActionListener(e -> {
@@ -307,8 +292,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
-            // Show Plan Options only when Plan First is selected
-            planOptionsLink.setVisible(codeCheckBox.isSelected());
             if (chrome.getProject() instanceof MainProject mp) {
                 mp.setPlanFirst(codeCheckBox.isSelected());
             }
@@ -1016,7 +999,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         if (modeBadge != null) {
-            modeBadge.setText(askMode ? "ANSWER MODE" : "CODE MODE");
+            modeBadge.setText(askMode ? "ASK MODE" : "CODE MODE");
             modeBadge.setBackground(badgeBg);
             modeBadge.setForeground(badgeFg);
             modeBadge.repaint();
@@ -1033,7 +1016,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionGroupPanel.setAccentColor(accent);
 
         if (instructionsTitledBorder != null) {
-            instructionsTitledBorder.setTitle(askMode ? "Instructions - Answer" : "Instructions - Code");
+            instructionsTitledBorder.setTitle(askMode ? "Instructions - Ask" : "Instructions - Code");
             revalidate();
             repaint();
         }
@@ -1071,15 +1054,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
         optionsPanel = new JPanel(new CardLayout());
 
-        // Create a CODE card that contains both the Plan First checkbox and the Plan Options button,
-        // so the Plan Options button stays visually adjacent to the checkbox only in CODE mode.
+        // Create a CODE card that contains the Plan First checkbox.
         JPanel codeOptionsPanel = new JPanel();
         codeOptionsPanel.setOpaque(false);
         codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
         codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
         codeOptionsPanel.add(codeCheckBox);
-        codeOptionsPanel.add(Box.createHorizontalStrut(6));
-        codeOptionsPanel.add(planOptionsLink);
 
         optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
         optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
@@ -1090,22 +1070,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
         optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        // Size planOptionsLink to match the height of the actionButton and actionGroupPanel, avoid excessive width.
         int planFixedHeight = Math.max(
                 Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
-        var planPrefSize = planOptionsLink.getPreferredSize();
-        // Limit the button width to a reasonable maximum to prevent it from being too wide
-        int maxPlanWidth = 160;
-        int preferredPlanWidth = Math.min(planPrefSize.width + 4, maxPlanWidth);
-        var newPlanSize = new Dimension(preferredPlanWidth, planFixedHeight);
-        planOptionsLink.setPreferredSize(newPlanSize);
-        planOptionsLink.setMinimumSize(new Dimension(40, planFixedHeight));
-        // Allow some flexibility while preventing extreme growth
-        planOptionsLink.setMaximumSize(new Dimension(maxPlanWidth, planFixedHeight));
-        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        // Constrain the card panel so it won't stretch horizontally and create a gap between the checkbox and the plan
-        // button.
+        // Constrain the card panel height to align with other toolbar controls.
         var optPanelPref = optionsPanel.getPreferredSize();
         optionsPanel.setPreferredSize(new Dimension(optPanelPref.width, planFixedHeight));
         optionsPanel.setMaximumSize(new Dimension(optPanelPref.width, planFixedHeight));
@@ -1212,7 +1180,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return contextManager
                 .topContext()
                 .allFragments()
-                .anyMatch(f -> !f.isText() && !f.getType().isOutputFragment());
+                .anyMatch(f -> !f.isText() && !f.getType().isOutput());
     }
 
     /**
@@ -1610,7 +1578,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,
-                    "Answer: " + question,
+                    "Ask: " + question,
                     List.of(),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
@@ -1647,7 +1615,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         requireNonNull(stop);
         return new TaskResult(
                 cm,
-                "Answer: " + question,
+                "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages(false)),
                 Set.of(), // Ask never changes files
                 stop);
@@ -1679,19 +1647,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * contextManager.submitAction.
      *
      * @param goal The initial user instruction passed to the agent.
-     * @param options The configured options for the agent's tools.
      */
-    private void executeArchitectCommand(
-            StreamingChatModel planningModel,
-            StreamingChatModel codeModel,
-            String goal,
-            ArchitectAgent.ArchitectOptions options) {
+    private TaskResult executeArchitectCommand(
+            StreamingChatModel planningModel, StreamingChatModel codeModel, String goal) {
         var contextManager = chrome.getContextManager();
         try {
-            var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal, options);
+            var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal);
             var result = agent.execute();
             chrome.systemOutput("Agent complete!");
             contextManager.addToHistory(result, false);
+            return result;
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
         }
@@ -1709,7 +1674,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var contextManager = chrome.getContextManager();
         try {
-            SearchAgent agent = new SearchAgent(query, contextManager, model, 0);
+            SearchAgent agent = new SearchAgent(
+                    query,
+                    contextManager,
+                    model,
+                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
             var result = agent.execute();
 
             // Search does not stream to llmOutput, so add the final answer here
@@ -1734,18 +1703,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
 
         var project = chrome.getProject();
-        var options = project.getArchitectOptions();
         var runInWorktree = project.getArchitectRunInWorktree();
 
         if (runInWorktree) {
-            runArchitectInNewWorktree(goal, options);
+            runArchitectInNewWorktree(goal);
         } else {
             // User confirmed options, now submit the actual agent execution to the background.
-            runArchitectCommand(goal, options);
+            runArchitectCommand(goal);
         }
     }
 
-    private void runArchitectInNewWorktree(String originalInstructions, ArchitectAgent.ArchitectOptions options) {
+    private void runArchitectInNewWorktree(String originalInstructions) {
         var currentProject = chrome.getProject();
         ContextManager cm = chrome.getContextManager();
 
@@ -1767,8 +1735,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 String generatedBranchName = cm.getRepo().sanitizeBranchName(rawBranchNameSuggestion);
 
                 // Check Git availability (original position relative to setup)
-                // This check is also done in ArchitectOptionsDialog for the checkbox,
-                // but good to have a safeguard here.
                 if (!currentProject.hasGit() || !currentProject.getRepo().supportsWorktrees()) {
                     chrome.hideOutputSpinner();
                     chrome.toolError(
@@ -1807,7 +1773,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 Consumer<Chrome> initialArchitectTask = newWorktreeChrome -> {
                     InstructionsPanel newWorktreeIP = newWorktreeChrome.getInstructionsPanel();
                     // Run the architect command directly with the original instructions and determined options
-                    newWorktreeIP.runArchitectCommand(originalInstructions, options);
+                    newWorktreeIP.runArchitectCommand(originalInstructions);
                 };
 
                 MainProject mainProject = (currentProject instanceof MainProject mainProj)
@@ -1850,12 +1816,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * or from the worktree setup.
      *
      * @param goal The user's goal/instructions.
-     * @param options The pre-configured ArchitectOptions.
      */
-    public void runArchitectCommand(String goal, ArchitectAgent.ArchitectOptions options) {
+    public Future<TaskResult> runArchitectCommand(String goal) {
         var future = submitAction(ACTION_ARCHITECT, goal, () -> {
             var service = chrome.getContextManager().getService();
-            var planningModel = service.getModel(options.planningModel());
+            var planningModel = service.getModel(Service.GEMINI_2_5_PRO);
             if (planningModel == null) {
                 planningModel = service.quickModel();
             }
@@ -1875,9 +1840,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 codeModel = service.quickModel();
             }
             // Proceed with execution using the selected options
-            executeArchitectCommand(planningModel, codeModel, goal, options);
+            return executeArchitectCommand(planningModel, codeModel, goal);
         });
         setActionRunning(future);
+        return future;
     }
 
     // Methods for running commands. These prepare the input and model, then delegate
@@ -1948,13 +1914,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        var future = submitAction(ACTION_CODE, input, () -> executeCodeCommand(modelToUse, input));
+        var future = submitAction(ACTION_CODE, input, () -> {
+            executeCodeCommand(modelToUse, input);
+            var cm2 = chrome.getContextManager();
+            return new TaskResult(
+                    cm2,
+                    "Code: " + input,
+                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        });
         setActionRunning(future);
     }
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        final var modelToUse = selectDropdownModelOrShowError("Answer", true);
+        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
         if (modelToUse == null) {
             return;
         }
@@ -1989,11 +1964,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Provide a brief status update
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                chrome.llmOutput("Answer command complete!", ChatMessageType.CUSTOM);
+                chrome.llmOutput("Ask command complete!", ChatMessageType.CUSTOM);
             } else {
-                chrome.llmOutput(
-                        "Answer command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
+                chrome.llmOutput("Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
             }
+            return result;
         });
         setActionRunning(future);
     }
@@ -2004,25 +1979,49 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.toolError("Please provide a search query");
             return;
         }
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
 
+        var future = executeSearchInternal(input);
+        if (future != null) {
+            setActionRunning(future);
+        }
+    }
+
+    private @Nullable Future<?> executeSearchInternal(String query) {
         final var modelToUse = selectDropdownModelOrShowError("Search", true);
         if (modelToUse == null) {
-            return;
+            return null;
         }
 
-        chrome.getProject().addToInstructionsHistory(input, 20);
         // Update the LLM output panel directly via Chrome
         chrome.llmOutput(
                 "# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.",
                 ChatMessageType.CUSTOM);
-        clearCommandInput();
+
         // Submit the action, calling the private execute method inside the lambda
-        var future = submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(modelToUse, input));
-        setActionRunning(future);
+        return submitAction(ACTION_SEARCH, query, () -> {
+            executeSearchCommand(modelToUse, query);
+            var cm2 = chrome.getContextManager();
+            return new TaskResult(
+                    cm2,
+                    "Search: " + query,
+                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        });
+    }
+
+    public @Nullable Future<?> runSearchCommand(String query) {
+        if (query.isBlank()) {
+            chrome.toolError("Please provide a search query");
+            return null;
+        }
+        return executeSearchInternal(query);
     }
 
     /** sets the llm output to indicate the action has started, and submits the task on the user pool */
-    public Future<?> submitAction(String action, String input, Runnable task) {
+    public Future<TaskResult> submitAction(String action, String input, Callable<TaskResult> task) {
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
@@ -2034,9 +2033,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
             displayAction = "Code With Plan";
         } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Answer with Search";
+            displayAction = "Ask with Search";
         } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Answer";
+            displayAction = "Ask";
         } else {
             displayAction = action;
         }
@@ -2046,19 +2045,58 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var history = cm.topContext().getTaskHistory();
         chrome.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 
-        return cm.submitUserTask(finalAction, true, () -> {
+        // Adapt Runnable submission with LLM flag to return a Future<TaskResult>
+        final TaskResult[] holder = new TaskResult[1];
+
+        var underlying = cm.submitUserTask(finalAction, true, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + displayAction + " command...");
-                task.run();
+                var result = task.call();
+                holder[0] = requireNonNull(result);
             } catch (CancellationException e) {
                 maybeAddInterruptedResult(action, input);
                 throw e; // propagate to ContextManager
+            } catch (Exception e) {
+                // Let unexpected exceptions propagate so the underlying Future completes exceptionally
+                throw new RuntimeException(e);
             } finally {
                 chrome.hideOutputSpinner();
                 contextManager.checkBalanceAndNotify();
                 notifyActionComplete(action);
             }
         });
+
+        // Return a delegating Future<TaskResult> that mirrors the underlying future,
+        // and yields the TaskResult computed by the callable.
+        return new Future<TaskResult>() {
+            @Override
+            public boolean cancel(boolean mayInterruptIfRunning) {
+                return underlying.cancel(mayInterruptIfRunning);
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return underlying.isCancelled();
+            }
+
+            @Override
+            public boolean isDone() {
+                return underlying.isDone();
+            }
+
+            @Override
+            public TaskResult get() throws InterruptedException, ExecutionException {
+                underlying.get();
+                return requireNonNull(holder[0]);
+            }
+
+            @Override
+            public TaskResult get(long timeout, TimeUnit unit)
+                    throws InterruptedException, ExecutionException, TimeoutException {
+                underlying.get(timeout, unit);
+                return requireNonNull(holder[0]);
+            }
+        };
     }
 
     // Methods to disable and enable buttons.
@@ -2098,14 +2136,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (optionsPanel != null) {
                 ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
             }
-            planOptionsLink.setVisible(codeCheckBox.isSelected());
             codeCheckBox.setEnabled(gitAvailable);
         } else {
             // Show the ASK card
             if (optionsPanel != null) {
                 ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
             }
-            planOptionsLink.setVisible(false);
             searchProjectCheckBox.setEnabled(true);
         }
 
@@ -2275,7 +2311,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(goal, 20);
         clearCommandInput();
 
-        var future = submitAction("Scan Project", goal, () -> executeScanProjectCommand(modelToUse, goal));
+        var future = submitAction("Scan Project", goal, () -> {
+            executeScanProjectCommand(modelToUse, goal);
+            var cm2 = chrome.getContextManager();
+            return new TaskResult(
+                    cm2,
+                    "Scan Project: " + goal,
+                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        });
         setActionRunning(future);
     }
 
@@ -2368,7 +2413,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return (float) (dot / denominator);
     }
 
-    private static class ThemeAwareRoundedButton extends JButton implements ThemeAware {
+    private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
         private static final long serialVersionUID = 1L;
         private final Supplier<Boolean> isActionRunning;
         private final Color secondaryActionButtonBg;

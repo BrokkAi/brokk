@@ -63,6 +63,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
+    private final RTextScrollPane scrollPane;
 
     @Nullable
     private MaterialButton editButton;
@@ -73,7 +74,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     @Nullable
     private MaterialButton saveButton;
 
-    private final ContextManager contextManager;
+    private final ContextManager cm;
 
     // Nullable
     @Nullable
@@ -93,7 +94,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
 
     public PreviewTextPanel(
-            ContextManager contextManager,
+            ContextManager cm,
             @Nullable ProjectFile file,
             String content,
             @Nullable String syntaxStyle,
@@ -101,7 +102,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             @Nullable ContextFragment fragment) {
         super(new BorderLayout());
 
-        this.contextManager = contextManager;
+        this.cm = cm;
         this.file = file;
         this.contentBeforeSave = content; // Store initial content
 
@@ -143,7 +144,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
-                contextManager.addReadOnlyFragmentAsync(ghf);
+                cm.addPathFragmentAsync(ghf);
                 finalCaptureButton.setEnabled(false); // Disable after capture
                 finalCaptureButton.setToolTipText("Revision captured");
             });
@@ -158,12 +159,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             editButton = new MaterialButton(text);
             SwingUtilities.invokeLater(() -> requireNonNull(editButton).setIcon(Icons.EDIT_DOCUMENT));
             var finalEditButton = editButton; // Final reference for lambda
-            if (contextManager.getEditableFiles().contains(file)) {
+            if (cm.getFilesInContext().contains(file)) {
                 finalEditButton.setEnabled(false);
                 finalEditButton.setToolTipText("File is in Edit context");
             } else {
                 finalEditButton.addActionListener(e -> {
-                    contextManager.editFiles(List.of(this.file));
+                    cm.addFiles(List.of(this.file));
                     finalEditButton.setEnabled(false);
                     finalEditButton.setToolTipText("File is in Edit context");
                 });
@@ -199,7 +200,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
 
         // Put the text area in a scroll pane
-        var scrollPane = new RTextScrollPane(textArea);
+        scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
 
         // Apply the current theme to the text area
@@ -227,12 +228,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Fetch declarations in the background if it's a project file
         if (file != null) {
-            fileDeclarations = contextManager.submitBackgroundTask("Fetch Declarations", () -> {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
+            fileDeclarations = cm.submitBackgroundTask("Fetch Declarations", () -> {
+                var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarationsInFile(file);
             });
-            analyzerCapabilities = contextManager.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
+            analyzerCapabilities = cm.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
+                var analyzer = cm.getAnalyzerUninterrupted();
                 final var capabilityMap = new HashMap<Language, AnalyzerCapabilities>();
                 if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
                     multiAnalyzer.getDelegates().forEach((language, an) -> {
@@ -247,15 +248,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         capabilityMap.put(language, capabilities);
                     });
                 } else {
-                    contextManager.getProject().getAnalyzerLanguages().stream()
-                            .findFirst()
-                            .ifPresent(language -> {
-                                var hasUsages =
-                                        analyzer.as(UsagesProvider.class).isPresent();
-                                var hasSource =
-                                        analyzer.as(SourceCodeProvider.class).isPresent();
-                                capabilityMap.put(language, new AnalyzerCapabilities(hasUsages, hasSource));
-                            });
+                    cm.getProject().getAnalyzerLanguages().stream().findFirst().ifPresent(language -> {
+                        var hasUsages = analyzer.as(UsagesProvider.class).isPresent();
+                        var hasSource = analyzer.as(SourceCodeProvider.class).isPresent();
+                        capabilityMap.put(language, new AnalyzerCapabilities(hasUsages, hasSource));
+                    });
                 }
                 return capabilityMap;
             });
@@ -453,19 +450,17 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                 if (usagesAvailable) {
                                                     // Use a local variable for the action listener lambda
                                                     usageItem.addActionListener(action -> {
-                                                        contextManager.submitBackgroundTask(
+                                                        cm.submitBackgroundTask(
                                                                 "Capture Usages",
-                                                                () -> contextManager.usageForIdentifier(
-                                                                        codeUnit.fqName(), true));
+                                                                () -> cm.usageForIdentifier(codeUnit.fqName(), true));
                                                     });
                                                 } else {
                                                     usageItem.setToolTipText(
                                                             "Code intelligence does not support usage capturing for this language.");
                                                 }
 
-                                                var analyzer = contextManager
-                                                        .getAnalyzerWrapper()
-                                                        .getNonBlocking();
+                                                var analyzer =
+                                                        cm.getAnalyzerWrapper().getNonBlocking();
                                                 boolean sourceCodeAvailable = analyzer != null
                                                         && SourceCaptureUtil.isSourceCaptureAvailable(
                                                                 codeUnit, capabilities.hasSource(), analyzer);
@@ -478,8 +473,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                 if (sourceCodeAvailable) {
                                                     // Use shared utility for consistent behavior
                                                     sourceItem.addActionListener(action -> {
-                                                        SourceCaptureUtil.captureSourceForCodeUnit(
-                                                                codeUnit, contextManager);
+                                                        SourceCaptureUtil.captureSourceForCodeUnit(codeUnit, cm);
                                                     });
                                                 } else {
                                                     sourceItem.setToolTipText(
@@ -592,8 +586,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Only try to get symbols if we have a file and its corresponding fragment is a PathFragment
         if (file != null) {
             // Submit the task to fetch symbols in the background
-            symbolsFuture = contextManager.submitBackgroundTask("Fetch File Symbols", () -> {
-                var analyzer = contextManager.getAnalyzerUninterrupted();
+            symbolsFuture = cm.submitBackgroundTask("Fetch File Symbols", () -> {
+                var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.getSymbols(analyzer.getDeclarationsInFile(file));
             });
         }
@@ -601,7 +595,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Voice input button setup, passing the Future for file-specific symbols
         var micButton = new VoiceInputButton(
                 editArea,
-                contextManager,
+                cm,
                 () -> {
                     /* no action on record start */
                 },
@@ -638,8 +632,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Bottom panel with buttons
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var codeButton = new JButton("Code");
-        var cancelButton = new JButton("Cancel");
+        var codeButton = new MaterialButton("Code");
+        var cancelButton = new MaterialButton("Cancel");
 
         cancelButton.addActionListener(e -> {
             quickEditDialog.dispose();
@@ -742,8 +736,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Bottom panel with Okay and Stop buttons
         var bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var okayButton = new JButton("Okay");
-        var stopButton = new JButton("Stop");
+        var okayButton = new MaterialButton("Okay");
+        var stopButton = new MaterialButton("Stop");
         okayButton.setEnabled(false);
         bottomPanel.add(okayButton);
         bottomPanel.add(stopButton);
@@ -789,9 +783,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         var resultsIo = new QuickResultsIo();
 
         // Submit the quick-edit session to a background future
-        var future = contextManager.submitUserTask("Quick Edit", () -> {
-            var agent =
-                    new CodeAgent(contextManager, contextManager.getService().quickModel());
+        var future = cm.submitUserTask("Quick Edit", () -> {
+            var agent = new CodeAgent(cm, cm.getService().quickModel());
             return agent.runQuickTask(file, selectedText, instructions);
         });
 
@@ -978,13 +971,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             return true; // No unsaved changes or not a savable file, okay to close
         }
 
-        // Prompt the user
-        int choice = JOptionPane.showConfirmDialog(
-                SwingUtilities.getWindowAncestor(this),
-                "You have unsaved changes. Do you want to save them before closing?",
-                "Unsaved Changes",
-                JOptionPane.YES_NO_CANCEL_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+        // Prompt the user via the application's IConsoleIO (omits the Frame parameter)
+        int choice = cm.getIo()
+                .showConfirmDialog(
+                        SwingUtilities.getWindowAncestor(this),
+                        "You have unsaved changes. Do you want to save them before closing?",
+                        "Unsaved Changes",
+                        JOptionPane.YES_NO_CANCEL_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
 
         return switch (choice) {
             case JOptionPane.YES_OPTION -> performSave(saveButton);
@@ -1012,7 +1006,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private boolean performSave(@Nullable JButton buttonToDisable) {
         requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
-        return contextManager.withFileChangeNotificationsPaused(() -> {
+        return cm.withFileChangeNotificationsPaused(() -> {
             try {
                 // Write the new content to the file first
                 file.write(newContent);
@@ -1035,12 +1029,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         messagesForHistory.add(
                                 Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
                         var saveResult = new TaskResult(
-                                contextManager,
-                                actionDescription,
-                                messagesForHistory,
-                                Set.of(file),
-                                TaskResult.StopReason.SUCCESS);
-                        contextManager.addToHistory(saveResult, false); // Add the single entry
+                                cm, actionDescription, messagesForHistory, Set.of(file), TaskResult.StopReason.SUCCESS);
+                        cm.addToHistory(saveResult, false); // Add the single entry
                         logger.debug("Added history entry for changes in: {}", file);
                     } catch (Exception e) {
                         logger.error("Failed to generate diff or add history entry for {}", file, e);
@@ -1105,5 +1095,70 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         return "**Quick Edit Request:**\n\n" + "**Goal:** "
                 + goal + "\n\n" + "**Target code:**\n```\n"
                 + target + "\n```";
+    }
+
+    /**
+     * Sets the caret position in the text area to the specified character offset.
+     *
+     * @param position The character offset position to set the caret to
+     */
+    public void setCaretPosition(int position) {
+        if (position >= 0 && position <= textArea.getDocument().getLength()) {
+            textArea.setCaretPosition(position);
+            textArea.getCaret().setVisible(true);
+            // Scroll to make the caret visible
+            try {
+                var rect = textArea.modelToView2D(position);
+                if (rect != null) {
+                    textArea.scrollRectToVisible(rect.getBounds());
+                }
+            } catch (Exception e) {
+                // If scrolling fails, just set the position without scrolling
+            }
+        }
+    }
+
+    /**
+     * Sets the caret position and centers the viewport on the specified character offset.
+     *
+     * @param position The character offset position to set the caret to and center on
+     */
+    public void setCaretPositionAndCenter(int position) {
+        if (position >= 0 && position <= textArea.getDocument().getLength()) {
+            textArea.setCaretPosition(position);
+            textArea.getCaret().setVisible(true);
+            // Center the viewport on the caret position
+            try {
+                var rect = textArea.modelToView2D(position);
+                if (rect != null) {
+                    var viewport = scrollPane.getViewport();
+                    var viewSize = viewport.getExtentSize();
+                    var viewRect = rect.getBounds();
+
+                    // Calculate centered position
+                    var centerX = Math.max(0, viewRect.x - (viewSize.width - viewRect.width) / 2);
+                    var centerY = Math.max(0, viewRect.y - (viewSize.height - viewRect.height) / 2);
+
+                    // Ensure we don't scroll beyond the document bounds
+                    var maxX = Math.max(0, textArea.getWidth() - viewSize.width);
+                    var maxY = Math.max(0, textArea.getHeight() - viewSize.height);
+
+                    centerX = Math.min(centerX, maxX);
+                    centerY = Math.min(centerY, maxY);
+
+                    viewport.setViewPosition(new java.awt.Point((int) centerX, (int) centerY));
+                }
+            } catch (Exception e) {
+                // If centering fails, fall back to basic scrolling
+                try {
+                    var rect = textArea.modelToView2D(position);
+                    if (rect != null) {
+                        textArea.scrollRectToVisible(rect.getBounds());
+                    }
+                } catch (Exception e2) {
+                    // If all scrolling fails, just set the position
+                }
+            }
+        }
     }
 }

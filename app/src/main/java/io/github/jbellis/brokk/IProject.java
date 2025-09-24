@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk;
 
 import com.jakewharton.disklrucache.DiskLruCache;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -141,15 +140,9 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default AnalyzerRefresh getAnalyzerRefresh() {
-        throw new UnsupportedOperationException();
-    }
-
     default BuildAgent.BuildDetails awaitBuildDetails() {
         throw new UnsupportedOperationException();
     }
-
-    default void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {}
 
     default boolean isDataShareAllowed() {
         return false;
@@ -217,6 +210,14 @@ public interface IProject extends AutoCloseable {
     }
 
     default void saveRightVerticalSplitPosition(int position) {
+        throw new UnsupportedOperationException();
+    }
+
+    default boolean getInstructionsAskMode() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setInstructionsAskMode(boolean ask) {
         throw new UnsupportedOperationException();
     }
 
@@ -299,15 +300,7 @@ public interface IProject extends AutoCloseable {
 
     default void setExecutorArgs(@Nullable String args) {}
 
-    default ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        throw new UnsupportedOperationException();
-    }
-
     default boolean getArchitectRunInWorktree() {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         throw new UnsupportedOperationException();
     }
 
@@ -344,13 +337,6 @@ public interface IProject extends AutoCloseable {
 
     default IConsoleIO getConsoleIO() {
         throw new UnsupportedOperationException();
-    }
-
-    enum AnalyzerRefresh {
-        AUTO,
-        ON_RESTART,
-        MANUAL,
-        UNSET
     }
 
     enum CodeAgentTestScope {

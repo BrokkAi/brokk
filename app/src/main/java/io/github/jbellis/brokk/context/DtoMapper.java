@@ -143,8 +143,8 @@ public class DtoMapper {
                         gfd.revision(),
                         reader.readContent(gfd.contentId()),
                         gfd.id());
-            case FrozenFragmentDto ffd ->
-                FrozenFragment.fromDto(
+            case FrozenFragmentDto ffd -> {
+                yield FrozenFragment.fromDto(
                         ffd.id(),
                         mgr,
                         ContextFragment.FragmentType.valueOf(ffd.originalType()),
@@ -156,7 +156,9 @@ public class DtoMapper {
                         ffd.syntaxStyle(),
                         ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
                         ffd.originalClassName(),
-                        ffd.meta());
+                        ffd.meta(),
+                        ffd.repr());
+            }
         };
     }
 
@@ -205,7 +207,8 @@ public class DtoMapper {
                         skeletonDto.targetIdentifiers(),
                         ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
             case UsageFragmentDto usageDto ->
-                new ContextFragment.UsageFragment(usageDto.id(), mgr, usageDto.targetIdentifier());
+                new ContextFragment.UsageFragment(
+                        usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
             case PasteTextFragmentDto pasteTextDto ->
                 new ContextFragment.PasteTextFragment(
                         pasteTextDto.id(),
@@ -251,6 +254,8 @@ public class DtoMapper {
                         callGraphDto.methodName(),
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
+            case CodeFragmentDto codeDto ->
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()
                         .map(taskEntryDto -> _fromTaskEntryDto(
@@ -290,7 +295,8 @@ public class DtoMapper {
                     ff.syntaxStyle(),
                     filesDto,
                     ff.originalClassName(),
-                    ff.meta());
+                    ff.meta(),
+                    ff.repr());
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize FrozenFragment to DTO: " + ff.id(), e);
         }
@@ -378,7 +384,8 @@ public class DtoMapper {
                         skf.id(),
                         skf.getTargetIdentifiers(),
                         skf.getSummaryType().name());
-            case ContextFragment.UsageFragment uf -> new UsageFragmentDto(uf.id(), uf.targetIdentifier());
+            case ContextFragment.UsageFragment uf ->
+                new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
             case ContextFragment.PasteTextFragment ptf -> {
                 String description = getFutureDescription(ptf.descriptionFuture, "Paste of ");
                 String contentId = writer.writeContent(ptf.text(), null);
@@ -398,6 +405,7 @@ public class DtoMapper {
             }
             case ContextFragment.CallGraphFragment cgf ->
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
+            case ContextFragment.CodeFragment cf -> new CodeFragmentDto(cf.id(), toCodeUnitDto(cf.getCodeUnit()));
             case ContextFragment.HistoryFragment hf -> {
                 var historyDto = hf.entries().stream()
                         .map(te -> toTaskEntryDto(te, writer))

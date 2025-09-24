@@ -58,9 +58,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // UI Components managed by this panel
-    private JComboBox<IProject.AnalyzerRefresh> cpgRefreshComboBox = new JComboBox<>(new IProject.AnalyzerRefresh[] {
-        IProject.AnalyzerRefresh.AUTO, IProject.AnalyzerRefresh.ON_RESTART, IProject.AnalyzerRefresh.MANUAL
-    });
     private JTextField buildCleanCommandField = new JTextField();
     private JTextField allTestsCommandField = new JTextField();
     private JTextField someTestsCommandField = new JTextField();
@@ -81,14 +78,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private MaterialButton removeExcludedDirButton = new MaterialButton();
 
     private JTextField languagesDisplayField = new JTextField(20);
-    private JButton editLanguagesButton = new JButton("Edit");
+    private MaterialButton editLanguagesButton = new MaterialButton("Edit");
     private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
     private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
     private JSpinner buildTimeoutSpinner =
             new JSpinner(new SpinnerNumberModel((int) Environment.DEFAULT_TIMEOUT.toSeconds(), 1, 10800, 1));
     private JProgressBar buildProgressBar = new JProgressBar();
-    private JButton inferBuildDetailsButton = new JButton("Infer Build Details");
+    private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JdkSelector jdkSelector = new JdkSelector();
     private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
@@ -96,8 +93,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     // Executor configuration UI
     private JTextField executorPathField = new JTextField(20);
     private JTextField executorArgsField = new JTextField(20);
-    private JButton testExecutorButton = new JButton("Test");
-    private JButton resetExecutorButton = new JButton("Reset");
+    private MaterialButton testExecutorButton = new MaterialButton("Test");
+    private MaterialButton resetExecutorButton = new MaterialButton("Reset");
     private JComboBox<String> commonExecutorsComboBox = new JComboBox<>();
 
     // System-default executor
@@ -134,7 +131,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JTextField jiraProjectKeyField = new JTextField();
     private JTextField jiraBaseUrlField = new JTextField();
     private JPasswordField jiraApiTokenField = new JPasswordField();
-    private JButton testJiraConnectionButton = new JButton("Test Jira Connection");
+    private MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
     private final JPanel bannerPanel;
 
     // Holds the analyzer configuration panels so we can persist their settings when the user clicks Apply/OK.
@@ -167,7 +164,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         """);
         p.add(msg, BorderLayout.CENTER);
 
-        var close = new JButton("×");
+        var close = new MaterialButton("×");
         close.setMargin(new Insets(0, 4, 0, 4));
         close.addActionListener(e -> {
             p.setVisible(false);
@@ -758,10 +755,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         toolbar.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
 
-        toolbar.add(new JLabel("Analyzer Refresh:"));
-        toolbar.add(cpgRefreshComboBox);
-
-        var refreshBtn = new JButton("Refresh Now");
+        var refreshBtn = new MaterialButton("Refresh Code Intelligence Now");
         refreshBtn.addActionListener(e -> {
             chrome.systemOutput("Requesting analyzer refresh...");
             try {
@@ -1354,7 +1348,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         someTestsCommandField,
                         runAllTestsRadio,
                         runTestsInWorkspaceRadio,
-                        cpgRefreshComboBox,
                         editLanguagesButton,
                         excludedScrollPane,
                         excludedDirectoriesList,
@@ -1479,10 +1472,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         buildTimeoutSpinner.setValue((int) project.getMainProject().getRunCommandTimeoutSeconds());
         populateJdkControlsFromProject();
 
-        var currentRefresh = project.getAnalyzerRefresh();
-        cpgRefreshComboBox.setSelectedItem(
-                currentRefresh == IProject.AnalyzerRefresh.UNSET ? IProject.AnalyzerRefresh.AUTO : currentRefresh);
-
         // Primary language
         populatePrimaryLanguageComboBox();
         var selectedLang = project.getBuildLanguage();
@@ -1579,12 +1568,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
             mainProject.setRunCommandTimeoutSeconds(timeout);
             logger.debug("Applied Run Command Timeout: {} seconds", timeout);
-        }
-
-        var selectedRefresh = (IProject.AnalyzerRefresh) cpgRefreshComboBox.getSelectedItem();
-        if (selectedRefresh != project.getAnalyzerRefresh()) {
-            project.setAnalyzerRefresh(selectedRefresh);
-            logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
         }
 
         if (!currentAnalyzerLanguagesForDialog.equals(project.getAnalyzerLanguages())) {

@@ -261,14 +261,14 @@ public class CodeAgent {
     private @NotNull Set<CodePrompts.InstructionsFlags> getInstructionsFlags() {
         var hasMergeMarkers = contextManager
                         .liveContext()
-                        .editableFiles()
+                        .fileFragments()
                         .flatMap(cf -> cf.files().stream())
                         .anyMatch(f -> f.read()
                                 .map(s -> s.contains("BRK_CONFLICT_BEGIN"))
                                 .orElse(false))
                 && contextManager
                         .liveContext()
-                        .editableFiles()
+                        .fileFragments()
                         .flatMap(cf -> cf.files().stream())
                         .anyMatch(f -> f.read()
                                 .map(s -> s.contains("BRK_CONFLICT_END"))
@@ -656,39 +656,6 @@ public class CodeAgent {
     private EditBlock.EditResult applyBlocksAndHandleErrors(
             List<EditBlock.SearchReplaceBlock> blocksToApply, Set<ProjectFile> changedFilesCollector)
             throws EditStopException, InterruptedException {
-        // Identify files referenced by blocks that are not already editable
-        final var invalidFileBlocks = new HashSet<EditBlock.FailedBlock>();
-        var filesToAdd = blocksToApply.stream()
-                .filter(editBlock -> Objects.nonNull(editBlock.rawFileName()))
-                .distinct()
-                .map(editBlock -> {
-                    final var f = editBlock.rawFileName();
-                    try {
-                        return contextManager.toFile(f);
-                    } catch (IllegalArgumentException e) {
-                        invalidFileBlocks.add(
-                                new EditBlock.FailedBlock(editBlock, EditBlock.EditBlockFailureReason.FILE_NOT_FOUND));
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .filter(file -> !contextManager.getEditableFiles().contains(file))
-                .toList();
-
-        // Check for conflicts with read-only files
-        var readOnlyFiles = filesToAdd.stream()
-                .filter(file -> contextManager.getReadonlyProjectFiles().contains(file))
-                .toList();
-        if (!readOnlyFiles.isEmpty()) {
-            var msg =
-                    "LLM attempted to edit read-only file(s): %s.\nNo edits applied. Mark the file(s) editable or clarify the approach."
-                            .formatted(readOnlyFiles.stream()
-                                    .map(ProjectFile::toString)
-                                    .collect(Collectors.joining(",")));
-            reportComplete(msg);
-            var filenames = readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
-            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
-        }
 
         EditBlock.EditResult editResult;
         try {
@@ -700,7 +667,6 @@ public class CodeAgent {
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
-        editResult.failedBlocks().addAll(invalidFileBlocks);
         return editResult;
     }
 

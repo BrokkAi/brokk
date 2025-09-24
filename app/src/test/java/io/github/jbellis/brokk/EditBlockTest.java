@@ -3,11 +3,9 @@ package io.github.jbellis.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
-import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
+import io.github.jbellis.brokk.testutil.TestContextManager;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -20,44 +18,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class EditBlockTest {
-    static class TestContextManager implements IContextManager {
-        private final Path root;
-        private final Set<ProjectFile> validFiles;
-        private final IGitRepo repo = new InMemoryRepo();
-
-        public TestContextManager(Path root, Set<String> validFiles) {
-            this.root = root;
-            this.validFiles = validFiles.stream()
-                    .map(f -> new ProjectFile(root, Path.of(f)))
-                    .collect(Collectors.toSet());
-        }
-
-        @Override
-        public IProject getProject() {
-            return new IProject() {
-                @Override
-                public Path getRoot() {
-                    return root;
-                }
-            };
-        }
-
-        @Override
-        public Set<ProjectFile> getEditableFiles() {
-            return validFiles;
-        }
-
-        @Override
-        public IGitRepo getRepo() {
-            return repo;
-        }
-
-        @Override
-        public IConsoleIO getIo() {
-            return new NoOpConsoleIO();
-        }
-    }
-
     @Test
     void testParseEditBlocksSimple() {
         String edit =
@@ -245,7 +205,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt"));
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         EditBlock.apply(ctx, io, blocks);
 
@@ -283,7 +243,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt"));
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
@@ -310,7 +270,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of());
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
@@ -342,7 +302,7 @@ class EditBlockTest {
                       """;
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
-        var result = EditBlockParser.instance.parseEditBlocks(edit, ctx.getEditableFiles());
+        var result = EditBlockParser.instance.parseEditBlocks(edit, ctx.getFilesInContext());
         assertNotEquals(null, result.parseError());
     }
 
@@ -366,7 +326,7 @@ class EditBlockTest {
                       """;
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of());
-        var result = EditBlockParser.instance.parseEditBlocks(edit, ctx.getEditableFiles());
+        var result = EditBlockParser.instance.parseEditBlocks(edit, ctx.getFilesInContext());
         assertEquals(1, result.blocks().size());
         assertNull(result.blocks().getFirst().rawFileName());
     }
@@ -401,7 +361,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt"));
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
@@ -439,7 +399,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt"));
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
@@ -475,7 +435,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("replaceTest.txt"));
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         assertEquals(1, blocks.size());
         assertTrue(blocks.getFirst().beforeText().isEmpty()); // Verify search block is empty
@@ -511,7 +471,7 @@ class EditBlockTest {
                          """;
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
-        var result = EditBlockParser.instance.parseEditBlocks(content, ctx.getEditableFiles());
+        var result = EditBlockParser.instance.parseEditBlocks(content, ctx.getFilesInContext());
         // Expect exactly one successfully parsed block, no parse errors
         assertEquals(1, result.blocks().size(), "Should parse a single block");
         assertNull(result.parseError(), "No parse errors expected");
@@ -536,7 +496,7 @@ class EditBlockTest {
                          """;
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
-        var result = EditBlockParser.instance.parseEditBlocks(content, ctx.getEditableFiles());
+        var result = EditBlockParser.instance.parseEditBlocks(content, ctx.getFilesInContext());
         assertEquals(0, result.blocks().size(), "No successful blocks expected without any divider line");
         assertNotNull(result.parseError(), "Should report parse error on zero matches");
     }
@@ -567,7 +527,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt"));
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
@@ -613,7 +573,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileB.txt"));
         var blocks = EditBlockParser.instance
-                .parseEditBlocks(response, ctx.getEditableFiles())
+                .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 

@@ -239,25 +239,6 @@ class CodeAgentTest {
         assertEquals(1, retryStep.es().pendingBlocks().size());
     }
 
-    // A-1: applyPhase – read-only conflict
-    @Test
-    void testApplyPhase_readOnlyConflict() {
-        var readOnlyFile = contextManager.toFile("readonly.txt");
-        contextManager.addReadonlyFile(readOnlyFile);
-
-        var block = new EditBlock.SearchReplaceBlock(readOnlyFile.toString(), "search", "replace");
-        var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(block), 0);
-
-        var result = codeAgent.applyPhase(cs, es, parser, null);
-
-        assertInstanceOf(CodeAgent.Step.Fatal.class, result);
-        var fatalStep = (CodeAgent.Step.Fatal) result;
-        assertEquals(
-                TaskResult.StopReason.READ_ONLY_EDIT, fatalStep.stopDetails().reason());
-        assertTrue(fatalStep.stopDetails().explanation().contains(readOnlyFile.toString()));
-    }
-
     // A-2: applyPhase – total apply failure (below fallback threshold)
     @Test
     void testApplyPhase_totalApplyFailure_belowThreshold() throws IOException {

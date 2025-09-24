@@ -59,7 +59,8 @@ public sealed interface BrokkEvent {
 
     /** Appends a task (either compressed summary or full messages) to the frontend's history. */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    record HistoryTask(int epoch, boolean compressed, @Nullable String summary, @Nullable List<Message> messages)
+    record HistoryTask(
+            int epoch, int taskSequence, boolean compressed, @Nullable String summary, @Nullable List<Message> messages)
             implements BrokkEvent {
 
         public static record Message(

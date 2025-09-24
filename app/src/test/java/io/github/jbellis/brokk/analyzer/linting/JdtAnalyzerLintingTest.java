@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.JdtAnalyzer;
+import io.github.jbellis.brokk.analyzer.JdtClient;
 import io.github.jbellis.brokk.analyzer.LintResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
@@ -30,7 +30,7 @@ class JdtAnalyzerLintingTest {
     Path tempDir;
 
     @Nullable
-    private static JdtAnalyzer analyzer = null;
+    private static JdtClient analyzer = null;
 
     private static IProject testProject;
 
@@ -90,7 +90,7 @@ class JdtAnalyzerLintingTest {
             }
         };
         logger.debug("Setting up analyzer with test code from {}", testProject.getRoot());
-        analyzer = new JdtAnalyzer(testProject);
+        analyzer = new JdtClient(testProject);
     }
 
     @AfterAll

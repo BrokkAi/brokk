@@ -578,7 +578,7 @@ public final class DependenciesPanel extends JPanel {
         int selectedRowInModel = table.convertRowIndexToModel(selectedRowInView);
 
         String depName = (String) tableModel.getValueAt(selectedRowInModel, 1);
-        int choice = JOptionPane.showConfirmDialog(
+        int choice = chrome.showConfirmDialog(
                 this,
                 "Are you sure you want to delete the dependency '" + depName + "'?\nThis action cannot be undone.",
                 "Confirm Deletion",

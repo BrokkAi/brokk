@@ -135,15 +135,14 @@ public class Decompiler {
             var latch = new CountDownLatch(1);
             SwingUtilities.invokeLater(() -> {
                 try {
-                    int choice = JOptionPane.showConfirmDialog(
-                            io.getFrame(),
+                    int choice = io.showConfirmDialog(
                             """
-                            This dependency appears to exist already.
-                            Output directory: %s
+                                    This dependency appears to exist already.
+                                    Output directory: %s
 
-                            Delete output directory and import again?
-                            (Choosing 'No' will leave the existing files unchanged.)
-                            """
+                                    Delete output directory and import again?
+                                    (Choosing 'No' will leave the existing files unchanged.)
+                                    """
                                     .formatted(outputDir.toString()),
                             "Dependency exists",
                             JOptionPane.YES_NO_OPTION,

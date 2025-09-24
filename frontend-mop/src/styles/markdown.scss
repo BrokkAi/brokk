@@ -14,6 +14,7 @@
   --shiki-token-string-expression: #d66e05;
   --shiki-token-punctuation: #9eacba;
   --shiki-token-link: #4ec9b0;
+  --code-block-font-weight: initial;
 }
 
 /* Shiki CSS variables for light theme */
@@ -29,6 +30,7 @@
   --shiki-token-string-expression: #d248ae;
   --shiki-token-punctuation: #131313;
   --shiki-token-link: #3200f9;
+  --code-block-font-weight: 700;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -93,12 +95,39 @@ li > p {
   border: 1px solid var(--border-color-hex);
   border-radius: .3em;
   font-size: 0.8em;
+  font-weight: var(--code-block-font-weight);
+}
+
+/* Content lookup styling for inline code that exists in project (symbols and file paths) */
+:not(pre) > code.content-exists {
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* Symbol lookup styling for inline code that exists in project */
- :not(pre) > code.symbol-exists {
+:not(pre) > code.symbol-exists {
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* File path styling for inline code that represents existing files */
+:not(pre) > code.file-path-exists {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Hover effects for content that exists (file paths and symbols) */
+:not(pre) > code.content-exists:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
+}
+
+/* Hover effects for file paths */
+:not(pre) > code.file-path-exists:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
 }
 
 /* Hover effects only for exact matches (exclude partial matches) */
@@ -130,6 +159,21 @@ li > p {
   text-decoration: underline;
   text-decoration-color: var(--link-color-hex);
   cursor: pointer; /* Make highlighted spans clickable */
+}
+
+/* File path highlighting - same styling as symbols */
+.file-path-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Make highlighted spans clickable */
+  color: var(--link-color-hex);
+}
+
+/* Hover effects for file path highlights */
+.file-path-highlight:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 15%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
 }
 
 /* Enhanced partial match styling - use same styling as exact matches */

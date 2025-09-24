@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNullElse;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.FragmentUtils;
@@ -64,6 +65,9 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
     private final Set<ProjectFile> files; // Files associated at time of freezing
 
+    @Nullable
+    private final String reprContent; // snapshot of repr()
+
     // Metadata for unfreezing
     private final String originalClassName;
     private final Map<String, String> meta; // Type-specific metadata for reconstruction
@@ -84,7 +88,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             @Nullable String syntaxStyle,
             Set<ProjectFile> files,
             String originalClassName,
-            Map<String, String> meta) {
+            Map<String, String> meta,
+            @Nullable String reprContent) {
         super(requireNonNull(contentHashAsId), contextManager); // ID is the content hash, must not be null
         this.originalType = originalType;
         this.descriptionContent = description;
@@ -96,6 +101,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         this.files = Set.copyOf(files); // Ensure immutability
         this.originalClassName = originalClassName;
         this.meta = Map.copyOf(meta); // Ensure immutability
+        this.reprContent = reprContent;
     }
 
     @Override
@@ -147,6 +153,11 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
     // id() is inherited from VirtualFragment and returns the contentHash.
     // equals() and hashCode() are inherited from VirtualFragment and use id().
+
+    @Override
+    public String repr() {
+        return requireNonNullElse(reprContent, "");
+    }
 
     @Override
     public boolean isDynamic() {
@@ -239,7 +250,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             @Nullable String syntaxStyle,
             Set<ProjectFile> files,
             String originalClassName,
-            Map<String, String> meta) {
+            Map<String, String> meta,
+            @Nullable String repr) {
         // idFromDto is the contentHash. Use INTERN_POOL to ensure global uniqueness.
         return INTERN_POOL.computeIfAbsent(
                 idFromDto,
@@ -255,7 +267,38 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                         syntaxStyle,
                         files,
                         originalClassName,
-                        meta));
+                        meta,
+                        repr));
+    }
+
+    // Backwards-compatible overload used by migration code (V2_DtoMapper) and older DTOs.
+    public static FrozenFragment fromDto(
+            String idFromDto,
+            IContextManager contextManager, // id is String
+            ContextFragment.FragmentType originalType,
+            @Nullable String description,
+            @Nullable String shortDescription,
+            @Nullable String textContent,
+            @Nullable byte[] imageBytesContent,
+            boolean isTextFragment,
+            @Nullable String syntaxStyle,
+            Set<ProjectFile> files,
+            String originalClassName,
+            Map<String, String> meta) {
+        return fromDto(
+                idFromDto,
+                contextManager,
+                originalType,
+                description,
+                shortDescription,
+                textContent,
+                imageBytesContent,
+                isTextFragment,
+                syntaxStyle,
+                files,
+                originalClassName,
+                meta,
+                null);
     }
 
     /**
@@ -337,6 +380,16 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     meta.put("depth", String.valueOf(cgf.getDepth()));
                     meta.put("isCalleeGraph", String.valueOf(cgf.isCalleeGraph()));
                 }
+                case CodeFragment cf -> {
+                    var unit = cf.getCodeUnit();
+                    meta.put("fqName", unit.fqName());
+                    var source = unit.source();
+                    meta.put("repoRoot", source.getRoot().toString());
+                    meta.put("relPath", source.getRelPath().toString());
+                    meta.put("kind", unit.kind().name());
+                    meta.put("packageName", unit.packageName());
+                    meta.put("shortName", unit.shortName());
+                }
                 default -> {
                     /* No type-specific meta beyond what's standard for hashing */
                 }
@@ -354,11 +407,15 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     originalClassName,
                     meta);
 
+            // Snapshot additional top-level methods
+            String repr = liveFragment.repr();
+
             final String finalFullDescription = fullDescription;
             final String finalShortDescription = shortDescription;
             final String finalTextContent = textContent;
             final byte[] finalImageBytesContent = imageBytesContent;
             final Map<String, String> finalMeta = meta;
+            final String finalRepr = repr;
 
             return INTERN_POOL.computeIfAbsent(
                     contentHash,
@@ -374,7 +431,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                             syntaxStyle,
                             files,
                             originalClassName,
-                            finalMeta));
+                            finalMeta,
+                            finalRepr));
         } catch (UncheckedIOException e) {
             throw new IOException(e.getCause() != null ? e.getCause() : e);
         } catch (CancellationException e) {
@@ -472,6 +530,33 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     }
                 }
                 yield bf;
+            }
+            case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment" -> {
+                var repoRoot = meta.get("repoRoot");
+                var relPath = meta.get("relPath");
+                var kindStr = meta.get("kind");
+                var packageName = meta.get("packageName");
+                var shortName = meta.get("shortName");
+                CodeUnit unit;
+                if (repoRoot != null
+                        && relPath != null
+                        && kindStr != null
+                        && packageName != null
+                        && shortName != null) {
+                    var pf = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                    var kind = CodeUnitType.valueOf(kindStr);
+                    unit = new CodeUnit(pf, kind, packageName, shortName);
+                } else {
+                    var fqName = meta.get("fqName");
+                    if (fqName == null) {
+                        throw new IllegalArgumentException("Missing metadata for CodeFragment");
+                    }
+                    var analyzer = cm.getAnalyzerUninterrupted();
+                    unit = analyzer.getDefinition(fqName)
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
+                }
+                yield new ContextFragment.CodeFragment(cm, unit);
             }
             default -> {
                 throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName

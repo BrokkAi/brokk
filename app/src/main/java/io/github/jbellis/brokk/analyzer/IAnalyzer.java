@@ -229,23 +229,6 @@ public interface IAnalyzer {
     }
 
     /**
-     * Locates the source file and line range for the given fully-qualified method name. The {@code paramNames} list
-     * contains the *parameter variable names* (not types). If there is only a single match, or exactly one match with
-     * matching param names, return it. Otherwise throw {@code SymbolNotFoundException} or
-     * {@code SymbolAmbiguousException}.
-     *
-     * <p>
-     *
-     * <p>TODO this should return an Optional
-     */
-    default FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
-        throw new UnsupportedOperationException();
-    }
-
-    /** Container for a function's location and current source text. */
-    record FunctionLocation(ProjectFile file, int startLine, int endLine, String code) {}
-
-    /**
      * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
      * method that may produce false positives/negatives.
      *

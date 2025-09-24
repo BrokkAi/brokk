@@ -206,15 +206,7 @@ public final class HistoryIo {
         var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
-            ctx.editableFiles().forEach(fragment -> {
-                if (!collectedReferencedDtos.containsKey(fragment.id())) {
-                    collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
-                    if (fragment instanceof FrozenFragment ff && !ff.isText()) {
-                        imageDomainFragments.add(ff);
-                    }
-                }
-            });
-            ctx.readonlyFiles().forEach(fragment -> {
+            ctx.fileFragments().forEach(fragment -> {
                 if (!collectedReferencedDtos.containsKey(fragment.id())) {
                     collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
                     if (fragment instanceof FrozenFragment ff && !ff.isText()) {
@@ -278,8 +270,8 @@ public final class HistoryIo {
                     .toList();
             var compactDto = new CompactContextDto(
                     ctx.id().toString(),
-                    ctx.editableFiles().map(ContextFragment::id).toList(),
-                    ctx.readonlyFiles().map(ContextFragment::id).toList(),
+                    ctx.fileFragments().map(ContextFragment::id).toList(),
+                    List.of(),
                     ctx.virtualFragments().map(ContextFragment::id).toList(),
                     taskEntryRefs,
                     ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,

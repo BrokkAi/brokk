@@ -114,7 +114,7 @@ public class SessionManagerTest {
         ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
         Context context2 = new Context(mockContextManager, "Second context with fragments")
                 .addVirtualFragment(sf)
-                .addEditableFiles(List.of(pf));
+                .addPathFragments(List.of(pf));
         originalHistory.addFrozenContextAndClearRedo(context2.freeze());
 
         // Get initial modified time
@@ -180,27 +180,15 @@ public class SessionManagerTest {
 
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
         // Compare editable files
-        var expectedEditable = expected.editableFiles()
+        var expectedEditable = expected.fileFragments()
                 .sorted(java.util.Comparator.comparing(ContextFragment::id))
                 .toList();
-        var actualEditable = actual.editableFiles()
+        var actualEditable = actual.fileFragments()
                 .sorted(java.util.Comparator.comparing(ContextFragment::id))
                 .toList();
         assertEquals(expectedEditable.size(), actualEditable.size(), "Editable files count mismatch");
         for (int i = 0; i < expectedEditable.size(); i++) {
             assertContextFragmentsEqual(expectedEditable.get(i), actualEditable.get(i));
-        }
-
-        // Compare readonly files
-        var expectedReadonly = expected.readonlyFiles()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
-                .toList();
-        var actualReadonly = actual.readonlyFiles()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
-                .toList();
-        assertEquals(expectedReadonly.size(), actualReadonly.size(), "Readonly files count mismatch");
-        for (int i = 0; i < expectedReadonly.size(); i++) {
-            assertContextFragmentsEqual(expectedReadonly.get(i), actualReadonly.get(i));
         }
 
         // Compare virtual fragments
@@ -246,18 +234,25 @@ public class SessionManagerTest {
                         expectedFf.imageBytesContent(),
                         actualFf.imageBytesContent(),
                         "FrozenFragment imageBytesContent mismatch for ID " + expected.id());
-            } else if (expected.image() != null
-                    && actual.image() != null) { // Fallback for non-frozen, if any after freezing
-                assertArrayEquals(
-                        imageToBytes(expected.image()),
-                        imageToBytes(actual.image()),
-                        "Fragment image content mismatch for ID " + expected.id());
+            } else {
+                if (actual.image() != null) { // Fallback for non-frozen, if any after freezing
+                    assertArrayEquals(
+                            imageToBytes(expected.image()),
+                            imageToBytes(actual.image()),
+                            "Fragment image content mismatch for ID " + expected.id());
+                }
             }
         }
 
-        // Compare files (ProjectFile and CodeUnit DTOs are by value)
-        // FrozenFragment.sources() intentionally throws UnsupportedOperationException, so untested
-        if (!(expected instanceof FrozenFragment)) {
+        // Compare additional serialized top-level methods
+        assertEquals(
+                expected.formatSummary(),
+                actual.formatSummary(),
+                "Fragment formatSummary mismatch for ID " + expected.id());
+        assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
+
+        // Compare files and sources (ProjectFile and CodeUnit DTOs are by value)
+        if (!(expected instanceof FrozenFragment) && !(actual instanceof FrozenFragment)) {
             assertEquals(
                     expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
                     actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),

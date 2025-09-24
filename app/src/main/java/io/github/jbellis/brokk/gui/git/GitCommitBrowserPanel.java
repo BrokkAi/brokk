@@ -656,7 +656,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     try {
                         final String content = getRepo().getFileContent(commitId, pf);
                         var fragment = new ContextFragment.GitFileFragment(pf, shortId, content);
-                        contextManager.addReadOnlyFragmentAsync(fragment);
+                        contextManager.addPathFragmentAsync(fragment);
                         success++;
                     } catch (GitAPIException ex) {
                         logger.warn("Error capturing {} at {}: {}", pf, commitId, ex.getMessage());
@@ -1085,7 +1085,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void dropStashInternal(int stashIndex) {
-        int result = JOptionPane.showConfirmDialog(
+        int result = chrome.showConfirmDialog(
                 this,
                 "Delete stash@{" + stashIndex + "}?",
                 "Confirm Drop",
@@ -1622,7 +1622,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         return "Author: " + author + "\n" + "Date:   " + dateStr + "\n\n" + indentedMsg;
     }
 
-    private void configureButton(JButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
+    private void configureButton(
+            MaterialButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
         button.setEnabled(enabled);
         // Visibility is now controlled at a higher level (when adding to panel)
         // and should not be changed here if options.showPushPullButtons or options.showCreatePrButton is true.

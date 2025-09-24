@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.FileUtil;
@@ -28,7 +29,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Predicate;
-import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -62,7 +62,7 @@ public class ImportDependencyDialog {
         @Nullable
         private final DependenciesPanel.DependencyLifecycleListener listener;
 
-        private final JButton importButton = new JButton("Import");
+        private final MaterialButton importButton = new MaterialButton("Import");
         private final JTabbedPane tabbedPane = new JTabbedPane();
 
         private final Path dependenciesRoot;
@@ -85,7 +85,7 @@ public class ImportDependencyDialog {
         private JTextField gitUrlField;
 
         @Nullable
-        private JButton validateGitRepoButton;
+        private MaterialButton validateGitRepoButton;
 
         @Nullable
         private JComboBox<String> gitRefComboBox;
@@ -163,7 +163,7 @@ public class ImportDependencyDialog {
                 }
             });
 
-            var cancelButton = new JButton("Cancel");
+            var cancelButton = new MaterialButton("Cancel");
             cancelButton.addActionListener(e -> dialog.dispose());
 
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -184,7 +184,7 @@ public class ImportDependencyDialog {
             var panel = new JPanel(new GridBagLayout());
             gitUrlField = new JTextField();
             gitUrlField.setColumns(30);
-            validateGitRepoButton = new JButton("Load Tags & Branches");
+            validateGitRepoButton = new MaterialButton("Load Tags & Branches");
             gitRefComboBox = new JComboBox<>();
             gitRefComboBox.setEnabled(false);
             gitRefComboBox.addActionListener(e -> updateImportButtonState());
@@ -434,7 +434,7 @@ public class ImportDependencyDialog {
 
             var project = chrome.getProject();
             if (project.getAnalyzerLanguages().stream().anyMatch(lang -> lang.isAnalyzed(project, sourcePath))) {
-                int proceedResponse = javax.swing.JOptionPane.showConfirmDialog(
+                int proceedResponse = chrome.showConfirmDialog(
                         dialog,
                         "The selected directory might already be part of the project's analyzed sources. Proceed?",
                         "Confirm Import",
@@ -448,7 +448,7 @@ public class ImportDependencyDialog {
 
             var targetPath = dependenciesRoot.resolve(sourcePath.getFileName());
             if (Files.exists(targetPath)) {
-                int overwriteResponse = javax.swing.JOptionPane.showConfirmDialog(
+                int overwriteResponse = chrome.showConfirmDialog(
                         dialog,
                         "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
                         "Confirm Overwrite",
@@ -516,7 +516,7 @@ public class ImportDependencyDialog {
             final Path targetPath = dependenciesRoot.resolve(repoName);
 
             if (Files.exists(targetPath)) {
-                int overwriteResponse = javax.swing.JOptionPane.showConfirmDialog(
+                int overwriteResponse = chrome.showConfirmDialog(
                         dialog,
                         "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
                         "Confirm Overwrite",

@@ -41,13 +41,11 @@
 
 ; Enum declarations
 (enum_declaration
-  name: (identifier) @enum.name
-  body: (enum_body
-    (enum_constant
-      name: (identifier) @enum.constant
-    )
-  )
-) @enum.definition
+  name: (identifier) @enum.name) @enum.definition
+
+; Enum constants
+(enum_constant
+  name: (identifier) @field.name) @field.definition
 
 ; Annotations to strip
 (annotation) @annotation

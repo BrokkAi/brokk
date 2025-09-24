@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -24,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -49,9 +51,6 @@ public final class BrokkCli implements Callable<Integer> {
 
     @CommandLine.Option(names = "--edit", description = "Add a file to the workspace for editing. Can be repeated.")
     private List<String> editFiles = new ArrayList<>();
-
-    @CommandLine.Option(names = "--read", description = "Add a file to the workspace as read-only. Can be repeated.")
-    private List<String> readFiles = new ArrayList<>();
 
     @CommandLine.Option(
             names = "--add-class",
@@ -108,6 +107,12 @@ public final class BrokkCli implements Callable<Integer> {
     @CommandLine.Option(names = "--search", description = "Run Search agent with the given prompt.")
     @Nullable
     private String searchPrompt;
+
+    @CommandLine.Option(
+            names = "--search-terminal",
+            description = "Terminal mode for --search: ${COMPLETION-CANDIDATES} (defaults to ANSWER).",
+            defaultValue = "ANSWER")
+    private Terminal searchTerminal = Terminal.ANSWER;
 
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
@@ -237,7 +242,7 @@ public final class BrokkCli implements Callable<Integer> {
                 return 1;
             }
             taskModelOverride = service.getModel(fav.config());
-            assert taskModelOverride != null : "service.getModel returned null for alias " + modelName;
+            assert taskModelOverride != null : service.getAvailableModels();
         }
 
         StreamingChatModel codeModelOverride = null;
@@ -250,7 +255,7 @@ public final class BrokkCli implements Callable<Integer> {
                 return 1;
             }
             codeModelOverride = service.getModel(fav.config());
-            assert codeModelOverride != null : "service.getModel returned null for alias " + codeModelName;
+            assert codeModelOverride != null : service.getAvailableModels();
         }
 
         var workspaceTools = new WorkspaceTools(cm);
@@ -269,13 +274,11 @@ public final class BrokkCli implements Callable<Integer> {
 
         // Resolve files and classes
         var resolvedEditFiles = resolveFiles(editFiles, "editable file");
-        var resolvedReadFiles = resolveFiles(readFiles, "read-only file");
         var resolvedClasses = resolveClasses(addClasses, cm.getAnalyzer(), "class");
         var resolvedSummaryClasses = resolveClasses(addSummaryClasses, cm.getAnalyzer(), "summary class");
 
         // If any resolution failed, the helper methods will have printed an error.
         if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty())
-                || (resolvedReadFiles.isEmpty() && !readFiles.isEmpty())
                 || (resolvedClasses.isEmpty() && !addClasses.isEmpty())
                 || (resolvedSummaryClasses.isEmpty() && !addSummaryClasses.isEmpty())) {
             return 1;
@@ -283,13 +286,11 @@ public final class BrokkCli implements Callable<Integer> {
 
         // Build context
         if (!resolvedEditFiles.isEmpty())
-            cm.editFiles(resolvedEditFiles.stream().map(cm::toFile).toList());
-        if (!resolvedReadFiles.isEmpty())
-            cm.addReadOnlyFiles(resolvedReadFiles.stream().map(cm::toFile).toList());
+            cm.addFiles(resolvedEditFiles.stream().map(cm::toFile).toList());
         if (!resolvedClasses.isEmpty()) workspaceTools.addClassesToWorkspace(resolvedClasses);
         if (!resolvedSummaryClasses.isEmpty()) workspaceTools.addClassSummariesToWorkspace(resolvedSummaryClasses);
         if (!addSummaryFiles.isEmpty()) workspaceTools.addFileSummariesToWorkspace(addSummaryFiles);
-        if (!addMethodSources.isEmpty()) workspaceTools.addMethodSourcesToWorkspace(addMethodSources);
+        if (!addMethodSources.isEmpty()) workspaceTools.addMethodsToWorkspace(addMethodSources);
         addUrls.forEach(workspaceTools::addUrlContentsToWorkspace);
         addUsages.forEach(workspaceTools::addSymbolUsagesToWorkspace);
         addCallers.forEach(workspaceTools::addCallGraphInToWorkspace);
@@ -337,8 +338,7 @@ public final class BrokkCli implements Callable<Integer> {
             if (architectPrompt != null) {
                 var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
                 var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                var agent = new ArchitectAgent(
-                        cm, architectModel, codeModel, architectPrompt, ArchitectAgent.ArchitectOptions.DEFAULTS);
+                var agent = new ArchitectAgent(cm, architectModel, codeModel, architectPrompt);
                 result = agent.execute();
             } else if (codePrompt != null) {
                 var effectiveModel = codeModelOverride == null
@@ -369,7 +369,10 @@ public final class BrokkCli implements Callable<Integer> {
                 return 0; // merge is terminal for this CLI command
             } else { // searchPrompt != null
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, 0);
+                var terminalSet = (searchTerminal == Terminal.TASK_LIST)
+                        ? EnumSet.of(Terminal.TASK_LIST)
+                        : EnumSet.of(Terminal.ANSWER);
+                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, terminalSet);
                 result = agent.execute();
             }
         } catch (Throwable th) {
@@ -392,17 +395,18 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     private List<String> resolveFiles(List<String> inputs, String entityType) {
-        Supplier<Collection<ProjectFile>> primarySource = project::getAllFiles;
-        Supplier<Collection<ProjectFile>> secondarySource =
+        // Files can only be added as editable via CLI, so we only consider tracked files
+        // and allow listing all tracked files as a primary source.
+        Supplier<Collection<ProjectFile>> primarySource =
                 () -> project.getRepo().getTrackedFiles();
 
         return inputs.stream()
                 .map(input -> {
                     var pf = cm.toFile(input);
-                    if (pf.exists()) {
+                    if (pf.exists() && project.getRepo().getTrackedFiles().contains(pf)) {
                         return Optional.of(pf);
                     }
-                    return resolve(input, primarySource, secondarySource, ProjectFile::toString, entityType);
+                    return resolve(input, primarySource, List::of, ProjectFile::toString, entityType);
                 })
                 .flatMap(Optional::stream)
                 .map(ProjectFile::toString)

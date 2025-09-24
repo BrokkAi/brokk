@@ -307,25 +307,16 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         boolean allFilesTracked = project.getRepo().getTrackedFiles().containsAll(targetFiles);
 
         String editLabel = bulk ? "Edit All" : "Edit";
-        String readLabel = bulk ? "Read All" : "Read";
         String summarizeLabel = bulk ? "Summarize All" : "Summarize";
 
         JMenuItem editItem = new JMenuItem(editLabel);
         editItem.addActionListener(ev -> {
             contextManager.submitContextTask("Edit files", () -> {
-                contextManager.editFiles(targetFiles);
+                contextManager.addFiles(targetFiles);
             });
         });
         editItem.setEnabled(allFilesTracked);
         contextMenu.add(editItem);
-
-        JMenuItem readItem = new JMenuItem(readLabel);
-        readItem.addActionListener(ev -> {
-            contextManager.submitContextTask("Read files", () -> {
-                contextManager.addReadOnlyFiles(targetFiles);
-            });
-        });
-        contextMenu.add(readItem);
 
         boolean canSummarize = anySummarizable(targetFiles);
         if (canSummarize) {

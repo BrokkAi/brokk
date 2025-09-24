@@ -7,6 +7,7 @@ import java.awt.event.MouseAdapter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.prefs.Preferences;
 import javax.swing.*;
 import org.slf4j.LoggerFactory;
@@ -17,14 +18,14 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
     protected final Language language;
     protected final Path projectRoot;
-    protected final IConsoleIO consoleIO;
+    protected final IConsoleIO io;
 
     protected AnalyzerSettingsPanel(BorderLayout borderLayout, Language language, Path projectRoot, IConsoleIO io) {
         super(borderLayout);
         this.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         this.language = language;
         this.projectRoot = projectRoot;
-        this.consoleIO = io;
+        this.io = io;
     }
 
     public static AnalyzerSettingsPanel createAnalyzersPanel(
@@ -111,7 +112,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             memoryWarningLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(java.awt.event.MouseEvent e) {
-                    int result = JOptionPane.showConfirmDialog(
+                    int result = io.showConfirmDialog(
                             JavaAnalyzerSettingsPanel.this,
                             "Save settings and restart Brokk to apply the memory change?",
                             "Restart Required",
@@ -187,20 +188,36 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
         public void saveSettings() {
             final String value = jdkSelector.getSelectedJdkPath();
 
-            // JDK selection is optional - if none selected, just save memory settings
+            // Handle System Default selection (null/blank value is valid)
             if (value == null || value.isBlank()) {
+                // Save both memory and JDK preference for System Default
+                final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
+
+                // Check if JDK preference changed
+                final String previousValue = prefs.get(getPrefKey(), "");
+                final boolean pathChanged = !Objects.equals("", previousValue);
+
+                // Save JDK preference as empty string for System Default
+                prefs.put(getPrefKey(), "");
+
                 // Save memory setting
                 int memoryMB = (Integer) memorySpinner.getValue();
                 boolean memoryChanged = memoryMB != savedMemoryMB;
-                final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
                 prefs.putInt(PREF_MEMORY_KEY_PREFIX, memoryMB);
                 savedMemoryMB = memoryMB;
 
                 // Hide warning after saving
                 memoryWarningLabel.setVisible(false);
 
+                // Log the change
+                if (pathChanged) {
+                    logger.debug("Java analyzer JDK home changed to System Default");
+                } else {
+                    logger.debug("Java analyzer JDK home unchanged: System Default");
+                }
+
                 if (memoryChanged) {
-                    consoleIO.systemNotify(
+                    io.systemNotify(
                             "Memory setting changed. Please restart Brokk for the change to take effect.",
                             "Restart Required",
                             JOptionPane.INFORMATION_MESSAGE);
@@ -212,7 +229,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             try {
                 jdkPath = Path.of(value).normalize().toAbsolutePath();
             } catch (InvalidPathException ex) {
-                consoleIO.systemNotify(
+                io.systemNotify(
                         "The path \"" + value + "\" is not a valid file-system path.",
                         "Invalid JDK Path",
                         JOptionPane.ERROR_MESSAGE);
@@ -221,7 +238,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             }
 
             if (!Files.isDirectory(jdkPath)) {
-                consoleIO.systemNotify(
+                io.systemNotify(
                         "The path \"" + jdkPath + "\" does not exist or is not a directory.",
                         "Invalid JDK Path",
                         JOptionPane.ERROR_MESSAGE);
@@ -234,7 +251,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
                     || Files.isRegularFile(jdkPath.resolve("bin/java.exe"));
 
             if (!hasJavac || !hasJava) {
-                consoleIO.systemNotify(
+                io.systemNotify(
                         "The directory \"" + jdkPath + "\" does not appear to be a valid JDK home.",
                         "Invalid JDK Path",
                         JOptionPane.ERROR_MESSAGE);
@@ -265,7 +282,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             memoryWarningLabel.setVisible(false);
 
             if (memoryChanged) {
-                consoleIO.systemNotify(
+                io.systemNotify(
                         "Memory setting changed. Please restart Brokk for the change to take effect.",
                         "Restart Required",
                         JOptionPane.INFORMATION_MESSAGE);

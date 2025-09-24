@@ -75,7 +75,7 @@ public final class GitUiUtil {
     public static void editFile(ContextManager contextManager, String filePath) {
         contextManager.submitContextTask("Adding file to context", () -> {
             var file = contextManager.toFile(filePath);
-            contextManager.editFiles(List.of(file));
+            contextManager.addFiles(List.of(file));
         });
     }
 

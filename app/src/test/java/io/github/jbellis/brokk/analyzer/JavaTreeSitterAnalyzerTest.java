@@ -116,7 +116,7 @@ public class JavaTreeSitterAnalyzerTest {
         final var source = sourceOpt.get();
         // Verify the source contains class definition and methods
         assertTrue(source.contains("class A {"));
-        assertTrue(source.contains("public void method1()"));
+        assertTrue(source.contains("void method1()"));
         assertTrue(source.contains("public String method2(String input)"));
     }
 
@@ -180,21 +180,21 @@ public class JavaTreeSitterAnalyzerTest {
                 """
                 public class A {
                   void method1()
-                  String method2(String input)
-                  String method2(String input, int otherInput)
-                  Function<Integer, Integer> method3()
-                  int method4(double foo, Integer bar)
-                  void method5()
-                  void method6()
-                  void run()
+                  public String method2(String input)
+                  public String method2(String input, int otherInput)
+                  public Function<Integer, Integer> method3()
+                  public static int method4(double foo, Integer bar)
+                  public void method5()
+                  public void method6()
+                  public void run()
                   public class AInner {
                     public class AInnerInner {
-                      void method7()
+                      public void method7()
                     }
                   }
                   public static class AInnerStatic {
                   }
-                  void usesInnerClass()
+                  private void usesInnerClass()
                 }
                 """
                         .trim()
@@ -213,12 +213,30 @@ public class JavaTreeSitterAnalyzerTest {
                 public class D {
                   public static int field1;
                   private String field2;
-                  void methodD1()
-                  void methodD2()
+                  public void methodD1()
+                  public void methodD2()
                   private static class DSubStatic {
                   }
                   private class DSub {
                   }
+                }
+                """
+                        .trim()
+                        .stripIndent();
+        assertEquals(expected, skeleton);
+    }
+
+    @Test
+    public void getSkeletonTestEnum() {
+        final var skeletonOpt = analyzer.getSkeleton("EnumClass");
+        assertTrue(skeletonOpt.isPresent());
+        final var skeleton = skeletonOpt.get().trim().stripIndent();
+
+        final var expected =
+                """
+                public enum EnumClass {
+                  FOO,
+                  BAR
                 }
                 """
                         .trim()
@@ -271,6 +289,7 @@ public class JavaTreeSitterAnalyzerTest {
                 "D.DSub",
                 "D.DSubStatic",
                 "E",
+                "EnumClass",
                 "F",
                 "Interface",
                 "MethodReturner",

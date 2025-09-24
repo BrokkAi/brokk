@@ -261,7 +261,8 @@ public class JdkSelector extends JPanel {
             String javaHome = System.getenv("JAVA_HOME");
             if (javaHome != null && !javaHome.isBlank() && isValidJdk(javaHome)) {
                 String version = getJdkVersion(javaHome);
-                return String.format("System Default (%s) - %s", version != null ? version : "Unknown version", javaHome);
+                return String.format(
+                        "System Default (%s) - %s", version != null ? version : "Unknown version", javaHome);
             }
 
             // Try to find java executable in PATH
@@ -274,13 +275,15 @@ public class JdkSelector extends JPanel {
                     var jdkHome = binDir.getParent();
                     if (jdkHome != null && isValidJdk(jdkHome)) {
                         String version = getJdkVersion(jdkHome);
-                        return String.format("System Default (%s) - %s", version != null ? version : "Unknown version", jdkHome);
+                        return String.format(
+                                "System Default (%s) - %s", version != null ? version : "Unknown version", jdkHome);
                     }
                 }
 
                 // Fall back to showing just the java executable
                 String version = getJavaVersionFromExecutable(javaPath);
-                return String.format("System Default (%s) - %s", version != null ? version : "Unknown version", javaPath);
+                return String.format(
+                        "System Default (%s) - %s", version != null ? version : "Unknown version", javaPath);
             }
 
             return "System Default (No JDK detected)";
@@ -290,9 +293,7 @@ public class JdkSelector extends JPanel {
         }
     }
 
-    /**
-     * Get JDK version from a JDK home directory by checking release file or running java -version.
-     */
+    /** Get JDK version from a JDK home directory by checking release file or running java -version. */
     private static @Nullable String getJdkVersion(String jdkHome) {
         try {
             // Try to read version from release file first (faster)
@@ -301,7 +302,8 @@ public class JdkSelector extends JPanel {
                 var lines = java.nio.file.Files.readAllLines(releaseFile.toPath());
                 for (String line : lines) {
                     if (line.startsWith("JAVA_VERSION=")) {
-                        String version = line.substring("JAVA_VERSION=".length()).replaceAll("\"", "");
+                        String version =
+                                line.substring("JAVA_VERSION=".length()).replaceAll("\"", "");
                         return "JDK " + version;
                     }
                 }
@@ -318,9 +320,7 @@ public class JdkSelector extends JPanel {
         return null;
     }
 
-    /**
-     * Get Java version by running java -version command.
-     */
+    /** Get Java version by running java -version command. */
     private static @Nullable String getJavaVersionFromExecutable(String javaPath) {
         try {
             var process = new ProcessBuilder(javaPath, "-version").start();
@@ -345,9 +345,7 @@ public class JdkSelector extends JPanel {
         return null;
     }
 
-    /**
-     * Find java executable in system PATH.
-     */
+    /** Find java executable in system PATH. */
     private static @Nullable String findJavaInPath() {
         try {
             String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);

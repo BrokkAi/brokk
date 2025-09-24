@@ -221,7 +221,7 @@ public final class ContextMenuUtils {
                     chrome,
                     () -> {
                         if (targetRef.getRepoFile() != null) {
-                            cm.editFiles(List.of(targetRef.getRepoFile()));
+                            cm.addFiles(List.of(targetRef.getRepoFile()));
                         } else {
                             chrome.toolError(
                                     "Cannot edit file: " + targetRef.getFullPath() + " - no ProjectFile available");
@@ -235,23 +235,6 @@ public final class ContextMenuUtils {
             editItem.setToolTipText("Editing not available without Git");
         }
         menu.add(editItem);
-
-        // Read option
-        JMenuItem readItem = new JMenuItem("Read " + targetRef.getFullPath());
-        readItem.addActionListener(e1 -> {
-            withTemporaryListenerDetachment(
-                    chrome,
-                    () -> {
-                        if (targetRef.getRepoFile() != null) {
-                            cm.addReadOnlyFiles(List.of(targetRef.getRepoFile()));
-                        } else {
-                            chrome.toolError(
-                                    "Cannot read file: " + targetRef.getFullPath() + " - no ProjectFile available");
-                        }
-                    },
-                    "Read files");
-        });
-        menu.add(readItem);
 
         // Summarize option
         JMenuItem summarizeItem = new JMenuItem("Summarize " + targetRef.getFullPath());

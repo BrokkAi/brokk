@@ -1495,7 +1495,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             .map(GitRepo.ModifiedFile::file)
                             .collect(Collectors.toSet());
                     if (!editableFiles.isEmpty()) {
-                        contextManager.editFiles(editableFiles);
+                        contextManager.addFiles(editableFiles);
                         logger.info(
                                 "Added {} changed files from PR #{} to editable context",
                                 editableFiles.size(),

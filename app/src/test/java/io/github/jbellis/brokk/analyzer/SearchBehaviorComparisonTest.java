@@ -8,16 +8,12 @@ import java.nio.file.Path;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Test to verify that TreeSitterAnalyzer and JoernAnalyzer have consistent search behavior for case-insensitive and
  * regex-based searches.
  */
 public final class SearchBehaviorComparisonTest {
-
-    private static final Logger logger = LoggerFactory.getLogger(SearchBehaviorComparisonTest.class);
 
     private static TestProject javaTestProject;
     private static JavaAnalyzer javaAnalyzer;
@@ -28,11 +24,6 @@ public final class SearchBehaviorComparisonTest {
     static void setup() {
         javaTestProject = createTestProject("", "testcode-java", Languages.JAVA);
         javaAnalyzer = JavaAnalyzer.create(javaTestProject);
-        try {
-            javaAnalyzer.isAdvancedAnalysisReady().join();
-        } catch (Exception e) {
-            logger.error("The Java analyzer's advanced capabilities failed during initialization.", e);
-        }
         jsTestProject = createTestProject("", "testcode-js", Languages.JAVASCRIPT);
         jsAnalyzer = new JavascriptAnalyzer(jsTestProject);
     }

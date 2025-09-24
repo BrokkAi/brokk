@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -545,7 +546,7 @@ public class ContextAgent {
                 .toList();
         int promptTokens = Messages.getApproximateTokens(messages);
         debug("Invoking LLM to prune filenames (prompt size ~{} tokens)", promptTokens);
-        var result = llm.sendRequest(messages);
+        var result = llm.sendRequest(messages, deepScan);
         if (result.error() != null || result.isEmpty()) {
             var error = result.error();
             // litellm does an inconsistent job translating into ContextWindowExceededError.
@@ -755,7 +756,7 @@ public class ContextAgent {
         debug("Invoking LLM to recommend context via tool call (prompt size ~{} tokens)", promptTokens);
 
         // *** Execute LLM call with required tool ***
-        var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
+        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, contextTool), deepScan);
         var tokenUsage = result.tokenUsage();
         if (result.error() != null || result.isEmpty()) {
             var error = result.error();
@@ -970,7 +971,7 @@ public class ContextAgent {
                 "Invoking LLM (Quick) to select relevant {} (prompt size ~{} tokens)",
                 inputType.itemTypePlural,
                 promptTokens);
-        var result = llm.sendRequest(messages); // No tools
+        var result = llm.sendRequest(messages, deepScan);
 
         if (result.error() != null || result.isEmpty()) {
             logger.warn(
@@ -997,7 +998,7 @@ public class ContextAgent {
             boolean allowSkipPruning)
             throws InterruptedException, ContextTooLargeException {
         // If the workspace isn't empty and we have no analyzer, don't suggest adding whole files.
-        if (analyzer.isEmpty() && !cm.getEditableFiles().isEmpty()) {
+        if (analyzer.isEmpty() && !cm.getFilesInContext().isEmpty()) {
             debug("Non-empty context and no analyzer present, skipping file content suggestions");
             return new RecommendationResult(
                     true, List.of(), "Skipping file content suggestions for non-empty context without analyzer.");

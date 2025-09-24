@@ -151,7 +151,6 @@ public abstract class LspServer {
         });
     }
 
-
     public void sendDidOpen(Path filePath, String language) {
         try {
             final var content = Files.readString(filePath);
@@ -193,6 +192,10 @@ public abstract class LspServer {
      */
     protected abstract LspLanguageClient getLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap);
+
+    public @Nullable LspLanguageClient getLanguageClient() {
+        return this.languageClient;
+    }
 
     protected void startServer(
             Path initialWorkspace, String language, Path cache, Map<String, Object> initializationOptions)
@@ -607,5 +610,4 @@ public abstract class LspServer {
         final var params = new DidChangeWatchedFilesParams(events);
         whenInitialized(server -> server.getWorkspaceService().didChangeWatchedFiles(params));
     }
-
 }

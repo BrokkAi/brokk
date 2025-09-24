@@ -156,6 +156,53 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            String src,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent,
+            ProjectFile file) {
+        if (ENUM_CONSTANT.equals(fieldNode.getType())) {
+            return formatEnumConstant(fieldNode, signatureText, baseIndent);
+        }
+        return super.formatFieldSignature(fieldNode, src, exportPrefix, signatureText, baseIndent, file);
+    }
+
+    private String formatEnumConstant(TSNode fieldNode, String signatureText, String baseIndent) {
+        TSNode parent = fieldNode.getParent();
+        if (parent != null) {
+            int childCount = parent.getNamedChildCount();
+            boolean hasFollowingConstant = false;
+
+            // Compare by byte range to reliably identify the same node
+            int targetStart = fieldNode.getStartByte();
+            int targetEnd = fieldNode.getEndByte();
+
+            for (int i = 0; i < childCount; i++) {
+                TSNode child = parent.getNamedChild(i);
+                if (child != null
+                        && !child.isNull()
+                        && child.getStartByte() == targetStart
+                        && child.getEndByte() == targetEnd) {
+                    // Check if any subsequent named child is also an enum_constant
+                    for (int j = i + 1; j < childCount; j++) {
+                        TSNode next = parent.getNamedChild(j);
+                        if (next != null && !next.isNull() && ENUM_CONSTANT.equals(next.getType())) {
+                            hasFollowingConstant = true;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+            return baseIndent + signatureText + (hasFollowingConstant ? "," : "");
+        }
+        // Fallback: if structure not as expected, do not add terminating punctuation
+        return baseIndent + signatureText;
+    }
+
+    @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return "}";
     }

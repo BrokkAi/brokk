@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.BorderUtils;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -58,8 +59,8 @@ public final class AskHumanDialog {
                     /* --------- Custom buttons and dialog logic --------------------- */
                     final String[] resultHolder = {null}; // To store the answer from listeners
 
-                    var okButton = new JButton("OK");
-                    var cancelButton = new JButton("Cancel");
+                    var okButton = new MaterialButton("OK");
+                    var cancelButton = new MaterialButton("Cancel");
 
                     // Disable OK button initially
                     okButton.setEnabled(false);

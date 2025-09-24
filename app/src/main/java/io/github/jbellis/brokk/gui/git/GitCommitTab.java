@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
@@ -45,8 +46,8 @@ public class GitCommitTab extends JPanel {
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
     private FileStatusTable fileStatusPane;
-    private JButton commitButton;
-    private JButton stashButton;
+    private MaterialButton commitButton;
+    private MaterialButton stashButton;
     private JPanel buttonPanel;
 
     @Nullable
@@ -159,7 +160,7 @@ public class GitCommitTab extends JPanel {
 
         editFileItem.addActionListener(e -> {
             var selectedProjectFiles = getSelectedFilesFromTable();
-            contextManager.editFiles(selectedProjectFiles);
+            contextManager.addFiles(selectedProjectFiles);
             rightClickedFile = null; // Clear after use
         });
 
@@ -202,7 +203,7 @@ public class GitCommitTab extends JPanel {
         buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         // Commit Button
-        commitButton = new JButton("Commit All..."); // Default label with ellipsis
+        commitButton = new MaterialButton("Commit All..."); // Default label with ellipsis
         SwingUtil.applyPrimaryButtonStyle(commitButton);
         commitButton.setToolTipText("Commit files...");
         commitButton.setEnabled(false);
@@ -238,7 +239,7 @@ public class GitCommitTab extends JPanel {
         buttonPanel.add(commitButton);
 
         // Stash Button
-        stashButton = new JButton("Stash All"); // Default label
+        stashButton = new MaterialButton("Stash All"); // Default label
         stashButton.setToolTipText("Save your changes to the stash");
         stashButton.setEnabled(false);
         stashButton.addActionListener(e -> {
@@ -612,7 +613,7 @@ public class GitCommitTab extends JPanel {
                         .collect(Collectors.toSet());
 
                 // 2. Add all selected files to the workspace to snapshot their current state.
-                contextManager.editFiles(selectedFiles);
+                contextManager.addFiles(selectedFiles);
 
                 // 3. Separate files into "new" and "other".
                 var newFiles = selectedFiles.stream()
@@ -626,7 +627,7 @@ public class GitCommitTab extends JPanel {
                 // These fragments were just created by `editFiles`.
                 var fragmentsForNewFiles = contextManager
                         .liveContext()
-                        .editableFiles()
+                        .fileFragments()
                         .filter(f ->
                                 f instanceof ContextFragment.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
                         .toList();
@@ -689,7 +690,7 @@ public class GitCommitTab extends JPanel {
                 if (!otherFilesToDrop.isEmpty()) {
                     var fragmentsToDrop = contextManager
                             .liveContext()
-                            .editableFiles()
+                            .fileFragments()
                             .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf
                                     && otherFilesToDrop.contains(ppf.file()))
                             .toList();

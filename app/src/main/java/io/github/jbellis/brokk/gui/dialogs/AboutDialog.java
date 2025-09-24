@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import java.awt.*;
+import java.awt.event.KeyEvent;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.jetbrains.annotations.Nullable;
@@ -51,9 +52,20 @@ public final class AboutDialog extends JDialog {
 
         add(content);
         Chrome.applyIcon(this); // sets Dock/task-bar icon where applicable
+
+        // Allow closing with ESC key
+        var rootPane = getRootPane();
+        rootPane.getInputMap(JRootPane.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeDialog");
+        rootPane.getActionMap().put("closeDialog", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                dispose();
+            }
+        });
     }
 
-    /** Show the dialog (reuse one instance per invocation to honour Desktop handler semantics). */
+    /** Show the dialog. Creation is marshalled to the EDT. */
     public static void showAboutDialog(@Nullable Window owner) {
         SwingUtil.runOnEdt(() -> new AboutDialog(owner).setVisible(true));
     }

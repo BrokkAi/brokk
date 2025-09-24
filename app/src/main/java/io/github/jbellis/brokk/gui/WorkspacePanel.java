@@ -8,21 +8,19 @@ import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
+import io.github.jbellis.brokk.gui.dialogs.AttachContextDialog;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
 import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
-import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog;
-import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMode;
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
-import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
@@ -45,7 +43,6 @@ import java.util.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -73,7 +70,6 @@ public class WorkspacePanel extends JPanel {
     /** Enum representing the different types of context actions that can be performed. */
     public enum ContextAction {
         EDIT,
-        READ,
         SUMMARIZE,
         DROP,
         COPY,
@@ -141,7 +137,6 @@ public class WorkspacePanel extends JPanel {
 
                 actions.add(null); // Separator
                 actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileRef));
-                actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileRef));
                 actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileRef));
             }
 
@@ -212,13 +207,11 @@ public class WorkspacePanel extends JPanel {
                     var fileData = new TableUtils.FileReferenceList.FileReferenceData(
                             projectFile.getFileName(), projectFile.toString(), projectFile);
                     actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileData));
-                    actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileData));
                     actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileData));
                 });
             } else {
                 var selectedFragments = List.of(fragment);
                 actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, selectedFragments));
-                actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, selectedFragments));
                 actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
             }
 
@@ -265,7 +258,6 @@ public class WorkspacePanel extends JPanel {
             actions.add(null); // Separator
 
             actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
-            actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, fragments));
             actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
 
             actions.add(null); // Separator
@@ -294,10 +286,8 @@ public class WorkspacePanel extends JPanel {
         VIEW_HISTORY("View History"),
         COMPRESS_HISTORY("Compress History"),
         EDIT_FILE("Edit File"),
-        READ_FILE("Read File"),
         SUMMARIZE_FILE("Summarize File"),
         EDIT_ALL_REFS("Edit all References"),
-        READ_ALL_REFS("Read all References"),
         SUMMARIZE_ALL_REFS("Summarize all References"),
         COPY("Copy"),
         DROP("Drop"),
@@ -362,7 +352,7 @@ public class WorkspacePanel extends JPanel {
 
         public AbstractAction createFileRefAction(
                 WorkspacePanel panel, TableUtils.FileReferenceList.FileReferenceData fileRef) {
-            var baseName = this == EDIT_FILE ? "Edit " : this == READ_FILE ? "Read " : "Summarize ";
+            var baseName = this == EDIT_FILE ? "Edit " : "Summarize ";
             return new AbstractAction(baseName + fileRef.getFullPath()) {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -370,7 +360,6 @@ public class WorkspacePanel extends JPanel {
                         var contextAction =
                                 switch (WorkspaceAction.this) {
                                     case EDIT_FILE -> ContextAction.EDIT;
-                                    case READ_FILE -> ContextAction.READ;
                                     case SUMMARIZE_FILE -> ContextAction.SUMMARIZE;
                                     default ->
                                         throw new UnsupportedOperationException(
@@ -424,7 +413,6 @@ public class WorkspacePanel extends JPanel {
                     var contextAction =
                             switch (WorkspaceAction.this) {
                                 case EDIT_ALL_REFS -> ContextAction.EDIT;
-                                case READ_ALL_REFS -> ContextAction.READ;
                                 case SUMMARIZE_ALL_REFS -> ContextAction.SUMMARIZE;
                                 case COPY -> ContextAction.COPY;
                                 case DROP -> ContextAction.DROP;
@@ -448,13 +436,10 @@ public class WorkspacePanel extends JPanel {
                                         "Cannot edit because selection includes untracked or external files.");
                             }
                         }
-                    } else if (WorkspaceAction.this == READ_ALL_REFS || WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
+                    } else if (WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
                         if (!panel.hasFiles(fragments)) {
                             setEnabled(false);
-                            var actionName = WorkspaceAction.this == READ_ALL_REFS ? "read" : "summarize";
-                            putValue(
-                                    Action.SHORT_DESCRIPTION,
-                                    "No files associated with the selection to " + actionName + ".");
+                            putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to summarize.");
                         }
                     }
                 }
@@ -1052,12 +1037,7 @@ public class WorkspacePanel extends JPanel {
                         case EDIT -> {
                             // Only allow editing tracked files; others are silently ignored by editFiles
                             contextManager.submitContextTask("Edit files (drop)", () -> {
-                                contextManager.editFiles(projectFiles);
-                            });
-                        }
-                        case READ -> {
-                            contextManager.submitContextTask("Read files (drop)", () -> {
-                                contextManager.addReadOnlyFiles(projectFiles);
+                                contextManager.addFiles(projectFiles);
                             });
                         }
                         case SUMMARIZE -> {
@@ -1067,7 +1047,7 @@ public class WorkspacePanel extends JPanel {
                             contextManager.submitContextTask("Summarize files (drop)", () -> {
                                 contextManager.addSummaries(
                                         new java.util.HashSet<ProjectFile>(projectFiles),
-                                        java.util.Collections.<CodeUnit>emptySet());
+                                        Collections.<CodeUnit>emptySet());
                             });
                         }
                         default -> {
@@ -1104,10 +1084,19 @@ public class WorkspacePanel extends JPanel {
 
         // Add options submenu
         JMenu addMenu = new JMenu("Add");
-        AddMenuFactory.populateAddMenu(addMenu, this);
+        // Removed populateAddMenu, as "Read Files" is being removed, and other "Add" actions are not in this scope.
+        // A placeholder or a direct button will be used for "Add" functionality as part of the overall UI redesign.
+        // For now, this menu will remain empty or handle only universal actions (Paste, Drop All).
+        // If there's no other menu items, we won't add it.
+        // This is temporarily removing AddMenuFactory.populateAddMenu to simplify the current refactor.
+        // A more robust "Add" mechanism will be introduced later.
+        // AddMenuFactory.populateAddMenu(addMenu, this); // Removed
 
-        tablePopupMenu.add(addMenu);
-        tablePopupMenu.addSeparator();
+        // If addMenu is empty, don't add it.
+        if (addMenu.getMenuComponentCount() > 0) {
+            tablePopupMenu.add(addMenu);
+            tablePopupMenu.addSeparator();
+        }
 
         JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
         dropAllMenuItem.setActionCommand(DROP_ALL_ACTION_CMD);
@@ -1155,9 +1144,7 @@ public class WorkspacePanel extends JPanel {
             addButton.setFocusable(false);
             addButton.setOpaque(false);
             addButton.addActionListener(e -> {
-                JPopupMenu popup = AddMenuFactory.buildAddPopup(WorkspacePanel.this);
-                chrome.themeManager.registerPopupMenu(popup);
-                popup.show(addButton, 0, addButton.getHeight());
+                attachContextViaDialog();
             });
 
             // Wrap the button so it vertically centers nicely with the labels
@@ -1370,7 +1357,7 @@ public class WorkspacePanel extends JPanel {
         StringBuilder fullText = new StringBuilder();
         for (var frag : allFragments) {
             String locText;
-            if (frag.isText() || frag.getType().isOutputFragment()) {
+            if (frag.isText() || frag.getType().isOutput()) {
                 var text = frag.text();
                 fullText.append(text).append("\n");
                 int loc = text.split("\\r?\\n", -1).length;
@@ -1382,7 +1369,7 @@ public class WorkspacePanel extends JPanel {
             var desc = frag.description();
 
             // Mark editable if it's in the editable streams
-            boolean isEditable = ctx.editableFiles().anyMatch(e -> e == frag);
+            boolean isEditable = ctx.fileFragments().anyMatch(e -> e == frag);
             if (isEditable) {
                 desc = "✏️ " + desc;
             }
@@ -1771,7 +1758,6 @@ public class WorkspacePanel extends JPanel {
             try {
                 switch (action) {
                     case EDIT -> doEditAction(selectedFragments);
-                    case READ -> doReadAction(selectedFragments);
                     case COPY -> doCopyAction(selectedFragments);
                     case DROP -> doDropAction(selectedFragments);
                     case SUMMARIZE -> doSummarizeAction(selectedFragments);
@@ -1788,58 +1774,11 @@ public class WorkspacePanel extends JPanel {
 
     /** Edit Action: Only allows selecting Project Files */
     private void doEditAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
-        var project = contextManager.getProject();
-        if (selectedFragments.isEmpty()) {
-            // Show dialog allowing ONLY file selection (no external)
-            var selection = showMultiSourceSelectionDialog(
-                    "Edit Files",
-                    false, // No external files for edit
-                    CompletableFuture.completedFuture(project.getRepo().getTrackedFiles()), // Only tracked files
-                    Set.of(SelectionMode.FILES)); // Only FILES mode
-
-            if (selection != null
-                    && selection.files() != null
-                    && !selection.files().isEmpty()) {
-                // We disallowed external files, so this cast should be safe
-                var projectFiles = toProjectFilesUnsafe(selection.files());
-                contextManager.editFiles(projectFiles);
-            }
-        } else {
-            // Edit files from selected fragments
-            var files = selectedFragments.stream()
-                    .flatMap(fragment -> fragment.files().stream())
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-            contextManager.editFiles(files);
-        }
-    }
-
-    /** Read Action: Allows selecting Files (internal/external) */
-    private void doReadAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
-        var project = contextManager.getProject();
-        if (selectedFragments.isEmpty()) {
-            // Show dialog allowing ONLY file selection (internal + external)
-            // TODO when we can extract a single class from a source file, enable classes as well
-            var selection = showMultiSourceSelectionDialog(
-                    "Add Read-Only Context",
-                    true, // Allow external files
-                    CompletableFuture.completedFuture(project.getAllFiles()), // All project files for completion
-                    Set.of(SelectionMode.FILES)); // FILES mode only
-
-            if (selection == null
-                    || selection.files() == null
-                    || selection.files().isEmpty()) {
-                return;
-            }
-
-            contextManager.addReadOnlyFiles(selection.files());
-        } else {
-            // Add files from selected fragments
-            var files = selectedFragments.stream()
-                    .flatMap(frag -> frag.files().stream())
-                    .collect(Collectors.toSet());
-            contextManager.addReadOnlyFiles(files);
-        }
+        assert !selectedFragments.isEmpty();
+        var files = selectedFragments.stream()
+                .flatMap(fragment -> fragment.files().stream())
+                .collect(Collectors.toSet());
+        contextManager.addFiles(files);
     }
 
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
@@ -2036,7 +1975,6 @@ public class WorkspacePanel extends JPanel {
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) {
-                chrome.systemOutput("No context to drop");
                 return;
             }
             contextManager.dropAll();
@@ -2045,7 +1983,6 @@ public class WorkspacePanel extends JPanel {
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
                     contextManager.clearHistory();
-                    chrome.systemOutput("Cleared task history");
                     break;
                 }
             }
@@ -2073,8 +2010,74 @@ public class WorkspacePanel extends JPanel {
         chrome.getContextManager().runTests(testFiles);
     }
 
+    public void attachContextViaDialog() {
+        attachContextViaDialog(false);
+    }
+
+    public void attachContextViaDialog(boolean defaultSummarizeChecked) {
+        assert SwingUtilities.isEventDispatchThread();
+        var dlg = new AttachContextDialog(chrome.getFrame(), contextManager, defaultSummarizeChecked);
+        dlg.setLocationRelativeTo(chrome.getFrame());
+        dlg.setVisible(true); // modal; blocks until closed and selection is set
+        var result = dlg.getSelection();
+
+        if (result == null) return;
+
+        var fragment = result.fragment();
+        boolean summarize = result.summarize();
+
+        contextManager.submitContextTask("Attach Context", () -> {
+            if (summarize) {
+                switch (fragment.getType()) {
+                    case PROJECT_PATH -> {
+                        var files = fragment.files();
+                        contextManager.addSummaries(files, Collections.emptySet());
+                    }
+                    case CODE -> {
+                        var cf = (ContextFragment.CodeFragment) fragment;
+                        var cu = cf.getCodeUnit();
+                        if (cu.isClass()) {
+                            contextManager.addSummaries(Collections.emptySet(), java.util.Set.of(cu));
+                        } else {
+                            var analyzer = contextManager
+                                    .getAnalyzerUninterrupted()
+                                    .as(SkeletonProvider.class)
+                                    .orElseThrow();
+                            analyzer.getSkeleton(cu.fqName()).ifPresent(st -> {
+                                var summary = new ContextFragment.StringFragment(
+                                        contextManager,
+                                        st,
+                                        "Summary of " + cu.fqName(),
+                                        cu.source().getSyntaxStyle());
+                                contextManager.addVirtualFragment(summary);
+                            });
+                        }
+                    }
+                    case CALL_GRAPH, USAGE -> {
+                        // For Usages+Summarize we already returned a CallGraphFragment. Any CALL_GRAPH/USAGE just add.
+                        if (fragment instanceof ContextFragment.VirtualFragment vf) {
+                            contextManager.addVirtualFragment(vf);
+                        }
+                    }
+                    default -> {
+                        throw new AssertionError();
+                    }
+                }
+                return;
+            }
+
+            // Non-summarize path: attach fragments directly
+            if (fragment instanceof ContextFragment.ProjectPathFragment ppf) {
+                contextManager.addPathFragments(java.util.List.of(ppf));
+            } else if (fragment instanceof ContextFragment.VirtualFragment vf) {
+                contextManager.addVirtualFragment(vf);
+            } else {
+                throw new AssertionError(fragment);
+            }
+        });
+    }
+
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {
-        var project = contextManager.getProject();
         if (!isAnalyzerReady()) {
             return;
         }
@@ -2082,37 +2085,9 @@ public class WorkspacePanel extends JPanel {
         HashSet<ProjectFile> selectedFiles = new HashSet<>();
         HashSet<CodeUnit> selectedClasses = new HashSet<>();
 
-        if (selectedFragments.isEmpty()) {
-            // Dialog case: select files OR classes
-            // Prepare project files for completion (can be done async)
-            // No need to filter here anymore, the dialog handles presentation.
-            var completableProjectFiles =
-                    contextManager.submitBackgroundTask("Gathering project files", project::getAllFiles);
-
-            // Show dialog allowing selection of files OR classes
-            var selection = showMultiSourceSelectionDialog(
-                    "Summarize Sources",
-                    false, // No external files for summarize
-                    completableProjectFiles, // All project files for completion
-                    Set.of(SelectionMode.FILES, SelectionMode.CLASSES)); // Both modes allowed
-
-            if (selection == null || selection.isEmpty()) {
-                chrome.systemOutput("No files or classes selected for summarization.");
-                return;
-            }
-
-            // Add selected files (must be ProjectFile for summarization)
-            if (selection.files() != null && !selection.files().isEmpty()) {
-                selectedFiles.addAll(toProjectFilesUnsafe(selection.files()));
-            }
-            // Add selected classes/symbols
-            if (selection.classes() != null && !selection.classes().isEmpty()) {
-                selectedClasses.addAll(selection.classes());
-            }
-        } else {
-            // Fragment case: Extract files and classes from selected fragments
-            selectedFragments.stream().flatMap(frag -> frag.files().stream()).forEach(selectedFiles::add);
-        }
+        // Fragment case: Extract files and classes from selected fragments
+        // FIXME: prefer classes where available (more selective)
+        selectedFragments.stream().flatMap(frag -> frag.files().stream()).forEach(selectedFiles::add);
 
         if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
             chrome.toolError("No files or classes identified for summarization in the selection.");
@@ -2124,52 +2099,6 @@ public class WorkspacePanel extends JPanel {
         if (!success) {
             chrome.toolError("No summarizable content found in the selected files or symbols.");
         }
-    }
-
-    /**
-     * Cast BrokkFile to ProjectFile. Will throw if ExternalFiles are present. Use with caution, only when external
-     * files are disallowed or handled separately.
-     */
-    private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        return files.stream()
-                .map(f -> {
-                    if (f instanceof ProjectFile pf) {
-                        return pf;
-                    }
-                    throw new ClassCastException(
-                            "Expected only ProjectFile but got " + f.getClass().getName());
-                })
-                .toList();
-    }
-
-    /**
-     * Show the multi-source selection dialog with configurable modes. This is called by the do*Action methods within
-     * this panel.
-     *
-     * @param title Dialog title.
-     * @param allowExternalFiles Allow selection of external files in the Files tab.
-     * @param projectCompletionsFuture Set of completable project files.
-     * @param modes Set of selection modes (FILES, CLASSES) to enable.
-     * @return The Selection record containing lists of files and/or classes, or null if cancelled.
-     */
-    private @Nullable MultiFileSelectionDialog.Selection showMultiSourceSelectionDialog(
-            String title,
-            boolean allowExternalFiles,
-            Future<Set<ProjectFile>> projectCompletionsFuture,
-            Set<SelectionMode> modes) {
-        var dialogRef = new AtomicReference<MultiFileSelectionDialog>();
-        SwingUtil.runOnEdt(() -> {
-            var dialog = new MultiFileSelectionDialog(
-                    chrome.getFrame(), contextManager, title, allowExternalFiles, projectCompletionsFuture, modes);
-            // Use dialog's preferred size after packing, potentially adjust width
-            dialog.setSize(Math.max(600, dialog.getWidth()), Math.max(550, dialog.getHeight()));
-            dialog.setLocationRelativeTo(chrome.getFrame());
-            dialog.setVisible(true);
-            dialogRef.set(dialog);
-        });
-
-        var dialog = castNonNull(dialogRef.get());
-        return dialog.isConfirmed() ? dialog.getSelection() : null;
     }
 
     private boolean isUrl(String text) {

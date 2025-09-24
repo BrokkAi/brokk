@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
+  import { envStore } from "../stores/envStore";
 
   type Suggestion = {
     icon: string;
@@ -29,6 +30,11 @@
       desc: "Attach from the file tree or accept blue-badge suggestions.",
     },
   ];
+
+  function formatLanguages(langs?: string | string[]): string | null {
+    if (!langs) return null;
+    return Array.isArray(langs) ? langs.join(", ") : langs;
+  }
 </script>
 
 <div class="empty-state">
@@ -47,6 +53,51 @@
       </div>
     {/each}
   </div>
+
+  <div class="env-section">
+    <div class="env-title">
+      <Icon icon="mdi:information-outline" class="env-icon" />
+      <span>Environment</span>
+    </div>
+
+    <div class="env-row">
+      <div class="env-label">Brokk version</div>
+      <div class="env-value">{$envStore.version ?? 'unknown'}</div>
+    </div>
+
+    <div class="env-row">
+      <div class="env-label">Project</div>
+      <div class="env-value">
+        {$envStore.projectName ?? 'unknown'}
+        {#if $envStore.nativeFileCount !== undefined || $envStore.totalFileCount !== undefined}
+          <span class="env-muted">
+            (
+            {#if $envStore.nativeFileCount !== undefined}
+              {$envStore.nativeFileCount} files{#if $envStore.totalFileCount !== undefined}, {/if}
+            {/if}
+            {#if $envStore.totalFileCount !== undefined}
+              {$envStore.totalFileCount} total files with deps
+            {/if}
+            )
+          </span>
+        {/if}
+      </div>
+    </div>
+
+    <div class="env-row">
+      <div class="env-label">Analyzer</div>
+      <div class="env-value">
+        {#if $envStore.analyzerReady}
+          <span class="env-badge ready">Ready</span>
+          {#if formatLanguages($envStore.analyzerLanguages)}
+            <span class="env-muted"> — {formatLanguages($envStore.analyzerLanguages)}</span>
+          {/if}
+        {:else}
+          <span class="env-badge progress">Building...</span>
+        {/if}
+      </div>
+    </div>
+  </div>
 </div>
 
 <style>
@@ -64,7 +115,7 @@
   .empty-icon {
     font-size: 4rem;
     margin-bottom: 1.5rem;
-    color: var(--border-color-hex);
+    color: var(--badge-foreground);
     font-family: monospace;
     font-weight: 300;
   }
@@ -123,5 +174,81 @@
     font-size: 0.9rem;
     color: var(--chat-text);
     opacity: 0.8;
+  }
+
+  /* Environment info styles */
+  .env-section {
+    margin-top: 2rem;
+    width: 100%;
+    max-width: 550px;
+    text-align: left;
+    background: var(--message-background);
+    border: 1px solid var(--badge-border);
+    border-radius: 0.8rem;
+    padding: 1rem 1.5rem;
+  }
+
+  .env-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--chat-text);
+    margin-bottom: 0.5rem;
+  }
+
+  .env-icon {
+    font-size: 1.25rem;
+    color: var(--chat-text);
+    opacity: 0.9;
+  }
+
+  .env-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.4rem 0;
+    border-top: 1px dashed var(--border-color-hex);
+  }
+
+  .env-row:first-of-type {
+    border-top: none;
+  }
+
+  .env-label {
+    font-size: 0.9rem;
+    opacity: 0.8;
+  }
+
+  .env-value {
+    font-size: 0.95rem;
+    color: var(--chat-text);
+  }
+
+  .env-muted {
+    opacity: 0.7;
+  }
+
+  .env-badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.5rem;
+    font-size: 0.85rem;
+    border: 1px solid var(--border-color-hex);
+    background: var(--chat-background);
+  }
+
+  .env-badge.ready {
+    color: var(--diff-add);
+    border-color: var(--diff-add);
+    background: var(--diff-add-bg);
+    font-weight: 600;
+  }
+
+  .env-badge.progress {
+    color: var(--git-changed);
+    border-color: var(--git-changed);
+    background: color-mix(in srgb, var(--git-changed) 15%, transparent);
+    font-weight: 600;
   }
 </style>
