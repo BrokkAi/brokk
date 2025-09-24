@@ -89,10 +89,10 @@
                 type="button"
                 class="delete-btn"
                 on:click|stopPropagation|preventDefault={handleDelete}
-                aria-label="Delete history thread"
-                title="Delete history thread"
+                aria-label="Delete history task"
+                title="Delete history task"
             >
-                <Icon icon="mdi:delete-outline" style="color: var(--chat-text);" />
+                <Icon icon="mdi:delete-outline" style="color: var(--diff-del);" />
             </button>
         {/if}
     </header>

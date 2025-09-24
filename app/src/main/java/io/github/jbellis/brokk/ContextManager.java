@@ -823,7 +823,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Push an updated context with the modified history and a "Dropped message" action
         pushContext(currentLiveCtx ->
                 currentLiveCtx.withCompressedHistory(newHistory)
-                              .withParsedOutput(null, "Dropped message")
+                              .withParsedOutput(null, "Deleted task from history")
         );
 
         io.systemOutput("Dropped history entry " + sequence);
