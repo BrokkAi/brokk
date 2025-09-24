@@ -239,7 +239,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
                             .join();
                 } catch (Exception ex) {
                     io.systemNotify(
-                            "Failed to apply the selected JDK to the Java analyzer. Please check the logs for details.",
+                            "to apply the selected JDK to the Java analyzer. Please check the logs for details.",
                             "JDK Update Failed",
                             JOptionPane.ERROR_MESSAGE);
                     logger.error("Failed updating workspace JDK to {}", jdkPath, ex);
