@@ -348,7 +348,7 @@ public class OpenProjectDialog extends JDialog {
         var controlsPanel = createGitHubControlsPanel(table, tableModel);
         panel.add(controlsPanel, BorderLayout.SOUTH);
 
-        loadRepositoriesAsync(tableModel);
+        loadRepositoriesAsync(tableModel, false);
 
         return panel;
     }
@@ -423,7 +423,7 @@ public class OpenProjectDialog extends JDialog {
         panel.add(protocolPanel, gbc);
 
         var refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(e -> loadRepositoriesAsync(tableModel));
+        refreshButton.addActionListener(e -> loadRepositoriesAsync(tableModel, true));
 
         var cloneButton = new JButton("Clone and Open");
         cloneButton.addActionListener(
@@ -536,7 +536,11 @@ public class OpenProjectDialog extends JDialog {
         return url;
     }
 
-    private void loadRepositoriesAsync(DefaultTableModel tableModel) {
+    private void loadRepositoriesAsync(DefaultTableModel tableModel, boolean forceRefresh) {
+        if (!forceRefresh && !loadedRepositories.isEmpty()) {
+            populateTable(tableModel, loadedRepositories);
+            return;
+        }
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
@@ -630,7 +634,13 @@ public class OpenProjectDialog extends JDialog {
 
         try {
             var github = new GitHubBuilder().withOAuthToken(token).build();
-            return github.getMyself().listRepositories().toList().stream()
+            var repositories = new java.util.ArrayList<org.kohsuke.github.GHRepository>();
+            int count = 0;
+            for (var repo : github.getMyself().listRepositories()) {
+                repositories.add(repo);
+                if (++count >= 100) break;
+            }
+            return repositories.stream()
                 .map(repo -> {
                     try {
                         return new GitHubRepoInfo(
@@ -647,9 +657,9 @@ public class OpenProjectDialog extends JDialog {
                         return null;
                     }
                 })
-                    .filter(java.util.Objects::nonNull)
-                    .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
-                    .collect(Collectors.toList());
+                .filter(java.util.Objects::nonNull)
+                .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
+                .toList();
         } catch (org.kohsuke.github.HttpException e) {
             if (e.getResponseCode() == 401) {
                 throw new IllegalStateException("GitHub token is invalid or expired");
