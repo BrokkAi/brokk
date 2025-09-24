@@ -40,6 +40,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     // Drawer state management
     private double lastDividerLocation = 0.5;
+    private boolean isCollapsed = false;
+    private boolean suppressPersist = false;
     private int originalDividerSize;
     private static final int MIN_OPEN_WIDTH = 200;
 
@@ -166,7 +168,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         // Persist split proportion when user moves the divider
         parentSplitPane.addPropertyChangeListener("dividerLocation", evt -> {
-            if (parentSplitPane.getDividerSize() > 0) {
+            if (parentSplitPane.getDividerSize() > 0 && !isCollapsed && !suppressPersist) {
                 persistProportionFromSplit();
             }
         });
@@ -273,6 +275,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     /** Shows the drawer by restoring the divider to its last known position. */
     public void showDrawer() {
         SwingUtilities.invokeLater(() -> {
+            isCollapsed = false;
             // Restore original divider size
             if (originalDividerSize > 0) {
                 parentSplitPane.setDividerSize(originalDividerSize);
@@ -292,6 +295,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             int dividerSize = parentSplitPane.getDividerSize();
             double locProp = lastDividerLocation;
 
+            suppressPersist = true;
             if (totalWidth > 0 && Math.abs(locProp - 0.5) < 1e-6) {
                 int half = (totalWidth - dividerSize) / 2;
                 parentSplitPane.setDividerLocation(half);
@@ -302,6 +306,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     parentSplitPane.setDividerLocation(0.5);
                 }
             }
+            suppressPersist = false;
 
             // Persist state after showing
             persistOpen(true);
@@ -312,13 +317,16 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     /** Collapses the drawer if no tools are active, showing only the tab strip. */
     public void collapseIfEmpty() {
         SwingUtilities.invokeLater(() -> {
+            isCollapsed = true;
             if (drawerContentPanel.getComponentCount() == 0) {
                 try {
                     // Remember last divider location only if not already collapsed
-                    int current = parentSplitPane.getDividerLocation();
                     int total = parentSplitPane.getWidth();
+                    int dividerSize = parentSplitPane.getDividerSize();
+                    int current = parentSplitPane.getDividerLocation();
                     if (total > 0) {
-                        double currentProp = (double) current / (double) total;
+                        int effective = Math.max(1, total - dividerSize);
+                        double currentProp = Math.max(0.0, Math.min(1.0, (double) current / (double) effective));
                         if (currentProp > 0.0 && currentProp < 0.95) {
                             lastDividerLocation = currentProp;
                         }
@@ -328,12 +336,17 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     int tabStripWidth = buttonBar.getPreferredSize().width;
                     final int MIN_COLLAPSE_WIDTH = tabStripWidth;
 
-                    int totalWidth = parentSplitPane.getWidth();
+                    int totalWidth = total;
                     if (totalWidth <= 0) {
                         // Not laid out yet; try again on the next event cycle
                         SwingUtilities.invokeLater(this::collapseIfEmpty);
                         return;
                     }
+
+                    // Prevent persisting while programmatically collapsing
+                    suppressPersist = true;
+                    // Hide the divider before moving it so we don't persist the collapsed position
+                    parentSplitPane.setDividerSize(0);
 
                     // Set resize weight so left panel gets all extra space
                     parentSplitPane.setResizeWeight(1.0);
@@ -345,15 +358,12 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     int dividerLocation = totalWidth - MIN_COLLAPSE_WIDTH;
                     parentSplitPane.setDividerLocation(dividerLocation);
 
-                    // Hide the divider
-                    parentSplitPane.setDividerSize(0);
-
                     // Force layout update
                     parentSplitPane.revalidate();
                     parentSplitPane.repaint();
+                    suppressPersist = false;
 
-                    // Persist collapsed state and last known proportion
-                    persistProportion(lastDividerLocation);
+                    // Persist collapsed state
                     persistOpen(false);
                 } catch (Exception ex) {
                     logger.debug("Error collapsing drawer", ex);
@@ -364,6 +374,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     /** Opens the drawer synchronously before first layout using a saved proportion. */
     public void openInitially(double proportion) {
+        isCollapsed = false;
         // Ensure the TerminalPanel exists
         if (activeTerminal == null) {
             try {
@@ -394,8 +405,10 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
 
         // Apply saved proportion if valid, else fall back to 0.5
-        double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
+        double loc = (proportion > 0.0 && proportion < 0.90) ? proportion : 0.5;
+        suppressPersist = true;
         parentSplitPane.setDividerLocation(loc);
+        suppressPersist = false;
 
         // Reflect visible content
         terminalToggle.setSelected(true);
@@ -470,7 +483,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                             ? ap.getTerminalDrawerProportion()
                             : GlobalUiSettings.getTerminalDrawerProportion())
                     : GlobalUiSettings.getTerminalDrawerProportion();
-            if (!(prop > 0.0 && prop < 1.0)) {
+            if (!(prop > 0.0 && prop < 0.90)) {
                 prop = 0.5;
             }
 
@@ -491,14 +504,17 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     private void applyProportion(double proportion) {
+        isCollapsed = false;
         if (originalDividerSize > 0) {
             parentSplitPane.setDividerSize(originalDividerSize);
         }
         parentSplitPane.setResizeWeight(0.5);
         setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
 
-        double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
+        double loc = (proportion > 0.0 && proportion < 0.90) ? proportion : 0.5;
+        suppressPersist = true;
         parentSplitPane.setDividerLocation(loc);
+        suppressPersist = false;
         lastDividerLocation = loc;
 
         parentSplitPane.revalidate();
@@ -530,18 +546,25 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     private void persistProportionFromSplit() {
+        if (isCollapsed || suppressPersist) return;
         int total = parentSplitPane.getWidth();
         int dividerSize = parentSplitPane.getDividerSize();
         if (total <= 0) return;
         int effective = Math.max(1, total - dividerSize);
+        // If the drawer is effectively collapsed (only button bar visible), skip persisting
+        int barW = buttonBar.getPreferredSize().width;
+        int drawerW = getWidth();
+        if (drawerW <= barW + 2) return;
         int locPx = parentSplitPane.getDividerLocation();
         double prop = Math.max(0.0, Math.min(1.0, (double) locPx / (double) effective));
         persistProportion(prop);
     }
 
     private void persistProportion(double prop) {
+        if (isCollapsed || suppressPersist) return;
         double clamped = (prop > 0.0 && prop < 1.0) ? Math.max(0.05, Math.min(0.95, prop)) : -1.0;
-        if (!(clamped > 0.0 && clamped < 1.0)) return;
+        // Treat near-collapsed positions as "collapsed" and do not overwrite the last open proportion
+        if (!(clamped > 0.0 && clamped < 1.0) || clamped >= 0.90) return;
         lastDividerLocation = clamped;
 
         var ap = getCurrentProject();
