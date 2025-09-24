@@ -41,6 +41,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
   // Drawer state management
     private double lastDividerLocation = 0.5;
     private int originalDividerSize;
+    private static final int MIN_OPEN_WIDTH = 200;
 
     // Dependencies
     private final IConsoleIO console;
@@ -280,8 +281,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             // Reset resize weight to default
             parentSplitPane.setResizeWeight(0.5);
 
-            // Remove minimum size constraint from this drawer panel
-            setMinimumSize(null);
+            // Enforce a minimum open width for the drawer
+            setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
 
             // Use pixel-precise divider positioning for the initial 50/50 case to avoid rounding bias
             parentSplitPane.revalidate();
@@ -390,7 +391,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             parentSplitPane.setDividerSize(originalDividerSize);
         }
         parentSplitPane.setResizeWeight(0.5);
-        setMinimumSize(null);
+        setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
 
         // Apply saved proportion if valid, else fall back to 0.5
         double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
@@ -496,7 +497,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             parentSplitPane.setDividerSize(originalDividerSize);
         }
         parentSplitPane.setResizeWeight(0.5);
-        setMinimumSize(null);
+        setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
 
         double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
         parentSplitPane.setDividerLocation(loc);
