@@ -2112,7 +2112,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setEnabled(true);
             actionButton.setToolTipText("Cancel the current operation");
-            actionButton.setBackground(secondaryActionButtonBg);
+            actionButton.setBackground(Color.RED);
         } else {
             // If there is no running action, keep the action button enabled so the user can start an action.
             actionButton.setEnabled(true);
@@ -2236,7 +2236,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
             actionButton.setEnabled(true);
-            actionButton.setBackground(defaultActionButtonBg);
+            actionButton.setBackground(Color.RED);
         });
         Thread watcher = new Thread(
                 () -> {
