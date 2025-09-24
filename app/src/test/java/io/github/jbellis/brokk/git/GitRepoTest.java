@@ -1338,4 +1338,171 @@ public class GitRepoTest {
         assertTrue(unstagedStatus.getMissing().isEmpty(), "No missing files");
         assertTrue(unstagedStatus.getUntracked().isEmpty(), "No untracked files");
     }
+
+    // --- Tests for branchNeedsPush and helper methods ---
+
+    private void simulateRemoteBranch(String branchName, String commitSha) throws Exception {
+        // Simulate existence of a remote branch by creating refs/remotes/origin/branchName
+        var remoteRefPath =
+                projectRoot.resolve(".git").resolve("refs").resolve("remotes").resolve("origin");
+        Files.createDirectories(remoteRefPath);
+        Files.writeString(remoteRefPath.resolve(branchName), commitSha + "\n");
+    }
+
+    @Test
+    void testBranchNeedsPush_NonLocalBranch() throws Exception {
+        // Test with a branch that doesn't exist locally
+        assertFalse(repo.branchNeedsPush("nonexistent-branch"), "Non-local branches should not need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_NoRemoteBranchExists() throws Exception {
+        // Create a local branch with commits but no remote
+        String branchName = "local-only-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("local-file.txt", "local content", "Local commit");
+
+        assertTrue(repo.branchNeedsPush(branchName), "Local branch without remote should need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_RemoteBranchExistsAndUpToDate() throws Exception {
+        // Create a local branch with a commit
+        String branchName = "feature-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("test-file.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate that remote branch exists and is up-to-date
+        simulateRemoteBranch(branchName, commitSha);
+
+        assertFalse(repo.branchNeedsPush(branchName), "Branch up-to-date with remote should not need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_LocalAheadOfRemote() throws Exception {
+        // Create a local branch with initial commit
+        String branchName = "ahead-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("initial-file.txt", "initial content", "Initial commit");
+        String initialCommitSha = repo.getCurrentCommitId();
+
+        // Simulate remote exists at initial commit
+        simulateRemoteBranch(branchName, initialCommitSha);
+
+        // Add another local commit (making local ahead)
+        createCommit("new-file.txt", "new content", "Ahead commit");
+
+        assertTrue(repo.branchNeedsPush(branchName), "Local branch ahead of remote should need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_ReproduceOriginalIssue() throws Exception {
+        // This reproduces the original issue scenario:
+        // 1. Create branch and commit
+        // 2. Push without upstream tracking (simulate by creating remote ref without config)
+        // 3. Verify branchNeedsPush returns false (not true as in the bug)
+
+        String branchName = "test-issue-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("issue-test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate the branch exists remotely (as if pushed without -u)
+        simulateRemoteBranch(branchName, commitSha);
+
+        // The fix should make this return false (no push needed)
+        assertFalse(
+                repo.branchNeedsPush(branchName),
+                "Branch that exists remotely and is up-to-date should not need push, "
+                        + "even without upstream tracking");
+    }
+
+    @Test
+    void testRemoteTrackingBranchExists_BranchExists() throws Exception {
+        String branchName = "existing-remote";
+        String commitSha = repo.getCurrentCommitId();
+        simulateRemoteBranch(branchName, commitSha);
+
+        // Use reflection to access private method for testing
+        var method = GitRepo.class.getDeclaredMethod("remoteTrackingBranchExists", String.class);
+        method.setAccessible(true);
+        boolean exists = (Boolean) method.invoke(repo, branchName);
+
+        assertTrue(exists, "Remote tracking branch should exist");
+    }
+
+    @Test
+    void testRemoteTrackingBranchExists_BranchDoesNotExist() throws Exception {
+        // Use reflection to access private method for testing
+        var method = GitRepo.class.getDeclaredMethod("remoteTrackingBranchExists", String.class);
+        method.setAccessible(true);
+        boolean exists = (Boolean) method.invoke(repo, "nonexistent-remote");
+
+        assertFalse(exists, "Nonexistent remote tracking branch should not exist");
+    }
+
+    @Test
+    void testGetUnpushedCommitIdsToRemote_NoRemoteBranch() throws Exception {
+        String branchName = "local-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("local.txt", "content", "Local commit");
+
+        // Use reflection to access private method for testing
+        var method = GitRepo.class.getDeclaredMethod("getUnpushedCommitIdsToRemote", String.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var unpushedCommits = (java.util.Set<String>) method.invoke(repo, branchName);
+
+        assertTrue(unpushedCommits.isEmpty(), "Should return empty set when no remote branch exists");
+    }
+
+    @Test
+    void testGetUnpushedCommitIdsToRemote_LocalAhead() throws Exception {
+        String branchName = "ahead-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+
+        // Create initial commit and simulate remote
+        createCommit("base.txt", "base", "Base commit");
+        String baseCommit = repo.getCurrentCommitId();
+        simulateRemoteBranch(branchName, baseCommit);
+
+        // Add local commits ahead of remote
+        createCommit("ahead1.txt", "ahead1", "Ahead commit 1");
+        createCommit("ahead2.txt", "ahead2", "Ahead commit 2");
+
+        // Use reflection to access private method for testing
+        var method = GitRepo.class.getDeclaredMethod("getUnpushedCommitIdsToRemote", String.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var unpushedCommits = (java.util.Set<String>) method.invoke(repo, branchName);
+
+        assertEquals(2, unpushedCommits.size(), "Should find 2 unpushed commits ahead of remote");
+    }
+
+    @Test
+    void testGetUnpushedCommitIdsToRemote_UpToDate() throws Exception {
+        String branchName = "uptodate-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("sync.txt", "synced", "Synced commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate remote is at the same commit
+        simulateRemoteBranch(branchName, commitSha);
+
+        // Use reflection to access private method for testing
+        var method = GitRepo.class.getDeclaredMethod("getUnpushedCommitIdsToRemote", String.class);
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var unpushedCommits = (java.util.Set<String>) method.invoke(repo, branchName);
+
+        assertTrue(unpushedCommits.isEmpty(), "Should return empty set when local and remote are in sync");
+    }
 }

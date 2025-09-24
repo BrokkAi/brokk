@@ -823,6 +823,45 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
+    /** Check if a remote tracking branch exists for the given local branch name */
+    private boolean remoteTrackingBranchExists(String branchName) {
+        try {
+            var remoteRef = "refs/remotes/origin/" + branchName;
+            var ref = repository.findRef(remoteRef);
+            return ref != null;
+        } catch (IOException e) {
+            logger.debug("Error checking remote branch existence for {}: {}", branchName, e.getMessage());
+            return false;
+        }
+    }
+
+    /** Get unpushed commits by directly comparing to remote branch (doesn't require upstream config) */
+    private Set<String> getUnpushedCommitIdsToRemote(String branchName) throws GitAPIException {
+        var unpushedCommits = new HashSet<String>();
+
+        if (!remoteTrackingBranchExists(branchName)) {
+            return unpushedCommits; // No remote branch to compare against
+        }
+
+        var branchRef = "refs/heads/" + branchName;
+        var remoteRef = "refs/remotes/origin/" + branchName;
+
+        var localObjectId = resolve(branchRef);
+        var remoteObjectId = resolve(remoteRef);
+
+        try (var revWalk = new RevWalk(repository)) {
+            try {
+                revWalk.markStart(revWalk.parseCommit(localObjectId));
+                revWalk.markUninteresting(revWalk.parseCommit(remoteObjectId));
+            } catch (IOException e) {
+                throw new GitWrappedIOException(e);
+            }
+
+            revWalk.forEach(commit -> unpushedCommits.add(commit.getId().getName()));
+        }
+        return unpushedCommits;
+    }
+
     /** List all local branches */
     public List<String> listLocalBranches() throws GitAPIException {
         var branches = new ArrayList<String>();
@@ -2745,15 +2784,21 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * True when the local branch has no upstream or is ahead of its upstream. Returns false if the provided branch name
-     * is not a local branch.
+     * True when the remote branch doesn't exist or the local branch is ahead of its remote. Returns false if the
+     * provided branch name is not a local branch.
      */
     public boolean branchNeedsPush(String branch) throws GitAPIException {
         if (!listLocalBranches().contains(branch)) {
             return false; // Not a local branch, so it cannot need pushing
         }
-        return !hasUpstreamBranch(branch) // never pushed → no upstream
-                || !getUnpushedCommitIds(branch).isEmpty(); // ahead of remote
+
+        // Check if remote branch exists
+        if (!remoteTrackingBranchExists(branch)) {
+            return true; // Remote branch doesn't exist, so needs push
+        }
+
+        // Remote branch exists, check if local has unpushed commits
+        return !getUnpushedCommitIdsToRemote(branch).isEmpty();
     }
 
     /**
