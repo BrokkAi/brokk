@@ -1,0 +1,238 @@
+package io.github.jbellis.brokk.difftool.ui.unified;
+
+import com.github.difflib.DiffUtils;
+import com.github.difflib.UnifiedDiffUtils;
+import com.github.difflib.patch.Patch;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+/** Generates unified diff documents from buffer sources with support for both standard and full context modes. */
+public class UnifiedDiffGenerator {
+    private static final Logger logger = LogManager.getLogger(UnifiedDiffGenerator.class);
+    private static final int STANDARD_CONTEXT_LINES = 3;
+
+    /**
+     * Generate a unified diff document from two buffer sources.
+     *
+     * @param leftSource Source for the left side (original)
+     * @param rightSource Source for the right side (revised)
+     * @param contextMode Context mode to use
+     * @return Generated UnifiedDiffDocument
+     */
+    public static UnifiedDiffDocument generateUnifiedDiff(
+            BufferSource leftSource, BufferSource rightSource, UnifiedDiffDocument.ContextMode contextMode) {
+
+        try {
+            var leftContent = getContentFromSource(leftSource);
+            var rightContent = getContentFromSource(rightSource);
+
+            var leftLines = splitIntoLines(leftContent);
+            var rightLines = splitIntoLines(rightContent);
+
+            var patch = DiffUtils.diff(leftLines, rightLines);
+
+            List<UnifiedDiffDocument.DiffLine> diffLines;
+            if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
+                diffLines = generateFullContextDiff(leftLines, rightLines, patch);
+            } else {
+                diffLines = generateStandardContextDiff(leftLines, rightLines, patch, leftSource, rightSource);
+            }
+
+            return new UnifiedDiffDocument(diffLines, contextMode);
+
+        } catch (Exception e) {
+            logger.error("Failed to generate unified diff for {} vs {}", leftSource.title(), rightSource.title(), e);
+            throw new RuntimeException("Failed to generate unified diff", e);
+        }
+    }
+
+    /** Generate standard context diff using difflib's UnifiedDiffUtils. */
+    private static List<UnifiedDiffDocument.DiffLine> generateStandardContextDiff(
+            List<String> leftLines,
+            @SuppressWarnings("unused") List<String> rightLines,
+            Patch<String> patch,
+            BufferSource leftSource,
+            BufferSource rightSource) {
+
+        // Use UnifiedDiffUtils to generate standard unified diff
+        var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(
+                leftSource.title(), rightSource.title(), leftLines, patch, STANDARD_CONTEXT_LINES);
+
+        var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
+        int leftLineNum = 0;
+        int rightLineNum = 0;
+
+        for (var line : unifiedLines) {
+            if (line.startsWith("---") || line.startsWith("+++")) {
+                // Skip file headers
+            } else if (line.startsWith("@@")) {
+                // Hunk header - extract line numbers
+                var lineNumbers = parseHunkHeader(line);
+                leftLineNum = lineNumbers[0];
+                rightLineNum = lineNumbers[1];
+
+                diffLines.add(
+                        new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, line, -1, -1, false));
+            } else if (line.startsWith("+")) {
+                // Addition - increment right line number
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.ADDITION, line, -1, rightLineNum, true));
+                rightLineNum++;
+            } else if (line.startsWith("-")) {
+                // Deletion - increment left line number
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.DELETION, line, leftLineNum, -1, false));
+                leftLineNum++;
+            } else if (line.startsWith(" ")) {
+                // Context - increment both line numbers
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.CONTEXT, line, leftLineNum, rightLineNum, true));
+                leftLineNum++;
+                rightLineNum++;
+            }
+        }
+
+        return diffLines;
+    }
+
+    /** Generate full context diff showing all lines between changes. */
+    private static List<UnifiedDiffDocument.DiffLine> generateFullContextDiff(
+            List<String> leftLines, List<String> rightLines, Patch<String> patch) {
+
+        var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
+        var deltas = patch.getDeltas();
+
+        int leftIndex = 0;
+        int rightIndex = 0;
+
+        for (var delta : deltas) {
+            // Add context lines before this delta
+            while (leftIndex < delta.getSource().getPosition()
+                    || rightIndex < delta.getTarget().getPosition()) {
+
+                if (leftIndex < leftLines.size()
+                        && rightIndex < rightLines.size()
+                        && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+                    // Context line - same in both files
+                    var line = " " + leftLines.get(leftIndex);
+                    diffLines.add(new UnifiedDiffDocument.DiffLine(
+                            UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                    leftIndex++;
+                    rightIndex++;
+                } else {
+                    // This shouldn't happen in a proper diff, but handle gracefully
+                    break;
+                }
+            }
+
+            // Add hunk header before delta
+            var hunkHeader = String.format(
+                    "@@ -%d,%d +%d,%d @@",
+                    delta.getSource().getPosition() + 1,
+                    delta.getSource().size(),
+                    delta.getTarget().getPosition() + 1,
+                    delta.getTarget().size());
+            diffLines.add(
+                    new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, hunkHeader, -1, -1, false));
+
+            // Add deleted lines
+            for (var deletedLine : delta.getSource().getLines()) {
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.DELETION, "-" + deletedLine, leftIndex + 1, -1, false));
+                leftIndex++;
+            }
+
+            // Add added lines
+            for (var addedLine : delta.getTarget().getLines()) {
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.ADDITION, "+" + addedLine, -1, rightIndex + 1, true));
+                rightIndex++;
+            }
+        }
+
+        // Add remaining context lines after all deltas
+        while (leftIndex < leftLines.size()
+                && rightIndex < rightLines.size()
+                && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+            var line = " " + leftLines.get(leftIndex);
+            diffLines.add(new UnifiedDiffDocument.DiffLine(
+                    UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+            leftIndex++;
+            rightIndex++;
+        }
+
+        return diffLines;
+    }
+
+    /**
+     * Parse hunk header to extract starting line numbers. Format: @@ -start1,count1 +start2,count2 @@
+     *
+     * @param hunkHeader The hunk header line
+     * @return Array of [leftStart, rightStart] (1-based)
+     */
+    private static int[] parseHunkHeader(String hunkHeader) {
+        try {
+            // Extract the part between @@ and @@
+            var headerContent = hunkHeader.substring(3, hunkHeader.lastIndexOf(" @@"));
+            var parts = headerContent.split(" ", -1);
+
+            // Parse left side (-start,count)
+            var leftPart = parts[0].substring(1); // Remove '-'
+            var leftStart =
+                    leftPart.contains(",") ? Integer.parseInt(leftPart.split(",", -1)[0]) : Integer.parseInt(leftPart);
+
+            // Parse right side (+start,count)
+            var rightPart = parts[1].substring(1); // Remove '+'
+            var rightStart = rightPart.contains(",")
+                    ? Integer.parseInt(rightPart.split(",", -1)[0])
+                    : Integer.parseInt(rightPart);
+
+            return new int[] {leftStart, rightStart};
+        } catch (Exception e) {
+            logger.warn("Failed to parse hunk header: {}", hunkHeader, e);
+            return new int[] {1, 1}; // Default fallback
+        }
+    }
+
+    /** Get content string from BufferSource, handling both FileSource and StringSource. */
+    private static String getContentFromSource(BufferSource source) throws Exception {
+        if (source instanceof BufferSource.StringSource stringSource) {
+            return stringSource.content();
+        } else if (source instanceof BufferSource.FileSource fileSource) {
+            var file = fileSource.file();
+            if (!file.exists() || !file.isFile()) {
+                return "";
+            }
+            return java.nio.file.Files.readString(file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+        } else {
+            throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
+        }
+    }
+
+    /** Split content into lines, handling different line endings. */
+    private static List<String> splitIntoLines(String content) {
+        if (content == null || content.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // Split on any line ending, preserving the original line content
+        return Arrays.asList(content.split("\\R"));
+    }
+
+    /** Create a simple unified diff for testing purposes. */
+    public static UnifiedDiffDocument createTestDiff() {
+        var diffLines = List.of(
+                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, "@@ -1,4 +1,4 @@", -1, -1, false),
+                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 1", 1, 1, true),
+                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.DELETION, "-Old Line 2", 2, -1, false),
+                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.ADDITION, "+New Line 2", -1, 2, true),
+                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 3", 3, 3, true),
+                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 4", 4, 4, true));
+
+        return new UnifiedDiffDocument(diffLines, UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
+    }
+}
