@@ -5,6 +5,8 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Component;
@@ -92,6 +94,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         terminalToggle.addActionListener(e -> {
             if (terminalToggle.isSelected()) {
                 tasksToggle.setSelected(false);
+                persistLastTab("terminal");
                 // Show terminal
                 drawerContentPanel.removeAll();
                 if (activeTerminal == null) {
@@ -130,6 +133,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         tasksToggle.addActionListener(e -> {
             if (tasksToggle.isSelected()) {
                 terminalToggle.setSelected(false);
+                persistLastTab("tasks");
                 // Show task list
                 drawerContentPanel.removeAll();
                 openTaskList();
@@ -157,8 +161,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         add(buttonBar, BorderLayout.EAST);
 
-        // Ensure drawer is initially collapsed (hides the split divider and reserves space for the button bar).
-        SwingUtilities.invokeLater(this::collapseIfEmpty);
+        // Persist split proportion when user moves the divider
+        parentSplitPane.addPropertyChangeListener("dividerLocation", evt -> {
+            if (parentSplitPane.getDividerSize() > 0) {
+                persistProportionFromSplit();
+            }
+        });
+
+        // Restore drawer state (per-project or global), or collapse if none is configured
+        SwingUtilities.invokeLater(this::restoreInitialState);
     }
 
 
@@ -290,6 +301,10 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     parentSplitPane.setDividerLocation(0.5);
                 }
             }
+
+            // Persist state after showing
+            persistOpen(true);
+            persistProportionFromSplit();
         });
     }
 
@@ -335,6 +350,10 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     // Force layout update
                     parentSplitPane.revalidate();
                     parentSplitPane.repaint();
+
+                    // Persist collapsed state and last known proportion
+                    persistProportion(lastDividerLocation);
+                    persistOpen(false);
                 } catch (Exception ex) {
                     logger.debug("Error collapsing drawer", ex);
                 }
@@ -381,6 +400,12 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         terminalToggle.setSelected(true);
         tasksToggle.setSelected(false);
 
+        // Update internal and persist
+        lastDividerLocation = loc;
+        persistLastTab("terminal");
+        persistOpen(true);
+        persistProportion(loc);
+
         revalidate();
         repaint();
     }
@@ -401,6 +426,132 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     logger.debug("Failed to open terminal and paste text", ex);
                     return null;
                 });
+    }
+
+    // --- Persistence helpers and restore ---
+
+    private boolean isUsingPerProjectPersistence() {
+        return GlobalUiSettings.isPersistPerProjectBounds() && getCurrentProject() != null;
+    }
+
+    private @Nullable AbstractProject getCurrentProject() {
+        if (console instanceof Chrome c) {
+            AbstractProject proj = c.getProject();
+            if (proj != null) {
+                return proj;
+            }
+        }
+        return null;
+    }
+
+    private void restoreInitialState() {
+        try {
+            var usePerProject = isUsingPerProjectPersistence();
+            var ap = getCurrentProject();
+
+            // Last tab
+            var lastTab = usePerProject && ap != null
+                    ? ap.getTerminalDrawerLastTab()
+                    : null;
+            if (lastTab == null) {
+                lastTab = GlobalUiSettings.getTerminalDrawerLastTab();
+            }
+            if (lastTab == null) {
+                lastTab = "terminal";
+            }
+
+            // Open flag
+            boolean open = (usePerProject && ap != null)
+                    ? Boolean.TRUE.equals(ap.getTerminalDrawerOpen()) || GlobalUiSettings.isTerminalDrawerOpen()
+                    : GlobalUiSettings.isTerminalDrawerOpen();
+
+            // Proportion
+            double prop = usePerProject && ap != null
+                    ? (ap.getTerminalDrawerProportion() > 0.0
+                            ? ap.getTerminalDrawerProportion()
+                            : GlobalUiSettings.getTerminalDrawerProportion())
+                    : GlobalUiSettings.getTerminalDrawerProportion();
+            if (!(prop > 0.0 && prop < 1.0)) {
+                prop = 0.5;
+            }
+
+            if (open) {
+                if ("tasks".equalsIgnoreCase(lastTab)) {
+                    openTaskList();
+                    applyProportion(prop);
+                } else {
+                    openInitially(prop);
+                }
+            } else {
+                collapseIfEmpty();
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to restore terminal drawer state", e);
+            collapseIfEmpty();
+        }
+    }
+
+    private void applyProportion(double proportion) {
+        if (originalDividerSize > 0) {
+            parentSplitPane.setDividerSize(originalDividerSize);
+        }
+        parentSplitPane.setResizeWeight(0.5);
+        setMinimumSize(null);
+
+        double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
+        parentSplitPane.setDividerLocation(loc);
+        lastDividerLocation = loc;
+
+        parentSplitPane.revalidate();
+        parentSplitPane.repaint();
+
+        // Persist immediately
+        persistProportion(loc);
+        persistOpen(true);
+    }
+
+    private void persistLastTab(String tab) {
+        var ap = getCurrentProject();
+        if (isUsingPerProjectPersistence() && ap != null) {
+            ap.setTerminalDrawerLastTab(tab);
+            GlobalUiSettings.saveTerminalDrawerLastTab(tab);
+        } else {
+            GlobalUiSettings.saveTerminalDrawerLastTab(tab);
+        }
+    }
+
+    private void persistOpen(boolean open) {
+        var ap = getCurrentProject();
+        if (isUsingPerProjectPersistence() && ap != null) {
+            ap.setTerminalDrawerOpen(open);
+            GlobalUiSettings.saveTerminalDrawerOpen(open);
+        } else {
+            GlobalUiSettings.saveTerminalDrawerOpen(open);
+        }
+    }
+
+    private void persistProportionFromSplit() {
+        int total = parentSplitPane.getWidth();
+        int dividerSize = parentSplitPane.getDividerSize();
+        if (total <= 0) return;
+        int effective = Math.max(1, total - dividerSize);
+        int locPx = parentSplitPane.getDividerLocation();
+        double prop = Math.max(0.0, Math.min(1.0, (double) locPx / (double) effective));
+        persistProportion(prop);
+    }
+
+    private void persistProportion(double prop) {
+        double clamped = (prop > 0.0 && prop < 1.0) ? Math.max(0.05, Math.min(0.95, prop)) : -1.0;
+        if (!(clamped > 0.0 && clamped < 1.0)) return;
+        lastDividerLocation = clamped;
+
+        var ap = getCurrentProject();
+        if (isUsingPerProjectPersistence() && ap != null) {
+            ap.setTerminalDrawerProportion(clamped);
+            GlobalUiSettings.saveTerminalDrawerProportion(clamped);
+        } else {
+            GlobalUiSettings.saveTerminalDrawerProportion(clamped);
+        }
     }
 
     @Override
