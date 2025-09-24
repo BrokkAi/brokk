@@ -2,14 +2,12 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.BorderLayout;
 import java.awt.Frame;
 import java.awt.GridLayout;
-import java.awt.event.ActionEvent;
-import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
-import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
@@ -58,18 +56,12 @@ public final class DropActionDialog extends JDialog {
         mainPanel.add(radiosPanel, BorderLayout.CENTER);
 
         var buttons = new JPanel();
-        var ok = new JButton(new AbstractAction("OK") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                dispose();
-            }
-        });
-        var cancel = new JButton(new AbstractAction("Cancel") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                selected = null;
-                dispose();
-            }
+        var ok = new MaterialButton("OK");
+        ok.addActionListener(e -> dispose());
+        var cancel = new MaterialButton("Cancel");
+        cancel.addActionListener(e -> {
+            selected = null;
+            dispose();
         });
         buttons.add(ok);
         buttons.add(cancel);

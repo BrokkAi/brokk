@@ -860,10 +860,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Buttons
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var addHttpButton = new JButton("Add HTTP...");
-        var addStdioButton = new JButton("Add Stdio...");
-        var editButton = new JButton("Edit...");
-        var removeButton = new JButton("Remove");
+        var addHttpButton = new MaterialButton("Add HTTP...");
+        var addStdioButton = new MaterialButton("Add Stdio...");
+        var editButton = new MaterialButton("Edit...");
+        var removeButton = new MaterialButton("Remove");
 
         // Enable and wire up action listeners for MCP server management.
         addHttpButton.setEnabled(true);
@@ -1398,8 +1398,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var argsScroll = new JScrollPane(argsTable);
         argsScroll.setPreferredSize(new Dimension(400, 120));
         var argsButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        var addArgButton = new JButton("Add");
-        var removeArgButton = new JButton("Remove");
+        var addArgButton = new MaterialButton("Add");
+        var removeArgButton = new MaterialButton("Remove");
         argsButtons.add(addArgButton);
         argsButtons.add(removeArgButton);
         addArgButton.addActionListener(e -> {
@@ -1426,8 +1426,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var envScroll = new JScrollPane(envTable);
         envScroll.setPreferredSize(new Dimension(400, 150));
         var envButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        var addEnvButton = new JButton("Add");
-        var removeEnvButton = new JButton("Remove");
+        var addEnvButton = new MaterialButton("Add");
+        var removeEnvButton = new MaterialButton("Remove");
         envButtons.add(addEnvButton);
         envButtons.add(removeEnvButton);
         addEnvButton.addActionListener(e -> {
@@ -1451,7 +1451,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         });
 
         // Fetch Tools button
-        var fetchButton = new JButton("Fetch Tools");
+        var fetchButton = new MaterialButton("Fetch Tools");
         fetchButton.addActionListener(e -> {
             String cmd = commandField.getText().trim();
             if (cmd.isEmpty()) {
@@ -1552,7 +1552,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (helpIcon instanceof ThemedIcon themedHelpIcon) {
             helpIcon = themedHelpIcon.withSize(14);
         }
-        var envHelpButton = new JButton(helpIcon);
+        var envHelpButton = new MaterialButton();
+        envHelpButton.setIcon(helpIcon);
         envHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         envHelpButton.setContentAreaFilled(false);
         envHelpButton.setFocusPainted(false);

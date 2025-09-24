@@ -44,7 +44,7 @@ public class GitWorktreeTab extends JPanel {
     private MaterialButton refreshButton = new MaterialButton(); // Added
 
     @org.jetbrains.annotations.Nullable
-    private JButton mergeButton = null; // Added for worktree merge functionality
+    private MaterialButton mergeButton = null; // Added for worktree merge functionality
 
     private final boolean isWorktreeWindow;
 
@@ -252,7 +252,7 @@ public class GitWorktreeTab extends JPanel {
 
             var project = contextManager.getProject();
             String wtName = ((WorktreeProject) project).getRoot().getFileName().toString();
-            mergeButton = new JButton("Merge " + wtName + " into...");
+            mergeButton = new MaterialButton("Merge " + wtName + " into...");
             mergeButton.setToolTipText("Merge this worktree branch into another branch");
             mergeButton.setEnabled(true); // Merge button is enabled by default in worktree view
             mergeButton.addActionListener(e -> showMergeDialog());
@@ -652,7 +652,7 @@ public class GitWorktreeTab extends JPanel {
                 });
                 io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
 
-                JButton cancelButton = new JButton(UIManager.getString("OptionPane.cancelButtonText"));
+                MaterialButton cancelButton = new MaterialButton(UIManager.getString("OptionPane.cancelButtonText"));
                 cancelButton.addActionListener(e -> {
                     optionPane.setValue(JOptionPane.CANCEL_OPTION);
                     dialog.dispose();
@@ -1142,7 +1142,7 @@ public class GitWorktreeTab extends JPanel {
 
         // Create explicit OK and Cancel buttons so we have a reliable reference to the OK button
         JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
-        JButton cancelButton = new JButton(UIManager.getString("OptionPane.cancelButtonText"));
+        MaterialButton cancelButton = new MaterialButton(UIManager.getString("OptionPane.cancelButtonText"));
 
         okButton.addActionListener(e -> {
             optionPane.setValue(JOptionPane.OK_OPTION);

@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
@@ -81,7 +82,7 @@ public class BlitzForgeProgressDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(BlitzForgeProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea outputTextArea;
-    private final JButton cancelButton;
+    private final MaterialButton cancelButton;
     private final SwingWorker<TaskResult, ProgressData> worker;
     private final int totalFiles;
     private final AtomicInteger processedFileCount = new AtomicInteger(0); // Tracks files processed
@@ -288,7 +289,7 @@ public class BlitzForgeProgressDialog extends JDialog {
         outputPanel.add(outputScrollPane, BorderLayout.CENTER);
         outputPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
 
-        cancelButton = new JButton("Cancel");
+        cancelButton = new MaterialButton("Cancel");
 
         llmLineCountLabel = new JLabel("Lines received: 0");
         JPanel topPanel = new JPanel(new BorderLayout(5, 5));

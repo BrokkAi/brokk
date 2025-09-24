@@ -9,7 +9,7 @@ import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
-import io.github.jbellis.brokk.gui.components.LoadingButton;
+import io.github.jbellis.brokk.gui.components.MaterialLoadingButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
@@ -193,7 +193,7 @@ public class GitLogTab extends JPanel {
         branchesPanel.add(branchTabbedPane, BorderLayout.CENTER);
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var fetchButton = new LoadingButton(
+        var fetchButton = new MaterialLoadingButton(
                 "",
                 Icons.DOWNLOAD, // icon-only button
                 chrome,

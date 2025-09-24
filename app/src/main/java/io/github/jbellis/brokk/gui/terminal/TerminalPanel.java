@@ -37,7 +37,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
-import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -205,7 +204,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         var label = new JLabel(shellName, Icons.TERMINAL, SwingConstants.LEFT);
         label.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 
-        var closeButton = new JButton("×");
+        var closeButton = new MaterialButton("×");
         closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
         closeButton.setPreferredSize(new Dimension(18, 18));
         closeButton.setMargin(new Insets(0, 0, 0, 0));

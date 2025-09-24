@@ -327,7 +327,7 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /** Builds the Activity history panel that shows past contexts */
-    private JPanel buildActivityPanel(JTable historyTable, JButton undoButton, JButton redoButton) {
+    private JPanel buildActivityPanel(JTable historyTable, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder(

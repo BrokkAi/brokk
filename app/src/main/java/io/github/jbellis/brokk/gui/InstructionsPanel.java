@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
@@ -104,7 +105,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Ask");
-    private final JButton actionButton;
+    private final MaterialButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
     private String storedAction;
@@ -2412,7 +2413,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return (float) (dot / denominator);
     }
 
-    private static class ThemeAwareRoundedButton extends JButton implements ThemeAware {
+    private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
         private static final long serialVersionUID = 1L;
         private final Supplier<Boolean> isActionRunning;
         private final Color secondaryActionButtonBg;

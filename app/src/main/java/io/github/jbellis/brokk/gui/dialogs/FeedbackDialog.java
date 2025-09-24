@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -20,7 +21,7 @@ public class FeedbackDialog extends JDialog {
     private final JTextArea feedbackArea;
     private final JCheckBox includeDebugLogCheckBox;
     private final JCheckBox includeScreenshotCheckBox;
-    private final JButton sendButton;
+    private final MaterialButton sendButton;
 
     @Nullable
     private final BufferedImage screenshotImage;
@@ -51,13 +52,13 @@ public class FeedbackDialog extends JDialog {
         includeDebugLogCheckBox = new JCheckBox("Include debug log (~/.brokk/debug.log)");
         includeScreenshotCheckBox = new JCheckBox("Include screenshot");
 
-        sendButton = new JButton("Send");
+        sendButton = new MaterialButton("Send");
         sendButton.setMnemonic(KeyEvent.VK_S);
         sendButton.addActionListener(e -> send());
         // Apply the theme-aware primary button styling so the Send button appears as the primary action
         SwingUtil.applyPrimaryButtonStyle(sendButton);
 
-        var cancelButton = new JButton("Cancel");
+        var cancelButton = new MaterialButton("Cancel");
         cancelButton.setMnemonic(KeyEvent.VK_C);
         cancelButton.addActionListener(e -> dispose());
 

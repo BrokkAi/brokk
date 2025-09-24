@@ -1622,7 +1622,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         return "Author: " + author + "\n" + "Date:   " + dateStr + "\n\n" + indentedMsg;
     }
 
-    private void configureButton(JButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
+    private void configureButton(
+            MaterialButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
         button.setEnabled(enabled);
         // Visibility is now controlled at a higher level (when adding to panel)
         // and should not be changed here if options.showPushPullButtons or options.showCreatePrButton is true.

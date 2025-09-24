@@ -446,7 +446,7 @@ public class BlitzForgeDialog extends JDialog {
         instructionsPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // History dropdown button (scaled to label height)
-        JButton blitzHistoryButton = new JButton("History ▼");
+        MaterialButton blitzHistoryButton = new MaterialButton("History ▼");
         blitzHistoryButton.setToolTipText("Select a previous BlitzForge instruction");
         blitzHistoryButton.addActionListener(ev -> showBlitzHistoryMenu(blitzHistoryButton));
 
@@ -983,7 +983,7 @@ public class BlitzForgeDialog extends JDialog {
         // Buttons Panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var okButton = new MaterialButton("OK");
-        var cancelButton = new JButton("Cancel");
+        var cancelButton = new MaterialButton("Cancel");
 
         // Style OK button as primary action (bright blue with white text)
         io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
