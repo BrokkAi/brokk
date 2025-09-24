@@ -4,7 +4,8 @@ import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
 import java.io.File;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -84,34 +85,15 @@ public class JdkSelector extends JPanel {
                 });
     }
 
-    /**
-     * Ensure the given path is in the combo (adding a Custom entry if needed) and select it.
-     *
-     * @param path the JDK path to select
-     * @throws IllegalArgumentException if the path is not a valid JDK
-     */
+    /** Ensure the given path is in the combo (adding a Custom entry if needed) and select it. */
     public void setSelectedJdkPath(@Nullable String path) {
         if (path == null || path.isBlank()) {
-            // Select the system default (first item if it exists)
-            if (combo.getItemCount() > 0) {
-                combo.setSelectedIndex(0);
-            }
             return;
         }
-
-        // Expand environment variables if present
-        String expandedPath = expandEnvironmentVariables(path);
-
-        // Validate the expanded path before adding it
-        var validationError = validateJdkPath(expandedPath);
-        if (validationError != null) {
-            throw new IllegalArgumentException(validationError);
-        }
-
         int matchedIdx = -1;
         for (int i = 0; i < combo.getItemCount(); i++) {
             var it = combo.getItemAt(i);
-            if (expandedPath.equals(it.path)) {
+            if (path.equals(it.path)) {
                 matchedIdx = i;
                 break;
             }
@@ -119,83 +101,10 @@ public class JdkSelector extends JPanel {
         if (matchedIdx >= 0) {
             combo.setSelectedIndex(matchedIdx);
         } else {
-            var custom = new JdkItem("Custom JDK: " + expandedPath, expandedPath);
+            var custom = new JdkItem("Custom JDK: " + path, path);
             combo.addItem(custom);
             combo.setSelectedItem(custom);
         }
-    }
-
-    /**
-     * Expand environment variables in the given path. Currently supports $JAVA_HOME and ${JAVA_HOME} patterns.
-     *
-     * @param path the path that may contain environment variables
-     * @return the path with environment variables expanded
-     */
-    private static String expandEnvironmentVariables(String path) {
-        if (path.isBlank()) {
-            return path;
-        }
-
-        // Handle $JAVA_HOME
-        if (path.equals("$JAVA_HOME")) {
-            String javaHome = System.getenv("JAVA_HOME");
-            return javaHome != null ? javaHome : path;
-        }
-
-        // Handle ${JAVA_HOME}
-        if (path.equals("${JAVA_HOME}")) {
-            String javaHome = System.getenv("JAVA_HOME");
-            return javaHome != null ? javaHome : path;
-        }
-
-        // Handle paths that start with $JAVA_HOME/ or ${JAVA_HOME}/
-        if (path.startsWith("$JAVA_HOME/")) {
-            String javaHome = System.getenv("JAVA_HOME");
-            if (javaHome != null) {
-                return javaHome + path.substring("$JAVA_HOME".length());
-            }
-        }
-
-        if (path.startsWith("${JAVA_HOME}/")) {
-            String javaHome = System.getenv("JAVA_HOME");
-            if (javaHome != null) {
-                return javaHome + path.substring("${JAVA_HOME}".length());
-            }
-        }
-
-        return path;
-    }
-
-    /**
-     * Validate a JDK path and return a specific error message if invalid.
-     *
-     * @param path the path to validate
-     * @return error message if invalid, null if valid
-     */
-    private static @Nullable String validateJdkPath(String path) {
-        if (path.isBlank()) {
-            return "JDK path cannot be empty";
-        }
-
-        var jdkDir = new File(path);
-        if (!jdkDir.exists()) {
-            return "The directory '" + path + "' does not exist";
-        }
-
-        if (!jdkDir.isDirectory()) {
-            return "The path '" + path + "' is not a directory";
-        }
-
-        if (!isValidJdk(path)) {
-            if (hasJavaExecutable(path)) {
-                return "The directory '" + path
-                        + "' appears to be a JRE (Java Runtime Environment) rather than a JDK (Java Development Kit). Please select a JDK installation that includes development tools like javac";
-            } else {
-                return "The directory '" + path + "' does not appear to be a valid Java installation";
-            }
-        }
-
-        return null; // Valid JDK
     }
 
     /** @return the selected JDK path or null if none selected. */
@@ -204,15 +113,124 @@ public class JdkSelector extends JPanel {
         return sel == null ? null : sel.path;
     }
 
+    /**
+     * Centralized JDK validation that checks for both java and javac executables. Handles Windows (.exe) extensions and
+     * macOS Contents/Home structure gracefully.
+     *
+     * @param jdkPath the path to validate as a JDK installation
+     * @return true if the path contains a valid JDK, false otherwise
+     */
+    public static boolean isValidJdk(@Nullable String jdkPath) {
+        if (jdkPath == null || jdkPath.isBlank()) {
+            return false;
+        }
+
+        try {
+            Path path = Path.of(jdkPath);
+            return isValidJdkPath(path);
+        } catch (Exception e) {
+            logger.debug("Invalid path format for JDK validation: {}", jdkPath, e);
+            return false;
+        }
+    }
+
+    /**
+     * Centralized JDK validation that checks for both java and javac executables. Handles Windows (.exe) extensions and
+     * macOS Contents/Home structure gracefully.
+     *
+     * @param jdkPath the path to validate as a JDK installation
+     * @return true if the path contains a valid JDK, false otherwise
+     */
+    public static boolean isValidJdkPath(@Nullable Path jdkPath) {
+        return validateJdkPath(jdkPath) == null;
+    }
+
+    /**
+     * Detailed JDK validation that returns specific error information. Handles Windows (.exe) extensions and macOS
+     * Contents/Home structure gracefully.
+     *
+     * @param jdkPath the path to validate as a JDK installation
+     * @return null if valid, or a detailed error message if invalid
+     */
+    public static @Nullable String validateJdkPath(@Nullable Path jdkPath) {
+        if (jdkPath == null) {
+            return "JDK path is null";
+        }
+
+        if (!Files.exists(jdkPath)) {
+            return "The directory '" + jdkPath + "' does not exist";
+        }
+
+        if (!Files.isDirectory(jdkPath)) {
+            return "The path '" + jdkPath + "' is not a directory";
+        }
+
+        // Check the provided path first
+        String directValidationError = validateJdkExecutables(jdkPath);
+        if (directValidationError == null) {
+            return null; // Valid JDK found at provided path
+        }
+
+        // On macOS, try Contents/Home subdirectory (common in .app bundles and some JDK distributions)
+        Path contentsHome = jdkPath.resolve("Contents").resolve("Home");
+        if (Files.exists(contentsHome) && Files.isDirectory(contentsHome)) {
+            String contentsHomeValidationError = validateJdkExecutables(contentsHome);
+            if (contentsHomeValidationError == null) {
+                return null; // Valid JDK found at Contents/Home
+            }
+        }
+
+        // Return the original validation error (from the main path)
+        return directValidationError;
+    }
+
+    /**
+     * Validate JDK executables at a specific path and return detailed error information.
+     *
+     * @param jdkPath the path to check for JDK executables
+     * @return null if valid, or a specific error message about what's missing
+     */
+    private static @Nullable String validateJdkExecutables(@Nullable Path jdkPath) {
+        if (jdkPath == null || !Files.exists(jdkPath) || !Files.isDirectory(jdkPath)) {
+            return "Invalid directory path";
+        }
+
+        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        boolean isWindows = os.contains("win");
+
+        Path binDir = jdkPath.resolve("bin");
+        if (!Files.exists(binDir) || !Files.isDirectory(binDir)) {
+            return "The directory does not contain a 'bin' subdirectory. Please ensure you're pointing to the JDK home directory (not the bin directory itself).";
+        }
+
+        // Check for java executable
+        Path javaExe = binDir.resolve(isWindows ? "java.exe" : "java");
+        boolean hasJava = Files.isRegularFile(javaExe) && (isWindows || Files.isExecutable(javaExe));
+
+        // Check for javac executable
+        Path javacExe = binDir.resolve(isWindows ? "javac.exe" : "javac");
+        boolean hasJavac = Files.isRegularFile(javacExe) && (isWindows || Files.isExecutable(javacExe));
+
+        if (!hasJava && !hasJavac) {
+            return "The directory does not contain java or javac executables. This appears to be neither a JRE nor a JDK. Please select a valid JDK installation.";
+        }
+
+        if (!hasJavac) {
+            return "The directory contains java but not javac. This appears to be a JRE (Java Runtime Environment) rather than a JDK (Java Development Kit). Please select a JDK installation that includes development tools.";
+        }
+
+        if (!hasJava) {
+            return "The directory contains javac but not java. This appears to be an incomplete JDK installation. Please select a complete JDK installation.";
+        }
+
+        return null; // Valid JDK
+    }
+
     private static List<JdkItem> discoverInstalledJdks() {
         try {
             var finder = new Finder();
             var distros = finder.getDistributions();
             var items = new ArrayList<JdkItem>();
-
-            // Add system default entry at the top
-            String systemDefaultDisplay = getSystemDefaultDisplay();
-            items.add(new JdkItem(systemDefaultDisplay, null));
             for (Distro d : distros) {
                 var name = d.getName();
                 var ver = d.getVersion();
@@ -236,13 +254,7 @@ public class JdkSelector extends JPanel {
                 var label = String.format("%s %s (%s)", name, ver, arch);
                 items.add(new JdkItem(label, path));
             }
-
-            // Sort alphabetically by display name, but keep system default first
-            var systemDefault = items.get(0); // Save the system default
-            items.remove(0);
             items.sort((a, b) -> a.display.compareTo(b.display));
-            items.add(0, systemDefault); // Put system default back at top
-
             return items;
         } catch (Throwable t) {
             logger.warn("Failed to discover installed JDKs", t);
@@ -250,142 +262,11 @@ public class JdkSelector extends JPanel {
         }
     }
 
-    /**
-     * Get display text for the system default JDK by detecting JAVA_HOME or java command location.
-     *
-     * @return formatted display string for system default
-     */
-    private static String getSystemDefaultDisplay() {
-        try {
-            // First try JAVA_HOME
-            String javaHome = System.getenv("JAVA_HOME");
-            if (javaHome != null && !javaHome.isBlank() && isValidJdk(javaHome)) {
-                String version = getJdkVersion(javaHome);
-                return String.format(
-                        "System Default (%s) - %s", version != null ? version : "Unknown version", javaHome);
-            }
-
-            // Try to find java executable in PATH
-            String javaPath = findJavaInPath();
-            if (javaPath != null) {
-                // Try to derive JDK home from java executable path
-                var javaFile = new File(javaPath);
-                var binDir = javaFile.getParentFile();
-                if (binDir != null && binDir.getName().equals("bin")) {
-                    var jdkHome = binDir.getParent();
-                    if (jdkHome != null && isValidJdk(jdkHome)) {
-                        String version = getJdkVersion(jdkHome);
-                        return String.format(
-                                "System Default (%s) - %s", version != null ? version : "Unknown version", jdkHome);
-                    }
-                }
-
-                // Fall back to showing just the java executable
-                String version = getJavaVersionFromExecutable(javaPath);
-                return String.format(
-                        "System Default (%s) - %s", version != null ? version : "Unknown version", javaPath);
-            }
-
-            return "System Default (No JDK detected)";
-        } catch (Exception e) {
-            logger.debug("Failed to detect system default JDK", e);
-            return "System Default (Auto-detect)";
-        }
-    }
-
-    /** Get JDK version from a JDK home directory by checking release file or running java -version. */
-    private static @Nullable String getJdkVersion(String jdkHome) {
-        try {
-            // Try to read version from release file first (faster)
-            var releaseFile = new File(jdkHome, "release");
-            if (releaseFile.exists()) {
-                var lines = java.nio.file.Files.readAllLines(releaseFile.toPath());
-                for (String line : lines) {
-                    if (line.startsWith("JAVA_VERSION=")) {
-                        String version =
-                                line.substring("JAVA_VERSION=".length()).replaceAll("\"", "");
-                        return "JDK " + version;
-                    }
-                }
-            }
-
-            // Fall back to running java -version
-            var javaExe = new File(jdkHome, "bin/java");
-            if (javaExe.exists()) {
-                return getJavaVersionFromExecutable(javaExe.getAbsolutePath());
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to get JDK version from {}", jdkHome, e);
-        }
-        return null;
-    }
-
-    /** Get Java version by running java -version command. */
-    private static @Nullable String getJavaVersionFromExecutable(String javaPath) {
-        try {
-            var process = new ProcessBuilder(javaPath, "-version").start();
-            process.waitFor();
-            var stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-
-            // Parse version from output like: openjdk version "21.0.1" 2023-10-17
-            for (String line : stderr.split("\n", -1)) {
-                if (line.contains("version \"")) {
-                    int start = line.indexOf("version \"") + "version \"".length();
-                    int end = line.indexOf("\"", start);
-                    if (end > start) {
-                        String version = line.substring(start, end);
-                        String jdkType = line.toLowerCase(Locale.ROOT).contains("openjdk") ? "OpenJDK" : "JDK";
-                        return jdkType + " " + version;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to get Java version from {}", javaPath, e);
-        }
-        return null;
-    }
-
-    /** Find java executable in system PATH. */
-    private static @Nullable String findJavaInPath() {
-        try {
-            String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-            String javaCommand = os.contains("win") ? "java.exe" : "java";
-
-            var process = new ProcessBuilder("which", javaCommand).start();
-            if (process.waitFor() == 0) {
-                return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to find java in PATH", e);
-        }
-        return null;
-    }
-
-    /** Check if the given path is a valid JDK (has both java and javac). */
-    private static boolean isValidJdk(String path) {
-        if (path.isBlank()) return false;
-
-        var javaDir = new File(path);
-        var javacPath = new File(javaDir, "bin/javac");
-
-        return javacPath.exists() && javacPath.canExecute();
-    }
-
-    /** Check if the given path has a java executable (JRE or JDK). */
-    private static boolean hasJavaExecutable(String path) {
-        if (path.isBlank()) return false;
-
-        var javaDir = new File(path);
-        var javaPath = new File(javaDir, "bin/java");
-
-        return javaPath.exists();
-    }
-
     private static class JdkItem {
         final String display;
-        final @Nullable String path;
+        final String path;
 
-        JdkItem(String display, @Nullable String path) {
+        JdkItem(String display, String path) {
             this.display = display;
             this.path = path;
         }

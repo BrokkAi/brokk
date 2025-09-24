@@ -2,14 +2,15 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.util.Objects;
 import java.util.prefs.Preferences;
 import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 public abstract class AnalyzerSettingsPanel extends JPanel {
@@ -186,42 +187,23 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
         @Override
         public void saveSettings() {
-            final String value = jdkSelector.getSelectedJdkPath();
+            final @Nullable String value;
+            try {
+                value = jdkSelector.getSelectedJdkPath();
+            } catch (Exception ex) {
+                String message = ex.getMessage();
+                io.systemNotify(
+                        "Unable to get selected JDK path: "
+                                + (message != null ? message : ex.getClass().getSimpleName()),
+                        "JDK Selection Error",
+                        JOptionPane.ERROR_MESSAGE);
+                logger.warn("Error getting selected JDK path", ex);
+                return;
+            }
 
-            // Handle System Default selection (null/blank value is valid)
             if (value == null || value.isBlank()) {
-                // Save both memory and JDK preference for System Default
-                final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
-
-                // Check if JDK preference changed
-                final String previousValue = prefs.get(getPrefKey(), "");
-                final boolean pathChanged = !Objects.equals("", previousValue);
-
-                // Save JDK preference as empty string for System Default
-                prefs.put(getPrefKey(), "");
-
-                // Save memory setting
-                int memoryMB = (Integer) memorySpinner.getValue();
-                boolean memoryChanged = memoryMB != savedMemoryMB;
-                prefs.putInt(PREF_MEMORY_KEY_PREFIX, memoryMB);
-                savedMemoryMB = memoryMB;
-
-                // Hide warning after saving
-                memoryWarningLabel.setVisible(false);
-
-                // Log the change
-                if (pathChanged) {
-                    logger.debug("Java analyzer JDK home changed to System Default");
-                } else {
-                    logger.debug("Java analyzer JDK home unchanged: System Default");
-                }
-
-                if (memoryChanged) {
-                    io.systemNotify(
-                            "Memory setting changed. Please restart Brokk for the change to take effect.",
-                            "Restart Required",
-                            JOptionPane.INFORMATION_MESSAGE);
-                }
+                io.systemNotify(
+                        "Please specify a valid JDK home directory.", "Invalid JDK Path", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
@@ -245,16 +227,9 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
                 return;
             }
 
-            final boolean hasJavac = Files.isRegularFile(jdkPath.resolve("bin/javac"))
-                    || Files.isRegularFile(jdkPath.resolve("bin/javac.exe"));
-            final boolean hasJava = Files.isRegularFile(jdkPath.resolve("bin/java"))
-                    || Files.isRegularFile(jdkPath.resolve("bin/java.exe"));
-
-            if (!hasJavac || !hasJava) {
-                io.systemNotify(
-                        "The directory \"" + jdkPath + "\" does not appear to be a valid JDK home.",
-                        "Invalid JDK Path",
-                        JOptionPane.ERROR_MESSAGE);
+            String validationError = JdkSelector.validateJdkPath(jdkPath);
+            if (validationError != null) {
+                io.systemNotify(validationError, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
@@ -264,7 +239,20 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             final boolean pathChanged = !value.equals(previousValue);
 
             if (pathChanged) {
-                logger.debug("Java analyzer JDK home changed, will be applied when server starts: {}", value);
+                try {
+                    // Wait synchronously so we can detect errors and notify the user immediately
+                    SharedJdtLspServer.getInstance()
+                            .updateWorkspaceJdk(projectRoot, jdkPath)
+                            .join();
+                } catch (Exception ex) {
+                    io.systemNotify(
+                            "Failed to apply the selected JDK to the Java analyzer. Please check the logs for details.",
+                            "JDK Update Failed",
+                            JOptionPane.ERROR_MESSAGE);
+                    logger.error("Failed updating workspace JDK to {}", jdkPath, ex);
+                    return;
+                }
+                logger.debug("Updated Java analyzer JDK home: {}", value);
             } else {
                 logger.debug("Java analyzer JDK home unchanged: {}", value);
             }
