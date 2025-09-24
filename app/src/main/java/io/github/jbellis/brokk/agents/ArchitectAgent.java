@@ -467,8 +467,8 @@ public class ArchitectAgent {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                     var toolResult = toolRegistry.executeTool(this, answerReq);
                     logger.debug("Project final answer: {}", toolResult.resultText());
-                    var fragment = new ContextFragment.TaskFragment(
-                            cm, List.of(new AiMessage(toolResult.resultText())), goal);
+                    var fragment =
+                            new ContextFragment.TaskFragment(cm, List.of(new AiMessage(toolResult.resultText())), goal);
                     var stopDetails = new StopDetails(StopReason.SUCCESS, toolResult.resultText());
                     return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
                 }
@@ -484,8 +484,8 @@ public class ArchitectAgent {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
                     var toolResult = toolRegistry.executeTool(this, abortReq);
                     logger.debug("Project aborted: {}", toolResult.resultText());
-                    var fragment = new ContextFragment.TaskFragment(
-                            cm, List.of(new AiMessage(toolResult.resultText())), goal);
+                    var fragment =
+                            new ContextFragment.TaskFragment(cm, List.of(new AiMessage(toolResult.resultText())), goal);
                     var stopDetails = new StopDetails(StopReason.LLM_ABORTED, toolResult.resultText());
                     return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
                 }
@@ -572,8 +572,7 @@ public class ArchitectAgent {
             if (this.codeAgentJustSucceeded) {
                 var successMsg = Objects.requireNonNullElse(
                         this.lastCodeAgentSuccessMessage, "CodeAgent indicated success. Finishing.");
-                var fragment =
-                        new ContextFragment.TaskFragment(cm, List.of(new AiMessage(successMsg)), goal);
+                var fragment = new ContextFragment.TaskFragment(cm, List.of(new AiMessage(successMsg)), goal);
                 var stopDetails = new StopDetails(StopReason.SUCCESS, successMsg);
                 return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
             }
@@ -656,8 +655,8 @@ public class ArchitectAgent {
         // This agent's own conversational history for the current goal
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
-        messages.add(new UserMessage(ArchitectPrompts.instance.getFinalInstructions(
-                cm, goal, workspaceTokenSize, minInputTokenLimit)));
+        messages.add(new UserMessage(
+                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, minInputTokenLimit)));
         return messages;
     }
 }

@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
 import io.github.jbellis.brokk.gui.GuiTheme;
-import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
@@ -44,7 +43,7 @@ import org.jetbrains.annotations.Nullable;
  * This panel shows the side-by-side file panels, the diff curves, plus search bars. It no longer depends on custom
  * JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware, SlidingWindowCache.Disposable {
+public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowCache.Disposable {
     private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
 
     /**
@@ -91,8 +90,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     private int selectedLine;
 
-    /** Creation context for debugging (e.g., 'preload', 'cachePanel', 'unknown'). */
-    private volatile String creationContext = "unknown";
+    // Creation context is inherited from AbstractDiffPanel
 
     /** Dirty flag that tracks whether there are any unsaved changes. */
     private boolean dirtySinceOpen = false;
@@ -118,7 +116,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Recalculate dirty status by checking if any FilePanel has unsaved changes. When the state changes, update tab
      * title and toolbar buttons.
      */
-    void recalcDirty() {
+    @Override
+    public void recalcDirty() {
         // Check if either side has unsaved changes (document changed since last save)
         boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
 
@@ -141,13 +140,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     private final EnumMap<PanelSide, FilePanel> filePanels = new EnumMap<>(PanelSide.class);
     private PanelSide selectedPanelSide = PanelSide.LEFT;
 
-    @Nullable
-    private JMDiffNode diffNode; // Where we get the Patch<String>
+    // diffNode is inherited from AbstractDiffPanel
 
     @Nullable
     private ScrollSynchronizer scrollSynchronizer;
 
     public BufferDiffPanel(BrokkDiffPanel mainPanel, GuiTheme theme) {
+        super(mainPanel, theme);
         this.mainPanel = mainPanel;
         this.guiTheme = theme;
 
@@ -158,11 +157,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         setFocusable(true);
     }
 
+    @Override
     public void setDiffNode(@Nullable JMDiffNode diffNode) {
         this.diffNode = diffNode;
         refreshDiffNode();
     }
 
+    @Override
     @Nullable
     public JMDiffNode getDiffNode() {
         return diffNode;
@@ -238,6 +239,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      *
      * @param scrollToSelection whether to scroll to the selected delta after recalculation
      */
+    @Override
     public void diff(boolean scrollToSelection) {
         // Typically, we'd just re-call diffNode.diff() then re-pull patch.
         if (diffNode != null) {
@@ -324,6 +326,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         synchronizeDocuments(editor.getDocument(), bufferDoc.getDocument());
     }
 
+    @Override
     public String getTitle() {
         if (diffNode != null && !diffNode.getName().isBlank()) {
             var name = diffNode.getName();
@@ -397,6 +400,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Re-establish component resize listeners after file navigation. This ensures resize events are properly handled
      * after tab operations.
      */
+    @Override
     public void refreshComponentListeners() {
         // Remove existing listeners to avoid duplicates
         var listeners = getComponentListeners();
@@ -516,6 +520,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Reset the auto-scroll flag to allow auto-scroll for file navigation. Called by BrokkDiffPanel when switching
      * between files.
      */
+    @Override
     public void resetAutoScrollFlag() {
         initialAutoScrollDone = false;
     }
@@ -524,6 +529,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Reset selectedDelta to first difference for consistent file navigation behavior. Ensures all file navigation goes
      * to first diff regardless of caching.
      */
+    @Override
     public void resetToFirstDifference() {
         if (patch != null && !patch.getDeltas().isEmpty()) {
             selectedDelta = patch.getDeltas().getFirst();
@@ -1208,6 +1214,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         reDisplay();
     }
 
+    @Override
     public GuiTheme getTheme() {
         return guiTheme;
     }
@@ -1369,6 +1376,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Returns {@code true} if at least one side is editable (not read-only). Used by the main toolbar to decide whether
      * undo/redo buttons should be shown.
      */
+    @Override
     public boolean atLeastOneSideEditable() {
         return filePanels.values().stream().anyMatch(fp -> {
             var doc = fp.getBufferDocument();
@@ -1377,6 +1385,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /** Clear caches to free memory while keeping the panel functional. Used by sliding window memory management. */
+    @Override
     public void clearCaches() {
         // Clear undo history
         var undoManager = getUndoHandler();
@@ -1578,6 +1587,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Collect all changes for this panel into AggregatedChange records. Must be called on the EDT before writing files,
      * so baselines from disk are pre-save.
      */
+    @Override
     public java.util.List<AggregatedChange> collectChangesForAggregation() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         var changes = new java.util.ArrayList<AggregatedChange>();
@@ -1643,6 +1653,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /** Writes all changed, non-readonly documents in this panel to disk and returns per-file results. */
+    @Override
     public SaveResult writeChangedDocuments() {
         var succeeded = new java.util.LinkedHashSet<String>();
         var failed = new java.util.LinkedHashMap<String, String>();
@@ -1679,6 +1690,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Finalize selectively after a save-all operation: refresh baselines and dirty flags only for successfully saved
      * files.
      */
+    @Override
     public void finalizeAfterSaveAggregation(java.util.Set<String> savedFilenames) {
         updateBaselineContentAfterSave(savedFilenames);
         recalcDirty();
@@ -1700,6 +1712,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /** Mark creation context for debugging purposes. */
+    @Override
     public void markCreationContext(String ctx) {
         if (!ctx.isBlank()) {
             this.creationContext = ctx;
@@ -1707,6 +1720,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /** Get creation context for debugging. */
+    @Override
     public String getCreationContext() {
         return creationContext;
     }
