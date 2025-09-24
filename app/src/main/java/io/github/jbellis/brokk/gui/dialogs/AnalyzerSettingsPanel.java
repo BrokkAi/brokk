@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.nio.file.Files;
@@ -248,25 +247,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
             final boolean pathChanged = !value.equals(previousValue);
 
             if (pathChanged) {
-                // Only update the server JDK if the server is running
-                if (SharedJdtLspServer.getInstance().isServerRunning()) {
-                    try {
-                        // Wait synchronously so we can detect errors and notify the user immediately
-                        SharedJdtLspServer.getInstance()
-                                .updateWorkspaceJdk(projectRoot, jdkPath)
-                                .join();
-                        logger.debug("Updated Java analyzer JDK home: {}", value);
-                    } catch (Exception ex) {
-                        // JDK update failed, but this shouldn't prevent saving the setting
-                        // The setting will be applied when the server is restarted or in a better state
-                        logger.warn(
-                                "Failed to apply JDK to running server, but preference will be saved: {}",
-                                ex.getMessage());
-                        logger.debug("Full JDK update exception:", ex);
-                    }
-                } else {
-                    logger.debug("Java analyzer server not running, JDK will be applied when server starts: {}", value);
-                }
+                logger.debug("Java analyzer JDK home changed, will be applied when server starts: {}", value);
             } else {
                 logger.debug("Java analyzer JDK home unchanged: {}", value);
             }
