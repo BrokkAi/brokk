@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import java.nio.charset.StandardCharsets;
 import javax.swing.*;
@@ -130,9 +131,15 @@ public class HybridFileComparison {
                             "Slow diff computation (sync): {}ms - consider lowering size threshold", diffComputeTime);
                 }
 
-                // Create and configure panel
-                var panel = new BufferDiffPanel(mainPanel, theme);
-                panel.setDiffNode(diffNode);
+                // Create appropriate panel type based on view mode
+                IDiffPanel panel;
+                if (mainPanel.isUnifiedView()) {
+                    panel = createUnifiedDiffPanel(leftSource, rightSource, mainPanel, theme);
+                } else {
+                    var bufferPanel = new BufferDiffPanel(mainPanel, theme);
+                    bufferPanel.setDiffNode(diffNode);
+                    panel = bufferPanel;
+                }
 
                 // Cache the panel
                 mainPanel.cachePanel(fileIndex, panel);
@@ -190,8 +197,15 @@ public class HybridFileComparison {
                 // Create panel on EDT after diff computation is complete
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        var panel = new BufferDiffPanel(mainPanel, theme);
-                        panel.setDiffNode(diffNode);
+                        // Create appropriate panel type based on view mode
+                        IDiffPanel panel;
+                        if (mainPanel.isUnifiedView()) {
+                            panel = createUnifiedDiffPanel(leftSource, rightSource, mainPanel, theme);
+                        } else {
+                            var bufferPanel = new BufferDiffPanel(mainPanel, theme);
+                            bufferPanel.setDiffNode(diffNode);
+                            panel = bufferPanel;
+                        }
 
                         // Cache the panel
                         mainPanel.cachePanel(fileIndex, panel);
@@ -271,6 +285,19 @@ public class HybridFileComparison {
         HIGH, // Exact or very accurate (e.g., file.length(), string.getBytes().length)
         MEDIUM, // Good approximation (e.g., string.length() * avg_char_size)
         LOW // Rough estimate or fallback (e.g., unknown types, errors)
+    }
+
+    /** Creates a UnifiedDiffPanel for the given buffer sources. */
+    private static IDiffPanel createUnifiedDiffPanel(
+            BufferSource leftSource, BufferSource rightSource, BrokkDiffPanel mainPanel, GuiTheme theme) {
+        try {
+            var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, leftSource, rightSource);
+            return unifiedPanel;
+        } catch (Exception e) {
+            logger.error("Failed to create unified diff panel", e);
+            // Fallback to empty panel that shows the error
+            throw new RuntimeException("Failed to create unified diff panel: " + e.getMessage(), e);
+        }
     }
 
     /** Format file size in human-readable format with appropriate units. */

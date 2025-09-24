@@ -27,6 +27,12 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     }
 
     // Common implementations from IDiffPanel
+
+    @Override
+    public JComponent getComponent() {
+        return this; // The panel itself is the component
+    }
+
     @Override
     @Nullable
     public JMDiffNode getDiffNode() {
@@ -36,11 +42,6 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     @Override
     public void setDiffNode(@Nullable JMDiffNode diffNode) {
         this.diffNode = diffNode;
-    }
-
-    @Override
-    public JComponent getComponent() {
-        return this;
     }
 
     @Override

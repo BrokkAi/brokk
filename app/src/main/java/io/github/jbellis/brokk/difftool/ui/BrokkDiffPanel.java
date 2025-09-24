@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -56,6 +57,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JLabel loadingLabel = createLoadingLabel();
     private final GuiTheme theme;
     private final JCheckBox showBlankLineDiffsCheckBox = new JCheckBox("Show blank-lines");
+    private final JToggleButton viewModeToggle = new JToggleButton("Unified View");
 
     // All file comparisons with lazy loading cache
     final List<FileComparisonInfo> fileComparisons;
@@ -66,8 +68,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
     private static final int MAX_CACHED_PANELS = PerformanceConstants.MAX_CACHED_DIFF_PANELS;
-    private final SlidingWindowCache<Integer, BufferDiffPanel> panelCache =
+    private final SlidingWindowCache<Integer, IDiffPanel> panelCache =
             new SlidingWindowCache<>(MAX_CACHED_PANELS, WINDOW_SIZE);
+
+    // View mode state
+    private boolean isUnifiedView = false; // Default to side-by-side view
 
     /**
      * Inner class to hold a single file comparison metadata Note: No longer holds the diffPanel directly - that's
@@ -78,12 +83,22 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         final BufferSource rightSource;
 
         @Nullable
-        BufferDiffPanel diffPanel;
+        BufferDiffPanel sideBySidePanel; // Side-by-side view panel
+
+        @Nullable
+        UnifiedDiffPanel unifiedPanel; // Unified view panel
 
         FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
             this.leftSource = leftSource;
             this.rightSource = rightSource;
-            this.diffPanel = null; // Initialize @Nullable field
+            this.sideBySidePanel = null; // Initialize @Nullable fields
+            this.unifiedPanel = null;
+        }
+
+        // Legacy method to maintain compatibility
+        @Nullable
+        BufferDiffPanel getDiffPanel() {
+            return sideBySidePanel;
         }
 
         String getDisplayName() {
@@ -116,7 +131,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
         assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
-        this.bufferDiffPanel = null; // Initialize @Nullable field
+        this.currentDiffPanel = null; // Initialize @Nullable field
 
         // Make the container focusable, so it can handle key events
         setFocusable(true);
@@ -169,6 +184,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             boolean show = showBlankLineDiffsCheckBox.isSelected();
             JMDiffNode.setIgnoreBlankLineDiffs(!show);
             refreshAllDiffPanels();
+        });
+
+        // Set up view mode toggle
+        viewModeToggle.setSelected(false); // Default to side-by-side view
+        viewModeToggle.addActionListener(e -> {
+            switchViewMode(viewModeToggle.isSelected());
         });
 
         revalidate();
@@ -306,15 +327,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private volatile boolean needsLayoutReset = false;
 
     @Nullable
-    private BufferDiffPanel bufferDiffPanel;
+    private IDiffPanel currentDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
-        this.bufferDiffPanel = bufferDiffPanel;
+        this.currentDiffPanel = bufferDiffPanel;
     }
 
     @Nullable
     private BufferDiffPanel getBufferDiffPanel() {
-        return bufferDiffPanel;
+        return currentDiffPanel instanceof BufferDiffPanel ? (BufferDiffPanel) currentDiffPanel : null;
     }
 
     public void nextFile() {
@@ -580,6 +601,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(showBlankLineDiffsCheckBox);
 
+        toolBar.add(Box.createHorizontalStrut(10));
+        toolBar.add(viewModeToggle);
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
         toolBar.add(captureDiffButton);
 
@@ -616,15 +639,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         captureDiffButton.setEnabled(true);
 
         // Update save button text, enable state, and visibility
-        // Compute the exact number of BufferDiffPanels that would be saved by saveAll():
-        // include bufferDiffPanel (if present) plus all cached panels (deduplicated),
+        // Compute the exact number of panels that would be saved by saveAll():
+        // include currentDiffPanel (if present) plus all cached panels (deduplicated),
         // and count those with hasUnsavedChanges() == true.
         int dirtyCount = 0;
-        var visited = new HashSet<BufferDiffPanel>();
+        var visited = new HashSet<IDiffPanel>();
 
-        if (bufferDiffPanel != null) {
-            visited.add(bufferDiffPanel);
-            if (bufferDiffPanel.hasUnsavedChanges()) {
+        if (currentDiffPanel != null) {
+            visited.add(currentDiffPanel);
+            if (currentDiffPanel.hasUnsavedChanges()) {
                 dirtyCount++;
             }
         }
@@ -663,15 +686,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (fileComparisons.size() > 1) {
             var dirty = new HashSet<Integer>();
 
-            // Current (visible) file
-            if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) {
+            // Current (visible) file (only if it's a BufferDiffPanel)
+            var currentBufferPanel = getBufferDiffPanel();
+            if (currentBufferPanel != null && currentBufferPanel.hasUnsavedChanges()) {
                 dirty.add(currentFileIndex);
             }
 
-            // Cached files (use keys to keep index association)
+            // Cached files (use keys to keep index association, only BufferDiffPanels can be dirty)
             for (var key : panelCache.getCachedKeys()) {
                 var panel = panelCache.get(key);
-                if (panel != null && panel.hasUnsavedChanges()) {
+                if (panel instanceof BufferDiffPanel && panel.hasUnsavedChanges()) {
                     dirty.add(key);
                 }
             }
@@ -682,7 +706,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     /** Returns true if any loaded diff-panel holds modified documents. */
     public boolean hasUnsavedChanges() {
-        if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) return true;
+        if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
         for (var p : panelCache.nonNullValues()) {
             if (p.hasUnsavedChanges()) return true;
         }
@@ -695,13 +719,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // Disable save button temporarily
             btnSaveAll.setEnabled(false);
 
-            // Collect unique panels to process (current + cached)
+            // Collect unique BufferDiffPanels to process (current + cached)
             var visited = new LinkedHashSet<BufferDiffPanel>();
-            if (bufferDiffPanel != null) {
-                visited.add(bufferDiffPanel);
+            var currentBufferPanel = getBufferDiffPanel();
+            if (currentBufferPanel != null) {
+                visited.add(currentBufferPanel);
             }
             for (var p : panelCache.nonNullValues()) {
-                visited.add(p);
+                if (p instanceof BufferDiffPanel bufferPanel) {
+                    visited.add(bufferPanel);
+                }
             }
 
             // Filter to only panels with unsaved changes and at least one editable side
@@ -983,7 +1010,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    private void displayCachedFile(int fileIndex, BufferDiffPanel cachedPanel) {
+    private void displayCachedFile(int fileIndex, IDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         var compInfo = fileComparisons.get(fileIndex);
@@ -1001,8 +1028,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Clear tabs and add the cached panel
         tabbedPane.removeAll();
-        tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel);
-        this.bufferDiffPanel = cachedPanel;
+        tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel.getComponent());
+        this.currentDiffPanel = cachedPanel;
 
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
@@ -1013,9 +1040,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
 
-        // Reset dirty state after theme application to prevent false save prompts
+        // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
         // Theme application can trigger document events that incorrectly mark documents as dirty
-        resetDocumentDirtyStateAfterTheme(cachedPanel);
+        if (cachedPanel instanceof BufferDiffPanel bufferPanel) {
+            resetDocumentDirtyStateAfterTheme(bufferPanel);
+        }
 
         // Re-establish component resize listeners and set flag for layout reset on next resize
         cachedPanel.refreshComponentListeners();
@@ -1344,7 +1373,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * Displays a cached panel and updates navigation buttons. This is the proper way to display panels created by
      * HybridFileComparison.
      */
-    public void displayAndRefreshPanel(int fileIndex, BufferDiffPanel panel) {
+    public void displayAndRefreshPanel(int fileIndex, IDiffPanel panel) {
         displayCachedFile(fileIndex, panel);
     }
 
@@ -1352,18 +1381,19 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * Cache a panel for the given file index. Helper method for both sync and async panel creation. Uses putReserved if
      * the slot was reserved, otherwise regular put.
      */
-    public void cachePanel(int fileIndex, BufferDiffPanel panel) {
+    public void cachePanel(int fileIndex, IDiffPanel panel) {
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
 
-        // Ensure creation context is set for debugging
-        if ("unknown".equals(panel.getCreationContext())) {
-            panel.markCreationContext("cachePanel");
+        // Ensure creation context is set for debugging (only for BufferDiffPanel)
+        if (panel instanceof BufferDiffPanel bufferPanel) {
+            if ("unknown".equals(bufferPanel.getCreationContext())) {
+                bufferPanel.markCreationContext("cachePanel");
+            }
+            // Reset selectedDelta to first difference for consistent navigation behavior
+            bufferPanel.resetToFirstDifference();
         }
-
-        // Reset selectedDelta to first difference for consistent navigation behavior
-        panel.resetToFirstDifference();
 
         // Only cache if within current window
         if (panelCache.isInWindow(fileIndex)) {
@@ -1550,7 +1580,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         panelCache.clear();
 
         // Clear current panel reference
-        this.bufferDiffPanel = null;
+        this.currentDiffPanel = null;
 
         // Remove all components
         removeAll();
@@ -1640,5 +1670,51 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         return false;
+    }
+
+    /** Returns true if currently in unified view mode, false for side-by-side. */
+    public boolean isUnifiedView() {
+        return isUnifiedView;
+    }
+
+    /**
+     * Switch between unified and side-by-side view modes.
+     *
+     * @param useUnifiedView true for unified view, false for side-by-side view
+     */
+    private void switchViewMode(boolean useUnifiedView) {
+        if (this.isUnifiedView == useUnifiedView) {
+            return; // No change needed
+        }
+
+        this.isUnifiedView = useUnifiedView;
+        logger.debug("Switching to {} view mode", useUnifiedView ? "unified" : "side-by-side");
+
+        // Clear the current file from cache since we need a different panel type
+        var cachedPanel = panelCache.get(currentFileIndex);
+        if (cachedPanel != null) {
+            logger.debug("Disposing cached panel for file {} due to view mode change", currentFileIndex);
+            // Dispose the old panel to free resources
+            cachedPanel.dispose();
+        }
+
+        // Clear current panel reference since it's the wrong type now
+        this.currentDiffPanel = null;
+
+        // Force cache invalidation - since sliding window manipulation doesn't work reliably,
+        // we'll clear the entire cache to ensure the old panel type is removed
+        logger.debug("Clearing entire cache to force panel recreation with new view mode");
+        panelCache.clear();
+
+        // Verify the cache is actually clear
+        var verifyPanel = panelCache.get(currentFileIndex);
+        if (verifyPanel != null) {
+            logger.error("Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
+        } else {
+            logger.debug("Successfully cleared cache - panel will be recreated with {} view", useUnifiedView ? "unified" : "side-by-side");
+        }
+
+        // Refresh the current file with the new view mode
+        loadFileOnDemand(currentFileIndex);
     }
 }
