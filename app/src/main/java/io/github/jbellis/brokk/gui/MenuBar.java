@@ -35,8 +35,6 @@ import javax.swing.event.MenuListener;
 import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
-    // Track all active Chrome instances for global preferences handling
-    private static final Set<Chrome> activeChromeInstances = ConcurrentHashMap.newKeySet();
     /**
      * Builds the menu bar
      *
@@ -540,25 +538,6 @@ public class MenuBar {
         dialog.setVisible(true);
     }
 
-    /**
-     * Registers a Chrome instance for global preferences handling on macOS. Should be called when a Chrome window is
-     * created.
-     *
-     * @param chrome the Chrome instance to register
-     */
-    public static void registerChromeInstance(Chrome chrome) {
-        activeChromeInstances.add(chrome);
-    }
-
-    /**
-     * Unregisters a Chrome instance from global preferences handling. Should be called when a Chrome window is being
-     * closed.
-     *
-     * @param chrome the Chrome instance to unregister
-     */
-    public static void unregisterChromeInstance(Chrome chrome) {
-        activeChromeInstances.remove(chrome);
-    }
 
     /**
      * Sets up the global macOS preferences handler that works across all Chrome windows. This should be called once
