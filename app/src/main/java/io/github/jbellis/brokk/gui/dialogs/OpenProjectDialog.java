@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import java.io.File;
@@ -89,10 +90,8 @@ public class OpenProjectDialog extends JDialog {
         tabbedPane.addTab("Open Local", createOpenLocalPanel());
         tabbedPane.addTab("Clone from Git", createClonePanel());
 
-        // Add GitHub repositories tab if token is present and valid
-        if (GitHubAuth.validateStoredToken()) {
-            tabbedPane.addTab("GitHub Repositories", createGitHubReposPanel());
-        }
+        // Always add GitHub repositories tab - validate token asynchronously
+        tabbedPane.addTab("GitHub Repositories", createGitHubReposPanel());
 
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
@@ -345,7 +344,7 @@ public class OpenProjectDialog extends JDialog {
         var controlsPanel = createGitHubControlsPanel(table, tableModel);
         panel.add(controlsPanel, BorderLayout.SOUTH);
 
-        loadRepositoriesAsync(tableModel, false);
+        validateTokenAndLoadRepositories(tableModel);
 
         return panel;
     }
@@ -533,12 +532,70 @@ public class OpenProjectDialog extends JDialog {
         return url;
     }
 
+    private void validateTokenAndLoadRepositories(DefaultTableModel tableModel) {
+        var token = GitHubAuth.getStoredToken();
+        if (token.isBlank()) {
+            showTokenMissingMessage(tableModel);
+            return;
+        }
+
+        logger.info("Validating GitHub token and loading repositories");
+        var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
+            @Override
+            protected List<GitHubRepoInfo> doInBackground() throws Exception {
+                // First validate the token with a simple API call
+                var github = new GitHubBuilder().withOAuthToken(token).build();
+                github.getMyself(); // This will throw if token is invalid
+
+                // Token is valid, now load repositories
+                return getUserRepositories();
+            }
+
+            @Override
+            protected void done() {
+                if (!isDisplayable()) {
+                    return;
+                }
+                try {
+                    var repositories = get();
+                    logger.info("Successfully loaded {} GitHub repositories", repositories.size());
+                    loadedRepositories = repositories;
+                    populateTable(tableModel, repositories);
+                } catch (ExecutionException e) {
+                    var cause = e.getCause();
+                    if (cause instanceof org.kohsuke.github.HttpException httpEx && httpEx.getResponseCode() == 401) {
+                        logger.warn("GitHub token is invalid, clearing stored token");
+                        GitHubAuth.invalidateInstance();
+                        showTokenInvalidMessage(tableModel);
+                    } else {
+                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
+                        logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
+                        showErrorMessage("Failed to load GitHub repositories: " + errorMessage);
+                    }
+                } catch (Exception e) {
+                    logger.error("Unexpected error loading GitHub repositories", e);
+                    showErrorMessage("Failed to load GitHub repositories: " + e.getMessage());
+                }
+            }
+        };
+
+        showLoadingState(tableModel);
+        worker.execute();
+    }
+
     private void loadRepositoriesAsync(DefaultTableModel tableModel, boolean forceRefresh) {
         if (!forceRefresh && !loadedRepositories.isEmpty()) {
             logger.debug("Using cached repositories ({} repos)", loadedRepositories.size());
             populateTable(tableModel, loadedRepositories);
             return;
         }
+
+        var token = GitHubAuth.getStoredToken();
+        if (token.isBlank()) {
+            showTokenMissingMessage(tableModel);
+            return;
+        }
+
         logger.info("Starting GitHub repository load (force refresh: {})", forceRefresh);
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
@@ -592,6 +649,26 @@ public class OpenProjectDialog extends JDialog {
 
     private void showErrorMessage(String message) {
         JOptionPane.showMessageDialog(this, message, "GitHub Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    private void showTokenMissingMessage(DefaultTableModel tableModel) {
+        tableModel.setRowCount(0);
+        tableModel.addRow(new Object[]{
+            "No GitHub token configured",
+            "Go to Settings → GitHub to configure your token",
+            "",
+            Instant.now()
+        });
+    }
+
+    private void showTokenInvalidMessage(DefaultTableModel tableModel) {
+        tableModel.setRowCount(0);
+        tableModel.addRow(new Object[]{
+            "GitHub token is invalid or expired",
+            "Go to Settings → GitHub to update your token",
+            "",
+            Instant.now()
+        });
     }
 
     private String truncateDescription(String description) {
@@ -699,8 +776,11 @@ public class OpenProjectDialog extends JDialog {
      * @return Optional containing the selected project path; empty if the user cancelled
      */
     public static Optional<Path> showDialog(@Nullable Frame owner) {
-        var dlg = new OpenProjectDialog(owner);
-        dlg.setVisible(true); // modal; blocks
-        return Optional.ofNullable(dlg.selectedProjectPath);
+        var selectedPath = SwingUtil.runOnEdt(() -> {
+            var dlg = new OpenProjectDialog(owner);
+            dlg.setVisible(true); // modal; blocks
+            return dlg.selectedProjectPath;
+        }, null);
+        return Optional.ofNullable(selectedPath);
     }
 }
