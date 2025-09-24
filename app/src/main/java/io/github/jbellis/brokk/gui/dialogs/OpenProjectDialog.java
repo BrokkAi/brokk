@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
 
 public class OpenProjectDialog extends JDialog {
     private static final Logger logger = LoggerFactory.getLogger(OpenProjectDialog.class);
-    public record GitHubRepoInfo(
+    private static record GitHubRepoInfo(
             String fullName,
             String description,
             String httpsUrl,
@@ -148,7 +148,6 @@ public class OpenProjectDialog extends JDialog {
         var sorter = new TableRowSorter<>(tableModel);
         table.setRowSorter(sorter);
         sorter.setSortKeys(List.of(new RowSorter.SortKey(1, SortOrder.DESCENDING)));
-        sorter.setComparator(0, Comparator.comparing(Object::toString));
 
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
@@ -339,8 +338,6 @@ public class OpenProjectDialog extends JDialog {
         var sorter = new TableRowSorter<>(tableModel);
         table.setRowSorter(sorter);
         sorter.setSortKeys(List.of(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
-        sorter.setComparator(0, Comparator.comparing(Object::toString));
-        sorter.setComparator(3, Comparator.comparing(obj -> obj instanceof Instant instant ? instant : Instant.MIN));
 
         var scrollPane = new JScrollPane(table);
         panel.add(scrollPane, BorderLayout.CENTER);
@@ -538,9 +535,11 @@ public class OpenProjectDialog extends JDialog {
 
     private void loadRepositoriesAsync(DefaultTableModel tableModel, boolean forceRefresh) {
         if (!forceRefresh && !loadedRepositories.isEmpty()) {
+            logger.debug("Using cached repositories ({} repos)", loadedRepositories.size());
             populateTable(tableModel, loadedRepositories);
             return;
         }
+        logger.info("Starting GitHub repository load (force refresh: {})", forceRefresh);
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
@@ -554,13 +553,16 @@ public class OpenProjectDialog extends JDialog {
                 }
                 try {
                     var repositories = get();
+                    logger.info("Successfully loaded {} GitHub repositories", repositories.size());
                     loadedRepositories = repositories;
                     populateTable(tableModel, repositories);
                 } catch (ExecutionException e) {
                     var cause = e.getCause();
                     var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
+                    logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
                     showErrorMessage("Failed to load GitHub repositories: " + errorMessage);
                 } catch (Exception e) {
+                    logger.error("Unexpected error loading GitHub repositories", e);
                     showErrorMessage("Failed to load GitHub repositories: " + e.getMessage());
                 }
             }
@@ -616,6 +618,10 @@ public class OpenProjectDialog extends JDialog {
         var repoInfo = repoInfoOpt.get();
 
         var cloneUrl = useHttps ? repoInfo.httpsUrl() : repoInfo.sshUrl();
+        var protocol = useHttps ? "HTTPS" : "SSH";
+
+        logger.info("User initiated clone: repository={}, protocol={}, targetDir={}",
+                   repoFullName, protocol, directory);
 
         cloneAndOpen(cloneUrl, directory, false, 0);
     }
