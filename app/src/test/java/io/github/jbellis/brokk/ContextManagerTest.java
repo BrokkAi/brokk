@@ -114,8 +114,7 @@ class ContextManagerTest {
         Context after = cm.topContext();
         assertEquals(1, after.getTaskHistory().size(), "Exactly one history entry should remain");
         assertTrue(
-                after.getTaskHistory().stream().noneMatch(te -> te.sequence() == 101),
-                "Dropped entry must be absent");
+                after.getTaskHistory().stream().noneMatch(te -> te.sequence() == 101), "Dropped entry must be absent");
         assertEquals("Dropped message", after.getAction(), "Top context action should be 'Dropped message'");
     }
 }

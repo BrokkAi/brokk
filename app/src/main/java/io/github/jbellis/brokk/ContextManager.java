@@ -799,13 +799,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Drops a single history entry by its sequence number.
-     * If the sequence is not found in the current top context's history, this is a no-op.
+     * Drops a single history entry by its sequence number. If the sequence is not found in the current top context's
+     * history, this is a no-op.
      *
-     * Creates a new context state with:
-     *  - updated task history (with the entry removed),
-     *  - null parsedOutput,
-     *  - and action set to "Dropped message".
+     * <p>Creates a new context state with: - updated task history (with the entry removed), - null parsedOutput, - and
+     * action set to "Dropped message".
      *
      * @param sequence the TaskEntry.sequence() to remove
      */
@@ -822,9 +820,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Push an updated context with the modified history and a "Dropped message" action
         pushContext(currentLiveCtx ->
-                currentLiveCtx.withCompressedHistory(newHistory)
-                              .withParsedOutput(null, "Deleted task from history")
-        );
+                currentLiveCtx.withCompressedHistory(newHistory).withParsedOutput(null, "Deleted task from history"));
 
         io.systemOutput("Dropped history entry " + sequence);
     }

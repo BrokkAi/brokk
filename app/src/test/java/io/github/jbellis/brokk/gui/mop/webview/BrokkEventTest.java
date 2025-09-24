@@ -1,11 +1,11 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.data.message.ChatMessageType;
-import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 
 public class BrokkEventTest {
 
@@ -24,7 +24,7 @@ public class BrokkEventTest {
         assertTrue(json.contains("\"compressed\":false"));
         assertTrue(json.contains("\"messages\":[{\"text\":\"Hello\",\"msgType\":\"USER\"}]"));
     }
-    
+
     @Test
     public void testHistoryTaskSerializationCompressed() throws Exception {
         var event = new BrokkEvent.HistoryTask(123, 456, true, "summary text", null);
