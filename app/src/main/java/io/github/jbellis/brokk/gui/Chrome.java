@@ -1331,12 +1331,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     activePreviewWindows.remove(finalWindowKey, finalPreviewFrame);
                 }
             });
-        } else {
-            // Update content for reused window
-            previewFrame.getContentPane().removeAll();
-            previewFrame.getContentPane().add(contentComponent, BorderLayout.CENTER);
-            previewFrame.revalidate();
-            previewFrame.repaint();
         }
 
         // Add ESC key binding to close the window (delegates to windowClosing)
@@ -1364,36 +1358,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * uses the file path. For other content, uses the title.
      */
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
-        // Include project path and worktree info in the key to ensure unique keys per project
-        var project = contextManager.getProject();
-        String projectPath = project.getRoot().toString();
-        String projectKey = projectPath;
-
-        // Add worktree info if this is a worktree
-        if (project.hasGit() && project.getRepo().isWorktree()) {
-            try {
-                String branchName = project.getRepo().getCurrentBranch();
-                projectKey = projectPath + ":worktree:" + branchName;
-            } catch (Exception e) {
-                projectKey = projectPath + ":worktree:unknown";
-            }
-        }
-
-        String baseKey;
         if (contentComponent instanceof PreviewTextPanel) {
             // For file previews, extract file path from title or use title as fallback
             if (title.startsWith("Preview: ")) {
-                baseKey = "file:" + title.substring(9); // Remove "Preview: " prefix
+                return "file:" + title.substring(9); // Remove "Preview: " prefix
             } else {
-                baseKey = "file:" + title;
+                return "file:" + title;
             }
         } else {
             // For other types of previews, use a generic key based on class and title
-            baseKey = "preview:" + contentComponent.getClass().getSimpleName() + ":" + title;
+            return "preview:" + contentComponent.getClass().getSimpleName() + ":" + title;
         }
-
-        String fullKey = projectKey + ":" + baseKey;
-        return fullKey;
     }
 
     /** Closes all active preview windows and clears the tracking map. Useful for cleanup or when switching projects. */
