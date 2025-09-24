@@ -100,3 +100,13 @@ export function reparseAll(): void {
     });
 }
 
+export function deleteHistoryTaskByThreadId(threadId: number): void {
+    historyStore.update(tasks => {
+        const task = tasks.find(t => t.threadId === threadId);
+        if (task) {
+            task.entries.forEach(entry => unregister(entry.seq));
+        }
+        return tasks.filter(t => t.threadId !== threadId);
+    });
+}
+
