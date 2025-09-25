@@ -50,12 +50,12 @@ public class BuildOutputPreprocessor {
 
     /**
      * Lightweight path sanitization without LLM processing. Converts absolute paths to relative paths for cleaner output.
+     *
+     * @param rawBuildOutput The build output to sanitize (use empty string if no output)
+     * @param contextManager The context manager to access project root
+     * @return Sanitized output with relative paths, or original output if sanitization fails
      */
-    public static String sanitizeOnly(@Nullable String rawBuildOutput, IContextManager contextManager) {
-        if (rawBuildOutput == null) {
-            return "";
-        }
-
+    public static String sanitizeOnly(String rawBuildOutput, IContextManager contextManager) {
         try {
             return sanitizeBuildOutput(rawBuildOutput, contextManager);
         } catch (Exception e) {
@@ -66,12 +66,12 @@ public class BuildOutputPreprocessor {
 
     /**
      * Full pipeline: sanitization + LLM-based error extraction for verbose output.
+     *
+     * @param rawBuildOutput The build output to process (use empty string if no output)
+     * @param contextManager The context manager to access project root and LLM
+     * @return Processed output with extracted errors, or original output if processing fails
      */
-    public static String processForLlm(@Nullable String rawBuildOutput, IContextManager contextManager) {
-        if (rawBuildOutput == null) {
-            return "";
-        }
-
+    public static String processForLlm(String rawBuildOutput, IContextManager contextManager) {
         logger.debug(
                 "Processing build output through standard pipeline. Original length: {} chars",
                 rawBuildOutput.length());
@@ -141,15 +141,12 @@ public class BuildOutputPreprocessor {
      * Preprocesses build output by extracting the most relevant errors when the output is longer than the threshold.
      * Uses the quickest model for fast error extraction with a 30-second timeout.
      *
-     * @param buildOutput The raw build output from compilation/test commands
+     * @param buildOutput The raw build output from compilation/test commands (empty string if no output)
      * @param contextManager The context manager to access the quickest model via getLlm
      * @return Preprocessed output containing only relevant errors, or original output if preprocessing is not needed or
      *     fails. Never returns null - empty input returns empty string.
      */
-    public static String preprocessBuildOutput(@Nullable String buildOutput, IContextManager contextManager) {
-        if (buildOutput == null) {
-            return "";
-        }
+    public static String preprocessBuildOutput(String buildOutput, IContextManager contextManager) {
         if (buildOutput.isBlank()) {
             return buildOutput;
         }
@@ -253,8 +250,12 @@ public class BuildOutputPreprocessor {
     private static SystemMessage createSystemMessage() {
         return new SystemMessage(
                 """
-            You are familiar with common build tools (Gradle, Maven, npm, TypeScript, sbt, etc.).
-            Extract the most relevant compilation and build errors from this verbose build output.
+            You are familiar with common build and lint tools. Extract the most relevant compilation
+            and build errors from verbose output.
+
+            EXAMPLES OF TOOLS YOU MAY ENCOUNTER:
+            Compilers: javac, tsc (TypeScript), rustc, gcc
+            Linters: eslint, pylint, spotless, checkstyle
 
             Focus on up to %d actionable errors that developers need to fix:
             1. Compilation errors (syntax errors, type errors, missing imports)
@@ -268,8 +269,11 @@ public class BuildOutputPreprocessor {
             - 2-3 lines of context when helpful
             - Relevant stack trace snippets (not full traces)
 
-            IGNORE verbose progress messages, successful compilation output,
-            general startup/shutdown logs, and non-blocking warnings.
+            ERROR HANDLING RULES:
+            - Include each error message verbatim
+            - When you see multiple errors in the same file with the same cause, give only the first
+            - IGNORE verbose progress messages, successful compilation output,
+              general startup/shutdown logs, and non-blocking warnings
 
             Return the extracted errors in a clean, readable format.
             """
@@ -298,26 +302,19 @@ public class BuildOutputPreprocessor {
         var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();
         var rootAbs = root.toString();
 
-        // Build forward- and back-slash variants with a trailing separator
-        var rootFwd = rootAbs.replace('\\', '/');
-        if (!rootFwd.endsWith("/")) {
-            rootFwd = rootFwd + "/";
+        // Normalize both root path and text to forward slashes for unified processing
+        var normalizedRoot = rootAbs.replace('\\', '/');
+        if (!normalizedRoot.endsWith("/")) {
+            normalizedRoot = normalizedRoot + "/";
         }
-        var rootBwd = rootAbs.replace('/', '\\');
-        if (!rootBwd.endsWith("\\")) {
-            rootBwd = rootBwd + "\\";
-        }
+        var normalizedText = text.replace('\\', '/');
 
-        // Case-insensitive replacement and boundary-checked:
+        // Single pattern for case-insensitive replacement with boundary checking:
         // - (?<![A-Za-z0-9._-]) ensures the match is not preceded by a typical path/token character.
-        // - The trailing separator in rootFwd/rootBwd ensures we only match a directory prefix of a larger path.
-        // - (?=\S) ensures there is at least one non-whitespace character following the prefix (i.e., a larger path).
-        var sanitized = text;
-        var forwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootFwd) + "(?=\\S)");
-        var backwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootBwd) + "(?=\\S)");
-
-        sanitized = forwardPattern.matcher(sanitized).replaceAll("");
-        sanitized = backwardPattern.matcher(sanitized).replaceAll("");
+        // - The trailing separator ensures we only match a directory prefix of a larger path.
+        // - (?=\S) ensures there is at least one non-whitespace character following the prefix.
+        var pattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(normalizedRoot) + "(?=\\S)");
+        var sanitized = pattern.matcher(normalizedText).replaceAll("");
 
         return sanitized;
     }

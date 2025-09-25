@@ -17,8 +17,8 @@ class BuildOutputPreprocessorSimpleTest {
     }
 
     @Test
-    void testPreprocessBuildOutput_nullInput_returnsEmptyString() {
-        String result = BuildOutputPreprocessor.preprocessBuildOutput(null, null);
+    void testPreprocessBuildOutput_emptyInput_returnsEmptyString() {
+        String result = BuildOutputPreprocessor.preprocessBuildOutput("", null);
         assertEquals("", result);
     }
 
