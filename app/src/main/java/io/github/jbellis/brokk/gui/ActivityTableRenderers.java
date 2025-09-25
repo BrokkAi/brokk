@@ -61,6 +61,7 @@ public final class ActivityTableRenderers {
                 setText(value != null ? value.toString() : "");
             }
             setHorizontalAlignment(JLabel.CENTER);
+            setVerticalAlignment(JLabel.TOP);
             return this;
         }
     }
@@ -87,6 +88,7 @@ public final class ActivityTableRenderers {
 
             // Fallback for normal cells
             super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            setVerticalAlignment(JLabel.TOP);
             if (value != null) {
                 setToolTipText(value.toString());
             }

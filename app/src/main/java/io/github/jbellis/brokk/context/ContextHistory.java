@@ -203,7 +203,7 @@ public class ContextHistory {
 
             // Compute list of filenames that changed (added, removed, or modified)
             var oldMap = new HashMap<String, String>();
-            topCtx.editableFiles.stream()
+            topCtx.getEditableFragments()
                     .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                     .forEach(fragment -> {
                         var pf = fragment.files().iterator().next();
@@ -212,7 +212,8 @@ public class ContextHistory {
                     });
 
             var newMap = new HashMap<String, String>();
-            fr.frozenContext().editableFiles.stream()
+            fr.frozenContext()
+                    .getEditableFragments()
                     .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                     .forEach(fragment -> {
                         var pf = fragment.files().iterator().next();
@@ -474,7 +475,8 @@ public class ContextHistory {
             return;
         }
         assert !frozenContext.containsDynamicFragments();
-        frozenContext.editableFiles.stream()
+        frozenContext
+                .getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
                     assert fragment.files().size() == 1 : fragment.files();

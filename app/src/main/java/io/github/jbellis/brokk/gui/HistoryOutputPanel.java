@@ -12,6 +12,8 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -19,6 +21,7 @@ import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.KeyEvent;
@@ -27,6 +30,9 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -34,10 +40,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.plaf.LayerUI;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,6 +75,9 @@ public class HistoryOutputPanel extends JPanel {
 
     private JLayeredPane historyLayeredPane;
 
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JScrollPane historyScrollPane;
+
     // Output components
     private final MarkdownOutputPanel llmStreamArea;
     private final JScrollPane llmScrollPane;
@@ -77,6 +89,11 @@ public class HistoryOutputPanel extends JPanel {
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
+    // Diff caching for AI result contexts
+    private final Map<UUID, List<Context.DiffEntry>> aiDiffCache = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> diffInFlight = ConcurrentHashMap.newKeySet();
+    private Map<UUID, Context> previousContextMap = new HashMap<>();
+
     @Nullable
     private String lastSpinnerMessage = null; // Explicitly initialize
 
@@ -86,6 +103,14 @@ public class HistoryOutputPanel extends JPanel {
     // Selection directives applied after a table rebuild (for expand/collapse UX)
     private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
     private @Nullable UUID pendingSelectionGroupKey = null;
+
+    // Viewport preservation flags for group expand/collapse operations
+    private boolean suppressScrollOnNextUpdate = false;
+    private @Nullable Point pendingViewportPosition = null;
+
+    // Session AI response counts and in-flight loaders
+    private final Map<UUID, Integer> sessionAiResponseCounts = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -217,17 +242,8 @@ public class HistoryOutputPanel extends JPanel {
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
         // Session combo box (passed in)
-        sessionComboBox.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof SessionInfo sessionInfo) {
-                    setText(sessionInfo.name());
-                }
-                return this;
-            }
-        });
+        sessionComboBox.setRenderer(new SessionInfoRenderer());
+        sessionComboBox.setMaximumRowCount(10);
 
         // Add selection listener for session switching
         sessionComboBox.addActionListener(e -> {
@@ -306,12 +322,11 @@ public class HistoryOutputPanel extends JPanel {
                 sessionComboBox.removeActionListener(listener);
             }
 
-            // Clear and repopulate
+            // Clear and repopulate all sessions (dropdown shows at most 10 rows, scroll for more)
             sessionComboBox.removeAllItems();
             var sessions = contextManager.getProject().getSessionManager().listSessions();
             sessions.sort(
                     java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
-
             for (var session : sessions) {
                 sessionComboBox.addItem(session);
             }
@@ -352,7 +367,7 @@ public class HistoryOutputPanel extends JPanel {
 
         // Set up custom renderers for history table columns
         historyTable.getColumnModel().getColumn(0).setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
-        historyTable.getColumnModel().getColumn(1).setCellRenderer(new ActivityTableRenderers.ActionCellRenderer());
+        historyTable.getColumnModel().getColumn(1).setCellRenderer(new DiffAwareActionRenderer());
 
         // Add selection listener to preview context (ignore group header rows)
         historyTable.getSelectionModel().addListSelectionListener(e -> {
@@ -384,7 +399,11 @@ public class HistoryOutputPanel extends JPanel {
                         return;
                     }
                     if (e.getClickCount() == 2 && val instanceof Context context) {
-                        openOutputWindowFromContext(context);
+                        if (context.isAiResult()) {
+                            openDiffPreview(context);
+                        } else {
+                            openOutputWindowFromContext(context);
+                        }
                     }
                 }
             }
@@ -420,18 +439,18 @@ public class HistoryOutputPanel extends JPanel {
         historyTable.getColumnModel().getColumn(2).setWidth(0);
 
         // Add table to scroll pane with AutoScroller
-        var scrollPane = new JScrollPane(historyTable);
-        var layer = new JLayer<>(scrollPane, arrowLayerUI);
-        scrollPane.getViewport().addChangeListener(e -> layer.repaint());
-        scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        AutoScroller.install(scrollPane);
-        BorderUtils.addFocusBorder(scrollPane, historyTable);
+        this.historyScrollPane = new JScrollPane(historyTable);
+        var layer = new JLayer<>(historyScrollPane, arrowLayerUI);
+        historyScrollPane.getViewport().addChangeListener(e -> layer.repaint());
+        historyScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        AutoScroller.install(historyScrollPane);
+        BorderUtils.addFocusBorder(historyScrollPane, historyTable);
 
         // Add MouseListener to scrollPane's viewport to request focus for historyTable
-        scrollPane.getViewport().addMouseListener(new MouseAdapter() {
+        historyScrollPane.getViewport().addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getSource() == scrollPane.getViewport()) { // Click was on the viewport itself
+                if (e.getSource() == historyScrollPane.getViewport()) { // Click was on the viewport itself
                     historyTable.requestFocusInWindow();
                 }
             }
@@ -527,6 +546,9 @@ public class HistoryOutputPanel extends JPanel {
 
             if (!expandedNow) {
                 groupExpandedState.put(key, true);
+                // Preserve viewport while expanding so the view doesn't jump
+                pendingViewportPosition = historyScrollPane.getViewport().getViewPosition();
+                suppressScrollOnNextUpdate = true;
                 updateHistoryTable(null);
                 // Ensure the table is rebuilt first, then select and show the popup
                 SwingUtilities.invokeLater(showAfterExpand);
@@ -561,6 +583,14 @@ public class HistoryOutputPanel extends JPanel {
         JMenuItem resetToHereIncludingHistoryItem = new JMenuItem("Copy Workspace with History");
         resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context));
         popup.add(resetToHereIncludingHistoryItem);
+
+        // Show diff (uses BrokkDiffPanel)
+        JMenuItem showDiffItem = new JMenuItem("Show diff");
+        showDiffItem.addActionListener(event -> openDiffPreview(context));
+        // Enable only if we have a previous context to diff against
+        showDiffItem.setEnabled(previousContextMap.get(context.id()) != null);
+        popup.add(showDiffItem);
+
         popup.addSeparator();
 
         JMenuItem newSessionFromWorkspaceItem = new JMenuItem("New Session from Workspace");
@@ -611,6 +641,15 @@ public class HistoryOutputPanel extends JPanel {
         assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
+            // Recompute previous-context map for diffing AI result contexts
+            {
+                var list = contextManager.getContextHistoryList();
+                var map = new HashMap<UUID, Context>();
+                for (int i = 1; i < list.size(); i++) {
+                    map.put(list.get(i).id(), list.get(i - 1));
+                }
+                previousContextMap = map;
+            }
             historyModel.setRowCount(0);
 
             int rowToSelect = -1;
@@ -697,21 +736,35 @@ public class HistoryOutputPanel extends JPanel {
                 }
             }
 
+            boolean suppress = suppressScrollOnNextUpdate;
+
             if (pendingSelectionType == PendingSelectionType.CLEAR) {
                 historyTable.clearSelection();
                 // Do not auto-select any row when collapsing a group
             } else if (rowToSelect >= 0) {
                 historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
-                historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
-            } else if (historyModel.getRowCount() > 0) {
+                if (!suppress) {
+                    historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
+                }
+            } else if (!suppress && historyModel.getRowCount() > 0) {
                 int lastRow = historyModel.getRowCount() - 1;
                 historyTable.setRowSelectionInterval(lastRow, lastRow);
                 historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
             }
 
+            // Restore viewport if requested
+            if (suppress && pendingViewportPosition != null) {
+                Point desired = pendingViewportPosition;
+                SwingUtilities.invokeLater(() -> {
+                    historyScrollPane.getViewport().setViewPosition(clampViewportPosition(historyScrollPane, desired));
+                });
+            }
+
             // Reset directive after applying
             pendingSelectionType = PendingSelectionType.NONE;
             pendingSelectionGroupKey = null;
+            suppressScrollOnNextUpdate = false;
+            pendingViewportPosition = null;
 
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
@@ -999,7 +1052,7 @@ public class HistoryOutputPanel extends JPanel {
                     setIconImage(icon.getImage());
                 }
             } catch (Exception e) {
-                // Silently ignore icon setting failures in child windows
+                logger.debug("Failed to set OutputWindow icon", e);
             }
 
             this.project = parentPanel.contextManager.getProject(); // Get project reference
@@ -1136,6 +1189,202 @@ public class HistoryOutputPanel extends JPanel {
             historyTable.setBackground(UIManager.getColor("Table.background"));
             updateUndoRedoButtonStates();
         });
+    }
+
+    /** A renderer that shows the action text and, for AI result contexts, a diff summary under it. */
+    private class DiffAwareActionRenderer extends DefaultTableCellRenderer {
+        private final ActivityTableRenderers.ActionCellRenderer fallback =
+                new ActivityTableRenderers.ActionCellRenderer();
+        private final Font smallFont = new Font(Font.DIALOG, Font.PLAIN, 11);
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            // Separator handling delegates to existing painter
+            if (ActivityTableRenderers.isSeparatorAction(value)) {
+                var comp = fallback.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // Determine context for this row
+            Object ctxVal = table.getModel().getValueAt(row, 2);
+
+            // For non-AI contexts, just render a normal label (top-aligned)
+            if (!(ctxVal instanceof Context ctx) || !ctx.isAiResult()) {
+                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (comp instanceof JLabel lbl) {
+                    lbl.setVerticalAlignment(JLabel.TOP);
+                }
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // For AI contexts, decide whether to render a diff panel or just the label
+            var cached = aiDiffCache.get(ctx.id());
+
+            // Not yet cached → kick off background computation; show a compact label for now
+            if (cached == null) {
+                scheduleDiffComputation(ctx);
+                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (comp instanceof JLabel lbl) {
+                    lbl.setVerticalAlignment(JLabel.TOP);
+                }
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // Cached but empty → no changes; compact label
+            if (cached.isEmpty()) {
+                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (comp instanceof JLabel lbl) {
+                    lbl.setVerticalAlignment(JLabel.TOP);
+                }
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // Cached with entries → build diff summary panel
+            boolean isDark = chrome.getTheme().isDarkTheme();
+
+            // Container for per-file rows with an inset on the left
+            var diffPanel = new JPanel();
+            diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
+            diffPanel.setOpaque(false);
+            diffPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
+
+            for (var de : cached) {
+                String bareName;
+                try {
+                    var files = de.fragment().files();
+                    if (!files.isEmpty()) {
+                        var pf = files.iterator().next();
+                        bareName = pf.getRelPath().getFileName().toString();
+                    } else {
+                        bareName = de.fragment().shortDescription();
+                    }
+                } catch (Exception ex) {
+                    bareName = de.fragment().shortDescription();
+                }
+
+                var nameLabel = new JLabel(bareName + " ");
+                nameLabel.setFont(smallFont);
+                nameLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+
+                var plus = new JLabel("+" + de.linesAdded());
+                plus.setFont(smallFont);
+                plus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getAdded(!isDark));
+
+                var minus = new JLabel("-" + de.linesDeleted());
+                minus.setFont(smallFont);
+                minus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(!isDark));
+
+                var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+                rowPanel.setOpaque(false);
+                rowPanel.add(nameLabel);
+                rowPanel.add(plus);
+                rowPanel.add(minus);
+
+                diffPanel.add(rowPanel);
+            }
+
+            // Build composite panel (action text on top, diff below)
+            var panel = new JPanel(new BorderLayout());
+            panel.setOpaque(true);
+            panel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+            panel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+
+            var actionLabel = new JLabel(value != null ? value.toString() : "");
+            actionLabel.setOpaque(false);
+            actionLabel.setFont(table.getFont());
+            actionLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+            panel.add(actionLabel, BorderLayout.NORTH);
+            panel.add(diffPanel, BorderLayout.CENTER);
+
+            return adjustRowHeight(table, row, column, panel);
+        }
+
+        /**
+         * Adjust the row height to the preferred height of the rendered component. This keeps rows compact when there
+         * is no diff and expands only as needed when a diff summary is present.
+         */
+        private Component adjustRowHeight(JTable table, int row, int column, Component comp) {
+            int colWidth = table.getColumnModel().getColumn(column).getWidth();
+            // Give the component the column width so its preferred height is accurate.
+            comp.setSize(colWidth, Short.MAX_VALUE);
+            int pref = Math.max(18, comp.getPreferredSize().height + 2); // small vertical breathing room
+            if (table.getRowHeight(row) != pref) {
+                table.setRowHeight(row, pref);
+            }
+            return comp;
+        }
+    }
+
+    /** Schedule background computation (with caching) of diff for an AI result context. */
+    private void scheduleDiffComputation(Context ctx) {
+        if (aiDiffCache.containsKey(ctx.id())) return;
+        if (!diffInFlight.add(ctx.id())) return;
+
+        var prev = previousContextMap.get(ctx.id());
+        if (prev == null) {
+            diffInFlight.remove(ctx.id());
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Compute diff for history entry", () -> {
+            try {
+                var diffs = ctx.getDiff(prev);
+                aiDiffCache.put(ctx.id(), diffs);
+            } finally {
+                diffInFlight.remove(ctx.id());
+                SwingUtilities.invokeLater(() -> historyTable.repaint());
+            }
+        });
+    }
+
+    /** Open a multi-file diff preview window for the given AI result context. */
+    private void openDiffPreview(Context ctx) {
+        var prev = previousContextMap.get(ctx.id());
+        if (prev == null) {
+            chrome.systemOutput("No previous context to diff against.");
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Preparing diff preview", () -> {
+            var diffs = aiDiffCache.computeIfAbsent(ctx.id(), id -> ctx.getDiff(prev));
+            SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs));
+        });
+    }
+
+    private void showDiffWindow(Context ctx, List<Context.DiffEntry> diffs) {
+        if (diffs.isEmpty()) {
+            chrome.systemOutput("No changes to show.");
+            return;
+        }
+
+        // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
+        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                .setMultipleCommitsContext(false)
+                .setRootTitle("Diff: " + ctx.getAction())
+                .setInitialFileIndex(0);
+
+        for (var de : diffs) {
+            String pathDisplay;
+            try {
+                var files = de.fragment().files();
+                if (!files.isEmpty()) {
+                    var pf = files.iterator().next();
+                    pathDisplay = pf.getRelPath().toString();
+                } else {
+                    pathDisplay = de.fragment().shortDescription();
+                }
+            } catch (Exception ex) {
+                pathDisplay = de.fragment().shortDescription();
+            }
+
+            var left = new BufferSource.StringSource(de.oldContent(), "Previous", pathDisplay);
+            var right = new BufferSource.StringSource(de.fragment().text(), "Current", pathDisplay);
+            builder.addComparison(left, right);
+        }
+
+        var panel = builder.build();
+        panel.showInFrame("Diff: " + ctx.getAction());
     }
 
     /** A LayerUI that paints reset-from-history arrows over the history table. */
@@ -1408,22 +1657,134 @@ public class HistoryOutputPanel extends JPanel {
         boolean newState = !groupExpandedState.getOrDefault(groupRow.key(), groupRow.expanded());
         groupExpandedState.put(groupRow.key(), newState);
 
+        // Set selection directive
         if (newState) {
-            // Expanding: select first entry in the group after rebuild
             pendingSelectionType = PendingSelectionType.FIRST_IN_GROUP;
-            pendingSelectionGroupKey = groupRow.key();
         } else {
-            // Collapsing: clear selection and do not auto-select any row
             pendingSelectionType = PendingSelectionType.CLEAR;
-            pendingSelectionGroupKey = groupRow.key();
         }
+        pendingSelectionGroupKey = groupRow.key();
+
+        // Preserve viewport and suppress any scroll caused by table rebuild
+        pendingViewportPosition = historyScrollPane.getViewport().getViewPosition();
+        suppressScrollOnNextUpdate = true;
 
         updateHistoryTable(null);
+    }
 
-        // Scroll back to the group header if possible
-        int headerRow = findGroupHeaderRow(groupRow.key());
-        if (headerRow >= 0) {
-            historyTable.scrollRectToVisible(historyTable.getCellRect(headerRow, 0, true));
+    private static Point clampViewportPosition(JScrollPane sp, Point desired) {
+        JViewport vp = sp.getViewport();
+        if (vp == null) return desired;
+        Component view = vp.getView();
+        if (view == null) return desired;
+        Dimension viewSize = view.getSize();
+        Dimension extent = vp.getExtentSize();
+        int maxX = Math.max(0, viewSize.width - extent.width);
+        int maxY = Math.max(0, viewSize.height - extent.height);
+        int x = Math.max(0, Math.min(desired.x, maxX));
+        int y = Math.max(0, Math.min(desired.y, maxY));
+        return new Point(x, y);
+    }
+
+    private String formatModified(long modifiedMillis) {
+        var instant = Instant.ofEpochMilli(modifiedMillis);
+        return GitUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
+    }
+
+    private void triggerAiCountLoad(SessionInfo session) {
+        var id = session.id();
+        if (sessionAiResponseCounts.containsKey(id) || sessionCountLoading.contains(id)) {
+            return;
+        }
+        sessionCountLoading.add(id);
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        var sm = contextManager.getProject().getSessionManager();
+                        var ch = sm.loadHistory(id, contextManager);
+                        if (ch == null) return 0;
+                        return countAiResponses(ch);
+                    } catch (Exception e) {
+                        logger.warn("Failed to load history for session {}", id, e);
+                        return 0;
+                    }
+                })
+                .thenAccept(count -> {
+                    sessionAiResponseCounts.put(id, count);
+                    sessionCountLoading.remove(id);
+                    SwingUtilities.invokeLater(() -> {
+                        sessionComboBox.repaint();
+                    });
+                });
+    }
+
+    private int countAiResponses(ContextHistory ch) {
+        var list = ch.getHistory();
+        int count = 0;
+        for (var ctx : list) {
+            if (ctx.isAiResult()) count++;
+        }
+        return count;
+    }
+
+    private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
+        private final JLabel nameLabel = new JLabel();
+        private final JLabel timeLabel = new JLabel();
+        private final JLabel countLabel = new JLabel();
+        private final JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
+
+        SessionInfoRenderer() {
+            setLayout(new BorderLayout());
+            setOpaque(true);
+
+            // Remove bold from nameLabel
+            // nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD));
+
+            var baseSize = timeLabel.getFont().getSize2D();
+            timeLabel.setFont(timeLabel.getFont().deriveFont(Math.max(10f, baseSize - 2f)));
+            countLabel.setFont(timeLabel.getFont());
+
+            row2.setOpaque(false);
+            row2.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
+            row2.add(timeLabel);
+            row2.add(countLabel);
+
+            add(nameLabel, BorderLayout.NORTH);
+            add(row2, BorderLayout.CENTER);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(
+                JList<? extends SessionInfo> list,
+                SessionInfo value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus) {
+            if (index == -1) {
+                var label = new JLabel(value.name());
+                label.setOpaque(false);
+                label.setEnabled(list.isEnabled());
+                label.setForeground(list.getForeground());
+                return label;
+            }
+            nameLabel.setText(value.name());
+            timeLabel.setText(formatModified(value.modified()));
+
+            var cnt = sessionAiResponseCounts.get(value.id());
+            countLabel.setText(cnt != null ? cnt + " tasks" : "");
+            if (cnt == null) {
+                triggerAiCountLoad(value);
+            }
+
+            var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
+            var fg = isSelected ? list.getSelectionForeground() : list.getForeground();
+
+            setBackground(bg);
+            nameLabel.setForeground(fg);
+            timeLabel.setForeground(fg);
+            countLabel.setForeground(fg);
+
+            setEnabled(list.isEnabled());
+            return this;
         }
     }
 }
