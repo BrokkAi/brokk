@@ -217,19 +217,26 @@ public class BuildOutputPreprocessor {
         var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();
         var rootAbs = root.toString();
 
-        // Normalize both root path and text to forward slashes for unified processing
-        var normalizedRoot = rootAbs.replace('\\', '/');
-        if (!normalizedRoot.endsWith("/")) {
-            normalizedRoot = normalizedRoot + "/";
+        // Build forward- and back-slash variants with a trailing separator
+        var rootFwd = rootAbs.replace('\\', '/');
+        if (!rootFwd.endsWith("/")) {
+            rootFwd = rootFwd + "/";
         }
-        var normalizedText = text.replace('\\', '/');
+        var rootBwd = rootAbs.replace('/', '\\');
+        if (!rootBwd.endsWith("\\")) {
+            rootBwd = rootBwd + "\\";
+        }
 
-        // Single pattern for case-insensitive replacement with boundary checking:
+        // Case-insensitive replacement and boundary-checked:
         // - (?<![A-Za-z0-9._-]) ensures the match is not preceded by a typical path/token character.
-        // - The trailing separator ensures we only match a directory prefix of a larger path.
-        // - (?=\S) ensures there is at least one non-whitespace character following the prefix.
-        var pattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(normalizedRoot) + "(?=\\S)");
-        var sanitized = pattern.matcher(normalizedText).replaceAll("");
+        // - The trailing separator in rootFwd/rootBwd ensures we only match a directory prefix of a larger path.
+        // - (?=\S) ensures there is at least one non-whitespace character following the prefix (i.e., a larger path).
+        var sanitized = text;
+        var forwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootFwd) + "(?=\\S)");
+        var backwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootBwd) + "(?=\\S)");
+
+        sanitized = forwardPattern.matcher(sanitized).replaceAll("");
+        sanitized = backwardPattern.matcher(sanitized).replaceAll("");
 
         return sanitized;
     }
