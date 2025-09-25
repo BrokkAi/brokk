@@ -102,38 +102,6 @@ public abstract class TreeSitterAnalyzer
     // Ensures reads see a consistent view while updates mutate internal maps atomically
     private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
 
-    // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
-    private record ConstructionTiming(
-            AtomicLong readStageNanos,
-            AtomicLong parseStageNanos,
-            AtomicLong processStageNanos,
-            AtomicLong mergeStageNanos,
-            AtomicLong readStageFirstStartNanos,
-            AtomicLong readStageLastEndNanos,
-            AtomicLong parseStageFirstStartNanos,
-            AtomicLong parseStageLastEndNanos,
-            AtomicLong processStageFirstStartNanos,
-            AtomicLong processStageLastEndNanos,
-            AtomicLong mergeStageFirstStartNanos,
-            AtomicLong mergeStageLastEndNanos) {
-
-        static ConstructionTiming create() {
-            return new ConstructionTiming(
-                    new AtomicLong(),
-                    new AtomicLong(),
-                    new AtomicLong(),
-                    new AtomicLong(),
-                    new AtomicLong(Long.MAX_VALUE),
-                    new AtomicLong(0L),
-                    new AtomicLong(Long.MAX_VALUE),
-                    new AtomicLong(0L),
-                    new AtomicLong(Long.MAX_VALUE),
-                    new AtomicLong(0L),
-                    new AtomicLong(Long.MAX_VALUE),
-                    new AtomicLong(0L));
-        }
-    }
-
     private final IProject project;
     private final Language language;
     protected final Set<Path> normalizedExcludedPaths;
@@ -246,6 +214,38 @@ public abstract class TreeSitterAnalyzer
             List<String> importStatements // Added for module-level imports
             ) {}
 
+    // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
+    private record ConstructionTiming(
+            AtomicLong readStageNanos,
+            AtomicLong parseStageNanos,
+            AtomicLong processStageNanos,
+            AtomicLong mergeStageNanos,
+            AtomicLong readStageFirstStartNanos,
+            AtomicLong readStageLastEndNanos,
+            AtomicLong parseStageFirstStartNanos,
+            AtomicLong parseStageLastEndNanos,
+            AtomicLong processStageFirstStartNanos,
+            AtomicLong processStageLastEndNanos,
+            AtomicLong mergeStageFirstStartNanos,
+            AtomicLong mergeStageLastEndNanos) {
+
+        static ConstructionTiming create() {
+            return new ConstructionTiming(
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L));
+        }
+    }
+
     /* ---------- constructor ---------- */
     protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
         this.project = project;
@@ -306,7 +306,9 @@ public abstract class TreeSitterAnalyzer
         var timing = ConstructionTiming.create();
         List<CompletableFuture<?>> futures = new ArrayList<>();
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
-        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-parser-");
+        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-");
+                var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
+                        Runtime.getRuntime().availableProcessors(), "ts-parse-");
                 var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(1, "ts-ingest-")) {
             for (var pf : filesToProcess) {
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
@@ -316,7 +318,7 @@ public abstract class TreeSitterAnalyzer
                                     totalFilesAttempted.incrementAndGet();
                                     return analyzeFile(pf, fileBytes, timing);
                                 },
-                                ioExecutor)
+                                parseExecutor)
                         .thenAcceptAsync(
                                 analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
                         .whenComplete((Void ignored, @Nullable Throwable ex) -> {
@@ -388,7 +390,8 @@ public abstract class TreeSitterAnalyzer
                 (totalStart == Long.MAX_VALUE || totalEnd == 0L || totalEnd < totalStart) ? 0L : totalEnd - totalStart;
 
         log.debug(
-                "Stage timing (wall clock coverage; stages overlap): Read Files={}, Parse Files={}, Process Files={}, Merge Results={}, Total={}",
+                "[{}] Stage timing (wall clock coverage; stages overlap): Read Files={}, Parse Files={}, Process Files={}, Merge Results={}, Total={}",
+                language.name(),
                 formatSecondsMillis(readWall),
                 formatSecondsMillis(parseWall),
                 formatSecondsMillis(processWall),
@@ -396,7 +399,8 @@ public abstract class TreeSitterAnalyzer
                 formatSecondsMillis(totalWall));
 
         log.debug(
-                "TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
+                "[{}] TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
+                language.name(),
                 topLevelDeclarations.size(),
                 childrenByParent.size(),
                 signatures.size());
@@ -1302,7 +1306,7 @@ public abstract class TreeSitterAnalyzer
             }
 
             String signature =
-                    buildSignatureString(node, simpleName, fileBytes, primaryCaptureName, modifierKeywords, file);
+                    buildSignatureString(node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -1502,6 +1506,7 @@ public abstract class TreeSitterAnalyzer
     private String buildSignatureString(
             TSNode definitionNode,
             String simpleName,
+            String src,
             byte[] srcBytes,
             String primaryCaptureName,
             List<String> capturedModifierKeywords,
@@ -1509,9 +1514,6 @@ public abstract class TreeSitterAnalyzer
         List<String> signatureLines = new ArrayList<>();
         var profile = getLanguageSyntaxProfile();
         SkeletonType skeletonType = getSkeletonTypeForCapture(primaryCaptureName); // Get skeletonType early
-
-        // Convert to String for compatibility with existing method signatures
-        String src = new String(srcBytes, StandardCharsets.UTF_8);
 
         TSNode nodeForContent = definitionNode;
         TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
