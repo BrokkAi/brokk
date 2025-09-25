@@ -2013,7 +2013,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             wandButton.setEnabled(true);
             wandButton.setIcon(Icons.STOP);
             wandButton.setToolTipText("Cancel prompt refinement");
-		  // always use the off red of the light theme
+            // always use the off red of the light theme
             Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
             wandButton.setBackground(badgeBackgroundColor);
             actionButton.setEnabled(false);
@@ -2091,27 +2091,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Track and watch the refine task so we can restore UI when it completes or is cancelled
         currentWandFuture = future;
-        Thread watcher = new Thread(() -> {
-            try {
-                future.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (ExecutionException | CancellationException ignored) {
-                // ignore
-            } finally {
-                currentWandFuture = null;
-                SwingUtilities.invokeLater(() -> {
-                    wandButton.setEnabled(true);
-                    wandButton.setIcon(Icons.WAND);
-                    wandButton.setToolTipText(
-                            "Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
-                    // Reset background to default (null lets LAF/theme paint it)
-                    wandButton.setBackground(null);
-                    actionButton.setEnabled(true);
-                    instructionsArea.setEditable(true);
-                });
-            }
-        }, "Brokk-Wand-Watcher");
+        Thread watcher = new Thread(
+                () -> {
+                    try {
+                        future.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (ExecutionException | CancellationException ignored) {
+                        // ignore
+                    } finally {
+                        currentWandFuture = null;
+                        SwingUtilities.invokeLater(() -> {
+                            wandButton.setEnabled(true);
+                            wandButton.setIcon(Icons.WAND);
+                            wandButton.setToolTipText(
+                                    "Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
+                            // Reset background to default (null lets LAF/theme paint it)
+                            wandButton.setBackground(null);
+                            actionButton.setEnabled(true);
+                            instructionsArea.setEditable(true);
+                        });
+                    }
+                },
+                "Brokk-Wand-Watcher");
         watcher.setDaemon(true);
         watcher.start();
     }
@@ -2255,7 +2257,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setEnabled(true);
             actionButton.setToolTipText("Cancel the current operation");
-		  // always use the off red of the light theme
+            // always use the off red of the light theme
             Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
             actionButton.setBackground(badgeBackgroundColor);
         } else {
@@ -2387,7 +2389,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
             actionButton.setEnabled(true);
-		  // always use the off red of the light theme
+            // always use the off red of the light theme
             Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
             actionButton.setBackground(badgeBackgroundColor);
         });
