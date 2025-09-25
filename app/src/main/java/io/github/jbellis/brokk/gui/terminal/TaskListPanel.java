@@ -855,13 +855,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (model.getSize() == 0) {
             return;
         }
-        
+
         // Select all tasks
         int[] allIndices = new int[model.getSize()];
         for (int i = 0; i < model.getSize(); i++) {
             allIndices[i] = i;
         }
-        
+
         list.setSelectionInterval(0, model.getSize() - 1);
         runArchitectOnIndices(allIndices);
     }
@@ -1229,36 +1229,36 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         Arrays.sort(indices);
         int firstIdx = indices[0];
         int secondIdx = indices[1];
-        
+
         if (firstIdx < 0 || secondIdx >= model.size()) {
             return;
         }
 
         TaskItem firstTask = model.get(firstIdx);
         TaskItem secondTask = model.get(secondIdx);
-        
+
         if (firstTask == null || secondTask == null) {
             return;
         }
 
         // Combine the text with a separator
         String combinedText = firstTask.text() + " | " + secondTask.text();
-        
+
         // Both tasks are considered done if either one is done
         boolean combinedDone = firstTask.done() || secondTask.done();
-        
+
         // Create the new combined task
         TaskItem combinedTask = new TaskItem(combinedText, combinedDone);
-        
+
         // Add the combined task at the position of the first selected task
         model.set(firstIdx, combinedTask);
-        
+
         // Remove the second task (higher index first to keep indices valid)
         model.remove(secondIdx);
-        
+
         // Select the combined task
         list.setSelectedIndex(firstIdx);
-        
+
         saveTasksForCurrentSession();
         updateButtonStates();
     }
