@@ -14,8 +14,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 public class GitRepoTest {
@@ -1084,9 +1082,6 @@ public class GitRepoTest {
     }
 
     @Test
-    @DisabledOnOs(
-            value = OS.WINDOWS,
-            disabledReason = "Git clone operations may fail on Windows due to file system differences")
     void testCloneRepo_Shallow() throws Exception {
         // 1. Create an origin repository with a single commit
         Path originDir = tempDir.resolve("origin");
@@ -1126,9 +1121,6 @@ public class GitRepoTest {
     }
 
     @Test
-    @DisabledOnOs(
-            value = OS.WINDOWS,
-            disabledReason = "Git clone operations may fail on Windows due to file system differences")
     void testCloneRepo_WithBranchSelection() throws Exception {
         // 1. Create an origin repository with multiple branches
         Path originDir = tempDir.resolve("origin-with-branches");
