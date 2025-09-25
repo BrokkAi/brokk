@@ -930,10 +930,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     return;
                 }
                 try {
-                    if (Boolean.TRUE.equals(res) && runningIndex != null && runningIndex == idx && idx < model.size()) {
+                    if (Boolean.TRUE.equals(res)
+                            && java.util.Objects.equals(runningIndex, Integer.valueOf(idx))
+                            && idx < model.size()) {
                         var it = model.get(idx);
-                        model.set(idx, new TaskItem(it.text(), true));
-                        saveTasksForCurrentSession();
+                        if (it != null) {
+                            model.set(idx, new TaskItem(it.text(), true));
+                            saveTasksForCurrentSession();
+                        }
                     }
                 } finally {
                     // Clear running, advance queue
