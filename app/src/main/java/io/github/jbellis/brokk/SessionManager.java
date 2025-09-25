@@ -71,9 +71,9 @@ public class SessionManager implements AutoCloseable {
     private final Path deletedSessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
     private final Set<UUID> deletionsPendingSync;
-    private final AbstractProject project;
+    private final IProject project;
 
-    public SessionManager(AbstractProject project, Path sessionsDir) {
+    public SessionManager(IProject project, Path sessionsDir) {
         this.project = project;
         this.sessionsDir = sessionsDir;
         this.deletedSessionsDir = sessionsDir.resolve("deleted");
