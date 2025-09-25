@@ -7,6 +7,7 @@ public final class Icons {
 
     private Icons() {}
 
+    public static final Icon WAND = SwingUtil.uiIcon("Brokk.wand");
     public static final Icon REFRESH = SwingUtil.uiIcon("Brokk.refresh");
     public static final Icon FOLDER_CODE = SwingUtil.uiIcon("Brokk.folder_code");
     public static final Icon COMMIT = SwingUtil.uiIcon("Brokk.commit");
