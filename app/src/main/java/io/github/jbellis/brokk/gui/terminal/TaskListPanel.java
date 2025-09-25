@@ -191,6 +191,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var editItem = new JMenuItem("Edit");
         editItem.addActionListener(e -> editSelected());
         popup.add(editItem);
+        var splitItem = new JMenuItem("Split");
+        splitItem.addActionListener(e -> splitSelectedTask());
+        popup.add(splitItem);
         var copyItem = new JMenuItem("Copy");
         copyItem.addActionListener(e -> copySelectedTasks());
         popup.add(copyItem);
@@ -222,6 +225,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     boolean block = includesRunning || includesPending;
                     toggleItem.setEnabled(!block);
                     editItem.setEnabled(!block);
+                    boolean exactlyOne = sel.length == 1;
+                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
                     deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
@@ -250,6 +255,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     boolean block = includesRunning || includesPending;
                     toggleItem.setEnabled(!block);
                     editItem.setEnabled(!block);
+                    boolean exactlyOne = sel.length == 1;
+                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
                     deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
@@ -739,8 +746,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Combine enabled only if exactly 2 tasks selected and no running/pending in selection
         combineBtn.setEnabled(selIndices.length == 2 && !blockEdits);
-        // Split enabled only if exactly 1 task selected and no running/pending in selection
-        splitBtn.setEnabled(selIndices.length == 1 && !blockEdits);
+        // Split enabled only if exactly 1 task selected and no running/pending in selection and no active queue
+        splitBtn.setEnabled(selIndices.length == 1 && !blockEdits && !queueActive);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
@@ -1311,6 +1318,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             JOptionPane.showMessageDialog(
                     this,
                     "Cannot split a task that is queued for running.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        if (queueActive) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split tasks while a run is in progress.",
                     "Split Disabled",
                     JOptionPane.INFORMATION_MESSAGE);
             return;
