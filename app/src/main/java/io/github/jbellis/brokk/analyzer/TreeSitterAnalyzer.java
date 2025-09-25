@@ -306,10 +306,11 @@ public abstract class TreeSitterAnalyzer
         var timing = ConstructionTiming.create();
         List<CompletableFuture<?>> futures = new ArrayList<>();
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
-        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-");
+        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", 1000);
                 var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-parse-");
-                var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(1, "ts-ingest-")) {
+                var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
+                        Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
                                 () -> readFileBytes(pf, timing), ioExecutor)
