@@ -95,9 +95,19 @@ public class BuildOutputPreprocessor {
             return buildOutput;
         }
 
-        if (!shouldPreprocess(buildOutput)) {
+        List<String> lines = Splitter.on('\n').splitToList(buildOutput);
+        if (lines.size() <= THRESHOLD_LINES) {
+            logger.debug(
+                    "Build output has {} lines, below threshold of {}. Skipping preprocessing.",
+                    lines.size(),
+                    THRESHOLD_LINES);
             return buildOutput;
         }
+
+        logger.info(
+                "Build output has {} lines, above threshold of {}. Extracting relevant errors.",
+                lines.size(),
+                THRESHOLD_LINES);
 
         try {
             return performPreprocessing(buildOutput, contextManager);
@@ -107,27 +117,53 @@ public class BuildOutputPreprocessor {
         }
     }
 
-    private static boolean shouldPreprocess(String buildOutput) {
-        List<String> lines = Splitter.on('\n').splitToList(buildOutput);
-        if (lines.size() <= THRESHOLD_LINES) {
-            logger.debug(
-                    "Build output has {} lines, below threshold of {}. Skipping preprocessing.",
-                    lines.size(),
-                    THRESHOLD_LINES);
-            return false;
-        }
-
-        logger.info(
-                "Build output has {} lines, above threshold of {}. Extracting relevant errors.",
-                lines.size(),
-                THRESHOLD_LINES);
-        return true;
-    }
-
     private static String performPreprocessing(String buildOutput, IContextManager contextManager)
             throws InterruptedException {
         var llm = contextManager.getLlm(contextManager.getService().quickestModel(), "BuildOutputPreprocessor");
-        var messages = List.of(createSystemMessage(), createExtractionRequest(buildOutput));
+
+        var systemMessage = new SystemMessage(
+                """
+            You are familiar with common build and lint tools. Extract the most relevant compilation
+            and build errors from verbose output.
+
+            EXAMPLES OF TOOLS YOU MAY ENCOUNTER:
+            Compilers: javac, tsc (TypeScript), rustc, gcc
+            Linters: eslint, pylint, spotless, checkstyle
+
+            Focus on up to %d actionable errors that developers need to fix:
+            1. Compilation errors (syntax errors, type errors, missing imports)
+            2. Test failures with specific failure reasons
+            3. Dependency resolution failures
+            4. Build configuration errors
+
+            For each error, include:
+            - File path and line number when available
+            - Specific error message
+            - 2-3 lines of context when helpful
+            - Relevant stack trace snippets (not full traces)
+
+            ERROR HANDLING RULES:
+            - Include each error message verbatim
+            - When you see multiple errors in the same file with the same cause, give only the first
+            - IGNORE verbose progress messages, successful compilation output,
+              general startup/shutdown logs, and non-blocking warnings
+
+            Return the extracted errors in a clean, readable format.
+            """
+                        .stripIndent()
+                        .formatted(MAX_EXTRACTED_ERRORS));
+
+        var userMessage = new UserMessage(
+                """
+            Please extract the most relevant compilation/build errors from this build output:
+
+            ```
+            %s
+            ```
+            """
+                        .stripIndent()
+                        .formatted(buildOutput));
+        var messages = List.of(systemMessage, userMessage);
 
         var result = llm.sendRequest(messages, false);
 
@@ -171,53 +207,6 @@ public class BuildOutputPreprocessor {
         } else {
             logger.warn("Error during build output preprocessing: {}. Using original output.", error.getMessage());
         }
-    }
-
-    private static SystemMessage createSystemMessage() {
-        return new SystemMessage(
-                """
-            You are familiar with common build and lint tools. Extract the most relevant compilation
-            and build errors from verbose output.
-
-            EXAMPLES OF TOOLS YOU MAY ENCOUNTER:
-            Compilers: javac, tsc (TypeScript), rustc, gcc
-            Linters: eslint, pylint, spotless, checkstyle
-
-            Focus on up to %d actionable errors that developers need to fix:
-            1. Compilation errors (syntax errors, type errors, missing imports)
-            2. Test failures with specific failure reasons
-            3. Dependency resolution failures
-            4. Build configuration errors
-
-            For each error, include:
-            - File path and line number when available
-            - Specific error message
-            - 2-3 lines of context when helpful
-            - Relevant stack trace snippets (not full traces)
-
-            ERROR HANDLING RULES:
-            - Include each error message verbatim
-            - When you see multiple errors in the same file with the same cause, give only the first
-            - IGNORE verbose progress messages, successful compilation output,
-              general startup/shutdown logs, and non-blocking warnings
-
-            Return the extracted errors in a clean, readable format.
-            """
-                        .stripIndent()
-                        .formatted(MAX_EXTRACTED_ERRORS));
-    }
-
-    private static UserMessage createExtractionRequest(String buildOutput) {
-        return new UserMessage(
-                """
-            Please extract the most relevant compilation/build errors from this build output:
-
-            ```
-            %s
-            ```
-            """
-                        .stripIndent()
-                        .formatted(buildOutput));
     }
 
     /**
