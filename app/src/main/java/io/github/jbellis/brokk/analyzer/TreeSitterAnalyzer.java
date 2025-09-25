@@ -31,8 +31,8 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -217,64 +217,41 @@ public abstract class TreeSitterAnalyzer
     protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
         this.project = project;
         this.language = language;
+        // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
 
-        this.normalizedExcludedPaths = normalizeExcludedPaths(project, excludedFiles);
-        if (!this.normalizedExcludedPaths.isEmpty()) {
-            log.debug("Normalized excluded paths: {}", this.normalizedExcludedPaths);
-        }
-
-        this.query = createQueryThreadLocal();
-
-        log.debug(
-                "Initializing TreeSitterAnalyzer for language: {}, query resource: {}",
-                this.language,
-                getQueryResource());
-
-        var validExtensions = Set.copyOf(this.language.getExtensions());
-
-        var stats = performInitialAnalysis(validExtensions);
-
-        if (stats.failed() > 0) {
-            log.warn(
-                    "File processing summary: {} attempted, {} successful, {} failed",
-                    stats.attempted(),
-                    stats.successful(),
-                    stats.failed());
-        } else {
-            log.info("File processing summary: {} files processed successfully", stats.successful());
-        }
-
-        log.debug(
-                "TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
-                topLevelDeclarations.size(),
-                childrenByParent.size(),
-                signatures.size());
-    }
-
-    protected TreeSitterAnalyzer(IProject project, Language language) {
-        this(project, language, project.getExcludedDirectories());
-    }
-
-    private static Set<Path> normalizeExcludedPaths(IProject project, Set<String> excludedFiles) {
-        return excludedFiles.stream()
+        this.normalizedExcludedPaths = excludedFiles.stream()
                 .map(Path::of)
                 .map(p -> p.isAbsolute()
                         ? p.normalize()
                         : project.getRoot().resolve(p).toAbsolutePath().normalize())
                 .collect(Collectors.toUnmodifiableSet());
-    }
+        if (!this.normalizedExcludedPaths.isEmpty()) {
+            log.debug("Normalized excluded paths: {}", this.normalizedExcludedPaths);
+        }
 
-    private ThreadLocal<TSQuery> createQueryThreadLocal() {
-        return ThreadLocal.withInitial(() -> {
+        // Initialize query using a ThreadLocal for thread safety
+        // The supplier will use the appropriate getQueryResource() from the subclass
+        // and getTSLanguage() for the current thread.
+        this.query = ThreadLocal.withInitial(() -> {
             String rawQueryString = loadResource(getQueryResource());
             return new TSQuery(getTSLanguage(), rawQueryString);
         });
-    }
 
-    private AnalysisStats performInitialAnalysis(Set<String> validExtensions) {
+        // Debug log using SLF4J
+        log.debug(
+                "Initializing TreeSitterAnalyzer for language: {}, query resource: {}",
+                this.language,
+                getQueryResource());
+
+        var validExtensions = this.language.getExtensions();
         log.trace("Filtering project files for extensions: {}", validExtensions);
 
-        // Collect relevant files first (producer set)
+        // Track processing statistics for better diagnostics
+        var totalFilesAttempted = new AtomicInteger(0);
+        var successfullyProcessed = new AtomicInteger(0);
+        var failedFiles = new AtomicInteger(0);
+
+        // Collect files to process
         List<ProjectFile> filesToProcess = project.getAllFiles().stream()
                 .filter(pf -> {
                     var filePath = pf.absPath().toAbsolutePath().normalize();
@@ -291,47 +268,52 @@ public abstract class TreeSitterAnalyzer
                     var extension = pf.extension();
                     return validExtensions.contains(extension);
                 })
-                .toList();
+                .collect(Collectors.toList());
 
-        int totalFilesAttempted = filesToProcess.size();
+        // Executors: virtual threads for I/O/parsing, single-thread for ingestion
+        var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-parser-");
+        var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(1, "ts-ingest-");
 
-        ExecutorService ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-parser-");
-        ExecutorService ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(1, "ts-ingest-");
-        List<CompletableFuture<Boolean>> futures = new ArrayList<>();
+        List<CompletableFuture<?>> futures = new ArrayList<>();
 
         try {
-            for (ProjectFile pf : filesToProcess) {
-                log.trace("Processing file: {}", pf);
-
-                CompletableFuture<Boolean> pipeline = CompletableFuture.supplyAsync(
+            for (var pf : filesToProcess) {
+                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
                                 () -> {
-                                    // TSParser is not thread-safe; create per task
-                                    var localParser = new TSParser();
                                     try {
-                                        if (!localParser.setLanguage(getTSLanguage())) {
-                                            log.error(
-                                                    "Failed to set language on thread-local TSParser for language {} in file {}",
-                                                    getTSLanguage().getClass().getSimpleName(),
-                                                    pf);
-                                            throw new IllegalStateException("Failed to set language on TSParser");
-                                        }
-                                        return analyzeFileDeclarations(pf, localParser);
+                                        return Files.readAllBytes(pf.absPath());
                                     } catch (IOException e) {
                                         throw new UncheckedIOException(e);
-                                    } catch (OutOfMemoryError e) {
-                                        // Critical JVM issues that should terminate processing
-                                        throw e;
-                                    } catch (Exception e) {
-                                        throw new RuntimeException(e);
                                     }
                                 },
                                 ioExecutor)
                         .thenApplyAsync(
+                                fileBytes -> {
+                                    totalFilesAttempted.incrementAndGet();
+                                    log.trace("Processing file: {}", pf);
+
+                                    var localParser = new TSParser();
+                                    if (!localParser.setLanguage(getTSLanguage())) {
+                                        log.error(
+                                                "Failed to set language on thread-local TSParser for language {} in file {}",
+                                                getTSLanguage().getClass().getSimpleName(),
+                                                pf);
+                                        // Return an empty result to skip ingestion
+                                        return new FileAnalysisResult(
+                                                List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
+                                    }
+
+                                    return analyzeFileContent(pf, fileBytes, localParser);
+                                },
+                                ioExecutor)
+                        .thenAcceptAsync(
                                 analysisResult -> {
                                     if (!analysisResult.topLevelCUs().isEmpty()
                                             || !analysisResult.signatures().isEmpty()
                                             || !analysisResult.sourceRanges().isEmpty()) {
+
                                         ingestAnalysisResult(pf, analysisResult);
+
                                         log.trace(
                                                 "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
                                                 pf,
@@ -342,61 +324,72 @@ public abstract class TreeSitterAnalyzer
                                     } else {
                                         log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
                                     }
-                                    return true;
                                 },
                                 ingestExecutor)
-                        .exceptionally(throwable -> {
-                            Throwable cause = (throwable instanceof java.util.concurrent.CompletionException ce
-                                            && ce.getCause() != null)
-                                    ? ce.getCause()
-                                    : throwable;
-
-                            if (cause instanceof UncheckedIOException uioe) {
-                                Throwable io = (uioe.getCause() != null) ? uioe.getCause() : uioe;
-                                log.warn("IO error analyzing {}: {}", pf, io.getMessage());
-                            } else if (cause instanceof RuntimeException re) {
-                                log.error("Runtime error analyzing {}: {}", pf, re.getMessage(), re);
+                        .whenComplete((Void ignored, @Nullable Throwable ex) -> {
+                            if (ex == null) {
+                                successfullyProcessed.incrementAndGet();
                             } else {
-                                log.warn("Error analyzing {}: {}", pf, cause.getMessage(), cause);
+                                failedFiles.incrementAndGet();
+                                Throwable cause = (ex instanceof java.util.concurrent.CompletionException ce
+                                                && ce.getCause() != null)
+                                        ? ce.getCause()
+                                        : ex;
+
+                                if (cause instanceof UncheckedIOException uioe) {
+                                    var ioe = uioe.getCause();
+                                    log.warn(
+                                            "IO error analyzing {}: {}",
+                                            pf,
+                                            ioe != null ? ioe.getMessage() : uioe.getMessage());
+                                } else if (cause instanceof RuntimeException re) {
+                                    log.error("Runtime error analyzing {}: {}", pf, re.getMessage(), re);
+                                } else {
+                                    log.warn("Error analyzing {}: {}", pf, cause.getMessage(), cause);
+                                }
                             }
-                            return false;
                         });
 
-                futures.add(pipeline);
+                futures.add(future);
             }
 
-            // Wait for all pipelines to complete
-            if (!futures.isEmpty()) {
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .join();
-            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         } finally {
             ioExecutor.shutdown();
             ingestExecutor.shutdown();
             try {
-                if (!ioExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-                    ioExecutor.shutdownNow();
-                }
-                if (!ingestExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-                    ingestExecutor.shutdownNow();
-                }
+                ioExecutor.awaitTermination(30, TimeUnit.SECONDS);
+                ingestExecutor.awaitTermination(30, TimeUnit.SECONDS);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                ioExecutor.shutdownNow();
-                ingestExecutor.shutdownNow();
             }
         }
 
-        int successfullyProcessed = (int) futures.stream()
-                .map(CompletableFuture::join)
-                .filter(Boolean::booleanValue)
-                .count();
-        int failedFiles = totalFilesAttempted - successfullyProcessed;
+        // Log summary of file processing results
+        int totalAttempted = totalFilesAttempted.get();
+        int successful = successfullyProcessed.get();
+        int failed = failedFiles.get();
 
-        return new AnalysisStats(totalFilesAttempted, successfullyProcessed, failedFiles);
+        if (failed > 0) {
+            log.warn(
+                    "File processing summary: {} attempted, {} successful, {} failed",
+                    totalAttempted,
+                    successful,
+                    failed);
+        } else {
+            log.info("File processing summary: {} files processed successfully", successful);
+        }
+
+        log.debug(
+                "TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
+                topLevelDeclarations.size(),
+                childrenByParent.size(),
+                signatures.size());
     }
 
-    private static record AnalysisStats(int attempted, int successful, int failed) {}
+    protected TreeSitterAnalyzer(IProject project, Language language) {
+        this(project, language, Collections.emptySet());
+    }
 
     /* ---------- Helper methods for accessing CodeUnits ---------- */
 
@@ -997,10 +990,9 @@ public abstract class TreeSitterAnalyzer
 
     /* ---------- core parsing ---------- */
 
-    /** Analyzes a single file and extracts declaration information. */
-    private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
-        log.trace("analyzeFileDeclarations: Parsing file: {}", file);
-        byte[] fileBytes = Files.readAllBytes(file.absPath());
+    /** Analyzes a single file and extracts declaration information from provided bytes. */
+    private FileAnalysisResult analyzeFileContent(ProjectFile file, byte[] fileBytes, TSParser localParser) {
+        log.trace("analyzeFileContent: Parsing file: {}", file);
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
@@ -1365,9 +1357,7 @@ public abstract class TreeSitterAnalyzer
 
             // Pre-expand range to include contiguous preceding comments and metadata for classes and functions.
             // Always include contiguous leading comments and attribute-like nodes for both classes and functions.
-            var finalRange = (cu.isClass() || cu.isFunction())
-                    ? expandRangeWithComments(file, originalRange, false)
-                    : originalRange;
+            var finalRange = (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, false) : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
@@ -2358,7 +2348,8 @@ public abstract class TreeSitterAnalyzer
                             log.error("Cannot set TSLanguage for {}", file);
                             continue;
                         }
-                        var analysisResult = analyzeFileDeclarations(file, localParser);
+                        byte[] bytes = Files.readAllBytes(file.absPath());
+                        var analysisResult = analyzeFileContent(file, bytes, localParser);
                         ingestAnalysisResult(file, analysisResult);
                     } catch (IOException e) {
                         log.warn("IO error re-analysing {}: {}", file, e.getMessage());
@@ -2503,35 +2494,6 @@ public abstract class TreeSitterAnalyzer
         return Set.of();
     }
 
-    /** Finds a Tree-Sitter node by its byte range within the given tree. */
-    protected Optional<TSNode> findNodeByRange(TSTree tree, int startByte, int endByte) {
-        TSNode root = tree.getRootNode();
-        return findNodeByRangeRecursive(root, startByte, endByte);
-    }
-
-    private Optional<TSNode> findNodeByRangeRecursive(TSNode node, int targetStartByte, int targetEndByte) {
-        // Check if this node matches the target range
-        if (node.getStartByte() == targetStartByte && node.getEndByte() == targetEndByte) {
-            return Optional.of(node);
-        }
-
-        // Check children
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child != null && !child.isNull()) {
-                // Only recurse if the target range could be within this child
-                if (child.getStartByte() <= targetStartByte && child.getEndByte() >= targetEndByte) {
-                    Optional<TSNode> result = findNodeByRangeRecursive(child, targetStartByte, targetEndByte);
-                    if (result.isPresent()) {
-                        return result;
-                    }
-                }
-            }
-        }
-
-        return Optional.empty();
-    }
-
     /**
      * Finds all comment nodes that directly precede the given declaration node. Returns comments in source order
      * (earliest first).
@@ -2570,34 +2532,20 @@ public abstract class TreeSitterAnalyzer
 
     /**
      * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
-     * preceding the declaration node. Reuses the cached AST; does not re-parse.
+     * preceding the declaration node. Operates directly on the provided declaration node.
      */
-    protected Range expandRangeWithComments(ProjectFile file, Range originalRange, boolean ignoredIncludeOnlyDocLike) {
+    protected Range expandRangeWithComments(TSNode declarationNode, boolean ignoredIncludeOnlyDocLike) {
+        var originalRange = new Range(
+                declarationNode.getStartByte(),
+                declarationNode.getEndByte(),
+                declarationNode.getStartPoint().getRow(),
+                declarationNode.getEndPoint().getRow(),
+                declarationNode.getStartByte()); // initial commentStartByte equals start
+
         try {
-            // Reuse cached tree created during analyzeFileDeclarations
-            TSTree tree = getCachedTree(file);
-            if (tree == null) {
-                log.debug("No cached AST available for {} during comment expansion; keeping original range", file);
-                return originalRange;
-            }
-
-            // Find the declaration node by its range
-            Optional<TSNode> declarationNode =
-                    findNodeByRange(tree, originalRange.startByte(), originalRange.endByte());
-            if (declarationNode.isEmpty()) {
-                log.debug(
-                        "Could not find declaration node for range [{}, {}] in file {}",
-                        originalRange.startByte(),
-                        originalRange.endByte(),
-                        file);
-                return originalRange;
-            }
-
-            TSNode decl = declarationNode.get();
-
             // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
             List<TSNode> leading = new ArrayList<>();
-            TSNode current = decl.getPrevSibling();
+            TSNode current = declarationNode.getPrevSibling();
             while (current != null && !current.isNull()) {
                 if (isLeadingMetadataNode(current)) {
                     leading.add(current);
@@ -2606,12 +2554,14 @@ public abstract class TreeSitterAnalyzer
                 }
                 break;
             }
-            // leading currently has closest-first order; reverse to earliest-first
+
+            // No leading metadata; keep the original range
             if (leading.isEmpty()) {
                 return originalRange;
             }
-            Collections.reverse(leading);
 
+            // Reverse to get earliest-first
+            Collections.reverse(leading);
             int newStartByte = leading.get(0).getStartByte();
 
             Range expandedRange = new Range(
@@ -2622,18 +2572,16 @@ public abstract class TreeSitterAnalyzer
                     newStartByte);
 
             log.trace(
-                    "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} preceding metadata nodes)",
-                    file,
+                    "Expanded range for node. Body range [{}, {}], comment range starts at {} (added {} preceding metadata nodes)",
                     originalRange.startByte(),
                     originalRange.endByte(),
-                    expandedRange.startByte(),
-                    expandedRange.endByte(),
+                    expandedRange.commentStartByte(),
                     leading.size());
 
             return expandedRange;
 
         } catch (Exception e) {
-            log.warn("Error during comment/metadata expansion for file {}: {}", file, e.getMessage());
+            log.warn("Error during comment/metadata expansion for node: {}", e.getMessage());
             return originalRange;
         }
     }
