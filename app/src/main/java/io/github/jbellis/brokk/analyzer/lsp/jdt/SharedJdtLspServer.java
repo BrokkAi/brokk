@@ -6,7 +6,7 @@ import io.github.jbellis.brokk.analyzer.lsp.LspFileUtilities;
 import io.github.jbellis.brokk.analyzer.lsp.LspLanguageClient;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
-import io.github.jbellis.brokk.gui.dialogs.analyzer.JavaAnalyzerSettingsPanel;
+import io.github.jbellis.brokk.gui.dialogs.AnalyzerSettingsPanel.JavaAnalyzerSettingsPanel;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import org.eclipse.lsp4j.services.LanguageClient;
 import org.jetbrains.annotations.Nullable;
 
 /** Manages a single, shared instance of the JDT Language Server process. This class is a thread-safe singleton. */
@@ -53,6 +52,7 @@ public final class SharedJdtLspServer extends LspServer {
         final Path launcherJar = LspFileUtilities.findFile(serverHome, "org.eclipse.equinox.launcher_");
         final Path configDir = LspFileUtilities.findConfigDir(serverHome);
         final int memoryMB = JavaAnalyzerSettingsPanel.getSavedMemoryValueMb();
+        final int halfCoreCount = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
         logger.debug("Creating JDT LSP process with a max heap size of {} Mb", memoryMB);
         var javaExec = resolveJavaExecutable();
 
@@ -70,6 +70,7 @@ public final class SharedJdtLspServer extends LspServer {
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dlog.level=ALL",
+                "-Djava.util.concurrent.ForkJoinPool.common.parallelism=" + halfCoreCount,
                 // JDT LSP arguments
                 "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-DDetectVMInstallsJob.disabled=true",
@@ -80,6 +81,7 @@ public final class SharedJdtLspServer extends LspServer {
                 "-XX:GCTimeRatio=4",
                 "-XX:AdaptiveSizePolicyWeight=90",
                 "-XX:+UseStringDeduplication",
+                "-XX:ActiveProcessorCount=" + halfCoreCount,
                 "-Dsun.zip.disableMemoryMapping=true",
                 // Running the JAR
                 "-jar",
@@ -94,11 +96,6 @@ public final class SharedJdtLspServer extends LspServer {
     protected LspLanguageClient getLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
         this.languageClient = new JdtLanguageClient(language, serverReadyLatch, workspaceReadyLatchMap);
-        return this.languageClient;
-    }
-
-    /** Returns the current language client, or null if not initialized. */
-    public @Nullable LanguageClient getLanguageClient() {
         return this.languageClient;
     }
 

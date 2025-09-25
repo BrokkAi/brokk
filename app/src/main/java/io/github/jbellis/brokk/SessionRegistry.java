@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -46,9 +47,21 @@ public final class SessionRegistry {
      * @return true if the session is active elsewhere, false otherwise
      */
     public static boolean isSessionActiveElsewhere(Path currentWorktree, UUID sessionId) {
+        return findAnotherWorktreeWithActiveSession(currentWorktree, sessionId).isPresent();
+    }
+
+    /**
+     * Finds a worktree other than the current one where the given session is active.
+     *
+     * @param currentWorktree The current worktree root path (to exclude from the check)
+     * @param sessionId The session UUID to check
+     * @return An Optional containing the path of the other worktree, or empty if not active elsewhere.
+     */
+    public static Optional<Path> findAnotherWorktreeWithActiveSession(Path currentWorktree, UUID sessionId) {
         return activeSessions.entrySet().stream()
-                .anyMatch(
-                        e -> !e.getKey().equals(currentWorktree) && e.getValue().equals(sessionId));
+                .filter(e -> !e.getKey().equals(currentWorktree) && e.getValue().equals(sessionId))
+                .map(java.util.Map.Entry::getKey)
+                .findFirst();
     }
 
     /**

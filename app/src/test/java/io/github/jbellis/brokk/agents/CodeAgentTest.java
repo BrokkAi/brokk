@@ -69,7 +69,7 @@ class CodeAgentTest {
         // as CodeAgent's constructor doesn't use it directly.
         // Llm instance creation is deferred to runTask/runQuickTask.
         codeAgent = new CodeAgent(contextManager, new Service.UnavailableStreamingModel(), consoleIO);
-        parser = EditBlockParser.getParserFor(""); // Basic parser
+        parser = EditBlockParser.instance; // Basic parser
 
         // Save original shell command runner factory
         originalShellCommandRunnerFactory = Environment.shellCommandRunnerFactory;
@@ -239,25 +239,6 @@ class CodeAgentTest {
         assertEquals(1, retryStep.es().pendingBlocks().size());
     }
 
-    // A-1: applyPhase – read-only conflict
-    @Test
-    void testApplyPhase_readOnlyConflict() {
-        var readOnlyFile = contextManager.toFile("readonly.txt");
-        contextManager.addReadonlyFile(readOnlyFile);
-
-        var block = new EditBlock.SearchReplaceBlock(readOnlyFile.toString(), "search", "replace");
-        var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(block), 0);
-
-        var result = codeAgent.applyPhase(cs, es, parser, null);
-
-        assertInstanceOf(CodeAgent.Step.Fatal.class, result);
-        var fatalStep = (CodeAgent.Step.Fatal) result;
-        assertEquals(
-                TaskResult.StopReason.READ_ONLY_EDIT, fatalStep.stopDetails().reason());
-        assertTrue(fatalStep.stopDetails().explanation().contains(readOnlyFile.toString()));
-    }
-
     // A-2: applyPhase – total apply failure (below fallback threshold)
     @Test
     void testApplyPhase_totalApplyFailure_belowThreshold() throws IOException {
@@ -315,7 +296,7 @@ class CodeAgentTest {
         assertTrue(nextRequestText.contains(file2.getFileName()));
 
         // Verify the successful edit was actually made.
-        assertEquals("goodbye world", file1.read().strip());
+        assertEquals("goodbye world", file1.read().orElseThrow().strip());
     }
 
     // V-1: verifyPhase – skip when no edits
@@ -426,7 +407,7 @@ class CodeAgentTest {
         codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
 
-        var result = codeAgent.runTask("A request that results in no edits", false);
+        var result = codeAgent.runTask("A request that results in no edits", Set.of());
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertTrue(result.changedFiles().isEmpty());
@@ -473,11 +454,11 @@ class CodeAgentTest {
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
-        var result = codeAgent.runTask("change hello to goodbye", false);
+        var result = codeAgent.runTask("change hello to goodbye", Set.of());
 
         assertEquals(TaskResult.StopReason.BUILD_ERROR, result.stopDetails().reason());
         assertTrue(result.stopDetails().explanation().contains("Compiler error on line 5"));
-        assertEquals("goodbye", file.read().strip()); // The edit was made and not reverted
+        assertEquals("goodbye", file.read().orElseThrow().strip()); // The edit was made and not reverted
     }
 
     // CF-1: changedFiles tracking after successful apply

@@ -13,15 +13,15 @@ public final class AddMenuFactory {
     /** Builds the Add popup that contains Edit, Read, Summarize, Symbol Usage */
     public static JPopupMenu buildAddPopup(WorkspacePanel wp) {
         var popup = new JPopupMenu();
-        // For the @-triggered menu, include call graph items
-        populateAddMenuItems(popup, wp, false);
+        // For the attach/@-triggered menu we do NOT include the import-dependency option.
+        populateAddMenuItems(popup, wp, /*includeCallGraphItems=*/ false, /*includeImportDependency=*/ false);
         return popup;
     }
 
     /** Same items, but adds them to an existing JMenu (table uses this). */
     public static void populateAddMenu(JMenu parent, WorkspacePanel wp) {
-        // For the table menu, do not include call graph items here as they are added separately
-        populateAddMenuItems(parent, wp, true);
+        // For the table menu, include import-dependency and call-graph items
+        populateAddMenuItems(parent, wp, /*includeCallGraphItems=*/ true, /*includeImportDependency=*/ true);
     }
 
     private static void addSeparator(JComponent parent) {
@@ -38,8 +38,10 @@ public final class AddMenuFactory {
      * @param parent The JComponent to populate.
      * @param wp The WorkspacePanel instance.
      * @param includeCallGraphItems whether to include "Callers" and "Callees" items.
+     * @param includeImportDependency whether to include the "Import Dependency..." item.
      */
-    private static void populateAddMenuItems(JComponent parent, WorkspacePanel wp, boolean includeCallGraphItems) {
+    private static void populateAddMenuItems(
+            JComponent parent, WorkspacePanel wp, boolean includeCallGraphItems, boolean includeImportDependency) {
         assert SwingUtilities.isEventDispatchThread();
 
         JMenuItem editMenuItem = new JMenuItem("Edit Files");
@@ -50,12 +52,6 @@ public final class AddMenuFactory {
         if (wp.getContextManager().getProject().hasGit()) {
             parent.add(editMenuItem);
         }
-
-        JMenuItem readMenuItem = new JMenuItem("Read Files");
-        readMenuItem.addActionListener(e -> {
-            wp.performContextActionAsync(WorkspacePanel.ContextAction.READ, List.<ContextFragment>of());
-        });
-        parent.add(readMenuItem);
 
         JMenuItem summarizeMenuItem = new JMenuItem("Summarize Files");
         summarizeMenuItem.addActionListener(e -> {
@@ -87,11 +83,13 @@ public final class AddMenuFactory {
             parent.add(calleesMenuItem);
         }
 
-        addSeparator(parent);
-
-        JMenuItem dependencyItem = new JMenuItem("Import Dependency...");
-        dependencyItem.addActionListener(
-                e -> ImportDependencyDialog.show((Chrome) wp.getContextManager().getIo()));
-        parent.add(dependencyItem);
+        // Only add the separator + Import Dependency item when requested.
+        if (includeImportDependency) {
+            addSeparator(parent);
+            JMenuItem dependencyItem = new JMenuItem("Import Dependency...");
+            dependencyItem.addActionListener(e ->
+                    ImportDependencyDialog.show((Chrome) wp.getContextManager().getIo()));
+            parent.add(dependencyItem);
+        }
     }
 }

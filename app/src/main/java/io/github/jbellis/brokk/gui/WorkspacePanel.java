@@ -8,21 +8,21 @@ import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
+import io.github.jbellis.brokk.gui.dialogs.AttachContextDialog;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
 import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
-import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog;
-import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMode;
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
-import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -43,7 +43,6 @@ import java.util.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -71,7 +70,6 @@ public class WorkspacePanel extends JPanel {
     /** Enum representing the different types of context actions that can be performed. */
     public enum ContextAction {
         EDIT,
-        READ,
         SUMMARIZE,
         DROP,
         COPY,
@@ -139,7 +137,6 @@ public class WorkspacePanel extends JPanel {
 
                 actions.add(null); // Separator
                 actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileRef));
-                actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileRef));
                 actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileRef));
             }
 
@@ -210,13 +207,11 @@ public class WorkspacePanel extends JPanel {
                     var fileData = new TableUtils.FileReferenceList.FileReferenceData(
                             projectFile.getFileName(), projectFile.toString(), projectFile);
                     actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileData));
-                    actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileData));
                     actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileData));
                 });
             } else {
                 var selectedFragments = List.of(fragment);
                 actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, selectedFragments));
-                actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, selectedFragments));
                 actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
             }
 
@@ -263,7 +258,6 @@ public class WorkspacePanel extends JPanel {
             actions.add(null); // Separator
 
             actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
-            actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, fragments));
             actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
 
             actions.add(null); // Separator
@@ -292,10 +286,8 @@ public class WorkspacePanel extends JPanel {
         VIEW_HISTORY("View History"),
         COMPRESS_HISTORY("Compress History"),
         EDIT_FILE("Edit File"),
-        READ_FILE("Read File"),
         SUMMARIZE_FILE("Summarize File"),
         EDIT_ALL_REFS("Edit all References"),
-        READ_ALL_REFS("Read all References"),
         SUMMARIZE_ALL_REFS("Summarize all References"),
         COPY("Copy"),
         DROP("Drop"),
@@ -360,7 +352,7 @@ public class WorkspacePanel extends JPanel {
 
         public AbstractAction createFileRefAction(
                 WorkspacePanel panel, TableUtils.FileReferenceList.FileReferenceData fileRef) {
-            var baseName = this == EDIT_FILE ? "Edit " : this == READ_FILE ? "Read " : "Summarize ";
+            var baseName = this == EDIT_FILE ? "Edit " : "Summarize ";
             return new AbstractAction(baseName + fileRef.getFullPath()) {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -368,7 +360,6 @@ public class WorkspacePanel extends JPanel {
                         var contextAction =
                                 switch (WorkspaceAction.this) {
                                     case EDIT_FILE -> ContextAction.EDIT;
-                                    case READ_FILE -> ContextAction.READ;
                                     case SUMMARIZE_FILE -> ContextAction.SUMMARIZE;
                                     default ->
                                         throw new UnsupportedOperationException(
@@ -422,7 +413,6 @@ public class WorkspacePanel extends JPanel {
                     var contextAction =
                             switch (WorkspaceAction.this) {
                                 case EDIT_ALL_REFS -> ContextAction.EDIT;
-                                case READ_ALL_REFS -> ContextAction.READ;
                                 case SUMMARIZE_ALL_REFS -> ContextAction.SUMMARIZE;
                                 case COPY -> ContextAction.COPY;
                                 case DROP -> ContextAction.DROP;
@@ -446,13 +436,10 @@ public class WorkspacePanel extends JPanel {
                                         "Cannot edit because selection includes untracked or external files.");
                             }
                         }
-                    } else if (WorkspaceAction.this == READ_ALL_REFS || WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
+                    } else if (WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
                         if (!panel.hasFiles(fragments)) {
                             setEnabled(false);
-                            var actionName = WorkspaceAction.this == READ_ALL_REFS ? "read" : "summarize";
-                            putValue(
-                                    Action.SHORT_DESCRIPTION,
-                                    "No files associated with the selection to " + actionName + ".");
+                            putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to summarize.");
                         }
                     }
                 }
@@ -654,6 +641,7 @@ public class WorkspacePanel extends JPanel {
 
     private final PopupMenuMode popupMenuMode;
     private JPanel locSummaryPanel;
+    private JPanel summaryWithAdd;
     private JPanel warningPanel; // Panel for warning messages
     private JPanel analyzerRebuildPanel;
     private @Nullable JLabel analyzerRebuildSpinner;
@@ -664,10 +652,12 @@ public class WorkspacePanel extends JPanel {
 
     private OverlayPanel workspaceOverlay;
     private JLayeredPane workspaceLayeredPane;
-    private TitledBorder workspaceTitledBorder;
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
+
+    // Observers for bottom-controls height changes
+    private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
 
     // Buttons
     // Table popup menu (when no row is selected)
@@ -676,29 +666,38 @@ public class WorkspacePanel extends JPanel {
     private static final String READ_ONLY_TIP = "Select latest activity to enable";
     private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
     private static final String DROP_ALL_ACTION_CMD = "workspace.dropAll";
-    private static final String WORKSPACE_TITLE = "Workspace";
-    private static final String WORKSPACE_TITLE_NOT_LIVE = "Workspace (read-only)";
 
     /** Primary constructor allowing menu-mode selection */
     public WorkspacePanel(Chrome chrome, ContextManager contextManager, PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
 
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Workspace",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
+
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.popupMenuMode = popupMenuMode;
-
-        workspaceTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                WORKSPACE_TITLE,
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-        setBorder(workspaceTitledBorder);
 
         buildContextPanel();
 
         safeGetLabel(0).setText(EMPTY_CONTEXT);
         setWorkspaceEditable(true); // Set initial state
+
+        // Register a listener so WorkspacePanel updates cost estimates / table when the selected model changes.
+        try {
+            var ip = chrome.getInstructionsPanel();
+            ip.addModelSelectionListener(cfg -> SwingUtilities.invokeLater(() -> {
+                // Recompute the table contents and cost estimates for the currently selected context.
+                populateContextTable(contextManager.selectedContext());
+                refreshMenuState();
+            }));
+        } catch (Exception ex) {
+            logger.debug("Could not register model selection listener for WorkspacePanel", ex);
+        }
     }
 
     /** Convenience constructor – defaults to FULL popup menu */
@@ -1038,12 +1037,7 @@ public class WorkspacePanel extends JPanel {
                         case EDIT -> {
                             // Only allow editing tracked files; others are silently ignored by editFiles
                             contextManager.submitContextTask("Edit files (drop)", () -> {
-                                contextManager.editFiles(projectFiles);
-                            });
-                        }
-                        case READ -> {
-                            contextManager.submitContextTask("Read files (drop)", () -> {
-                                contextManager.addReadOnlyFiles(projectFiles);
+                                contextManager.addFiles(projectFiles);
                             });
                         }
                         case SUMMARIZE -> {
@@ -1053,7 +1047,7 @@ public class WorkspacePanel extends JPanel {
                             contextManager.submitContextTask("Summarize files (drop)", () -> {
                                 contextManager.addSummaries(
                                         new java.util.HashSet<ProjectFile>(projectFiles),
-                                        java.util.Collections.<CodeUnit>emptySet());
+                                        Collections.<CodeUnit>emptySet());
                             });
                         }
                         default -> {
@@ -1090,10 +1084,19 @@ public class WorkspacePanel extends JPanel {
 
         // Add options submenu
         JMenu addMenu = new JMenu("Add");
-        AddMenuFactory.populateAddMenu(addMenu, this);
+        // Removed populateAddMenu, as "Read Files" is being removed, and other "Add" actions are not in this scope.
+        // A placeholder or a direct button will be used for "Add" functionality as part of the overall UI redesign.
+        // For now, this menu will remain empty or handle only universal actions (Paste, Drop All).
+        // If there's no other menu items, we won't add it.
+        // This is temporarily removing AddMenuFactory.populateAddMenu to simplify the current refactor.
+        // A more robust "Add" mechanism will be introduced later.
+        // AddMenuFactory.populateAddMenu(addMenu, this); // Removed
 
-        tablePopupMenu.add(addMenu);
-        tablePopupMenu.addSeparator();
+        // If addMenu is empty, don't add it.
+        if (addMenu.getMenuComponentCount() > 0) {
+            tablePopupMenu.add(addMenu);
+            tablePopupMenu.addSeparator();
+        }
 
         JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
         dropAllMenuItem.setActionCommand(DROP_ALL_ACTION_CMD);
@@ -1127,7 +1130,32 @@ public class WorkspacePanel extends JPanel {
         locSummaryPanel.add(innerLabel);
         locSummaryPanel.add(costLabel);
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
-        contextSummaryPanel.add(locSummaryPanel, BorderLayout.NORTH);
+
+        // Container to hold the summary labels and the add button
+        summaryWithAdd = new JPanel(new BorderLayout());
+        summaryWithAdd.setOpaque(false);
+        summaryWithAdd.add(locSummaryPanel, BorderLayout.CENTER);
+
+        if (popupMenuMode == PopupMenuMode.FULL) {
+            // Add button to show Add popup (same menu as table's Add)
+            var addButton = new MaterialButton();
+            addButton.setIcon(Icons.ATTACH_FILE);
+            addButton.setToolTipText("Add content to workspace");
+            addButton.setFocusable(false);
+            addButton.setOpaque(false);
+            addButton.addActionListener(e -> {
+                attachContextViaDialog();
+            });
+
+            // Wrap the button so it vertically centers nicely with the labels
+            var buttonWrapper = new JPanel(new GridBagLayout());
+            buttonWrapper.setOpaque(false);
+            buttonWrapper.add(addButton);
+
+            summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+        }
+
+        contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
 
         // Warning panel (for red/yellow context size warnings)
         warningPanel = new JPanel(new BorderLayout()); // Changed to BorderLayout
@@ -1292,6 +1320,14 @@ public class WorkspacePanel extends JPanel {
         return castNonNull(v);
     }
 
+    /** Returns the set of selected project files that are part of the current context (editable or read-only). */
+    public Set<ProjectFile> getSelectedProjectFiles() {
+        return getSelectedFragments().stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
+    }
+
     /** Populates the context table from a Context object. */
     public void populateContextTable(@Nullable Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "Not on EDT";
@@ -1321,7 +1357,7 @@ public class WorkspacePanel extends JPanel {
         StringBuilder fullText = new StringBuilder();
         for (var frag : allFragments) {
             String locText;
-            if (frag.isText() || frag.getType().isOutputFragment()) {
+            if (frag.isText() || frag.getType().isOutput()) {
                 var text = frag.text();
                 fullText.append(text).append("\n");
                 int loc = text.split("\\r?\\n", -1).length;
@@ -1333,7 +1369,7 @@ public class WorkspacePanel extends JPanel {
             var desc = frag.description();
 
             // Mark editable if it's in the editable streams
-            boolean isEditable = ctx.editableFiles().anyMatch(e -> e == frag);
+            boolean isEditable = ctx.fileFragments().anyMatch(e -> e == frag);
             if (isEditable) {
                 desc = "✏️ " + desc;
             }
@@ -1358,50 +1394,47 @@ public class WorkspacePanel extends JPanel {
         var innerLabel = safeGetLabel(0);
         var costLabel = safeGetLabel(1);
 
-        // Check for context size warnings against configured models
-        var models = contextManager.getService();
-        var project = contextManager.getProject();
+        // Check for context size warning against the selected model only
+        var service = contextManager.getService();
+        var instructionsPanel = chrome.getInstructionsPanel();
+        Service.ModelConfig selectedConfig = instructionsPanel.getSelectedModel();
 
-        Map<String, Integer> redWarningModels = new HashMap<>();
-        Map<String, Integer> yellowWarningModels = new HashMap<>();
+        boolean showRedWarning = false;
+        boolean showYellowWarning = false;
+        int selectedModelMaxInputTokens = -1;
+        String selectedModelName = selectedConfig.name();
 
-        List<Service.ModelConfig> configuredModelChecks = List.of(
-                project.getArchitectModelConfig(),
-                project.getCodeModelConfig(),
-                project.getSearchModelConfig(),
-                project.getSearchModelConfig());
-
-        for (var config : configuredModelChecks) {
-            if (config.name().isBlank()) {
-                continue;
-            }
+        if (!selectedModelName.isBlank()) {
             try {
-                var modelInstance = models.getModel(config);
-                // Skip if model is unavailable or a placeholder
-                if (modelInstance == null || modelInstance instanceof Service.UnavailableStreamingModel) {
-                    logger.debug("Skipping unavailable model for context warning: {}", config.name());
-                    continue;
-                }
-
-                int maxInputTokens = models.getMaxInputTokens(modelInstance);
-                if (maxInputTokens <= 0) {
-                    logger.warn(
-                            "Model {} has invalid maxInputTokens: {}. Skipping for context warning.",
-                            config.name(),
-                            maxInputTokens);
-                    continue;
-                }
-
-                // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
-                if (approxTokens > maxInputTokens / 1.1) {
-                    redWarningModels.put(config.name(), maxInputTokens);
-                }
-                // Yellow warning: context > 50% of max (approxTokens > maxInputTokens / 2.0)
-                else if (approxTokens > maxInputTokens / 2.0) {
-                    yellowWarningModels.put(config.name(), maxInputTokens);
+                var modelInstance = service.getModel(selectedConfig);
+                if (modelInstance == null) {
+                    logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
+                } else if (modelInstance instanceof Service.UnavailableStreamingModel) {
+                    logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
+                } else {
+                    selectedModelMaxInputTokens = service.getMaxInputTokens(modelInstance);
+                    if (selectedModelMaxInputTokens <= 0) {
+                        logger.warn(
+                                "Selected model {} has invalid maxInputTokens: {}",
+                                selectedModelName,
+                                selectedModelMaxInputTokens);
+                    } else {
+                        // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
+                        if (approxTokens > selectedModelMaxInputTokens / 1.1) {
+                            showRedWarning = true;
+                        }
+                        // Yellow warning: context > 50% of max (approxTokens > maxInputTokens / 2.0)
+                        else if (approxTokens > selectedModelMaxInputTokens / 2.0) {
+                            showYellowWarning = true;
+                        }
+                    }
                 }
             } catch (Exception e) {
-                logger.warn("Error processing model {} for context warning: {}", config.name(), e.getMessage(), e);
+                logger.warn(
+                        "Error processing selected model {} for context warning: {}",
+                        selectedModelName,
+                        e.getMessage(),
+                        e);
             }
         }
 
@@ -1413,39 +1446,33 @@ public class WorkspacePanel extends JPanel {
 
         // Always set the standard summary text on innerLabel
         innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
-        var costEstimates = calculateCostEstimates(approxTokens, models);
+        String costEstimate = calculateCostEstimate(approxTokens, service);
         innerLabel.setText("Total: %,d LOC, or about %,dk tokens.".formatted(totalLines, approxTokens / 1000));
         innerLabel.setToolTipText(null); // Clear tooltip
 
-        if (costEstimates.isEmpty()) {
+        if (costEstimate.isBlank()) {
             costLabel.setText(" ");
             costLabel.setVisible(false);
         } else {
-            costLabel.setText("Estimated cost/request is " + String.join(", ", costEstimates));
+            costLabel.setText("Estimated cost/request is " + costEstimate);
             costLabel.setVisible(true);
         }
 
         // Remove any existing warning labels from the warningPanel
         warningPanel.removeAll();
 
-        if (!redWarningModels.isEmpty()) {
-            String modelListStr = redWarningModels.entrySet().stream()
-                    .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
-                    .collect(Collectors.joining(", "));
+        if (showRedWarning) {
             String warningText = String.format(
-                    "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the following models: %s. Performance will be degraded.",
-                    approxTokens, modelListStr);
+                    "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the selected model: %s (%,d). Performance will be degraded.",
+                    approxTokens, selectedModelName, selectedModelMaxInputTokens);
 
             JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
             warningPanel.add(warningArea, BorderLayout.CENTER);
 
-        } else if (!yellowWarningModels.isEmpty()) {
-            String modelListStr = yellowWarningModels.entrySet().stream()
-                    .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
-                    .collect(Collectors.joining(", "));
+        } else if (showYellowWarning) {
             String warningText = String.format(
-                    "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the following models: %s. Performance may be degraded.",
-                    approxTokens, modelListStr);
+                    "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the selected model: %s (%,d). Performance may be degraded.",
+                    approxTokens, selectedModelName, selectedModelMaxInputTokens);
 
             JTextArea warningArea = createWarningTextArea(
                     warningText, Color.YELLOW, warningTooltip); // Standard yellow might be hard to see on some themes
@@ -1457,6 +1484,9 @@ public class WorkspacePanel extends JPanel {
 
         revalidate();
         repaint();
+
+        // Notify listeners that bottom controls height may have changed
+        fireBottomControlsHeightChanged();
     }
 
     /** Called by Chrome to refresh the table if context changes */
@@ -1728,7 +1758,6 @@ public class WorkspacePanel extends JPanel {
             try {
                 switch (action) {
                     case EDIT -> doEditAction(selectedFragments);
-                    case READ -> doReadAction(selectedFragments);
                     case COPY -> doCopyAction(selectedFragments);
                     case DROP -> doDropAction(selectedFragments);
                     case SUMMARIZE -> doSummarizeAction(selectedFragments);
@@ -1745,58 +1774,11 @@ public class WorkspacePanel extends JPanel {
 
     /** Edit Action: Only allows selecting Project Files */
     private void doEditAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
-        var project = contextManager.getProject();
-        if (selectedFragments.isEmpty()) {
-            // Show dialog allowing ONLY file selection (no external)
-            var selection = showMultiSourceSelectionDialog(
-                    "Edit Files",
-                    false, // No external files for edit
-                    CompletableFuture.completedFuture(project.getRepo().getTrackedFiles()), // Only tracked files
-                    Set.of(SelectionMode.FILES)); // Only FILES mode
-
-            if (selection != null
-                    && selection.files() != null
-                    && !selection.files().isEmpty()) {
-                // We disallowed external files, so this cast should be safe
-                var projectFiles = toProjectFilesUnsafe(selection.files());
-                contextManager.editFiles(projectFiles);
-            }
-        } else {
-            // Edit files from selected fragments
-            var files = selectedFragments.stream()
-                    .flatMap(fragment -> fragment.files().stream())
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-            contextManager.editFiles(files);
-        }
-    }
-
-    /** Read Action: Allows selecting Files (internal/external) */
-    private void doReadAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
-        var project = contextManager.getProject();
-        if (selectedFragments.isEmpty()) {
-            // Show dialog allowing ONLY file selection (internal + external)
-            // TODO when we can extract a single class from a source file, enable classes as well
-            var selection = showMultiSourceSelectionDialog(
-                    "Add Read-Only Context",
-                    true, // Allow external files
-                    CompletableFuture.completedFuture(project.getAllFiles()), // All project files for completion
-                    Set.of(SelectionMode.FILES)); // FILES mode only
-
-            if (selection == null
-                    || selection.files() == null
-                    || selection.files().isEmpty()) {
-                return;
-            }
-
-            contextManager.addReadOnlyFiles(selection.files());
-        } else {
-            // Add files from selected fragments
-            var files = selectedFragments.stream()
-                    .flatMap(frag -> frag.files().stream())
-                    .collect(Collectors.toSet());
-            contextManager.addReadOnlyFiles(files);
-        }
+        assert !selectedFragments.isEmpty();
+        var files = selectedFragments.stream()
+                .flatMap(fragment -> fragment.files().stream())
+                .collect(Collectors.toSet());
+        contextManager.addFiles(files);
     }
 
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
@@ -1993,7 +1975,6 @@ public class WorkspacePanel extends JPanel {
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) {
-                chrome.systemOutput("No context to drop");
                 return;
             }
             contextManager.dropAll();
@@ -2002,7 +1983,6 @@ public class WorkspacePanel extends JPanel {
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
                     contextManager.clearHistory();
-                    chrome.systemOutput("Cleared task history");
                     break;
                 }
             }
@@ -2022,13 +2002,82 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Run selected tests", () -> {
-            RunTestsService.runTests(chrome, contextManager, testFiles);
+        if (testFiles.isEmpty()) {
+            chrome.toolError("No test files specified to run.");
+            return;
+        }
+
+        chrome.getContextManager().runTests(testFiles);
+    }
+
+    public void attachContextViaDialog() {
+        attachContextViaDialog(false);
+    }
+
+    public void attachContextViaDialog(boolean defaultSummarizeChecked) {
+        assert SwingUtilities.isEventDispatchThread();
+        var dlg = new AttachContextDialog(chrome.getFrame(), contextManager, defaultSummarizeChecked);
+        dlg.setLocationRelativeTo(chrome.getFrame());
+        dlg.setVisible(true); // modal; blocks until closed and selection is set
+        var result = dlg.getSelection();
+
+        if (result == null) return;
+
+        var fragment = result.fragment();
+        boolean summarize = result.summarize();
+
+        contextManager.submitContextTask("Attach Context", () -> {
+            if (summarize) {
+                switch (fragment.getType()) {
+                    case PROJECT_PATH -> {
+                        var files = fragment.files();
+                        contextManager.addSummaries(files, Collections.emptySet());
+                    }
+                    case CODE -> {
+                        var cf = (ContextFragment.CodeFragment) fragment;
+                        var cu = cf.getCodeUnit();
+                        if (cu.isClass()) {
+                            contextManager.addSummaries(Collections.emptySet(), java.util.Set.of(cu));
+                        } else {
+                            var analyzer = contextManager
+                                    .getAnalyzerUninterrupted()
+                                    .as(SkeletonProvider.class)
+                                    .orElseThrow();
+                            analyzer.getSkeleton(cu.fqName()).ifPresent(st -> {
+                                var summary = new ContextFragment.StringFragment(
+                                        contextManager,
+                                        st,
+                                        "Summary of " + cu.fqName(),
+                                        cu.source().getSyntaxStyle());
+                                contextManager.addVirtualFragment(summary);
+                            });
+                        }
+                    }
+                    case CALL_GRAPH, USAGE -> {
+                        // For Usages+Summarize we already returned a CallGraphFragment. Any CALL_GRAPH/USAGE just add.
+                        if (fragment instanceof ContextFragment.VirtualFragment vf) {
+                            contextManager.addVirtualFragment(vf);
+                        }
+                    }
+                    default -> {
+                        throw new AssertionError();
+                    }
+                }
+                return;
+            }
+
+            // Non-summarize path: attach fragments directly
+            if (fragment instanceof ContextFragment.ProjectPathFragment ppf) {
+                contextManager.addPathFragments(java.util.List.of(ppf));
+            } else if (fragment instanceof ContextFragment.VirtualFragment vf) {
+                contextManager.addVirtualFragment(vf);
+            } else {
+                throw new AssertionError(fragment);
+            }
         });
     }
 
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {
-        var project = contextManager.getProject();
         if (!isAnalyzerReady()) {
             return;
         }
@@ -2036,37 +2085,9 @@ public class WorkspacePanel extends JPanel {
         HashSet<ProjectFile> selectedFiles = new HashSet<>();
         HashSet<CodeUnit> selectedClasses = new HashSet<>();
 
-        if (selectedFragments.isEmpty()) {
-            // Dialog case: select files OR classes
-            // Prepare project files for completion (can be done async)
-            // No need to filter here anymore, the dialog handles presentation.
-            var completableProjectFiles =
-                    contextManager.submitBackgroundTask("Gathering project files", project::getAllFiles);
-
-            // Show dialog allowing selection of files OR classes
-            var selection = showMultiSourceSelectionDialog(
-                    "Summarize Sources",
-                    false, // No external files for summarize
-                    completableProjectFiles, // All project files for completion
-                    Set.of(SelectionMode.FILES, SelectionMode.CLASSES)); // Both modes allowed
-
-            if (selection == null || selection.isEmpty()) {
-                chrome.systemOutput("No files or classes selected for summarization.");
-                return;
-            }
-
-            // Add selected files (must be ProjectFile for summarization)
-            if (selection.files() != null && !selection.files().isEmpty()) {
-                selectedFiles.addAll(toProjectFilesUnsafe(selection.files()));
-            }
-            // Add selected classes/symbols
-            if (selection.classes() != null && !selection.classes().isEmpty()) {
-                selectedClasses.addAll(selection.classes());
-            }
-        } else {
-            // Fragment case: Extract files and classes from selected fragments
-            selectedFragments.stream().flatMap(frag -> frag.files().stream()).forEach(selectedFiles::add);
-        }
+        // Fragment case: Extract files and classes from selected fragments
+        // FIXME: prefer classes where available (more selective)
+        selectedFragments.stream().flatMap(frag -> frag.files().stream()).forEach(selectedFiles::add);
 
         if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
             chrome.toolError("No files or classes identified for summarization in the selection.");
@@ -2078,52 +2099,6 @@ public class WorkspacePanel extends JPanel {
         if (!success) {
             chrome.toolError("No summarizable content found in the selected files or symbols.");
         }
-    }
-
-    /**
-     * Cast BrokkFile to ProjectFile. Will throw if ExternalFiles are present. Use with caution, only when external
-     * files are disallowed or handled separately.
-     */
-    private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        return files.stream()
-                .map(f -> {
-                    if (f instanceof ProjectFile pf) {
-                        return pf;
-                    }
-                    throw new ClassCastException(
-                            "Expected only ProjectFile but got " + f.getClass().getName());
-                })
-                .toList();
-    }
-
-    /**
-     * Show the multi-source selection dialog with configurable modes. This is called by the do*Action methods within
-     * this panel.
-     *
-     * @param title Dialog title.
-     * @param allowExternalFiles Allow selection of external files in the Files tab.
-     * @param projectCompletionsFuture Set of completable project files.
-     * @param modes Set of selection modes (FILES, CLASSES) to enable.
-     * @return The Selection record containing lists of files and/or classes, or null if cancelled.
-     */
-    private @Nullable MultiFileSelectionDialog.Selection showMultiSourceSelectionDialog(
-            String title,
-            boolean allowExternalFiles,
-            Future<Set<ProjectFile>> projectCompletionsFuture,
-            Set<SelectionMode> modes) {
-        var dialogRef = new AtomicReference<MultiFileSelectionDialog>();
-        SwingUtil.runOnEdt(() -> {
-            var dialog = new MultiFileSelectionDialog(
-                    chrome.getFrame(), contextManager, title, allowExternalFiles, projectCompletionsFuture, modes);
-            // Use dialog's preferred size after packing, potentially adjust width
-            dialog.setSize(Math.max(600, dialog.getWidth()), Math.max(550, dialog.getHeight()));
-            dialog.setLocationRelativeTo(chrome.getFrame());
-            dialog.setVisible(true);
-            dialogRef.set(dialog);
-        });
-
-        var dialog = castNonNull(dialogRef.get());
-        return dialog.isConfirmed() ? dialog.getSelection() : null;
     }
 
     private boolean isUrl(String text) {
@@ -2138,54 +2113,80 @@ public class WorkspacePanel extends JPanel {
         };
     }
 
-    /** Calculate cost estimates for the configured models. */
-    private List<String> calculateCostEstimates(int inputTokens, Service models) {
-        var costEstimates = new ArrayList<String>();
-        var seenModels = new HashSet<String>();
+    /**
+     * Return the combined preferred height of the bottom controls (summary, warnings, analyzer rebuild panel) so other
+     * panels can align to it.
+     */
+    public int getBottomControlsPreferredHeight() {
+        int h = 0;
+        // Use the overall summary container (includes the add-button wrapper).
+        h += summaryWithAdd.getPreferredSize().height;
+        // Only include warning and analyzer panels when they are visible.
+        if (warningPanel.isVisible()) {
+            h += warningPanel.getPreferredSize().height;
+        }
+        if (analyzerRebuildPanel.isVisible()) {
+            h += analyzerRebuildPanel.getPreferredSize().height;
+        }
+        return h;
+    }
 
-        var project = contextManager.getProject();
+    // --- Bottom controls height observer API ---
 
-        // Get the three configured models in order: code, ask, architect
-        List<Service.ModelConfig> configsToCheck = List.of(
-                project.getCodeModelConfig(), project.getSearchModelConfig(), project.getArchitectModelConfig());
+    public interface BottomControlsListener {
+        void bottomControlsHeightChanged(int newHeight);
+    }
 
-        for (var config : configsToCheck) {
-            if (config.name().isBlank() || seenModels.contains(config.name())) {
-                continue; // Skip if model name is empty or already processed
-            }
+    public void addBottomControlsListener(BottomControlsListener l) {
+        bottomControlsListeners.add(l);
+    }
 
+    public void removeBottomControlsListener(BottomControlsListener l) {
+        bottomControlsListeners.remove(l);
+    }
+
+    private void fireBottomControlsHeightChanged() {
+        int h = getBottomControlsPreferredHeight();
+        for (var l : bottomControlsListeners) {
             try {
-                var model = models.getModel(config);
-                if (model instanceof Service.UnavailableStreamingModel) {
-                    continue; // Skip unavailable models
-                }
-
-                var pricing = models.getModelPricing(config.name());
-                if (pricing.bands().isEmpty()) {
-                    continue; // Skip if no pricing info available
-                }
-
-                // Calculate estimated cost: input tokens * input price + min(4k, input/2) * output price
-                long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
-                if (models.isReasoning(config)) {
-                    estimatedOutputTokens += 1000;
-                }
-                double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
-
-                if (models.isFreeTier(config.name())) {
-                    costEstimates.add(String.format("%s: free", config.name()));
-                } else {
-                    costEstimates.add(String.format("%s: $%.2f", config.name(), estimatedCost));
-                }
-                seenModels.add(config.name());
-
-            } catch (Exception e) {
-                logger.debug("Error calculating cost estimate for model {}: {}", config.name(), e.getMessage());
-                // Continue to next model on error
+                l.bottomControlsHeightChanged(h);
+            } catch (Exception ignore) {
+                // Listener exceptions should not affect UI flow
             }
         }
+    }
 
-        return costEstimates;
+    /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
+    private String calculateCostEstimate(int inputTokens, Service service) {
+        var instructionsPanel = chrome.getInstructionsPanel();
+        Service.ModelConfig config = instructionsPanel.getSelectedModel();
+
+        if (config.name().isBlank()) {
+            return "";
+        }
+
+        var model = service.getModel(config);
+        if (model instanceof Service.UnavailableStreamingModel) {
+            return "";
+        }
+
+        var pricing = service.getModelPricing(config.name());
+        if (pricing.bands().isEmpty()) {
+            return "";
+        }
+
+        // Calculate estimated cost: input tokens * input price + min(4k, input/2) * output price
+        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+        if (service.isReasoning(config)) {
+            estimatedOutputTokens += 1000;
+        }
+        double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
+
+        if (service.isFreeTier(config.name())) {
+            return "$0.00 (Free Tier)";
+        } else {
+            return String.format("$%.2f", estimatedCost);
+        }
     }
 
     /**
@@ -2200,10 +2201,8 @@ public class WorkspacePanel extends JPanel {
             // Show/hide overlay based on editable state and update title
             if (editable) {
                 workspaceOverlay.hideOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE);
             } else {
                 workspaceOverlay.showOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE_NOT_LIVE);
             }
 
             // Repaint to show title change
@@ -2252,6 +2251,9 @@ public class WorkspacePanel extends JPanel {
             analyzerRebuildPanel.setVisible(true);
             analyzerRebuildPanel.revalidate();
             analyzerRebuildPanel.repaint();
+
+            // Notify listeners about layout change
+            fireBottomControlsHeightChanged();
         });
     }
 
@@ -2261,6 +2263,9 @@ public class WorkspacePanel extends JPanel {
             analyzerRebuildPanel.setVisible(false);
             analyzerRebuildPanel.revalidate();
             analyzerRebuildPanel.repaint();
+
+            // Notify listeners about layout change
+            fireBottomControlsHeightChanged();
         });
     }
 

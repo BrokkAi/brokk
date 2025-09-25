@@ -41,8 +41,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private volatile Future<IAnalyzer> future;
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
     private volatile boolean rebuildInProgress = false;
-    private volatile boolean externalRebuildRequested =
-            false; // TODO allow requesting either incremental or full rebuild
+    private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
     private volatile boolean wasReady = false;
 
@@ -76,15 +75,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             // debug logging
             final var metrics = currentAnalyzer.getMetrics();
             logger.debug(
-                    "Initial analyzer has {} declarations across {} files",
+                    "Initial analyzer has {} declarations across {} files and took {} ms",
                     metrics.numberOfDeclarations(),
-                    metrics.numberOfCodeUnits());
-
-            // configure auto-refresh based on how long the first build took
-            if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                handleFirstBuildRefreshSettings(
-                        metrics.numberOfCodeUnits(), durationMs, project.getAnalyzerLanguages());
-            }
+                    metrics.numberOfCodeUnits(),
+                    durationMs);
 
             return currentAnalyzer;
         });
@@ -112,7 +106,16 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             refresh(() -> {
                 final var analyzer = requireNonNull(currentAnalyzer);
                 return analyzer.as(IncrementalUpdateProvider.class)
-                        .map(IncrementalUpdateProvider::update)
+                        .map(incAnalyzer -> {
+                            long startTime = System.currentTimeMillis();
+                            IAnalyzer result = incAnalyzer.update();
+                            long duration = System.currentTimeMillis() - startTime;
+                            logger.info(
+                                    "Library ingestion: {} analyzer refresh completed in {}ms",
+                                    getLanguageDescription(),
+                                    duration);
+                            return result;
+                        })
                         .orElse(analyzer);
             });
         }
@@ -136,16 +139,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                 .collect(Collectors.toSet());
 
         if (!relevantFiles.isEmpty()) {
-            // update the analyzer if we're configured to do so
-            if (project.getAnalyzerRefresh() != IProject.CpgRefresh.AUTO) {
-                return;
-            }
-
             logger.debug(
                     "Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
                     relevantFiles.stream()
                             .filter(pf -> {
-                                Language lang = Language.fromExtension(pf.extension());
+                                Language lang = Languages.fromExtension(pf.extension());
                                 return projectLanguages.contains(lang);
                             })
                             .distinct()
@@ -154,7 +152,17 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             refresh(() -> {
                 final var analyzer = requireNonNull(currentAnalyzer);
                 return analyzer.as(IncrementalUpdateProvider.class)
-                        .map(incAnalyzer -> incAnalyzer.update(relevantFiles))
+                        .map(incAnalyzer -> {
+                            long startTime = System.currentTimeMillis();
+                            IAnalyzer result = incAnalyzer.update(relevantFiles);
+                            long duration = System.currentTimeMillis() - startTime;
+                            logger.info(
+                                    "Library ingestion: {} analyzer processed {} files in {}ms",
+                                    getLanguageDescription(),
+                                    relevantFiles.size(),
+                                    duration);
+                            return result;
+                        })
                         .orElse(analyzer);
             });
         } else {
@@ -193,8 +201,14 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
+        var projectLangs = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .map(Language::name)
+                .collect(Collectors.toList());
+        logger.info("Setting up analyzer for languages: {} in directory: {}", projectLangs, project.getRoot());
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
-        if (langHandle == Language.NONE) {
+        if (langHandle == Languages.NONE) {
+            logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
             return new DisabledAnalyzer();
         }
 
@@ -211,26 +225,19 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         if (buildDetails.equals(BuildAgent.BuildDetails.EMPTY))
             logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
 
-        /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
+        /* ── 2.  Determine if any cached storage is stale ───────────────────────────────── */
         logger.debug("Scanning for modified project files");
         boolean needsRebuild = externalRebuildRequested; // explicit user request wins
-        if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
-            for (Language lang : project.getAnalyzerLanguages()) {
-                if (!lang.isCpg()) continue; // non‑CPG langs are rebuilt ad‑hoc
-                Path cpgPath = lang.getCpgPath(project);
-                if (!Files.exists(cpgPath)) { // no cache → rebuild
-                    needsRebuild = true;
-                    continue;
-                }
-                // Filter tracked files relevant to this language
-                List<ProjectFile> tracked = project.getAllFiles().stream()
-                        .filter(pf -> lang.getExtensions()
-                                .contains(com.google.common.io.Files.getFileExtension(
-                                        pf.absPath().toString())))
-                        .toList();
-                if (isStale(lang, cpgPath, tracked)) // cache older than sources
+        for (Language lang : project.getAnalyzerLanguages()) {
+            Path storagePath = lang.getStoragePath(project);
+            // todo: This will not exist for most analyzers right now
+            if (!Files.exists(storagePath)) { // no cache → rebuild
                 needsRebuild = true;
+                continue;
             }
+            // Filter tracked files relevant to this language
+            List<ProjectFile> tracked = project.getFiles(lang).stream().toList();
+            if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
@@ -238,6 +245,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         try {
             logger.debug("Attempting to load existing analyzer");
             analyzer = langHandle.loadAnalyzer(project);
+            logger.info(
+                    "Loaded existing analyzer: {} for directory: {}",
+                    analyzer.getClass().getSimpleName(),
+                    project.getRoot());
             if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
                 communicativeAnalyzer.setIo(io);
             }
@@ -245,6 +256,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             // cache missing or corrupt, rebuild
             logger.warn(th);
             analyzer = langHandle.createAnalyzer(project);
+            logger.info(
+                    "Created new analyzer: {} for directory: {}",
+                    analyzer.getClass().getSimpleName(),
+                    project.getRoot());
             needsRebuild = false;
         }
 
@@ -273,7 +288,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
-        if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
+        if (needsRebuild && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
             runner.submit("Refreshing Code Intelligence", () -> {
@@ -288,84 +303,35 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         return analyzer;
     }
 
-    private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, Set<Language> languages) {
-        var isEmpty = totalDeclarations == 0;
-        String langNames = languages.stream().map(Language::name).collect(Collectors.joining("/"));
-        String langExtensions = languages.stream()
-                .flatMap(l -> l.getExtensions().stream())
-                .distinct()
-                .collect(Collectors.joining(", "));
-
-        if (listener == null) { // Should not happen in normal flow, but good for safety
-            logger.warn(
-                    "AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
-            // Set a default refresh policy if listener is unexpectedly null
-            if (isEmpty || durationMs > 3 * 6000) {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
-            } else if (durationMs > 5000) {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
-            } else {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
-            }
-            return;
-        }
-
-        if (isEmpty) {
-            logger.info("Empty {} analyzer", langNames);
-            listener.afterFirstBuild("");
-        } else if (durationMs > 3 * 6000) {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
-            var msg =
-                    """
-                            Code Intelligence for %s found %d declarations in %,d ms.
-                            Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
-                            You can change this in the Settings -> Project dialog.
-                            """
-                            .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs);
-            listener.afterFirstBuild(msg);
-            logger.info(msg);
-        } else if (durationMs > 5000) {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
-            var msg =
-                    """
-                            Code Intelligence for %s found %d declarations in %,d ms.
-                            Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
-                            You can change this in the Settings -> Project dialog.
-                            """
-                            .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs);
-            listener.afterFirstBuild(msg);
-            logger.info(msg);
-        } else {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
-            var msg =
-                    """
-                            Code Intelligence for %s found %d declarations in %,d ms.
-                            If this is fewer than expected, it's probably because Brokk only looks for %s files.
-                            If this is not a useful subset of your project, you can change it in the Settings -> Project
-                            dialog, or disable Code Intelligence by setting the language(s) to NONE.
-                            """
-                            .stripIndent()
-                            .formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
-            listener.afterFirstBuild(msg);
-            logger.info(msg);
-        }
+    public boolean providesInterproceduralAnalysis() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesInterproceduralAnalysis);
     }
 
-    public boolean isCpg() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::isCpg);
+    public boolean providesSummaries() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSummaries);
+    }
+
+    public boolean providesSourceCode() {
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSourceCode);
     }
 
     /** Convenience overload that infers the language set from {@link #project}. */
     private Language getLanguageHandle() {
         var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Language.NONE)
+                .filter(l -> l != Languages.NONE)
                 .collect(Collectors.toUnmodifiableSet());
         if (projectLangs.isEmpty()) {
-            return Language.NONE;
+            return Languages.NONE;
         }
         return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
+    }
+
+    /** Get a human-readable description of the analyzer languages for logging. */
+    private String getLanguageDescription() {
+        return project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .map(Language::name)
+                .collect(Collectors.joining("/"));
     }
 
     /**
@@ -382,9 +348,9 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             return true;
         }
 
-        long cpgMTime;
+        long lastModifiedTime;
         try {
-            cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
+            lastModifiedTime = Files.getLastModifiedTime(analyzerPath).toMillis();
         } catch (IOException e) {
             logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
             // Unable to read the timestamp - treat the cache as stale so that we rebuild.
@@ -399,14 +365,14 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     return true;
                 }
                 long fileMTime = Files.getLastModifiedTime(path).toMillis();
-                if (fileMTime > cpgMTime) {
+                if (fileMTime > lastModifiedTime) {
                     logger.debug(
                             "Tracked file {} for language {} is newer than its CPG {} ({} > {})",
                             path,
                             lang.name(),
                             analyzerPath,
                             fileMTime,
-                            cpgMTime);
+                            lastModifiedTime);
                     return true;
                 }
             } catch (IOException e) {
@@ -535,7 +501,17 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         try {
             final var analyzer = future.get();
             currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
-                    .map(incAnalyzer -> incAnalyzer.update(changedFiles))
+                    .map(incAnalyzer -> {
+                        long startTime = System.currentTimeMillis();
+                        IAnalyzer result = incAnalyzer.update(changedFiles);
+                        long duration = System.currentTimeMillis() - startTime;
+                        logger.info(
+                                "Library ingestion: {} analyzer processed {} files in {}ms",
+                                getLanguageDescription(),
+                                changedFiles.size(),
+                                duration);
+                        return result;
+                    })
                     .orElse(analyzer);
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);

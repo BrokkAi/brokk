@@ -1,23 +1,33 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
+import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
-import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
-import io.github.jbellis.brokk.gui.dialogs.ManageDependenciesDialog;
-import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
+import java.awt.Desktop;
+import java.awt.desktop.PreferencesHandler;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileVisitOption;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
@@ -71,7 +81,46 @@ public class MenuBar {
         settingsItem.addActionListener(e -> {
             openSettingsDialog(chrome);
         });
-        fileMenu.add(settingsItem);
+
+        // Use platform conventions on macOS: Preferences live in the application menu.
+        // Also ensure Cmd+, opens Settings as a fallback by registering a key binding.
+        boolean isMac = Environment.instance.isMacOs();
+        settingsItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        if (isMac) {
+            try {
+                if (Desktop.isDesktopSupported()) {
+                    Desktop.getDesktop().setPreferencesHandler(new PreferencesHandler() {
+                        @Override
+                        public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
+                            SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
+                        }
+                    });
+                }
+            } catch (Throwable t) {
+                // Best-effort; if registering the Preferences handler fails, fall back to putting the menu
+                // entry into the File menu so Settings remains reachable.
+                fileMenu.add(settingsItem);
+            }
+
+            // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
+            var rootPane = chrome.getFrame().getRootPane();
+            var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+            var am = rootPane.getActionMap();
+            var ks = KeyStroke.getKeyStroke(
+                    KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+            im.put(ks, "open-settings");
+            am.put("open-settings", new AbstractAction() {
+                @Override
+                public void actionPerformed(java.awt.event.ActionEvent e) {
+                    SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
+                }
+            });
+        } else {
+            // Non-macOS: place Settings in File menu as before.
+            fileMenu.add(settingsItem);
+        }
 
         // Exit menu item (Cmd/Ctrl+Q)
         var exitItem = new JMenuItem("Exit");
@@ -137,79 +186,101 @@ public class MenuBar {
 
         contextMenu.addSeparator();
 
-        var editFilesItem = new JMenuItem("Edit Files");
-        editFilesItem.setAccelerator(KeyStroke.getKeyStroke(
+        var attachContextItem = new JMenuItem("Attach Context...");
+        attachContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        editFilesItem.addActionListener(e -> {
-            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.EDIT, List.of());
+        attachContextItem.addActionListener(e -> {
+            chrome.getContextPanel().attachContextViaDialog();
         });
-        editFilesItem.setEnabled(chrome.getProject().hasGit());
-        contextMenu.add(editFilesItem);
+        attachContextItem.setEnabled(true);
+        contextMenu.add(attachContextItem);
 
-        var readFilesItem = new JMenuItem("Read Files");
-        readFilesItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_R, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        readFilesItem.addActionListener(e -> {
-            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.READ, List.of());
+        var summarizeContextItem = new JMenuItem("Summarize Context...");
+        summarizeContextItem.setAccelerator(KeyStroke.getKeyStroke(
+                KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        summarizeContextItem.addActionListener(e -> {
+            chrome.getContextPanel().attachContextViaDialog(true);
         });
-        readFilesItem.setEnabled(true);
-        contextMenu.add(readFilesItem);
+        contextMenu.add(summarizeContextItem);
 
-        var viewFileItem = new JMenuItem("View File");
-        viewFileItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_O, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        viewFileItem.addActionListener(e -> {
+        // Keep enabled state in sync with analyzer readiness
+        contextMenu.addMenuListener(new MenuListener() {
+            @Override
+            public void menuSelected(MenuEvent e) {
+                summarizeContextItem.setEnabled(
+                        chrome.getContextManager().getAnalyzerWrapper().isReady());
+            }
+
+            @Override
+            public void menuDeselected(MenuEvent e) {
+                // No action needed
+            }
+
+            @Override
+            public void menuCanceled(MenuEvent e) {
+                // No action needed
+            }
+        });
+
+        var attachExternalItem = new JMenuItem("Attach Non-Project Files...");
+        attachExternalItem.addActionListener(e -> {
             var cm = chrome.getContextManager();
             var project = cm.getProject();
-
-            // Use a simplified FileSelectionDialog for viewing
             SwingUtilities.invokeLater(() -> {
-                // Autocomplete with all project files, transforming Set<ProjectFile> to List<Path>
-                var allFilesFuture = cm.submitBackgroundTask("Fetching project files", () -> {
-                    return project.getAllFiles().stream()
-                            .map(io.github.jbellis.brokk.analyzer.BrokkFile::absPath)
-                            .toList();
-                });
+                var fileChooser = new JFileChooser();
+                fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+                fileChooser.setMultiSelectionEnabled(true);
+                fileChooser.setDialogTitle("Attach Non-Project Files");
 
-                FileSelectionDialog dialog = new FileSelectionDialog(
-                        chrome.getFrame(), project, "Select File to View", false, f -> true, allFilesFuture);
-                dialog.setVisible(true);
+                var returnValue = fileChooser.showOpenDialog(chrome.getFrame());
 
-                if (dialog.isConfirmed() && dialog.getSelectedFile() != null) {
-                    var selectedBrokkFile = dialog.getSelectedFile();
-                    if (selectedBrokkFile instanceof io.github.jbellis.brokk.analyzer.ProjectFile selectedFile) {
-                        chrome.previewFile(selectedFile);
-                    } else if (!selectedBrokkFile.isText()) {
-                        PreviewImagePanel.showInFrame(chrome.getFrame(), cm, selectedBrokkFile);
-                    } else {
-                        chrome.toolError("Cannot view this type of file: "
-                                + selectedBrokkFile.getClass().getSimpleName());
+                if (returnValue == JFileChooser.APPROVE_OPTION) {
+                    var selectedFiles = fileChooser.getSelectedFiles();
+                    if (selectedFiles.length == 0) {
+                        chrome.systemOutput("No files or folders selected.");
+                        return;
                     }
+
+                    cm.submitContextTask("Attach Non-Project Files", () -> {
+                        Set<Path> pathsToAttach = new HashSet<>();
+                        for (File file : selectedFiles) {
+                            Path startPath = file.toPath();
+                            if (Files.isRegularFile(startPath)) {
+                                pathsToAttach.add(startPath);
+                            } else if (Files.isDirectory(startPath)) {
+                                try (Stream<Path> walk = Files.walk(startPath, FileVisitOption.FOLLOW_LINKS)) {
+                                    walk.filter(Files::isRegularFile).forEach(pathsToAttach::add);
+                                } catch (IOException ex) {
+                                    chrome.toolError("Error reading directory " + startPath + ": " + ex.getMessage());
+                                }
+                            }
+                        }
+
+                        if (pathsToAttach.isEmpty()) {
+                            chrome.systemOutput("No files found to attach.");
+                            return;
+                        }
+
+                        var projectRoot = project.getRoot();
+                        List<ContextFragment.PathFragment> fragments = new ArrayList<>();
+                        for (Path p : pathsToAttach) {
+                            BrokkFile bf = Completions.maybeExternalFile(
+                                    projectRoot, p.toAbsolutePath().normalize().toString());
+                            var pathFrag = ContextFragment.toPathFragment(bf, cm);
+                            fragments.add(pathFrag);
+                        }
+                        cm.addPathFragments(fragments);
+                        chrome.systemOutput("Attached " + fragments.size() + " files.");
+                    });
+                } else {
+                    chrome.systemOutput("File attachment cancelled.");
                 }
             });
         });
-        viewFileItem.setEnabled(true);
-        contextMenu.add(viewFileItem);
+        attachExternalItem.setEnabled(true);
+        contextMenu.add(attachExternalItem);
 
-        contextMenu.addSeparator(); // Add separator before Summarize / Symbol Usage
-
-        var summarizeItem = new JMenuItem("Summarize");
-        summarizeItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        summarizeItem.addActionListener(e -> {
-            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.SUMMARIZE, List.of());
-        });
-        summarizeItem.setEnabled(true);
-        contextMenu.add(summarizeItem);
-
-        var symbolUsageItem = new JMenuItem("Symbol Usage");
-        symbolUsageItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_U, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        symbolUsageItem.addActionListener(e -> {
-            chrome.getContextPanel().findSymbolUsageAsync(); // Call via ContextPanel
-        });
-        symbolUsageItem.setEnabled(true);
-        contextMenu.add(symbolUsageItem);
+        contextMenu.addSeparator();
 
         var callersItem = new JMenuItem("Call graph to function");
         callersItem.addActionListener(e -> {
@@ -280,11 +351,6 @@ public class MenuBar {
         // Tools menu
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
-
-        var manageDependenciesItem = new JMenuItem("Manage Dependencies...");
-        manageDependenciesItem.addActionListener(
-                e -> SwingUtilities.invokeLater(() -> ManageDependenciesDialog.show(chrome)));
-        toolsMenu.add(manageDependenciesItem);
 
         var scanProjectItem = new JMenuItem("Scan Project");
         scanProjectItem.addActionListener(e -> runWithRefocus(chrome, () -> {

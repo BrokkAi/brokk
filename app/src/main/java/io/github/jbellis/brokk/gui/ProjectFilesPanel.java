@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -36,7 +37,7 @@ public class ProjectFilesPanel extends JPanel {
     private final IProject project;
 
     private JTextField searchField;
-    private JButton refreshButton;
+    private MaterialButton refreshButton;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
@@ -62,10 +63,13 @@ public class ProjectFilesPanel extends JPanel {
         var layeredPane = searchOverlay.createLayeredPane(searchField);
         searchBarPanel.add(layeredPane, BorderLayout.CENTER);
 
-        refreshButton = new JButton();
+        refreshButton = new MaterialButton();
         refreshButton.setIcon(Icons.REFRESH);
-        refreshButton.setToolTipText("Refresh file list");
+        refreshButton.setText(""); // icon-only
+        refreshButton.setMargin(new Insets(2, 2, 2, 2)); // match other toolbar material buttons
+        refreshButton.setToolTipText("Refresh file list (update tracked files from repository)");
         refreshButton.addActionListener(e -> refreshProjectFiles());
+
         searchBarPanel.add(refreshButton, BorderLayout.EAST);
 
         add(searchBarPanel, BorderLayout.NORTH);
@@ -86,9 +90,9 @@ public class ProjectFilesPanel extends JPanel {
 
     private void setupSearchFieldAndAutocomplete() {
         searchField = new JTextField(20);
-        searchField.setToolTipText("Type to search for project files");
+        searchField.setToolTipText("Search tracked project files (type path or filename)");
 
-        var searchPromptLabel = new JLabel("Search");
+        var searchPromptLabel = new JLabel("Search project files");
         searchPromptLabel.setForeground(Color.GRAY);
         searchPromptLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
         // Hide the overlay first so a single click both dismisses it and focuses the field

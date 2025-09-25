@@ -1,14 +1,16 @@
 package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.Service.ModelConfig;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
@@ -50,6 +52,11 @@ public final class MainProject extends AbstractProject {
     private final SessionManager sessionManager;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
+    @Nullable
+    private volatile DiskLruCache diskCache = null;
+
+    private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
+
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
     private static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
@@ -59,8 +66,8 @@ public final class MainProject extends AbstractProject {
     private static final String ISSUES_PROVIDER_JSON_KEY = "issuesProviderJson";
 
     // Keys for Architect Options persistence
-    private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
+    private static final String MCP_CONFIG_JSON_KEY = "mcpConfigJson";
 
     // Keys for Plan First and Search First workspace preferences
     private static final String PLAN_FIRST_KEY = "planFirst";
@@ -114,6 +121,11 @@ public final class MainProject extends AbstractProject {
         STAGING
     }
 
+    public enum StartupOpenMode {
+        LAST,
+        ALL
+    }
+
     private static final String LLM_PROXY_SETTING_KEY = "llmProxySetting";
     public static final String BROKK_PROXY_URL = "https://proxy.brokk.ai";
     public static final String LOCALHOST_PROXY_URL = "http://localhost:4000";
@@ -127,10 +139,15 @@ public final class MainProject extends AbstractProject {
     public static final String DEFAULT_REVIEW_GUIDE =
             """
             When reviewing the pull request, please address the following points:
-            - explain your understanding of what this PR is intended to do
-            - does it accomplish its goals
-            - does it conform to the style guidelines
-            - what parts are the trickiest and how could they be simplified
+            - Explain your understanding of what this PR is intended to do.
+            - Does it accomplish its goals in the simplest way possible?
+            - Does it conform to the project coding standards?
+            - What parts are the trickiest and how could they be simplified?
+            - What additional tests, if any, would add the most value?
+
+            Conclude with a summary of:
+            - Blockers (serious functional or design issues)
+            - Additional areas for improvement, ordered by priority
             """
                     .stripIndent();
 
@@ -167,26 +184,6 @@ public final class MainProject extends AbstractProject {
         // Migrate Architect options from projectProps to workspace properties (centralized in AbstractProject)
         boolean needsProjectSave = false;
         boolean migratedArchitectSettings = false;
-        if (projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
-            if (!workspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)
-                    || !workspaceProps
-                            .getProperty(ARCHITECT_OPTIONS_JSON_KEY)
-                            .equals(projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY))) {
-                workspaceProps.setProperty(
-                        ARCHITECT_OPTIONS_JSON_KEY, projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY));
-                migratedArchitectSettings = true;
-            }
-            projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY);
-            needsProjectSave = true;
-            // Ensure projectProps is saved if a key is removed, even if not transferred (e.g. already in workspace)
-            // migratedArchitectSettings specifically tracks if data was written to workspaceProps.
-            if (!migratedArchitectSettings && workspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
-                // Key was in projectProps, removed, but already existed (maybe identically) in workspaceProps.
-                // We still need to save projectProps due to removal.
-            }
-        }
-        // boolean projectPropsChangedByMigration = projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY); // This
-        // variable is not used
 
         if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
             if (!workspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)
@@ -199,8 +196,6 @@ public final class MainProject extends AbstractProject {
             }
             projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
             needsProjectSave = true;
-            // projectPropsChangedByMigration = projectPropsChangedByMigration ||
-            // projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
         }
 
         // Migrate Live Dependencies from projectProps to workspace properties
@@ -256,6 +251,23 @@ public final class MainProject extends AbstractProject {
     @Override
     public MainProject getMainProject() {
         return this;
+    }
+
+    @Override
+    public synchronized DiskLruCache getDiskCache() {
+        if (diskCache != null) {
+            return diskCache;
+        }
+        var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
+        try {
+            Files.createDirectories(cacheDir);
+            diskCache = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
+            return diskCache;
+        } catch (IOException e) {
+            logger.error("Unable to open disk cache at {}: {}", cacheDir, e.getMessage());
+            throw new RuntimeException("Unable to open disk cache", e);
+        }
     }
 
     private static synchronized Properties loadGlobalProperties() {
@@ -489,6 +501,26 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    /**
+     * Detects the primary Language used by a dependency directory by scanning file extensions inside it and selecting
+     * the most frequently occurring language. Falls back to Language.NONE if none detected.
+     */
+    private static Language detectLanguageForDependency(ProjectFile depDir) {
+        var counts = new IProject.Dependency(depDir, Languages.NONE)
+                .files().stream()
+                        .map(pf -> com.google.common.io.Files.getFileExtension(
+                                pf.absPath().toString()))
+                        .filter(ext -> !ext.isEmpty())
+                        .map(Languages::fromExtension)
+                        .filter(lang -> lang != Languages.NONE)
+                        .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
+
+        return counts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(Languages.NONE);
+    }
+
     @Override
     public Set<Language> getAnalyzerLanguages() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
@@ -498,7 +530,7 @@ public final class MainProject extends AbstractProject {
                     .filter(s -> !s.isEmpty())
                     .map(langName -> {
                         try {
-                            return Language.valueOf(langName.toUpperCase(Locale.ROOT));
+                            return Languages.valueOf(langName.toUpperCase(Locale.ROOT));
                         } catch (IllegalArgumentException e) {
                             logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
                             return null;
@@ -509,15 +541,15 @@ public final class MainProject extends AbstractProject {
         }
 
         Map<Language, Long> languageSizes = repo.getTrackedFiles().stream() // repo from AbstractProject
-                .filter(pf -> Language.fromExtension(pf.extension()) != Language.NONE)
+                .filter(pf -> Languages.fromExtension(pf.extension()) != Languages.NONE)
                 .collect(Collectors.groupingBy(
-                        pf -> Language.fromExtension(pf.extension()),
+                        pf -> Languages.fromExtension(pf.extension()),
                         Collectors.summingLong(MainProject::getFileSize)));
 
         if (languageSizes.isEmpty()) {
             logger.debug(
                     "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
-            return Set.of(Language.NONE);
+            return Set.of(Languages.NONE);
         }
 
         long totalRecognizedBytes =
@@ -538,8 +570,8 @@ public final class MainProject extends AbstractProject {
                     root, mostCommonEntry.getKey().name());
         }
 
-        if (languageSizes.containsKey(Language.SQL)) {
-            boolean addedByThisRule = detectedLanguages.add(Language.SQL);
+        if (languageSizes.containsKey(Languages.SQL)) {
+            boolean addedByThisRule = detectedLanguages.add(Languages.SQL);
             if (addedByThisRule) {
                 logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
             }
@@ -553,7 +585,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
-        if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Language.NONE))) {
+        if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
             String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
@@ -742,23 +774,6 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public CpgRefresh getAnalyzerRefresh() {
-        String value = projectProps.getProperty("code_intelligence_refresh");
-        if (value == null) return CpgRefresh.UNSET;
-        try {
-            return CpgRefresh.valueOf(value.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            return CpgRefresh.UNSET;
-        }
-    }
-
-    @Override
-    public void setAnalyzerRefresh(CpgRefresh value) {
-        projectProps.setProperty("code_intelligence_refresh", value.name());
-        saveProjectProperties();
-    }
-
-    @Override
     public String getStyleGuide() {
         try {
             if (Files.exists(styleGuidePath)) {
@@ -834,6 +849,22 @@ public final class MainProject extends AbstractProject {
         };
     }
 
+    public static MainProject.StartupOpenMode getStartupOpenMode() {
+        var props = loadGlobalProperties();
+        String val = props.getProperty(STARTUP_OPEN_MODE_KEY, StartupOpenMode.LAST.name());
+        try {
+            return StartupOpenMode.valueOf(val);
+        } catch (IllegalArgumentException e) {
+            return StartupOpenMode.LAST;
+        }
+    }
+
+    public static void setStartupOpenMode(MainProject.StartupOpenMode mode) {
+        var props = loadGlobalProperties();
+        props.setProperty(STARTUP_OPEN_MODE_KEY, mode.name());
+        saveGlobalProperties(props);
+    }
+
     public static void setGitHubToken(String token) {
         var props = loadGlobalProperties();
         if (token.isBlank()) {
@@ -866,37 +897,8 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        String json = workspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
-        if (json != null && !json.isBlank()) {
-            try {
-                return objectMapper.readValue(json, ArchitectAgent.ArchitectOptions.class);
-            } catch (JsonProcessingException e) {
-                logger.error(
-                        "Failed to deserialize ArchitectOptions from workspace JSON: {}. Returning defaults.", json, e);
-            }
-        }
-        return ArchitectAgent.ArchitectOptions.DEFAULTS;
-    }
-
-    @Override
     public boolean getArchitectRunInWorktree() {
         return Boolean.parseBoolean(workspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
-    }
-
-    @Override
-    public void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
-        try {
-            String json = objectMapper.writeValueAsString(options);
-            workspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
-            workspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
-            saveWorkspaceProperties();
-            logger.debug("Saved Architect options and worktree preference to workspace properties.");
-        } catch (JsonProcessingException e) {
-            logger.error(
-                    "Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
-            // Not re-throwing as this is a preference, not critical state.
-        }
     }
 
     /** Workspace preference: whether to "Plan First" (Architect) when coding. Defaults to true on first run. */
@@ -920,28 +922,74 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public Set<ProjectFile> getLiveDependencies() {
+    public McpConfig getMcpConfig() {
+        var props = loadGlobalProperties();
+        String json = props.getProperty(MCP_CONFIG_JSON_KEY);
+        if (json == null || json.isBlank()) {
+            return McpConfig.EMPTY;
+        }
+        logger.info("Deserializing McpConfig from JSON: {}", json);
+        try {
+            return objectMapper.readValue(json, McpConfig.class);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize McpConfig from JSON. JSON: {}", json, e);
+            return McpConfig.EMPTY;
+        }
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {
+        var props = loadGlobalProperties();
+        try {
+            if (config.servers().isEmpty()) {
+                props.remove(MCP_CONFIG_JSON_KEY);
+            } else {
+                String newJson = objectMapper.writeValueAsString(config);
+                logger.info("Serialized McpConfig to JSON: {}", newJson);
+                props.setProperty(MCP_CONFIG_JSON_KEY, newJson);
+            }
+            saveGlobalProperties(props);
+            logger.debug("Saved MCP configuration to global properties.");
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize McpConfig to JSON: {}. Settings not saved.", config, e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public Set<Dependency> getLiveDependencies() {
         var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
-        if (liveDepsNames == null || liveDepsNames.isBlank()) {
-            return allDeps;
+
+        Set<ProjectFile> selected;
+        if (liveDepsNames == null) {
+            // Property not set: default to all dependencies enabled
+            selected = allDeps;
+        } else if (liveDepsNames.isBlank()) {
+            // Property explicitly set but empty: user disabled all dependencies
+            return Set.of();
+        } else {
+            var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toSet());
+
+            selected = allDeps.stream()
+                    .filter(dep -> {
+                        // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
+                        if (dep.getRelPath().getNameCount() < 3) {
+                            return false;
+                        }
+                        // relPath is relative to masterRootPathForConfig, so .brokk is first component
+                        var depName = dep.getRelPath().getName(2).toString();
+                        return liveNamesSet.contains(depName);
+                    })
+                    .collect(Collectors.toSet());
         }
 
-        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        return allDeps.stream()
-                .filter(dep -> {
-                    // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
-                    if (dep.getRelPath().getNameCount() < 3) {
-                        return false;
-                    }
-                    // relPath is relative to masterRootPathForConfig, so .brokk is first component
-                    var depName = dep.getRelPath().getName(2).toString();
-                    return liveNamesSet.contains(depName);
-                })
+        // Wrap with detected language for each dependency root directory
+        return selected.stream()
+                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
                 .collect(Collectors.toSet());
     }
 
@@ -998,12 +1046,26 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public static boolean getCodeBlockWrapMode() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty("wordWrap", "true"));
+    }
+
+    public static void setCodeBlockWrapMode(boolean wrap) {
+        var props = loadGlobalProperties();
+        props.setProperty("wordWrap", String.valueOf(wrap));
+        saveGlobalProperties(props);
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
     //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
     private static final String UI_SCALE_KEY = "uiScale";
+    private static final String MOP_ZOOM_KEY = "mopZoom";
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
+    private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
+    private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1019,6 +1081,27 @@ public final class MainProject extends AbstractProject {
     public static void setUiScalePrefCustom(double scale) {
         var props = loadGlobalProperties();
         props.setProperty(UI_SCALE_KEY, Double.toString(scale));
+        saveGlobalProperties(props);
+    }
+
+    public static double getMopZoom() {
+        var props = loadGlobalProperties();
+        String s = props.getProperty(MOP_ZOOM_KEY, "1.0");
+        double z;
+        try {
+            z = Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            z = 1.0;
+        }
+        if (z < 0.5) z = 0.5;
+        if (z > 2.0) z = 2.0;
+        return z;
+    }
+
+    public static void setMopZoom(double zoom) {
+        double clamped = Math.max(0.5, Math.min(2.0, zoom));
+        var props = loadGlobalProperties();
+        props.setProperty(MOP_ZOOM_KEY, Double.toString(clamped));
         saveGlobalProperties(props);
     }
 
@@ -1041,6 +1124,21 @@ public final class MainProject extends AbstractProject {
             props.remove(TERMINAL_FONT_SIZE_KEY);
         } else {
             props.setProperty(TERMINAL_FONT_SIZE_KEY, Float.toString(size));
+        }
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getForceToolEmulation() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(FORCE_TOOL_EMULATION_KEY, "false"));
+    }
+
+    public static void setForceToolEmulation(boolean force) {
+        var props = loadGlobalProperties();
+        if (force) {
+            props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
+        } else {
+            props.remove(FORCE_TOOL_EMULATION_KEY);
         }
         saveGlobalProperties(props);
     }
@@ -1518,8 +1616,20 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
-        super.close();
+        // Close disk cache if open
+        try {
+            if (diskCache != null) {
+                diskCache.close();
+                diskCache = null;
+                logger.debug("Closed disk cache for project {}", root.getFileName());
+            }
+        } catch (Exception e) {
+            logger.warn("Error closing disk cache for {}: {}", root.getFileName(), e.getMessage());
+        }
+
+        // Close session manager and other resources
         sessionManager.close();
+        super.close();
     }
 
     public Path getWorktreeStoragePath() {
@@ -1582,17 +1692,51 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    /* --------------------------------------------------------
-    Blitz-history (parallel + post-processing instructions)
-    -------------------------------------------------------- */
+    // ------------------------------------------------------------------
+    // Blitz-History (parallel + post-processing instructions)
+    // ------------------------------------------------------------------
+    private static final String BLITZ_HISTORY_KEY = "blitzHistory";
+
+    private void saveBlitzHistory(List<List<String>> historyItems, int maxItems) {
+        try {
+            var limited = historyItems.stream().limit(maxItems).toList();
+            String json = objectMapper.writeValueAsString(limited);
+            workspaceProps.setProperty(BLITZ_HISTORY_KEY, json);
+            saveWorkspaceProperties();
+        } catch (Exception e) {
+            logger.error("Error saving Blitz history: {}", e.getMessage());
+        }
+    }
+
     @Override
     public List<List<String>> loadBlitzHistory() {
-        return super.loadBlitzHistory();
+        try {
+            String json = workspaceProps.getProperty(BLITZ_HISTORY_KEY);
+            if (json != null && !json.isEmpty()) {
+                var tf = objectMapper.getTypeFactory();
+                var type = tf.constructCollectionType(List.class, tf.constructCollectionType(List.class, String.class));
+                return objectMapper.readValue(json, type);
+            }
+        } catch (Exception e) {
+            logger.error("Error loading Blitz history: {}", e.getMessage(), e);
+        }
+        return new ArrayList<>();
     }
 
     @Override
     public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
-        return super.addToBlitzHistory(parallel, post, maxItems);
+        if (parallel.trim().isEmpty() && post.trim().isEmpty()) {
+            return loadBlitzHistory();
+        }
+        var history = new ArrayList<>(loadBlitzHistory());
+        history.removeIf(
+                p -> p.size() >= 2 && p.get(0).equals(parallel) && p.get(1).equals(post));
+        history.add(0, List.of(parallel, post));
+        if (history.size() > maxItems) {
+            history = new ArrayList<>(history.subList(0, maxItems));
+        }
+        saveBlitzHistory(history, maxItems);
+        return history;
     }
 
     @Override

@@ -12,12 +12,16 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.KeyEvent;
@@ -26,6 +30,9 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -33,10 +40,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.plaf.LayerUI;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,8 +60,8 @@ public class HistoryOutputPanel extends JPanel {
     private final ContextManager contextManager;
     private final JTable historyTable;
     private final DefaultTableModel historyModel;
-    private final JButton undoButton;
-    private final JButton redoButton;
+    private final MaterialButton undoButton;
+    private final MaterialButton redoButton;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
@@ -65,6 +75,9 @@ public class HistoryOutputPanel extends JPanel {
 
     private JLayeredPane historyLayeredPane;
 
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JScrollPane historyScrollPane;
+
     // Output components
     private final MarkdownOutputPanel llmStreamArea;
     private final JScrollPane llmScrollPane;
@@ -72,12 +85,32 @@ public class HistoryOutputPanel extends JPanel {
     @Nullable
     private JTextArea captureDescriptionArea; // This one seems to be intentionally nullable or less strictly managed
 
-    private final JButton copyButton;
+    private final MaterialButton copyButton;
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
+    // Diff caching for AI result contexts
+    private final Map<UUID, List<Context.DiffEntry>> aiDiffCache = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> diffInFlight = ConcurrentHashMap.newKeySet();
+    private Map<UUID, Context> previousContextMap = new HashMap<>();
+
     @Nullable
     private String lastSpinnerMessage = null; // Explicitly initialize
+
+    // Track expand/collapse state for grouped non-LLM action runs
+    private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
+
+    // Selection directives applied after a table rebuild (for expand/collapse UX)
+    private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
+    private @Nullable UUID pendingSelectionGroupKey = null;
+
+    // Viewport preservation flags for group expand/collapse operations
+    private boolean suppressScrollOnNextUpdate = false;
+    private @Nullable Point pendingViewportPosition = null;
+
+    // Session AI response counts and in-flight loaders
+    private final Map<UUID, Integer> sessionAiResponseCounts = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -96,7 +129,10 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
-        this.copyButton = new JButton("Copy");
+        this.copyButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            this.copyButton.setIcon(Icons.CONTENT_COPY);
+        });
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
 
@@ -109,8 +145,8 @@ public class HistoryOutputPanel extends JPanel {
         };
         this.historyTable = new JTable(this.historyModel);
         this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
-        this.undoButton = new JButton("Undo");
-        this.redoButton = new JButton("Redo");
+        this.undoButton = new MaterialButton();
+        this.redoButton = new MaterialButton();
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("New");
         this.manageSessionsButton = new SplitButton("Manage");
@@ -171,7 +207,7 @@ public class HistoryOutputPanel extends JPanel {
         sessionSwitchPanel.add(contentPanel, BorderLayout.NORTH);
     }
 
-    private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, JButton copyButton) {
+    private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, MaterialButton copyButton) {
         // Build capture output panel (copyButton is passed in)
         var capturePanel = buildCaptureOutputPanel(copyButton);
 
@@ -206,17 +242,8 @@ public class HistoryOutputPanel extends JPanel {
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
         // Session combo box (passed in)
-        sessionComboBox.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof SessionInfo sessionInfo) {
-                    setText(sessionInfo.name());
-                }
-                return this;
-            }
-        });
+        sessionComboBox.setRenderer(new SessionInfoRenderer());
+        sessionComboBox.setMaximumRowCount(10);
 
         // Add selection listener for session switching
         sessionComboBox.addActionListener(e -> {
@@ -295,12 +322,11 @@ public class HistoryOutputPanel extends JPanel {
                 sessionComboBox.removeActionListener(listener);
             }
 
-            // Clear and repopulate
+            // Clear and repopulate all sessions (dropdown shows at most 10 rows, scroll for more)
             sessionComboBox.removeAllItems();
             var sessions = contextManager.getProject().getSessionManager().listSessions();
             sessions.sort(
                     java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
-
             for (var session : sessions) {
                 sessionComboBox.addItem(session);
             }
@@ -323,7 +349,7 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /** Builds the Activity history panel that shows past contexts */
-    private JPanel buildActivityPanel(JTable historyTable, JButton undoButton, JButton redoButton) {
+    private JPanel buildActivityPanel(JTable historyTable, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder(
@@ -341,40 +367,42 @@ public class HistoryOutputPanel extends JPanel {
 
         // Set up custom renderers for history table columns
         historyTable.getColumnModel().getColumn(0).setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
-        historyTable.getColumnModel().getColumn(1).setCellRenderer(new ActivityTableRenderers.ActionCellRenderer());
+        historyTable.getColumnModel().getColumn(1).setCellRenderer(new DiffAwareActionRenderer());
 
-        // Add selection listener to preview context
+        // Add selection listener to preview context (ignore group header rows)
         historyTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int row = historyTable.getSelectedRow();
                 if (row >= 0 && row < historyTable.getRowCount()) {
-                    // Get the context object from the hidden third column
-                    var ctx = (Context) historyModel.getValueAt(row, 2);
-                    contextManager.setSelectedContext(ctx);
-                    // setContext is for *previewing* a context without changing selection state in the manager
-                    chrome.setContext(ctx);
+                    var val = historyModel.getValueAt(row, 2);
+                    if (val instanceof Context ctx) {
+                        contextManager.setSelectedContext(ctx);
+                        // setContext is for *previewing* a context without changing selection state in the manager
+                        chrome.setContext(ctx);
+                    }
                 }
             }
         });
 
-        // Add mouse listener for right-click context menu and double-click action
+        // Add mouse listener for right-click context menu, expand/collapse on group header, and double-click action
         historyTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) { // Double-click
-                    int row = historyTable.rowAtPoint(e.getPoint());
-                    if (row >= 0) {
-                        Context context = (Context) requireNonNull(historyModel.getValueAt(row, 2));
-                        var output = context.getParsedOutput();
-                        if (output != null) {
-                            // Open in new window
-                            String titleHint = context.getAction();
-                            new OutputWindow(
-                                    HistoryOutputPanel.this,
-                                    output,
-                                    titleHint,
-                                    chrome.themeManager.isDarkTheme(),
-                                    false);
+                int row = historyTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+                var val = historyModel.getValueAt(row, 2);
+
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    if (val instanceof GroupRow) {
+                        // Toggle expand/collapse on click for the group header
+                        toggleGroupRow(row);
+                        return;
+                    }
+                    if (e.getClickCount() == 2 && val instanceof Context context) {
+                        if (context.isAiResult()) {
+                            openDiffPreview(context);
+                        } else {
+                            openOutputWindowFromContext(context);
                         }
                     }
                 }
@@ -383,15 +411,21 @@ public class HistoryOutputPanel extends JPanel {
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenu(e);
+                    showContextHistoryPopupMenuIfContext(e);
                 }
             }
 
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenu(e);
+                    showContextHistoryPopupMenuIfContext(e);
                 }
+            }
+
+            private void showContextHistoryPopupMenuIfContext(MouseEvent e) {
+                int row = historyTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+                showContextHistoryPopupMenu(e);
             }
         });
 
@@ -405,18 +439,18 @@ public class HistoryOutputPanel extends JPanel {
         historyTable.getColumnModel().getColumn(2).setWidth(0);
 
         // Add table to scroll pane with AutoScroller
-        var scrollPane = new JScrollPane(historyTable);
-        var layer = new JLayer<>(scrollPane, arrowLayerUI);
-        scrollPane.getViewport().addChangeListener(e -> layer.repaint());
-        scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        AutoScroller.install(scrollPane);
-        BorderUtils.addFocusBorder(scrollPane, historyTable);
+        this.historyScrollPane = new JScrollPane(historyTable);
+        var layer = new JLayer<>(historyScrollPane, arrowLayerUI);
+        historyScrollPane.getViewport().addChangeListener(e -> layer.repaint());
+        historyScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        AutoScroller.install(historyScrollPane);
+        BorderUtils.addFocusBorder(historyScrollPane, historyTable);
 
         // Add MouseListener to scrollPane's viewport to request focus for historyTable
-        scrollPane.getViewport().addMouseListener(new MouseAdapter() {
+        historyScrollPane.getViewport().addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getSource() == scrollPane.getViewport()) { // Click was on the viewport itself
+                if (e.getSource() == historyScrollPane.getViewport()) { // Click was on the viewport itself
                     historyTable.requestFocusInWindow();
                 }
             }
@@ -425,18 +459,24 @@ public class HistoryOutputPanel extends JPanel {
         // Add undo/redo buttons at the bottom, side by side
         // Use GridLayout to make buttons share width equally
         var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
-        buttonPanel.setBorder(new EmptyBorder(5, 0, 0, 0)); // Add top padding
+        buttonPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
         undoButton.addActionListener(e -> {
             contextManager.undoContextAsync();
         });
+        SwingUtilities.invokeLater(() -> {
+            undoButton.setIcon(Icons.UNDO);
+        });
 
         redoButton.setMnemonic(KeyEvent.VK_Y);
         redoButton.setToolTipText("Redo the most recently undone entry");
         redoButton.addActionListener(e -> {
             contextManager.redoContextAsync();
+        });
+        SwingUtilities.invokeLater(() -> {
+            redoButton.setIcon(Icons.REDO);
         });
 
         buttonPanel.add(undoButton);
@@ -471,17 +511,64 @@ public class HistoryOutputPanel extends JPanel {
         });
     }
 
-    /** Shows the context menu for the context history table */
+    /** Shows the context menu for the context history table (supports Context and GroupRow). */
     private void showContextHistoryPopupMenu(MouseEvent e) {
         int row = historyTable.rowAtPoint(e.getPoint());
         if (row < 0) return;
 
-        // Select the row under the cursor
-        historyTable.setRowSelectionInterval(row, row);
+        Object val = historyModel.getValueAt(row, 2);
 
-        // Get the context from the selected row
-        Context context = (Context) historyModel.getValueAt(row, 2);
+        // Direct Context row: select and show popup
+        if (val instanceof Context context) {
+            historyTable.setRowSelectionInterval(row, row);
+            showPopupForContext(context, e.getX(), e.getY());
+            return;
+        }
 
+        // Group header row: expand if needed, then target the first child row
+        if (val instanceof GroupRow group) {
+            var key = group.key();
+            boolean expandedNow = groupExpandedState.getOrDefault(key, group.expanded());
+
+            Runnable showAfterExpand = () -> {
+                int headerRow = findGroupHeaderRow(key);
+                if (headerRow >= 0) {
+                    int firstChildRow = headerRow + 1;
+                    if (firstChildRow < historyModel.getRowCount()) {
+                        Object childVal = historyModel.getValueAt(firstChildRow, 2);
+                        if (childVal instanceof Context ctx) {
+                            historyTable.setRowSelectionInterval(firstChildRow, firstChildRow);
+                            showPopupForContext(ctx, e.getX(), e.getY());
+                        }
+                    }
+                }
+            };
+
+            if (!expandedNow) {
+                groupExpandedState.put(key, true);
+                // Preserve viewport while expanding so the view doesn't jump
+                pendingViewportPosition = historyScrollPane.getViewport().getViewPosition();
+                suppressScrollOnNextUpdate = true;
+                updateHistoryTable(null);
+                // Ensure the table is rebuilt first, then select and show the popup
+                SwingUtilities.invokeLater(showAfterExpand);
+            } else {
+                showAfterExpand.run();
+            }
+        }
+    }
+
+    private int findGroupHeaderRow(UUID groupKey) {
+        for (int i = 0; i < historyModel.getRowCount(); i++) {
+            var v = historyModel.getValueAt(i, 2);
+            if (v instanceof GroupRow gr && gr.key().equals(groupKey)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void showPopupForContext(Context context, int x, int y) {
         // Create popup menu
         JPopupMenu popup = new JPopupMenu();
 
@@ -496,6 +583,14 @@ public class HistoryOutputPanel extends JPanel {
         JMenuItem resetToHereIncludingHistoryItem = new JMenuItem("Copy Workspace with History");
         resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context));
         popup.add(resetToHereIncludingHistoryItem);
+
+        // Show diff (uses BrokkDiffPanel)
+        JMenuItem showDiffItem = new JMenuItem("Show diff");
+        showDiffItem.addActionListener(event -> openDiffPreview(context));
+        // Enable only if we have a previous context to diff against
+        showDiffItem.setEnabled(previousContextMap.get(context.id()) != null);
+        popup.add(showDiffItem);
+
         popup.addSeparator();
 
         JMenuItem newSessionFromWorkspaceItem = new JMenuItem("New Session from Workspace");
@@ -513,7 +608,7 @@ public class HistoryOutputPanel extends JPanel {
         chrome.themeManager.registerPopupMenu(popup);
 
         // Show popup menu
-        popup.show(historyTable, e.getX(), e.getY());
+        popup.show(historyTable, x, y);
     }
 
     /** Restore context to a specific point in history */
@@ -546,45 +641,135 @@ public class HistoryOutputPanel extends JPanel {
         assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
+            // Recompute previous-context map for diffing AI result contexts
+            {
+                var list = contextManager.getContextHistoryList();
+                var map = new HashMap<UUID, Context>();
+                for (int i = 1; i < list.size(); i++) {
+                    map.put(list.get(i).id(), list.get(i - 1));
+                }
+                previousContextMap = map;
+            }
             historyModel.setRowCount(0);
 
-            // Track which row to select
             int rowToSelect = -1;
             int currentRow = 0;
 
-            // Add rows for each context in history
-            for (var ctx : contextManager.getContextHistoryList()) {
-                // Add icon for AI responses, null for user actions
-                boolean hasAiMessages = ctx.getParsedOutput() != null
-                        && ctx.getParsedOutput().messages().stream()
-                                .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
-                Icon iconEmoji = hasAiMessages ? Icons.AI_ROBOT : null;
-                historyModel.addRow(new Object[] {
-                    iconEmoji, ctx.getAction(), ctx // We store the actual context object in hidden column
-                });
+            var contexts = contextManager.getContextHistoryList();
+            boolean lastIsNonLlm = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
 
-                // If this is the context we want to select, record its row
-                if (ctx.equals(contextToSelect)) {
-                    rowToSelect = currentRow;
+            for (int i = 0; i < contexts.size(); i++) {
+                var ctx = contexts.get(i);
+                if (isGroupingBoundary(ctx)) {
+                    Icon icon;
+                    if (ActivityTableRenderers.DROPPED_ALL_CONTEXT.equalsIgnoreCase(ctx.getAction())) {
+                        icon = null;
+                    } else {
+                        icon = Icons.AI_ROBOT;
+                    }
+                    historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
+                    if (ctx.equals(contextToSelect)) {
+                        rowToSelect = currentRow;
+                    }
+                    currentRow++;
+                } else {
+                    int j = i;
+                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
+                        j++;
+                    }
+                    var children = contexts.subList(i, j);
+                    if (children.size() == 1) {
+                        var child = children.get(0);
+                        // Render single-entry groups as a normal top-level entry
+                        historyModel.addRow(new Object[] {null, child.getAction(), child});
+                        if (child.equals(contextToSelect)) {
+                            rowToSelect = currentRow;
+                        }
+                        currentRow++;
+                    } else { // children.size() >= 2
+                        String title;
+                        if (children.size() == 2) {
+                            title = firstWord(children.get(0).getAction()) + " + "
+                                    + firstWord(children.get(1).getAction());
+                        } else {
+                            title = children.size() + " actions";
+                        }
+                        var first = children.get(0); // For key and other metadata
+                        var key = first.id();
+                        boolean isLastGroup = j == contexts.size();
+                        boolean expandedDefault = isLastGroup && lastIsNonLlm;
+                        boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
+
+                        boolean containsClearHistory = children.stream()
+                                .anyMatch(c ->
+                                        ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+
+                        var groupRow = new GroupRow(key, expanded, containsClearHistory);
+                        historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
+                        currentRow++;
+
+                        if (expanded) {
+                            for (var child : children) {
+                                String childText = "   " + child.getAction();
+                                historyModel.addRow(new Object[] {null, childText, child});
+                                if (child.equals(contextToSelect)) {
+                                    rowToSelect = currentRow;
+                                }
+                                currentRow++;
+                            }
+                        }
+                    }
+
+                    i = j - 1;
                 }
-                currentRow++;
             }
 
-            // Set selection - if no specific context to select, select the most recent (last) item
-            if (rowToSelect >= 0) {
+            // Apply pending selection directive, if any
+            if (pendingSelectionType == PendingSelectionType.FIRST_IN_GROUP && pendingSelectionGroupKey != null) {
+                int headerRow = findGroupHeaderRow(pendingSelectionGroupKey);
+                int candidate = headerRow >= 0 ? headerRow + 1 : -1;
+                if (candidate >= 0 && candidate < historyModel.getRowCount()) {
+                    Object v = historyModel.getValueAt(candidate, 2);
+                    if (v instanceof Context) {
+                        rowToSelect = candidate;
+                    }
+                }
+            }
+
+            boolean suppress = suppressScrollOnNextUpdate;
+
+            if (pendingSelectionType == PendingSelectionType.CLEAR) {
+                historyTable.clearSelection();
+                // Do not auto-select any row when collapsing a group
+            } else if (rowToSelect >= 0) {
                 historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
-                historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
-            } else if (historyModel.getRowCount() > 0) {
-                // Select the most recent item (last row)
+                if (!suppress) {
+                    historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
+                }
+            } else if (!suppress && historyModel.getRowCount() > 0) {
                 int lastRow = historyModel.getRowCount() - 1;
                 historyTable.setRowSelectionInterval(lastRow, lastRow);
                 historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
             }
 
-            // Update session combo box after table update
+            // Restore viewport if requested
+            if (suppress && pendingViewportPosition != null) {
+                Point desired = pendingViewportPosition;
+                SwingUtilities.invokeLater(() -> {
+                    historyScrollPane.getViewport().setViewPosition(clampViewportPosition(historyScrollPane, desired));
+                });
+            }
+
+            // Reset directive after applying
+            pendingSelectionType = PendingSelectionType.NONE;
+            pendingSelectionGroupKey = null;
+            suppressScrollOnNextUpdate = false;
+            pendingViewportPosition = null;
+
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
+            updateUndoRedoButtonStates();
         });
     }
 
@@ -616,7 +801,7 @@ public class HistoryOutputPanel extends JPanel {
     // buildCommandResultLabel removed
 
     /** Builds the "Capture Output" panel with a horizontal layout: [Capture Text] */
-    private JPanel buildCaptureOutputPanel(JButton copyButton) {
+    private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 
@@ -649,7 +834,10 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new JButton("Capture");
+        var captureButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            captureButton.setIcon(Icons.CONTENT_CAPTURE);
+        });
         captureButton.setMnemonic(KeyEvent.VK_C);
         captureButton.setToolTipText("Add the output to context");
         captureButton.addActionListener(e -> {
@@ -660,39 +848,22 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new JButton("Open in New Window");
+        var openWindowButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> {
+            openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
+        });
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
             if (llmStreamArea.isBlocking()) {
-                // show all = grab all messages, including reasoning for preview window
-                List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
-                var tempFragment =
-                        new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-                String titleHint = lastSpinnerMessage;
-                OutputWindow newStreamingWindow =
-                        new OutputWindow(this, tempFragment, titleHint, chrome.themeManager.isDarkTheme(), true);
-                if (lastSpinnerMessage != null) {
-                    newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
-                }
-                activeStreamingWindows.add(newStreamingWindow);
-                newStreamingWindow.addWindowListener(new WindowAdapter() {
-                    @Override
-                    public void windowClosed(WindowEvent evt) {
-                        activeStreamingWindows.remove(newStreamingWindow);
-                    }
-                });
+                openOutputWindowStreaming();
             } else {
                 var context = contextManager.selectedContext();
                 if (context == null) {
                     logger.warn("Cannot open output in new window: current context is null.");
                     return;
                 }
-                var output = context.getParsedOutput();
-                if (output != null) {
-                    String titleHint = context.getAction();
-                    new OutputWindow(this, output, titleHint, chrome.themeManager.isDarkTheme(), false);
-                }
+                openOutputWindowFromContext(context);
             }
         });
         // Set minimum size
@@ -715,6 +886,18 @@ public class HistoryOutputPanel extends JPanel {
 
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         llmStreamArea.setText(newOutput);
+    }
+
+    /**
+     * Displays a full conversation, splitting it between the history area (for all but the last task) and the main area
+     * (for the last task).
+     *
+     * @param history The list of tasks to show in the history section.
+     * @param main The final task to show in the main output section.
+     */
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
+        // prioritize rendering live area, then history (explicitly sequenced with flush)
+        llmStreamArea.setMainThenHistoryAsync(main, history);
     }
 
     /** Appends text to the LLM output area */
@@ -797,22 +980,65 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
+    private void openOutputWindowFromContext(Context context) {
+        var taskHistory = context.getTaskHistory();
+        TaskEntry mainTask = null;
+        List<TaskEntry> historyTasks = List.of();
+        if (!taskHistory.isEmpty()) {
+            historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+            mainTask = taskHistory.getLast();
+        } else {
+            var output = context.getParsedOutput();
+            if (output != null) {
+                mainTask = new TaskEntry(-1, output, null);
+            }
+        }
+        if (mainTask != null) {
+            String titleHint = context.getAction();
+            new OutputWindow(this, historyTasks, mainTask, titleHint, chrome.themeManager.isDarkTheme(), false);
+        }
+    }
+
+    private void openOutputWindowStreaming() {
+        // show all = grab all messages, including reasoning for preview window
+        List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
+        var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var history = contextManager.topContext().getTaskHistory();
+        var mainTask = new TaskEntry(-1, tempFragment, null);
+        String titleHint = lastSpinnerMessage;
+        OutputWindow newStreamingWindow =
+                new OutputWindow(this, history, mainTask, titleHint, chrome.themeManager.isDarkTheme(), true);
+        if (lastSpinnerMessage != null) {
+            newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
+        }
+        activeStreamingWindows.add(newStreamingWindow);
+        newStreamingWindow.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent evt) {
+                activeStreamingWindows.remove(newStreamingWindow);
+            }
+        });
+    }
+
     /** Inner class representing a detached window for viewing output text */
     private static class OutputWindow extends JFrame {
         private final IProject project;
         private final MarkdownOutputPanel outputPanel;
 
         /**
-         * Creates a new output window with the given text content
+         * Creates a new output window with the given content and optional history.
          *
          * @param parentPanel The parent HistoryOutputPanel
-         * @param output The messages (ai, user, ...) to display
+         * @param history The conversation tasks to display in the history section (all but the main task)
+         * @param main The main/last task to display in the live area
          * @param titleHint A hint for the window title (e.g., task summary or spinner message)
          * @param isDark Whether to use dark theme
+         * @param isBlockingMode Whether the window shows a streaming (in-progress) output
          */
         public OutputWindow(
                 HistoryOutputPanel parentPanel,
-                ContextFragment.TaskFragment output,
+                List<TaskEntry> history,
+                TaskEntry main,
                 @Nullable String titleHint,
                 boolean isDark,
                 boolean isBlockingMode) {
@@ -826,7 +1052,7 @@ public class HistoryOutputPanel extends JPanel {
                     setIconImage(icon.getImage());
                 }
             } catch (Exception e) {
-                // Silently ignore icon setting failures in child windows
+                logger.debug("Failed to set OutputWindow icon", e);
             }
 
             this.project = parentPanel.contextManager.getProject(); // Get project reference
@@ -837,7 +1063,8 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
             outputPanel.updateTheme(isDark);
             outputPanel.setBlocking(isBlockingMode);
-            outputPanel.setText(output);
+            // Seed main content first, then history
+            outputPanel.setMainThenHistoryAsync(main, history);
 
             // Create toolbar panel with capture button if not in blocking mode
             JPanel toolbarPanel = null;
@@ -845,13 +1072,10 @@ public class HistoryOutputPanel extends JPanel {
                 toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
                 toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
 
-                JButton captureButton = new JButton("Capture");
+                MaterialButton captureButton = new MaterialButton("Capture");
                 captureButton.setToolTipText("Add the output to context");
                 captureButton.addActionListener(e -> {
-                    parentPanel.contextManager.submitContextTask("Capturing output", () -> {
-                        parentPanel.contextManager.addVirtualFragment(output);
-                        parentPanel.chrome.systemOutput("Content captured from output window");
-                    });
+                    parentPanel.contextManager.captureTextFromContextAsync();
                 });
                 toolbarPanel.add(captureButton);
             }
@@ -960,12 +1184,207 @@ public class HistoryOutputPanel extends JPanel {
     public void enableHistory() {
         SwingUtilities.invokeLater(() -> {
             historyTable.setEnabled(true);
-            undoButton.setEnabled(true);
-            redoButton.setEnabled(true);
             // Restore appearance
             historyTable.setForeground(UIManager.getColor("Table.foreground"));
             historyTable.setBackground(UIManager.getColor("Table.background"));
+            updateUndoRedoButtonStates();
         });
+    }
+
+    /** A renderer that shows the action text and, for AI result contexts, a diff summary under it. */
+    private class DiffAwareActionRenderer extends DefaultTableCellRenderer {
+        private final ActivityTableRenderers.ActionCellRenderer fallback =
+                new ActivityTableRenderers.ActionCellRenderer();
+        private final Font smallFont = new Font(Font.DIALOG, Font.PLAIN, 11);
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            // Separator handling delegates to existing painter
+            if (ActivityTableRenderers.isSeparatorAction(value)) {
+                var comp = fallback.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // Determine context for this row
+            Object ctxVal = table.getModel().getValueAt(row, 2);
+
+            // For non-AI contexts, just render a normal label (top-aligned)
+            if (!(ctxVal instanceof Context ctx) || !ctx.isAiResult()) {
+                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (comp instanceof JLabel lbl) {
+                    lbl.setVerticalAlignment(JLabel.TOP);
+                }
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // For AI contexts, decide whether to render a diff panel or just the label
+            var cached = aiDiffCache.get(ctx.id());
+
+            // Not yet cached → kick off background computation; show a compact label for now
+            if (cached == null) {
+                scheduleDiffComputation(ctx);
+                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (comp instanceof JLabel lbl) {
+                    lbl.setVerticalAlignment(JLabel.TOP);
+                }
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // Cached but empty → no changes; compact label
+            if (cached.isEmpty()) {
+                var comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                if (comp instanceof JLabel lbl) {
+                    lbl.setVerticalAlignment(JLabel.TOP);
+                }
+                return adjustRowHeight(table, row, column, comp);
+            }
+
+            // Cached with entries → build diff summary panel
+            boolean isDark = chrome.getTheme().isDarkTheme();
+
+            // Container for per-file rows with an inset on the left
+            var diffPanel = new JPanel();
+            diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
+            diffPanel.setOpaque(false);
+            diffPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
+
+            for (var de : cached) {
+                String bareName;
+                try {
+                    var files = de.fragment().files();
+                    if (!files.isEmpty()) {
+                        var pf = files.iterator().next();
+                        bareName = pf.getRelPath().getFileName().toString();
+                    } else {
+                        bareName = de.fragment().shortDescription();
+                    }
+                } catch (Exception ex) {
+                    bareName = de.fragment().shortDescription();
+                }
+
+                var nameLabel = new JLabel(bareName + " ");
+                nameLabel.setFont(smallFont);
+                nameLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+
+                var plus = new JLabel("+" + de.linesAdded());
+                plus.setFont(smallFont);
+                plus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getAdded(!isDark));
+
+                var minus = new JLabel("-" + de.linesDeleted());
+                minus.setFont(smallFont);
+                minus.setForeground(io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(!isDark));
+
+                var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+                rowPanel.setOpaque(false);
+                rowPanel.add(nameLabel);
+                rowPanel.add(plus);
+                rowPanel.add(minus);
+
+                diffPanel.add(rowPanel);
+            }
+
+            // Build composite panel (action text on top, diff below)
+            var panel = new JPanel(new BorderLayout());
+            panel.setOpaque(true);
+            panel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+            panel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+
+            var actionLabel = new JLabel(value != null ? value.toString() : "");
+            actionLabel.setOpaque(false);
+            actionLabel.setFont(table.getFont());
+            actionLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+            panel.add(actionLabel, BorderLayout.NORTH);
+            panel.add(diffPanel, BorderLayout.CENTER);
+
+            return adjustRowHeight(table, row, column, panel);
+        }
+
+        /**
+         * Adjust the row height to the preferred height of the rendered component. This keeps rows compact when there
+         * is no diff and expands only as needed when a diff summary is present.
+         */
+        private Component adjustRowHeight(JTable table, int row, int column, Component comp) {
+            int colWidth = table.getColumnModel().getColumn(column).getWidth();
+            // Give the component the column width so its preferred height is accurate.
+            comp.setSize(colWidth, Short.MAX_VALUE);
+            int pref = Math.max(18, comp.getPreferredSize().height + 2); // small vertical breathing room
+            if (table.getRowHeight(row) != pref) {
+                table.setRowHeight(row, pref);
+            }
+            return comp;
+        }
+    }
+
+    /** Schedule background computation (with caching) of diff for an AI result context. */
+    private void scheduleDiffComputation(Context ctx) {
+        if (aiDiffCache.containsKey(ctx.id())) return;
+        if (!diffInFlight.add(ctx.id())) return;
+
+        var prev = previousContextMap.get(ctx.id());
+        if (prev == null) {
+            diffInFlight.remove(ctx.id());
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Compute diff for history entry", () -> {
+            try {
+                var diffs = ctx.getDiff(prev);
+                aiDiffCache.put(ctx.id(), diffs);
+            } finally {
+                diffInFlight.remove(ctx.id());
+                SwingUtilities.invokeLater(() -> historyTable.repaint());
+            }
+        });
+    }
+
+    /** Open a multi-file diff preview window for the given AI result context. */
+    private void openDiffPreview(Context ctx) {
+        var prev = previousContextMap.get(ctx.id());
+        if (prev == null) {
+            chrome.systemOutput("No previous context to diff against.");
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Preparing diff preview", () -> {
+            var diffs = aiDiffCache.computeIfAbsent(ctx.id(), id -> ctx.getDiff(prev));
+            SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs));
+        });
+    }
+
+    private void showDiffWindow(Context ctx, List<Context.DiffEntry> diffs) {
+        if (diffs.isEmpty()) {
+            chrome.systemOutput("No changes to show.");
+            return;
+        }
+
+        // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
+        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                .setMultipleCommitsContext(false)
+                .setRootTitle("Diff: " + ctx.getAction())
+                .setInitialFileIndex(0);
+
+        for (var de : diffs) {
+            String pathDisplay;
+            try {
+                var files = de.fragment().files();
+                if (!files.isEmpty()) {
+                    var pf = files.iterator().next();
+                    pathDisplay = pf.getRelPath().toString();
+                } else {
+                    pathDisplay = de.fragment().shortDescription();
+                }
+            } catch (Exception ex) {
+                pathDisplay = de.fragment().shortDescription();
+            }
+
+            var left = new BufferSource.StringSource(de.oldContent(), "Previous", pathDisplay);
+            var right = new BufferSource.StringSource(de.fragment().text(), "Current", pathDisplay);
+            builder.addComparison(left, right);
+        }
+
+        var panel = builder.build();
+        panel.showInFrame("Diff: " + ctx.getAction());
     }
 
     /** A LayerUI that paints reset-from-history arrows over the history table. */
@@ -1020,15 +1439,45 @@ public class HistoryOutputPanel extends JPanel {
                 return;
             }
 
+            // Map context IDs to the visible row indices where arrows should anchor.
+            // - For visible Context rows, map directly to their row.
+            // - For contexts hidden by collapsed groups, map to the group header row.
             Map<UUID, Integer> contextIdToRow = new HashMap<>();
+
+            // 1) First pass: map all visible Context rows
             for (int i = 0; i < model.getRowCount(); i++) {
-                Context ctx = (Context) model.getValueAt(i, 2);
-                if (ctx != null) {
+                var val = model.getValueAt(i, 2);
+                if (val instanceof Context ctx) {
                     contextIdToRow.put(ctx.id(), i);
                 }
             }
 
-            // 1. Build list of all possible arrows with their geometry
+            // 2) Build helper data from the full context history to determine group membership
+            var contexts = contextManager.getContextHistoryList();
+            Map<UUID, Integer> idToIndex = new HashMap<>();
+            for (int i = 0; i < contexts.size(); i++) {
+                idToIndex.put(contexts.get(i).id(), i);
+            }
+
+            // 3) Second pass: for collapsed groups, map their children context IDs to the group header row
+            for (int row = 0; row < model.getRowCount(); row++) {
+                var val = model.getValueAt(row, 2);
+                if (val instanceof GroupRow gr && !gr.expanded()) {
+                    Integer startIdx = idToIndex.get(gr.key());
+                    if (startIdx == null) {
+                        continue;
+                    }
+                    int j = startIdx;
+                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
+                        UUID ctxId = contexts.get(j).id();
+                        // Only map if not already visible; collapsed children should anchor to the header row
+                        contextIdToRow.putIfAbsent(ctxId, row);
+                        j++;
+                    }
+                }
+            }
+
+            // 4) Build list of arrows with geometry between the resolved row anchors
             List<Arrow> arrows = new ArrayList<>();
             for (var edge : resetEdges) {
                 Integer sourceRow = contextIdToRow.get(edge.sourceId());
@@ -1042,7 +1491,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
             }
 
-            // 2. Draw arrows, longest first to prevent shorter arrows from being hidden
+            // 5) Draw arrows, longest first (so shorter arrows aren't hidden)
             arrows.sort(Comparator.comparingInt((Arrow a) -> a.length).reversed());
 
             Graphics2D g2 = (Graphics2D) g.create();
@@ -1115,6 +1564,227 @@ public class HistoryOutputPanel extends JPanel {
             var head = new Polygon(
                     new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
             g2.fill(head);
+        }
+    }
+
+    // --- Tree-like grouping support types and helpers ---
+
+    public static record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
+
+    private enum PendingSelectionType {
+        NONE,
+        CLEAR,
+        FIRST_IN_GROUP
+    }
+
+    private static final class TriangleIcon implements Icon {
+        private final boolean expanded;
+        private final int size;
+
+        TriangleIcon(boolean expanded) {
+            this(expanded, 12);
+        }
+
+        TriangleIcon(boolean expanded, int size) {
+            this.expanded = expanded;
+            this.size = size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int triW = 8;
+                int triH = 8;
+                int cx = x + (getIconWidth() - triW) / 2;
+                int cy = y + (getIconHeight() - triH) / 2;
+
+                Polygon p = new Polygon();
+                if (expanded) {
+                    // down triangle
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx + triW, cy);
+                    p.addPoint(cx + triW / 2, cy + triH);
+                } else {
+                    // right triangle
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx + triW, cy + triH / 2);
+                    p.addPoint(cx, cy + triH);
+                }
+
+                Color color = c.isEnabled()
+                        ? UIManager.getColor("Label.foreground")
+                        : UIManager.getColor("Label.disabledForeground");
+                if (color == null) color = Color.DARK_GRAY;
+                g2.setColor(color);
+                g2.fillPolygon(p);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+    }
+
+    private boolean isGroupingBoundary(Context ctx) {
+        return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
+    }
+
+    private static String firstWord(String text) {
+        if (text.isBlank()) {
+            return "";
+        }
+        var trimmed = text.trim();
+        int idx = trimmed.indexOf(' ');
+        return idx < 0 ? trimmed : trimmed.substring(0, idx);
+    }
+
+    private void toggleGroupRow(int row) {
+        var val = historyModel.getValueAt(row, 2);
+        if (!(val instanceof GroupRow groupRow)) {
+            return;
+        }
+        boolean newState = !groupExpandedState.getOrDefault(groupRow.key(), groupRow.expanded());
+        groupExpandedState.put(groupRow.key(), newState);
+
+        // Set selection directive
+        if (newState) {
+            pendingSelectionType = PendingSelectionType.FIRST_IN_GROUP;
+        } else {
+            pendingSelectionType = PendingSelectionType.CLEAR;
+        }
+        pendingSelectionGroupKey = groupRow.key();
+
+        // Preserve viewport and suppress any scroll caused by table rebuild
+        pendingViewportPosition = historyScrollPane.getViewport().getViewPosition();
+        suppressScrollOnNextUpdate = true;
+
+        updateHistoryTable(null);
+    }
+
+    private static Point clampViewportPosition(JScrollPane sp, Point desired) {
+        JViewport vp = sp.getViewport();
+        if (vp == null) return desired;
+        Component view = vp.getView();
+        if (view == null) return desired;
+        Dimension viewSize = view.getSize();
+        Dimension extent = vp.getExtentSize();
+        int maxX = Math.max(0, viewSize.width - extent.width);
+        int maxY = Math.max(0, viewSize.height - extent.height);
+        int x = Math.max(0, Math.min(desired.x, maxX));
+        int y = Math.max(0, Math.min(desired.y, maxY));
+        return new Point(x, y);
+    }
+
+    private String formatModified(long modifiedMillis) {
+        var instant = Instant.ofEpochMilli(modifiedMillis);
+        return GitUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
+    }
+
+    private void triggerAiCountLoad(SessionInfo session) {
+        var id = session.id();
+        if (sessionAiResponseCounts.containsKey(id) || sessionCountLoading.contains(id)) {
+            return;
+        }
+        sessionCountLoading.add(id);
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        var sm = contextManager.getProject().getSessionManager();
+                        var ch = sm.loadHistory(id, contextManager);
+                        if (ch == null) return 0;
+                        return countAiResponses(ch);
+                    } catch (Exception e) {
+                        logger.warn("Failed to load history for session {}", id, e);
+                        return 0;
+                    }
+                })
+                .thenAccept(count -> {
+                    sessionAiResponseCounts.put(id, count);
+                    sessionCountLoading.remove(id);
+                    SwingUtilities.invokeLater(() -> {
+                        sessionComboBox.repaint();
+                    });
+                });
+    }
+
+    private int countAiResponses(ContextHistory ch) {
+        var list = ch.getHistory();
+        int count = 0;
+        for (var ctx : list) {
+            if (ctx.isAiResult()) count++;
+        }
+        return count;
+    }
+
+    private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
+        private final JLabel nameLabel = new JLabel();
+        private final JLabel timeLabel = new JLabel();
+        private final JLabel countLabel = new JLabel();
+        private final JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
+
+        SessionInfoRenderer() {
+            setLayout(new BorderLayout());
+            setOpaque(true);
+
+            // Remove bold from nameLabel
+            // nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD));
+
+            var baseSize = timeLabel.getFont().getSize2D();
+            timeLabel.setFont(timeLabel.getFont().deriveFont(Math.max(10f, baseSize - 2f)));
+            countLabel.setFont(timeLabel.getFont());
+
+            row2.setOpaque(false);
+            row2.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
+            row2.add(timeLabel);
+            row2.add(countLabel);
+
+            add(nameLabel, BorderLayout.NORTH);
+            add(row2, BorderLayout.CENTER);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(
+                JList<? extends SessionInfo> list,
+                SessionInfo value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus) {
+            if (index == -1) {
+                var label = new JLabel(value.name());
+                label.setOpaque(false);
+                label.setEnabled(list.isEnabled());
+                label.setForeground(list.getForeground());
+                return label;
+            }
+            nameLabel.setText(value.name());
+            timeLabel.setText(formatModified(value.modified()));
+
+            var cnt = sessionAiResponseCounts.get(value.id());
+            countLabel.setText(cnt != null ? cnt + " tasks" : "");
+            if (cnt == null) {
+                triggerAiCountLoad(value);
+            }
+
+            var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
+            var fg = isSelected ? list.getSelectionForeground() : list.getForeground();
+
+            setBackground(bg);
+            nameLabel.setForeground(fg);
+            timeLabel.setForeground(fg);
+            countLabel.setForeground(fg);
+
+            setEnabled(list.isEnabled());
+            return this;
         }
     }
 }

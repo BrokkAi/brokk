@@ -109,7 +109,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     ));
 
     public TypescriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.TYPESCRIPT, excludedFiles);
+        super(project, Languages.TYPESCRIPT, excludedFiles);
     }
 
     public TypescriptAnalyzer(IProject project) {
@@ -142,9 +142,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         String finalShortName;
         SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
 
+        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
         switch (skeletonType) {
             case CLASS_LIKE -> {
-                finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
+                finalShortName = shortName;
                 return CodeUnit.cls(file, packageName, finalShortName);
             }
             case FUNCTION_LIKE -> {
@@ -157,7 +158,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name
                     // found
                 }
-                finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+                finalShortName = shortName;
                 return CodeUnit.fn(file, packageName, finalShortName);
             }
             case FIELD_LIKE -> {
@@ -612,18 +613,24 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return cleaned;
     }
 
+    @Override
     @SuppressWarnings("RedundantNullCheck")
     public boolean isTypeAlias(CodeUnit cu) {
         // Check if this field-type CodeUnit represents a type alias
         // We can identify this by checking if there are signatures that contain "type " and " = "
-        List<String> sigList = withSignatures(signatures -> signatures.get(cu));
+        var sigList = withSignatures(signatures -> signatures.get(cu));
+
         if (sigList != null) {
-            for (String sig : sigList) {
-                if ((sig.contains("type ") || sig.contains("export type ")) && sig.contains(" = ")) {
+            for (var sig : sigList) {
+                var hasType = sig.contains("type ") || sig.contains("export type ");
+                var hasEquals = sig.contains(" = ");
+
+                if (hasType && hasEquals) {
                     return true;
                 }
             }
         }
+
         return false;
     }
 
@@ -706,40 +713,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
-        Optional<String> result = super.getMethodSource(fqName);
-
-        if (result.isPresent()) {
-            String source = result.get();
-
-            // Remove trailing semicolons from arrow function assignments
-            if (source.contains("=>") && source.strip().endsWith("};")) {
-                source = TRAILING_SEMICOLON.matcher(source).replaceAll("");
-            }
-
-            // Remove semicolons from function overload signatures
-            List<String> lines = Splitter.on('\n').splitToList(source);
-            var cleaned = new StringBuilder(source.length());
-
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
-                String trimmed = line.strip();
-
-                // Remove semicolons from function overload signatures (lines ending with ; that don't have {)
-                if (trimmed.startsWith("export function") && trimmed.endsWith(";") && !trimmed.contains("{")) {
-                    line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
-                }
-
-                cleaned.append(line);
-                if (i < lines.size() - 1) {
-                    cleaned.append("\n");
-                }
-            }
-
-            return Optional.of(cleaned.toString());
-        }
-
-        return result;
+    public Optional<String> extractClassName(String reference) {
+        return ClassNameExtractor.extractForJsTs(reference);
     }
 
     @Override

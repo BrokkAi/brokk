@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
@@ -12,6 +13,7 @@ import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.TableUtils;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -89,11 +91,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private JMenuItem dropStashCommitItem;
     private JMenuItem createBranchFromCommitItem;
     private JMenuItem cherryPickCommitItem;
+    private JMenuItem captureWorkspaceSelectionsItem;
 
-    private JButton pullButton;
-    private JButton pushButton;
-    private JButton createPrButton;
-    private JButton viewDiffButton;
+    private MaterialButton pullButton;
+    private MaterialButton pushButton;
+    private MaterialButton createPrButton;
+    private MaterialButton viewDiffButton;
 
     @Nullable
     private String currentBranchOrContextName; // Used by push/pull actions
@@ -156,7 +159,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             commitSearchTextField = new JTextField();
             commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
 
-            JButton commitSearchButton = new JButton("Search");
+            MaterialButton commitSearchButton = new MaterialButton("Search");
             Runnable searchAction = () -> {
                 String query = commitSearchTextField.getText().trim();
                 if (!query.isEmpty()) {
@@ -180,17 +183,17 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         commitsPanel.add(new JScrollPane(commitsTable), BorderLayout.CENTER);
 
         // Initialize buttons as they are class members and might be accessed by configureButton
-        pullButton = new JButton();
+        pullButton = new MaterialButton();
         pullButton.setIcon(Icons.DOWNLOAD);
         pullButton.setToolTipText("Pull changes from remote repository");
         pullButton.setEnabled(false);
 
-        pushButton = new JButton();
+        pushButton = new MaterialButton();
         pushButton.setIcon(Icons.PUBLISH);
         pushButton.setToolTipText("Push commits to remote repository");
         pushButton.setEnabled(false);
 
-        createPrButton = new JButton();
+        createPrButton = new MaterialButton();
         createPrButton.setIcon(Icons.ADD_DIAMOND);
         createPrButton.setToolTipText("Create a pull request for the current branch");
         createPrButton.setEnabled(false);
@@ -213,7 +216,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager, branch);
         });
 
-        viewDiffButton = new JButton();
+        viewDiffButton = new MaterialButton();
         viewDiffButton.setIcon(Icons.DIFFERENCE);
         viewDiffButton.setToolTipText("View changes in the selected commit");
         viewDiffButton.setEnabled(false); // Initially disabled, enabled by selection listener
@@ -474,6 +477,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         registerMenu(commitsContextMenu);
 
         addToContextItem = new JMenuItem("Capture Diff");
+        captureWorkspaceSelectionsItem = new JMenuItem("Capture workspace selections at this revision");
         softResetItem = new JMenuItem("Soft Reset to Here");
         revertCommitItem = new JMenuItem("Revert Commit");
         viewChangesItem = new JMenuItem("View Diff");
@@ -485,6 +489,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         cherryPickCommitItem = new JMenuItem("Cherry pick into ...");
 
         commitsContextMenu.add(addToContextItem);
+        commitsContextMenu.add(captureWorkspaceSelectionsItem);
         commitsContextMenu.add(viewChangesItem);
         commitsContextMenu.add(compareAllToLocalItem);
         commitsContextMenu.add(softResetItem);
@@ -543,9 +548,13 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
         boolean isStash = firstCommitInfo.stashIndex().isPresent(); // boolean preferred by style guide
+        boolean hasWorkspaceSelections =
+                !chrome.getContextPanel().getSelectedProjectFiles().isEmpty();
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
         compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash);
+        captureWorkspaceSelectionsItem.setVisible(!isStash);
+        captureWorkspaceSelectionsItem.setEnabled(selectedRows.length == 1 && !isStash && hasWorkspaceSelections);
         softResetItem.setVisible(!isStash);
         softResetItem.setEnabled(selectedRows.length == 1 && !isStash);
         revertCommitItem.setVisible(!isStash);
@@ -581,6 +590,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             compareAllToLocalItem.setVisible(false);
             createBranchFromCommitItem.setVisible(false);
             cherryPickCommitItem.setVisible(false);
+            captureWorkspaceSelectionsItem.setVisible(false);
         }
         // Hide stash items if not all are stashes (or none are)
         if (!allSelectedAreStashes) {
@@ -601,6 +611,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         dropStashCommitItem.setVisible(visible);
         createBranchFromCommitItem.setVisible(visible);
         cherryPickCommitItem.setVisible(visible);
+        captureWorkspaceSelectionsItem.setVisible(visible);
     }
 
     private void setupCommitContextMenuActions() {
@@ -618,6 +629,45 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         (ICommitInfo) commitsTableModel.getValueAt(group.getLast(), COL_COMMIT_OBJ);
                 GitUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
             }
+        });
+
+        captureWorkspaceSelectionsItem.addActionListener(e -> {
+            int row = commitsTable.getSelectedRow();
+            if (row == -1) return;
+
+            var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+            if (ci == null || ci.stashIndex().isPresent()) {
+                chrome.systemOutput("Capture is only available for standard commits.");
+                return;
+            }
+            final String commitId = ci.id();
+            final String shortId = getRepo().shortHash(commitId);
+
+            // Gather selected project files from the workspace
+            var selectedFiles = chrome.getContextPanel().getSelectedProjectFiles();
+            if (selectedFiles.isEmpty()) {
+                chrome.systemOutput("No project files selected in the workspace to capture.");
+                return;
+            }
+
+            contextManager.submitUserTask("Capturing workspace selections at " + shortId, () -> {
+                int success = 0;
+                for (var pf : selectedFiles) {
+                    try {
+                        final String content = getRepo().getFileContent(commitId, pf);
+                        var fragment = new ContextFragment.GitFileFragment(pf, shortId, content);
+                        contextManager.addPathFragmentAsync(fragment);
+                        success++;
+                    } catch (GitAPIException ex) {
+                        logger.warn("Error capturing {} at {}: {}", pf, commitId, ex.getMessage());
+                    }
+                }
+                final int captured = success;
+                SwingUtil.runOnEdt(() -> {
+                    chrome.systemOutput("Captured " + captured + " file(s) at " + shortId + ".");
+                    chrome.updateWorkspace();
+                });
+            });
         });
 
         softResetItem.addActionListener(e -> {
@@ -1035,7 +1085,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void dropStashInternal(int stashIndex) {
-        int result = JOptionPane.showConfirmDialog(
+        int result = chrome.showConfirmDialog(
                 this,
                 "Delete stash@{" + stashIndex + "}?",
                 "Confirm Drop",
@@ -1572,7 +1622,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         return "Author: " + author + "\n" + "Date:   " + dateStr + "\n\n" + indentedMsg;
     }
 
-    private void configureButton(JButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
+    private void configureButton(
+            MaterialButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
         button.setEnabled(enabled);
         // Visibility is now controlled at a higher level (when adding to panel)
         // and should not be changed here if options.showPushPullButtons or options.showCreatePrButton is true.

@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -57,7 +56,7 @@ public class ValidationAgent {
             throws InterruptedException {
         var filesText = allTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
-        var workspaceSummary = CodePrompts.formatWorkspaceDescriptions(contextManager);
+        var workspaceSummary = CodePrompts.formatWorkspaceToc(contextManager);
 
         var systemMessage =
                 """
@@ -151,13 +150,12 @@ public class ValidationAgent {
      * response doesn't clearly indicate relevance or irrelevance.
      */
     private RelevanceResult isFileRelevant(ProjectFile file, String instructions, Llm llm) throws InterruptedException {
-        String fileContent;
-        try {
-            fileContent = file.read();
-        } catch (IOException e) {
-            logger.warn("Could not read content of test file: {}", file, e);
+        var fileContentOpt = file.read();
+        if (fileContentOpt.isEmpty()) {
+            logger.warn("Could not read content of test file: {}", file);
             return new RelevanceResult(file, false);
         }
+        String fileContent = fileContentOpt.get();
 
         var criteria =
                 """

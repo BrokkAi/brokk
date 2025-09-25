@@ -40,7 +40,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             );
 
     public PythonAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.PYTHON, excludedFiles);
+        super(project, Languages.PYTHON, excludedFiles);
     }
 
     public PythonAnalyzer(IProject project) {

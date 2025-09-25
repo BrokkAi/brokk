@@ -22,12 +22,23 @@ public final class TestContextManager implements IContextManager {
     private final Context liveContext;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
-        this.project = new TestProject(projectRoot, Language.JAVA);
-        this.mockAnalyzer = new MockAnalyzer(projectRoot);
+        this(new TestProject(projectRoot, Languages.JAVA), consoleIO);
+    }
+
+    public TestContextManager(TestProject project, IConsoleIO consoleIO) {
+        this.project = project;
+        this.mockAnalyzer = new MockAnalyzer(project.getRoot());
         this.inMemoryRepo = new InMemoryRepo();
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
         this.liveContext = new Context(this, "Test context");
+    }
+
+    public TestContextManager(Path tempDir, Set<String> files) {
+        this(tempDir, new TestConsoleIO());
+        for (var filename : files) {
+            addEditableFile(new ProjectFile(tempDir, filename));
+        }
     }
 
     @Override
@@ -41,23 +52,13 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Set<ProjectFile> getEditableFiles() {
+    public Set<ProjectFile> getFilesInContext() {
         return new HashSet<>(editableFiles);
-    }
-
-    @Override
-    public Set<BrokkFile> getReadonlyProjectFiles() {
-        return new HashSet<>(readonlyFiles);
     }
 
     public void addEditableFile(ProjectFile file) {
         this.editableFiles.add(file);
         this.readonlyFiles.remove(file); // Cannot be both
-    }
-
-    public void addReadonlyFile(ProjectFile file) {
-        this.readonlyFiles.add(file);
-        this.editableFiles.remove(file); // Cannot be both
     }
 
     public MockAnalyzer getMockAnalyzer() {
@@ -95,12 +96,16 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
+    public Context topContext() {
+        return liveContext().freeze();
+    }
+
+    @Override
     public Service getService() {
         return stubService;
     }
 
-    @Override
     public EditBlockParser getParserForWorkspace() {
-        return EditBlockParser.getParserFor("");
+        return EditBlockParser.instance;
     }
 }

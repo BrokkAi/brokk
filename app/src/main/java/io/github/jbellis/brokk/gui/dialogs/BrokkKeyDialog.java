@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.io.IOException;
 import javax.net.ssl.SSLHandshakeException;
@@ -67,8 +68,8 @@ public class BrokkKeyDialog extends JDialog {
         add(center, BorderLayout.CENTER);
 
         // Buttons
-        var okBtn = new JButton("OK");
-        var cancelBtn = new JButton("Cancel");
+        var okBtn = new MaterialButton("OK");
+        var cancelBtn = new MaterialButton("Cancel");
 
         okBtn.addActionListener(e -> submit());
         cancelBtn.addActionListener(e -> cancel());

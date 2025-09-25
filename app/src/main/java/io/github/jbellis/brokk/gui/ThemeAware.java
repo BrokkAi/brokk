@@ -14,4 +14,17 @@ public interface ThemeAware {
      *     {@link GuiTheme#applyCurrentThemeToComponent})
      */
     void applyTheme(GuiTheme guiTheme);
+
+    /**
+     * Called by {@link GuiTheme} when the global theme or word wrap mode changes. Implementations should call
+     * SwingUtilities.updateComponentTreeUI(this) on themselves. This method is always called on the EDT.
+     *
+     * <p>Default implementation calls the single-parameter version for backward compatibility.
+     *
+     * @param guiTheme reference to the central theme manager
+     * @param wordWrap whether word wrap mode is enabled globally
+     */
+    default void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+        applyTheme(guiTheme);
+    }
 }

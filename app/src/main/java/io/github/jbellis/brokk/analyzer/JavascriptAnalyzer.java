@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -38,11 +39,16 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             );
 
     public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.JAVASCRIPT, excludedFiles);
+        super(project, Languages.JAVASCRIPT, excludedFiles);
     }
 
     public JavascriptAnalyzer(IProject project) {
         this(project, Collections.emptySet());
+    }
+
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return ClassNameExtractor.extractForJsTs(reference);
     }
 
     @Override

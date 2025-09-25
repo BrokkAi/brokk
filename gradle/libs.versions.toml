@@ -2,7 +2,7 @@
 junit = "5.10.2"
 log4j = "2.20.0"
 jackson = "2.18.3"
-jgit = "7.2.1.202505142326-r"
+jgit = "7.4.0.202509020913-r"
 nullaway = "0.12.7"
 flatlaf = "3.6"
 flexmark = "0.64.8"
@@ -62,6 +62,8 @@ java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
+mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
+uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 
 # Terminal
 jediterm-ui = { module = "org.jetbrains.jediterm:jediterm-ui", version.ref = "jediterm" }
@@ -69,7 +71,7 @@ jediterm-core = { module = "org.jetbrains.jediterm:jediterm-core", version.ref =
 jediterm-pty = { module = "org.jetbrains.jediterm:jediterm-pty", version.ref = "jediterm-pty" }
 pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref="pty4j" }
 
-# JDKMon 
+# JDKMon
 disco = "io.foojay.api:discoclient:21.0.1"
 jdktools = "eu.hansolo:jdktools:21.0.11"
 osdetector-plugin = "com.google.gradle:osdetector-gradle-plugin:1.7.3"
@@ -118,6 +120,9 @@ maven-resolver-util = { module = "org.apache.maven.resolver:maven-resolver-util"
 maven-resolver-impl = { module = "org.apache.maven.resolver:maven-resolver-impl", version.ref = "maven-resolver" }
 maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-resolver-connector-basic", version.ref = "maven-resolver" }
 maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
+
+# NEW: DiskLruCache library
+disklrucache = "com.jakewharton:disklrucache:2.0.2"
 
 [bundles]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]

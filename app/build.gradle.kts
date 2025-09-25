@@ -1,5 +1,6 @@
 import net.ltgt.gradle.errorprone.errorprone
 import java.time.Duration
+import org.gradle.process.CommandLineArgumentProvider
 
 plugins {
     java
@@ -23,10 +24,9 @@ java {
 application {
     mainClass.set("io.github.jbellis.brokk.Brokk")
     applicationDefaultJvmArgs = listOf(
-        "-ea",  // Enable assertions
-        "--add-modules=jdk.incubator.vector",  // Vector API support
-        "-Dbrokk.devmode=true",  // Development mode flag
-        "-Dbrokk.servicetiers=true",  // Development mode flag
+        // enable feature flags; JavaExec baseline supplies other args
+        "-Dbrokk.servicetiers=true",
+        "-Dbrokk.architectshell=true"
     )
 }
 
@@ -56,9 +56,6 @@ repositories {
 }
 
 dependencies {
-    // API interfaces and supporting classes
-    implementation(project(":analyzer-api"))
-
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
 
@@ -79,6 +76,11 @@ dependencies {
     implementation(libs.bundles.jediterm)
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
+    implementation(libs.disklrucache)
+    implementation(libs.uuid.creator)
+    implementation(libs.mcp.sdk)
+    // For JSON serialization interfaces (used by CodeUnit)
+    api(libs.jackson.annotations)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -206,6 +208,15 @@ val errorProneJvmArgs = listOf(
     "--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED"
 )
 
+// Baseline JVM args provider; composes with applicationDefaultJvmArgs and other providers
+val baselineJvmArgsProvider = object : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> = listOf(
+        "-ea",  // Enable assertions
+        "--add-modules=jdk.incubator.vector",
+        "-Dbrokk.devmode=true"
+    )
+}
+
 // Configure main source compilation with ErrorProne/NullAway
 tasks.named<JavaCompile>("compileJava") {
     options.isIncremental = true
@@ -274,13 +285,11 @@ tasks.named<JavaCompile>("compileTestJava") {
     options.errorprone.isEnabled = false
 }
 
-tasks.withType<JavaExec> {
-    jvmArgs = listOf(
-        "-ea",  // Enable assertions
-        "--add-modules=jdk.incubator.vector",
-        "-Dbrokk.devmode=true"
-    )
+tasks.withType<JavaExec>().configureEach {
+    // Baseline JVM args provided lazily; composes with applicationDefaultJvmArgs and other plugins
+    jvmArgumentProviders.add(baselineJvmArgsProvider)
 }
+
 
 tasks.withType<Test> {
     useJUnitPlatform()
@@ -370,10 +379,6 @@ tasks.register<JavaExec>("runCli") {
     description = "Runs the Brokk CLI"
     mainClass.set("io.github.jbellis.brokk.cli.BrokkCli")
     classpath = sourceSets.main.get().runtimeClasspath
-    jvmArgs = listOf(
-        "-ea",
-        "-Dbrokk.devmode=true"
-    )
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
@@ -384,13 +389,17 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
     description = "Runs the SkeletonPrinter tool"
     mainClass.set("io.github.jbellis.brokk.tools.SkeletonPrinter")
     classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs = listOf(
-        "-ea",
-        "-Dbrokk.devmode=true"
-    )
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
+}
+
+tasks.register<JavaExec>("generateThemeCss") {
+    group = "application"
+    description = "Generates theme CSS variables from ThemeColors"
+    mainClass.set("io.github.jbellis.brokk.tools.GenerateThemeCss")
+    classpath = sourceSets.main.get().runtimeClasspath
+    args = listOf("${project.rootDir}/frontend-mop/src/styles/theme-colors.generated.scss")
 }
 
 tasks.register<JavaExec>("runTreeSitterRepoRunner") {
@@ -398,13 +407,14 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
     description = "Runs the TreeSitterRepoRunner tool for TreeSitter performance analysis"
     mainClass.set("io.github.jbellis.brokk.tools.TreeSitterRepoRunner")
     classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs = listOf(
-        "-ea",
-        "-Xmx8g",
-        "-XX:+UseZGC",
-        "-XX:+UnlockExperimentalVMOptions",
-        "-Dbrokk.devmode=true"
-    )
+    // Additional JVM args specific to repository runner; baseline adds -ea and -Dbrokk.devmode=true
+    jvmArgumentProviders.add(object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> = listOf(
+            "-Xmx8g",
+            "-XX:+UseZGC",
+            "-XX:+UnlockExperimentalVMOptions"
+        )
+    })
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }

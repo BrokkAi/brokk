@@ -11,7 +11,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
     @Override
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceDescriptions(cm);
+        var workspaceSummary = formatWorkspaceToc(cm);
         var styleGuide = cm.getProject().getStyleGuide();
 
         var text =
@@ -204,6 +204,6 @@ public abstract class ArchitectPrompts extends CodePrompts {
             %s
             """
                 .stripIndent()
-                .formatted(goal, formatWorkspaceDescriptions(cm), workspaceWarning);
+                .formatted(goal, formatWorkspaceToc(cm), workspaceWarning);
     }
 }

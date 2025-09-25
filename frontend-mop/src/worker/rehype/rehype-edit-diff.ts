@@ -8,6 +8,9 @@ import {transformerDiffLines} from '../shiki/shiki-diff-transformer';
 
 export function rehypeEditDiff(highlighter: HighlighterCore) {
     return (tree: Root) => {
+        // Aggregate totals per parsed bubble/tree
+        let totalAdds = 0;
+        let totalDels = 0;
 
         visit(tree, (n: any) => n.tagName === 'edit-block', (node: any) => {
             const p: EditBlockProperties = node.properties;
@@ -21,15 +24,18 @@ export function rehypeEditDiff(highlighter: HighlighterCore) {
             p.adds = added.length;
             p.dels = removed.length;
 
+            // Update running totals
+            totalAdds += p.adds;
+            totalDels += p.dels;
+
             if (!currentExpandIds.has(p.id)) return;
             p.isExpanded = true;
 
             const lang = getMdLanguageTag(p.filename);
 
-            tree.data ??= {};
-            const data = tree.data as any;
+            const data = (tree.data ??= {});
             data.detectedDiffLangs ??= new Set<string>();
-            (data.detectedDiffLangs as Set<string>).add(lang);
+            data.detectedDiffLangs.add(lang);
 
             // if the language is not loaded, use txt as a placeholder
             // it will be-reparsed after the lang is loaded automatically
@@ -45,5 +51,9 @@ export function rehypeEditDiff(highlighter: HighlighterCore) {
                 })
             ];
         });
+
+        // Expose a compact summary for this bubble for UI aggregation
+        const data = (tree.data ??= {});
+        data.diffSummary = {adds: totalAdds, dels: totalDels};
     };
 }

@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -49,7 +50,7 @@ public class SessionsDialog extends JDialog {
     // Sessions table components
     private JTable sessionsTable;
     private DefaultTableModel sessionsTableModel;
-    private JButton closeButton;
+    private MaterialButton closeButton;
 
     // Activity history components
     private JTable activityTable;
@@ -161,7 +162,7 @@ public class SessionsDialog extends JDialog {
         this.arrowLayerUI = new ResetArrowLayerUI(this.activityTable, this.activityTableModel);
 
         // Initialize buttons
-        closeButton = new JButton("Close");
+        closeButton = new MaterialButton("Close");
     }
 
     private void layoutComponents() {
@@ -177,6 +178,8 @@ public class SessionsDialog extends JDialog {
         JPanel activityPanel = new JPanel(new BorderLayout());
         activityPanel.setBorder(BorderFactory.createTitledBorder("Activity"));
         JScrollPane activityScrollPane = new JScrollPane(activityTable);
+        activityScrollPane.setBorder(
+                BorderFactory.createEmptyBorder(5, 5, 10, 5)); // slight bottom pad to align with Output
         var layer = new JLayer<>(activityScrollPane, arrowLayerUI);
         activityScrollPane.getViewport().addChangeListener(e -> layer.repaint());
         activityPanel.add(layer, BorderLayout.CENTER);
@@ -356,11 +359,20 @@ public class SessionsDialog extends JDialog {
         // Update workspace panel with selected context
         workspacePanel.populateContextTable(context);
 
-        // Update MOP with parsed output if available
-        if (context.getParsedOutput() != null) {
-            markdownOutputPanel.setText(context.getParsedOutput());
+        // Update MOP with task history if available
+        var taskHistory = context.getTaskHistory();
+        if (taskHistory.isEmpty()) {
+            // Fall back to parsed output for contexts that are not part of a task history
+            if (context.getParsedOutput() != null) {
+                markdownOutputPanel.setMainThenHistoryAsync(
+                        context.getParsedOutput().messages(), List.of());
+            } else {
+                markdownOutputPanel.clear(); // clears main view, history, and cache
+            }
         } else {
-            markdownOutputPanel.clear();
+            var history = taskHistory.subList(0, taskHistory.size() - 1);
+            var main = taskHistory.getLast();
+            markdownOutputPanel.setMainThenHistoryAsync(main, history);
         }
     }
 
@@ -447,7 +459,7 @@ public class SessionsDialog extends JDialog {
         /* ---------- delete (single or multi) ---------- */
         JMenuItem deleteItem = new JMenuItem(selectedSessions.size() == 1 ? "Delete" : "Delete Selected");
         deleteItem.addActionListener(ev -> {
-            int confirm = JOptionPane.showConfirmDialog(
+            int confirm = chrome.showConfirmDialog(
                     SessionsDialog.this,
                     "Are you sure you want to delete the selected session(s)?",
                     "Confirm Delete",
@@ -478,9 +490,12 @@ public class SessionsDialog extends JDialog {
                 }
                 java.util.concurrent.CompletableFuture.allOf(
                                 futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                        .thenRun(() -> {
+                        .whenComplete((Void v, @Nullable Throwable t) -> {
                             SwingUtilities.invokeLater(this::refreshSessionsTable);
                             contextManager.getProject().getMainProject().sessionsListChanged();
+                            if (t != null) {
+                                chrome.toolError("Error deleting session:\n" + t.getMessage());
+                            }
                         });
             }
         });
@@ -710,7 +725,7 @@ public class SessionsDialog extends JDialog {
             return;
         }
         var info = maybeInfo.get();
-        int confirm = JOptionPane.showConfirmDialog(
+        int confirm = chrome.showConfirmDialog(
                 parent,
                 "Are you sure you want to delete the current session?",
                 "Confirm Delete",

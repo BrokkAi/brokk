@@ -1,9 +1,9 @@
 package io.github.jbellis.brokk;
 
+import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -128,16 +128,6 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public CpgRefresh getAnalyzerRefresh() {
-        return parent.getAnalyzerRefresh();
-    }
-
-    @Override
-    public void setAnalyzerRefresh(CpgRefresh value) {
-        parent.setAnalyzerRefresh(value);
-    }
-
-    @Override
     public boolean isDataShareAllowed() {
         return parent.isDataShareAllowed();
     }
@@ -183,23 +173,17 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        return parent.getArchitectOptions();
-    }
-
-    @Override
     public boolean getArchitectRunInWorktree() {
         return parent.getArchitectRunInWorktree();
     }
 
     @Override
-    public void setArchitectOptions(
-            io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
-        parent.setArchitectOptions(options, runInWorktree);
+    public DiskLruCache getDiskCache() {
+        return parent.getDiskCache();
     }
 
     @Override
-    public Set<ProjectFile> getLiveDependencies() {
+    public Set<Dependency> getLiveDependencies() {
         return parent.getLiveDependencies();
     }
 

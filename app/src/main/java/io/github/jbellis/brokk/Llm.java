@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
@@ -32,6 +33,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
+import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.ByteArrayOutputStream;
@@ -46,7 +48,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -79,6 +81,7 @@ public class Llm {
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
+    private int requestSequence = 1;
 
     public Llm(
             StreamingChatModel model,
@@ -129,6 +132,26 @@ public class Llm {
         return projectRoot.resolve(AbstractProject.BROKK_DIR).resolve(HISTORY_DIR_NAME);
     }
 
+    private static String logFileTimestamp() {
+        return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
+    }
+
+    /** Write the request JSON before sending to the model, to a file named "<base>-request.json". */
+    private void logRequest(ChatRequest request) {
+        try {
+            var filename = "%s %03d-request.json".formatted(logFileTimestamp(), requestSequence);
+            var requestPath = taskHistoryDir.resolve(filename);
+            var requestOptions = new StandardOpenOption[] {
+                StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
+            };
+            var requestJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
+            logger.trace("Writing pre-send request JSON to {}", requestPath);
+            Files.writeString(requestPath, requestJson, requestOptions);
+        } catch (IOException e) {
+            logger.error("Failed to write pre-send request JSON", e);
+        }
+    }
+
     /**
      * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
      * 'echo' is true, partial tokens go to console.
@@ -138,10 +161,10 @@ public class Llm {
         try {
             result = doSingleStreamingCallInternal(request, echo);
         } catch (InterruptedException e) {
-            logRequest(model, request, null);
+            logResult(model, request, null);
             throw e;
         }
-        logRequest(model, request, result);
+        logResult(model, request, result);
         return result;
     }
 
@@ -151,8 +174,11 @@ public class Llm {
             throw new InterruptedException();
         }
 
+        // Pre-log the request JSON before sending it to the model
+        logRequest(request);
+
         // latch for awaiting any response from llm
-        var llmResponseLatch = new AtomicReference<>(new CountDownLatch(1));
+        var tick = new Semaphore(0);
         var firstToken = new AtomicBoolean(true);
         var completed = new AtomicBoolean(false);
         var cancelled = new AtomicBoolean(false);
@@ -164,7 +190,7 @@ public class Llm {
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
 
-        Consumer<Runnable> ifNotCancelled = (r) -> {
+        Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
             try {
                 if (!cancelled.get()) {
@@ -174,16 +200,16 @@ public class Llm {
                 // litellm is fucking us over again, try to recover
                 logger.error(e);
                 errorRef.set(e);
-                completed.set(true); // Ensure we release the lock if an exception occurs
+                completed.set(true);
             } finally {
                 if (firstToken.get()) {
                     firstToken.set(false);
                 }
-                requireNonNull(llmResponseLatch.get()).countDown();
+                // signal an event (partial, reasoning, complete, or error)
+                tick.release();
                 lock.unlock();
             }
         };
-
         var rawHandler = new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String token) {
@@ -251,19 +277,17 @@ public class Llm {
 
         try {
             while (!completed.get()) {
-                var llmResponseTimeout = getLlmResponseTimeoutSeconds(firstToken.get());
-                boolean timeout = !requireNonNull(llmResponseLatch.get()).await(llmResponseTimeout, TimeUnit.SECONDS);
-                lock.lock(); // LockNotBeforeTry
-                try {
-                    if (timeout) {
-                        cancelled.set(true); // Ensure callback stops echoing
+                long secs = getLlmResponseTimeoutSeconds(firstToken.get());
+                boolean gotSignal = tick.tryAcquire(secs, TimeUnit.SECONDS);
+                if (!gotSignal) {
+                    lock.lock();
+                    try {
+                        cancelled.set(true);
                         errorRef.set(new HttpException(504, "LLM timed out"));
                         completed.set(true);
-                    } else {
-                        llmResponseLatch.set(new CountDownLatch(1));
+                    } finally {
+                        lock.unlock();
                     }
-                } finally {
-                    lock.unlock();
                 }
             }
         } catch (InterruptedException e) {
@@ -355,7 +379,7 @@ public class Llm {
      * @return The final response from the LLM as a record containing ChatResponse, errors, etc.
      */
     public StreamingResult sendRequest(List<ChatMessage> messages, boolean echo) throws InterruptedException {
-        return sendMessageWithRetry(messages, List.of(), ToolChoice.AUTO, echo, MAX_ATTEMPTS);
+        return sendMessageWithRetry(messages, ToolContext.empty(), echo, MAX_ATTEMPTS);
     }
 
     /** Sends messages to a given model, no tools, no streaming echo. */
@@ -364,14 +388,16 @@ public class Llm {
     }
 
     /** Sends messages to a model with possible tools and a chosen tool usage policy. */
-    public StreamingResult sendRequest(
-            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, boolean echo)
+    public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext, boolean echo)
             throws InterruptedException {
-        var result = sendMessageWithRetry(messages, tools, toolChoice, echo, MAX_ATTEMPTS);
+
+        var result = sendMessageWithRetry(messages, toolContext, echo, MAX_ATTEMPTS);
         var cr = result.chatResponse();
 
-        // poor man's ToolChoice.REQUIRED (not supported by langchain4j for Anthropic)
+        // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
         // Also needed for our emulation if it returns a response without a tool call
+        var tools = toolContext.toolSpecifications();
+        var toolChoice = toolContext.toolChoice();
         while (result.error == null
                 && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
@@ -382,7 +408,7 @@ public class Llm {
             extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
             extraMessages.add(new UserMessage("At least one tool execution request is REQUIRED. Please call a tool."));
 
-            result = sendMessageWithRetry(extraMessages, tools, toolChoice, echo, MAX_ATTEMPTS);
+            result = sendMessageWithRetry(extraMessages, toolContext, echo, MAX_ATTEMPTS);
             cr = result.chatResponse();
         }
 
@@ -394,11 +420,7 @@ public class Llm {
      * Responsible for writeToHistory.
      */
     private StreamingResult sendMessageWithRetry(
-            List<ChatMessage> rawMessages,
-            List<ToolSpecification> tools,
-            ToolChoice toolChoice,
-            boolean echo,
-            int maxAttempts)
+            List<ChatMessage> rawMessages, ToolContext toolContext, boolean echo, int maxAttempts)
             throws InterruptedException {
         Throwable lastError = null;
         int attempt = 0;
@@ -413,7 +435,7 @@ public class Llm {
                     attempt,
                     LogDescription.getShortDescription(description, 12));
 
-            response = doSingleSendMessage(model, messages, tools, toolChoice, echo);
+            response = doSingleSendMessage(model, messages, toolContext, echo);
             lastError = response.error;
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
@@ -469,27 +491,26 @@ public class Llm {
      * history file.
      */
     private StreamingResult doSingleSendMessage(
-            StreamingChatModel model,
-            List<ChatMessage> messages,
-            List<ToolSpecification> tools,
-            ToolChoice toolChoice,
-            boolean echo)
+            StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext, boolean echo)
             throws InterruptedException {
         // Note: writeRequestToHistory is now called *within* this method,
         // right before doSingleStreamingCall, to ensure it uses the final `messagesToSend`.
 
+        var tools = toolContext.toolSpecifications();
+        var toolChoice = toolContext.toolChoice();
+
         var messagesToSend = messages;
         // Preprocess messages *only* if no tools are being requested for this call.
         // This handles the case where prior TERMs exist in history but the current
-        // request doesn't involve tools (which makes Anthropic unhappy if it sees it).
+        // request doesn't involve tools (which makes some providers unhappy if they see tool history).
         if (tools.isEmpty()) {
             messagesToSend = Llm.emulateToolExecutionResults(messages);
             validateEmulatedToolMessages(messagesToSend);
         }
 
         if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
-            // Emulation handles its own preprocessing
-            return emulateTools(model, messagesToSend, tools, toolChoice, echo);
+            // Emulation handles its own preprocessing and needs the toolContext to validate owner
+            return emulateTools(model, messagesToSend, toolContext, echo);
         }
 
         // If native tools are used, or no tools, send the (potentially preprocessed if tools were empty) messages.
@@ -508,7 +529,29 @@ public class Llm {
         }
 
         var request = requestBuilder.build();
-        return doSingleStreamingCall(request, echo);
+        var sr = doSingleStreamingCall(request, echo);
+
+        // Pretty-print native tool calls when echo is enabled
+        // (For emulated calls, echo means we get the raw json in the response which is not ideal but
+        // there's no reason to add a second print of it)
+        if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
+            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests());
+        }
+        return sr;
+    }
+
+    private void prettyPrintToolCalls(Object toolOwner, List<ToolExecutionRequest> requests) {
+        if (requests.isEmpty()) {
+            return;
+        }
+        var registry = contextManager.getToolRegistry();
+        var rendered = requests.stream()
+                .map(tr -> registry.getExplanationForToolRequest(toolOwner, tr))
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n"));
+        if (!rendered.isBlank()) {
+            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI);
+        }
     }
 
     private OpenAiChatRequestParameters.Builder getParamsBuilder() {
@@ -531,17 +574,15 @@ public class Llm {
      * instructions
      */
     private StreamingResult emulateTools(
-            StreamingChatModel model,
-            List<ChatMessage> messages,
-            List<ToolSpecification> tools,
-            ToolChoice toolChoice,
-            boolean echo)
+            StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext, boolean echo)
             throws InterruptedException {
+        var tools = toolContext.toolSpecifications();
         var enhancedTools = ensureThinkToolPresent(tools);
+        var toolChoice = toolContext.toolChoice();
         if (contextManager.getService().supportsJsonSchema(model)) {
-            return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, echo);
+            return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, echo, toolContext);
         } else {
-            return emulateToolsUsingJsonObject(messages, enhancedTools, toolChoice, echo);
+            return emulateToolsUsingJsonObject(messages, enhancedTools, toolChoice, echo, toolContext);
         }
     }
 
@@ -552,9 +593,9 @@ public class Llm {
             ToolChoice toolChoice,
             boolean echo,
             Function<List<ChatMessage>, ChatRequest> requestBuilder,
-            Function<Throwable, String> retryInstructionsProvider)
+            Function<Throwable, String> retryInstructionsProvider,
+            ToolContext toolContext)
             throws InterruptedException {
-        // FIXME we only log the last of the requests performed which could cause difficulty troubleshooting
         assert !tools.isEmpty();
 
         // Pre-process messages to combine tool results with subsequent user messages for emulation
@@ -572,7 +613,7 @@ public class Llm {
 
             // Perform the request for THIS attempt
             lastRequest = requestBuilder.apply(attemptMessages);
-            StreamingResult rawResult = doSingleStreamingCallInternal(lastRequest, echo);
+            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo);
 
             // Fast-fail on transport / HTTP errors (no retry)
             if (rawResult.error() != null) {
@@ -602,6 +643,39 @@ public class Llm {
                     }
                 }
 
+                // Validate tool call arguments using ToolRegistry; on failure, retry with error feedback
+                var registry = contextManager.getToolRegistry();
+                var validationErrors = new ArrayList<String>();
+                Object toolOwner = requireNonNull(
+                        requireNonNull(toolContext).toolOwner(),
+                        "ToolContext.toolOwner() must be provided for tool validation");
+                for (var ter : parseResult.toolRequests()) {
+                    try {
+                        registry.validateTool(toolOwner, ter);
+                    } catch (ToolRegistry.ToolValidationException e) {
+                        validationErrors.add(ter.name() + ": " + e.getMessage());
+                    }
+                }
+                if (!validationErrors.isEmpty()) {
+                    if (attempt == maxTries) {
+                        finalResult = new StreamingResult(
+                                null,
+                                new IllegalArgumentException(
+                                        "Tool call validation failed: " + String.join("; ", validationErrors)),
+                                rawResult.retries());
+                        break;
+                    }
+                    if (echo) {
+                        io.llmOutput(
+                                "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors),
+                                ChatMessageType.CUSTOM);
+                    }
+                    attemptMessages.add(new AiMessage(rawResult.text()));
+                    attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(new IllegalArgumentException(
+                            "Tool call validation failed: " + String.join("; ", validationErrors)))));
+                    continue;
+                }
+
                 // we got tool calls, or they're optional -- we're done
                 finalResult = new StreamingResult(parseResult, null, rawResult.retries());
                 break;
@@ -625,7 +699,6 @@ public class Llm {
         }
 
         // All retries exhausted OR fatal error occurred
-        logRequest(this.model, lastRequest, finalResult);
         return finalResult;
     }
 
@@ -742,7 +815,11 @@ public class Llm {
 
     /** Emulates function calling for models that support structured output with JSON schema */
     private StreamingResult emulateToolsUsingJsonSchema(
-            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, boolean echo)
+            List<ChatMessage> messages,
+            List<ToolSpecification> tools,
+            ToolChoice toolChoice,
+            boolean echo,
+            ToolContext toolContext)
             throws InterruptedException {
         // Build a top-level JSON schema with "tool_calls" as an array of objects
         var toolNames = tools.stream().map(ToolSpecification::name).distinct().toList();
@@ -790,12 +867,17 @@ public class Llm {
                 .parameters(requestParams)
                 .build();
 
-        return emulateToolsCommon(initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider);
+        return emulateToolsCommon(
+                initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider, toolContext);
     }
 
     /** Emulates function calling for models that don't support schema but can output JSON based on text instructions */
     private StreamingResult emulateToolsUsingJsonObject(
-            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, boolean echo)
+            List<ChatMessage> messages,
+            List<ToolSpecification> tools,
+            ToolChoice toolChoice,
+            boolean echo,
+            ToolContext toolContext)
             throws InterruptedException {
         Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) ->
                 """
@@ -857,7 +939,8 @@ public class Llm {
                         .build())
                 .build();
 
-        return emulateToolsCommon(initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider);
+        return emulateToolsCommon(
+                initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider, toolContext);
     }
 
     /**
@@ -1048,6 +1131,10 @@ public class Llm {
                                         description = jbSchema.description();
                                         type = "boolean";
                                     }
+                                    case JsonObjectSchema joSchema -> {
+                                        description = joSchema.description();
+                                        type = "map";
+                                    }
                                     default -> throw new IllegalArgumentException("Unsupported schema type: " + schema);
                                 }
                                 assert description != null : "null description for " + entry;
@@ -1126,12 +1213,12 @@ public class Llm {
         return originalTools;
     }
 
-    /** Writes history information to task-specific files. */
-    private synchronized void logRequest(
+    /**
+     * Writes response history (.log) to task-specific files, pairing with pre-sent request JSON via a shared base path.
+     */
+    private synchronized void logResult(
             StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result) {
         try {
-            var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()); // timestamp finished, not started
-
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null
@@ -1142,42 +1229,19 @@ public class Llm {
                                     .collect(Collectors.joining("\n"));
             var formattedResponse =
                     result == null ? "# Response:\n\nCancelled" : "# Response:\n\n%s".formatted(result.formatted());
-            String fileTimestamp = timestamp.format(DateTimeFormatter.ofPattern("HH-mm-ss"));
+
+            String fileTimestamp = logFileTimestamp();
             String shortDesc =
                     result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
-            var filePath = taskHistoryDir.resolve(String.format("%s %s.log", fileTimestamp, shortDesc));
+            var filePath = taskHistoryDir.resolve(
+                    String.format("%s %03d-%s.log", fileTimestamp, requestSequence++, shortDesc));
             var options = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
             logger.trace("Writing history to file {}", filePath);
-            // Ensure the filename is unique before writing
-            var uniqueFilePath = filePath;
-            int suffix = 1;
-            while (Files.exists(uniqueFilePath)) {
-                var newFilePath = filePath.toString();
-                int dotIndex = newFilePath.lastIndexOf('.');
-                if (dotIndex > 0) {
-                    newFilePath = newFilePath.substring(0, dotIndex) + "-" + suffix + newFilePath.substring(dotIndex);
-                } else {
-                    newFilePath += "-" + suffix;
-                }
-                uniqueFilePath = Path.of(newFilePath);
-                suffix++;
-            }
-            logger.trace("Writing history to file {}", uniqueFilePath);
-            Files.writeString(uniqueFilePath, formattedRequest + formattedTools + formattedResponse, options);
-
-            // Also persist the raw ChatRequest in a matching -request.json file
-            var requestFileName = uniqueFilePath.getFileName().toString().replaceFirst("\\.log$", "-request.json");
-            var requestPath = uniqueFilePath.resolveSibling(requestFileName);
-
-            var requestOptions = new StandardOpenOption[] {
-                StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
-            };
-            var requestJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
-            Files.writeString(requestPath, requestJson, requestOptions);
+            Files.writeString(filePath, formattedRequest + formattedTools + formattedResponse, options);
         } catch (IOException e) {
-            logger.error("Failed to write LLM history file", e);
+            logger.error("Failed to write LLM response history file", e);
         }
     }
 

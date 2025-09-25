@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.TypeAliasProvider;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -16,19 +17,36 @@ import org.slf4j.LoggerFactory;
 public class SymbolLookupService {
     private static final Logger logger = LoggerFactory.getLogger(SymbolLookupService.class);
 
-    /** Structured result for symbol lookup with highlight range support */
+    /** Structured result for symbol lookup with highlight range support and streaming metadata */
     public record SymbolLookupResult(
             @Nullable String fqn,
             List<HighlightRange> highlightRanges,
             boolean isPartialMatch,
-            @Nullable String originalText) {
+            @Nullable String originalText,
+            int confidence,
+            long processingTimeMs) {
+
         public static SymbolLookupResult notFound(String originalText) {
-            return new SymbolLookupResult(null, List.of(), false, originalText);
+            return new SymbolLookupResult(null, List.of(), false, originalText, 0, 0);
+        }
+
+        public static SymbolLookupResult notFound(String originalText, long processingTimeMs) {
+            return new SymbolLookupResult(null, List.of(), false, originalText, 0, processingTimeMs);
         }
 
         public static SymbolLookupResult exactMatch(String fqn, String originalText) {
             return new SymbolLookupResult(
-                    fqn, List.of(new HighlightRange(0, originalText.length())), false, originalText);
+                    fqn, List.of(new HighlightRange(0, originalText.length())), false, originalText, 100, 0);
+        }
+
+        public static SymbolLookupResult exactMatch(String fqn, String originalText, long processingTimeMs) {
+            return new SymbolLookupResult(
+                    fqn,
+                    List.of(new HighlightRange(0, originalText.length())),
+                    false,
+                    originalText,
+                    100,
+                    processingTimeMs);
         }
 
         public static SymbolLookupResult partialMatch(String fqn, String originalText, String extractedClassName) {
@@ -36,12 +54,72 @@ public class SymbolLookupService {
             int classStart = originalText.indexOf(extractedClassName);
             if (classStart >= 0) {
                 int classEnd = classStart + extractedClassName.length();
+                int confidence = calculatePartialMatchConfidence(originalText, extractedClassName);
                 return new SymbolLookupResult(
-                        fqn, List.of(new HighlightRange(classStart, classEnd)), true, originalText);
+                        fqn, List.of(new HighlightRange(classStart, classEnd)), true, originalText, confidence, 0);
             }
             // Fallback: highlight entire text if we can't find the class name
+            int confidence = calculatePartialMatchConfidence(originalText, extractedClassName);
             return new SymbolLookupResult(
-                    fqn, List.of(new HighlightRange(0, originalText.length())), true, originalText);
+                    fqn, List.of(new HighlightRange(0, originalText.length())), true, originalText, confidence, 0);
+        }
+
+        public static SymbolLookupResult partialMatch(
+                String fqn, String originalText, String extractedClassName, long processingTimeMs) {
+            // Calculate highlight range for the extracted class name within original text
+            int classStart = originalText.indexOf(extractedClassName);
+            if (classStart >= 0) {
+                int classEnd = classStart + extractedClassName.length();
+                int confidence = calculatePartialMatchConfidence(originalText, extractedClassName);
+                return new SymbolLookupResult(
+                        fqn,
+                        List.of(new HighlightRange(classStart, classEnd)),
+                        true,
+                        originalText,
+                        confidence,
+                        processingTimeMs);
+            }
+            // Fallback: highlight entire text if we can't find the class name
+            int confidence = calculatePartialMatchConfidence(originalText, extractedClassName);
+            return new SymbolLookupResult(
+                    fqn,
+                    List.of(new HighlightRange(0, originalText.length())),
+                    true,
+                    originalText,
+                    confidence,
+                    processingTimeMs);
+        }
+
+        /** Create a result with custom confidence and metadata */
+        public static SymbolLookupResult withMetadata(
+                String fqn,
+                List<HighlightRange> ranges,
+                boolean isPartial,
+                String originalText,
+                int confidence,
+                long processingTimeMs) {
+            return new SymbolLookupResult(fqn, ranges, isPartial, originalText, confidence, processingTimeMs);
+        }
+
+        /** Calculate confidence score for partial matches based on extraction quality */
+        private static int calculatePartialMatchConfidence(String originalText, String extractedClassName) {
+            if (originalText.isEmpty() || extractedClassName.isEmpty()) {
+                return 30; // Low confidence for empty inputs
+            }
+
+            // Higher confidence for exact substring match
+            if (originalText.equals(extractedClassName)) {
+                return 95; // Very high confidence for exact match
+            }
+
+            // Medium-high confidence for clear substring extraction
+            if (originalText.contains(extractedClassName)) {
+                double ratio = (double) extractedClassName.length() / originalText.length();
+                return Math.min(90, 60 + (int) (ratio * 30)); // 60-90% confidence based on length ratio
+            }
+
+            // Lower confidence for fuzzy extraction
+            return 40;
         }
     }
 
@@ -88,20 +166,92 @@ public class SymbolLookupService {
                 return;
             }
 
-            // Process each symbol individually and send result immediately
-            for (var symbolName : symbolNames) {
+            // Generate unique batch ID for this lookup session
+            var batchId = "batch_" + System.currentTimeMillis() + "_" + Math.random();
+            var batchStartTime = System.nanoTime();
+
+            // Process symbols with priority-based streaming
+            logger.trace(
+                    "[PERF][STREAM] Starting batch {} with {} symbols using analyzer: {}",
+                    batchId,
+                    symbolNames.size(),
+                    analyzer.getClass().getSimpleName());
+
+            // Create list for priority processing - exact matches first
+            var symbolList = new java.util.ArrayList<>(symbolNames);
+            var processedCount = 0;
+            var foundCount = 0;
+
+            for (var symbolName : symbolList) {
+                var symbolStartTime = System.nanoTime();
                 try {
                     var symbolResult = checkSymbolExists(analyzer, symbolName);
+                    var symbolProcessingTime = (System.nanoTime() - symbolStartTime) / 1_000_000;
 
-                    // Send result immediately (always send the SymbolLookupResult)
+                    // Determine if this is a high-priority result (exact match, high confidence)
+                    var isHighPriority = symbolResult.fqn() != null
+                            && !symbolResult.isPartialMatch()
+                            && symbolResult.confidence() >= 90;
+                    var isFound = symbolResult.fqn() != null;
+
+                    if (isFound) {
+                        foundCount++;
+                    }
+
+                    logger.trace(
+                            "[PERF][STREAM] Symbol '{}' processed in {}ms: found={}, confidence={}, priority={}",
+                            symbolName,
+                            symbolProcessingTime,
+                            isFound,
+                            symbolResult.confidence(),
+                            isHighPriority ? "HIGH" : "NORMAL");
+
+                    // Send result immediately with batch metadata
+                    // Note: Frontend should handle priority hints for UI ordering
                     resultCallback.accept(symbolName, symbolResult);
+
+                    processedCount++;
+
+                    // Log batch progress periodically
+                    if (processedCount % 5 == 0 || processedCount == symbolNames.size()) {
+                        var batchElapsedTime = (System.nanoTime() - batchStartTime) / 1_000_000;
+                        var avgTimePerSymbol = processedCount > 0 ? (double) batchElapsedTime / processedCount : 0.0;
+                        logger.trace(
+                                "[PERF][STREAM] Batch {} progress: {}/{} symbols processed in {}ms (avg {}ms/symbol, {} found)",
+                                batchId,
+                                processedCount,
+                                symbolNames.size(),
+                                batchElapsedTime,
+                                String.format("%.1f", avgTimePerSymbol),
+                                foundCount);
+                    }
+
                 } catch (Exception e) {
-                    logger.warn("Error processing symbol '{}' in streaming lookup", symbolName, e);
+                    var symbolProcessingTime = (System.nanoTime() - symbolStartTime) / 1_000_000;
+                    logger.trace(
+                            "[PERF][STREAM] Error processing symbol '{}' in batch {} after {}ms",
+                            symbolName,
+                            batchId,
+                            symbolProcessingTime,
+                            e);
+
                     // Send not found result for failed lookups
-                    var notFoundResult = SymbolLookupResult.notFound(symbolName);
+                    var notFoundResult = SymbolLookupResult.notFound(symbolName, symbolProcessingTime);
                     resultCallback.accept(symbolName, notFoundResult);
+                    processedCount++;
                 }
             }
+
+            var totalBatchTime = (System.nanoTime() - batchStartTime) / 1_000_000;
+            var avgTimePerSymbol = symbolNames.size() > 0 ? (double) totalBatchTime / symbolNames.size() : 0.0;
+            logger.trace(
+                    "[PERF][STREAM] Batch {} completed: {} symbols processed in {}ms (avg {}ms/symbol, {} found, {}% success rate)",
+                    batchId,
+                    symbolNames.size(),
+                    totalBatchTime,
+                    String.format("%.1f", avgTimePerSymbol),
+                    foundCount,
+                    foundCount * 100 / Math.max(1, symbolNames.size()));
 
             // Streaming lookup completed silently
 
@@ -121,22 +271,44 @@ public class SymbolLookupService {
         }
 
         var trimmed = symbolName.trim();
+        var startTime = System.nanoTime();
+        logger.trace(
+                "[PERF][STREAM] Checking symbol existence for '{}' using {}",
+                trimmed,
+                analyzer.getClass().getSimpleName());
 
         try {
             // First try exact FQN match
             var definition = analyzer.getDefinition(trimmed);
             if (definition.isPresent() && definition.get().isClass()) {
-                return SymbolLookupResult.exactMatch(definition.get().fqName(), trimmed);
+                var processingTime = (System.nanoTime() - startTime) / 1_000_000;
+                logger.trace(
+                        "[PERF][STREAM] Found exact FQN match for '{}': {} in {}ms",
+                        trimmed,
+                        definition.get().fqName(),
+                        processingTime);
+                return SymbolLookupResult.exactMatch(definition.get().fqName(), trimmed, processingTime);
             }
 
-            // Then try pattern search for exact matches
+            // Only try pattern search if exact FQN lookup failed
+            logger.trace(
+                    "[PERF][SEARCH] Exact FQN lookup failed, proceeding with expensive pattern search for '{}'",
+                    trimmed);
             var searchResults = analyzer.searchDefinitions(trimmed);
+            logger.trace("Pattern search for '{}' returned {} results", trimmed, searchResults.size());
             if (!searchResults.isEmpty()) {
-                var classMatches = findAllClassMatches(trimmed, searchResults);
+                var classMatches = findAllClassMatches(trimmed, searchResults, analyzer);
                 if (!classMatches.isEmpty()) {
                     var commaSeparatedFqns =
                             classMatches.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(","));
-                    return SymbolLookupResult.exactMatch(commaSeparatedFqns, trimmed);
+                    var processingTime = (System.nanoTime() - startTime) / 1_000_000;
+                    logger.trace(
+                            "[PERF][STREAM] Found {} exact class matches for '{}': {} in {}ms",
+                            classMatches.size(),
+                            trimmed,
+                            commaSeparatedFqns,
+                            processingTime);
+                    return SymbolLookupResult.exactMatch(commaSeparatedFqns, trimmed, processingTime);
                 }
             }
 
@@ -144,36 +316,65 @@ public class SymbolLookupService {
             var extractedClassName = analyzer.extractClassName(trimmed);
             if (extractedClassName.isPresent()) {
                 var rawClassName = extractedClassName.get();
+                logger.trace("Extracted class name '{}' from '{}'", rawClassName, trimmed);
 
                 var candidates = ClassNameExtractor.normalizeVariants(rawClassName);
+                logger.trace(
+                        "Generated {} candidate variants for '{}': {}", candidates.size(), rawClassName, candidates);
                 for (var candidate : candidates) {
                     // Try exact FQN match for candidate
                     var classDefinition = analyzer.getDefinition(candidate);
                     if (classDefinition.isPresent() && classDefinition.get().isClass()) {
+                        var processingTime = (System.nanoTime() - startTime) / 1_000_000;
+                        logger.trace(
+                                "[PERF][STREAM] Found partial match via FQN lookup for candidate '{}': {} in {}ms",
+                                candidate,
+                                classDefinition.get().fqName(),
+                                processingTime);
+                        logger.trace(
+                                "[PERF][SEARCH] Skipping expensive pattern search for candidate '{}' - exact FQN match found",
+                                candidate);
                         return SymbolLookupResult.partialMatch(
-                                classDefinition.get().fqName(), trimmed, rawClassName);
+                                classDefinition.get().fqName(), trimmed, rawClassName, processingTime);
                     }
 
-                    // Try pattern search for candidate
+                    // Only try pattern search if exact FQN lookup failed for this candidate
+                    logger.trace(
+                            "[PERF][SEARCH] FQN lookup failed for candidate '{}', trying expensive pattern search",
+                            candidate);
                     var classSearchResults = analyzer.searchDefinitions(candidate);
                     if (!classSearchResults.isEmpty()) {
-                        var classMatches = findAllClassMatches(candidate, classSearchResults);
+                        var classMatches = findAllClassMatches(candidate, classSearchResults, analyzer);
                         if (!classMatches.isEmpty()) {
                             var commaSeparatedFqns = classMatches.stream()
                                     .map(CodeUnit::fqName)
                                     .sorted()
                                     .collect(Collectors.joining(","));
-                            return SymbolLookupResult.partialMatch(commaSeparatedFqns, trimmed, rawClassName);
+                            var processingTime = (System.nanoTime() - startTime) / 1_000_000;
+                            logger.trace(
+                                    "[PERF][STREAM] Found partial match via pattern search for candidate '{}': {} in {}ms",
+                                    candidate,
+                                    commaSeparatedFqns,
+                                    processingTime);
+                            return SymbolLookupResult.partialMatch(
+                                    commaSeparatedFqns, trimmed, rawClassName, processingTime);
                         }
                     }
                 }
             }
 
-            return SymbolLookupResult.notFound(trimmed);
+            var processingTime = (System.nanoTime() - startTime) / 1_000_000;
+            logger.trace("[PERF][STREAM] No symbol found for '{}' in {}ms", trimmed, processingTime);
+            return SymbolLookupResult.notFound(trimmed, processingTime);
 
         } catch (Exception e) {
-            logger.trace("Error checking symbol existence for '{}': {}", trimmed, e.getMessage());
-            return SymbolLookupResult.notFound(trimmed);
+            var processingTime = (System.nanoTime() - startTime) / 1_000_000;
+            logger.trace(
+                    "[PERF][STREAM] Error checking symbol existence for '{}' in {}ms: {}",
+                    trimmed,
+                    processingTime,
+                    e.getMessage());
+            return SymbolLookupResult.notFound(trimmed, processingTime);
         }
     }
 
@@ -237,11 +438,25 @@ public class SymbolLookupService {
         return lastDot >= 0 ? fqName.substring(lastDot + 1) : fqName;
     }
 
-    /** Find all classes with exact simple name match for the given search term. */
-    private static List<CodeUnit> findAllClassMatches(String searchTerm, List<CodeUnit> searchResults) {
-        // Find all classes with exact simple name match
+    /**
+     * Find all classes with exact simple name match for the given search term. Package-private for direct access by
+     * tests.
+     */
+    static List<CodeUnit> findAllClassMatches(String searchTerm, List<CodeUnit> searchResults) {
         return searchResults.stream()
-                .filter(CodeUnit::isClass) // Only classes, not methods or fields
+                .filter(CodeUnit::isClass) // classes only for this overload (tests target Java behavior)
+                .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
+                .toList();
+    }
+
+    /** Find all classes with exact simple name match for the given search term. */
+    private static List<CodeUnit> findAllClassMatches(
+            String searchTerm, List<CodeUnit> searchResults, IAnalyzer analyzer) {
+        var typeAliasProvider = analyzer.as(TypeAliasProvider.class);
+        return searchResults.stream()
+                .filter(cu -> cu.isClass()
+                        || (typeAliasProvider.isPresent()
+                                && typeAliasProvider.get().isTypeAlias(cu)))
                 .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
                 .toList();
     }

@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.analyzer.ranking;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
-import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -41,7 +41,7 @@ public class GitDistancePMITest {
         testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
         var testRepo = new GitRepo(testPath);
-        testProject = new TestProjectWithRepo(testPath, Language.JAVA, testRepo);
+        testProject = new TestProjectWithRepo(testPath, Languages.JAVA, testRepo);
         logger.debug("Setting up analyzer with test code from {}", testPath);
         analyzer = new JavaTreeSitterAnalyzer(testProject);
     }

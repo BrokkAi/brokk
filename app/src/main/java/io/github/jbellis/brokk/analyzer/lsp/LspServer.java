@@ -193,6 +193,10 @@ public abstract class LspServer {
     protected abstract LspLanguageClient getLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap);
 
+    public @Nullable LspLanguageClient getLanguageClient() {
+        return this.languageClient;
+    }
+
     protected void startServer(
             Path initialWorkspace, String language, Path cache, Map<String, Object> initializationOptions)
             throws IOException {
