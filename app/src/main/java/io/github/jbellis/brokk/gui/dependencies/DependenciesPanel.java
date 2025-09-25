@@ -308,7 +308,9 @@ public final class DependenciesPanel extends JPanel {
                         boolean prev = !bool;
 
                         // If an operation is already in-flight or any row is Loading, revert this toggle.
-                        if (controlsLocked || (inFlightToggleSave != null && !inFlightToggleSave.isDone()) || anyRowLoading()) {
+                        if (controlsLocked
+                                || (inFlightToggleSave != null && !inFlightToggleSave.isDone())
+                                || anyRowLoading()) {
                             isProgrammaticChange = true;
                             tableModel.setValueAt(prev, row, 0);
                             isProgrammaticChange = false;
