@@ -48,4 +48,6 @@ public final class Icons {
     public static final Icon PENDING = SwingUtil.uiIcon("Brokk.pending");
     public static final Icon ARROW_UPLOAD_READY = SwingUtil.uiIcon("Brokk.arrow_upload_ready");
     public static final Icon CLEAR_ALL = SwingUtil.uiIcon("Brokk.clear_all");
+    public static final Icon CELL_MERGE = SwingUtil.uiIcon("Brokk.cell_merge");
+    public static final Icon FAST_FORWARD = SwingUtil.uiIcon("Brokk.fast_forward");
 }

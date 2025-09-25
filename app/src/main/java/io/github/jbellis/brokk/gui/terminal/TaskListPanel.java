@@ -84,6 +84,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
+    private final MaterialButton combineBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final IConsoleIO console;
     private final Timer llmStateTimer;
@@ -309,6 +310,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
+        combineBtn.setIcon(Icons.CELL_MERGE);
+        combineBtn.setToolTipText(
+                "<html><body style='width:300px'>Combine two selected tasks into one new task.<br>The text from both tasks will be merged and the originals deleted.<br>Enabled only when exactly 2 tasks are selected.</body></html>");
+        combineBtn.addActionListener(e -> combineSelectedTasks());
+
         clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
         clearCompletedBtn.setToolTipText(
                 "<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
@@ -319,6 +325,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
             playBtn.setMargin(new Insets(0, 0, 0, 0));
+            combineBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -326,6 +333,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             buttonBar.add(removeBtn);
             buttonBar.add(toggleDoneBtn);
             buttonBar.add(playBtn);
+            buttonBar.add(combineBtn);
             buttonBar.add(clearCompletedBtn);
 
             gbc.gridx = 1;
@@ -692,6 +700,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Play enabled only if: selection exists, not busy, not done, no running/pending in selection, and no active
         // queue
         playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
+
+        // Combine enabled only if exactly 2 tasks selected and no running/pending in selection
+        combineBtn.setEnabled(selIndices.length == 2 && !blockEdits);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
@@ -1153,6 +1164,71 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             addCount = 0;
             saveTasksForCurrentSession();
         }
+    }
+
+    private void combineSelectedTasks() {
+        int[] indices = list.getSelectedIndices();
+        if (indices.length != 2) {
+            JOptionPane.showMessageDialog(
+                    this, "Select exactly two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Check if either task is running or pending
+        for (int idx : indices) {
+            if (runningIndex != null && idx == runningIndex.intValue()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot combine tasks while one is currently running.",
+                        "Combine Disabled",
+                        JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            if (pendingQueue.contains(idx)) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot combine tasks while one is queued for running.",
+                        "Combine Disabled",
+                        JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+        }
+
+        Arrays.sort(indices);
+        int firstIdx = indices[0];
+        int secondIdx = indices[1];
+        
+        if (firstIdx < 0 || secondIdx >= model.size()) {
+            return;
+        }
+
+        TaskItem firstTask = model.get(firstIdx);
+        TaskItem secondTask = model.get(secondIdx);
+        
+        if (firstTask == null || secondTask == null) {
+            return;
+        }
+
+        // Combine the text with a separator
+        String combinedText = firstTask.text() + " | " + secondTask.text();
+        
+        // Both tasks are considered done if either one is done
+        boolean combinedDone = firstTask.done() || secondTask.done();
+        
+        // Create the new combined task
+        TaskItem combinedTask = new TaskItem(combinedText, combinedDone);
+        
+        // Add the combined task at the position of the first selected task
+        model.set(firstIdx, combinedTask);
+        
+        // Remove the second task (higher index first to keep indices valid)
+        model.remove(secondIdx);
+        
+        // Select the combined task
+        list.setSelectedIndex(firstIdx);
+        
+        saveTasksForCurrentSession();
+        updateButtonStates();
     }
 
     private void clearCompletedTasks() {
