@@ -4,7 +4,6 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskResult;
-import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
@@ -40,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -888,12 +888,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (skipSearch) {
                     logger.debug("Skipping SearchAgent for first task since workspace is not empty");
                 } else {
-                    var model = cm.getService().getScanModel();
-                    SearchAgent agent = new SearchAgent(prompt, cm, model, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
-                    var searchResult = agent.execute();
-                    if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                        logger.debug("Search failed: {}", searchResult.stopDetails());
-                        return false;
+                    var searchFuture = c.getInstructionsPanel().runSearchCommand(prompt);
+                    if (searchFuture != null) {
+                        try {
+                            searchFuture.get();
+                        } catch (CancellationException ce) {
+                            throw ce;
+                        }
                     }
                 }
 
@@ -901,6 +902,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 TaskResult archResult;
                 try {
                     archResult = archFuture.get();
+                } catch (CancellationException ce) {
+                    throw ce;
                 } catch (Exception e) {
                     logger.error("Architect failed for prompt: {}", prompt, e);
                     return false;
@@ -917,8 +920,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             });
 
             future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
+                // If cancelled, stop the queue and do not start the next task.
+                Throwable t = ex;
+                if (t instanceof java.util.concurrent.CompletionException ce && ce.getCause() != null) {
+                    t = ce.getCause();
+                }
+                if (t instanceof CancellationException) {
+                    finishQueueOnError();
+                    return;
+                }
                 try {
-                    if (res && runningIndex != null && runningIndex == idx && idx < model.size()) {
+                    if (Boolean.TRUE.equals(res) && runningIndex != null && runningIndex == idx && idx < model.size()) {
                         var it = model.get(idx);
                         model.set(idx, new TaskItem(it.text(), true));
                         saveTasksForCurrentSession();
