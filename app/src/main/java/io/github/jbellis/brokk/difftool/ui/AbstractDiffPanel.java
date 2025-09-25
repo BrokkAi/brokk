@@ -156,4 +156,10 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
 
         return style;
     }
+
+    /**
+     * Abstract method for refreshing highlights and repainting the diff panel.
+     * Each implementation should handle its own highlight refresh logic.
+     */
+    public abstract void reDisplay();
 }
