@@ -84,6 +84,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
+    private final MaterialButton playAllBtn = new MaterialButton();
     private final MaterialButton combineBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final IConsoleIO console;
@@ -310,6 +311,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
+        playAllBtn.setIcon(Icons.FAST_FORWARD);
+        playAllBtn.setToolTipText(
+                "<html><body style='width:300px'>Run Architect on all tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
+        playAllBtn.addActionListener(e -> runArchitectOnAll());
+
         combineBtn.setIcon(Icons.CELL_MERGE);
         combineBtn.setToolTipText(
                 "<html><body style='width:300px'>Combine two selected tasks into one new task.<br>The text from both tasks will be merged and the originals deleted.<br>Enabled only when exactly 2 tasks are selected.</body></html>");
@@ -325,6 +331,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
             playBtn.setMargin(new Insets(0, 0, 0, 0));
+            playAllBtn.setMargin(new Insets(0, 0, 0, 0));
             combineBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
@@ -333,6 +340,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             buttonBar.add(removeBtn);
             buttonBar.add(toggleDoneBtn);
             buttonBar.add(playBtn);
+            buttonBar.add(playAllBtn);
             buttonBar.add(combineBtn);
             buttonBar.add(clearCompletedBtn);
 
@@ -701,6 +709,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // queue
         playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
 
+        // Play All enabled if: there are tasks, not busy, no active queue
+        boolean hasTasks = model.getSize() > 0;
+        playAllBtn.setEnabled(hasTasks && !llmBusy && !queueActive);
+
         // Combine enabled only if exactly 2 tasks selected and no running/pending in selection
         combineBtn.setEnabled(selIndices.length == 2 && !blockEdits);
 
@@ -836,6 +848,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        runArchitectOnIndices(selected);
+    }
+
+    private void runArchitectOnAll() {
+        if (model.getSize() == 0) {
+            return;
+        }
+        
+        // Select all tasks
+        int[] allIndices = new int[model.getSize()];
+        for (int i = 0; i < model.getSize(); i++) {
+            allIndices[i] = i;
+        }
+        
+        list.setSelectionInterval(0, model.getSize() - 1);
+        runArchitectOnIndices(allIndices);
+    }
+
+    private void runArchitectOnIndices(int[] selected) {
         // Prevent running if an LLM task is already busy or a queue is in progress
         if (console instanceof Chrome cBusy) {
             try {
@@ -884,9 +915,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             queueActive = false;
         }
 
-        // Reflect pending state in UI and disable Play to avoid double trigger
+        // Reflect pending state in UI and disable Play buttons to avoid double trigger
         list.repaint();
         playBtn.setEnabled(false);
+        playAllBtn.setEnabled(false);
 
         // Start the first task
         startRunForIndex(first);
