@@ -108,6 +108,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialButton actionButton;
     private final MaterialButton wandButton = new MaterialButton();
     private @Nullable volatile Future<?> currentActionFuture;
+    private @Nullable volatile Future<?> currentWandFuture;
     private final ModelSelector modelSelector;
     private String storedAction;
     private final ContextManager contextManager;
@@ -1994,17 +1995,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /** Handler for the Wand button: silently refine the prompt in the background and replace the input. */
     private void onWandPressed() {
+        // If a refine task is already running, clicking the wand cancels it.
+        var running = currentWandFuture;
+        if (running != null && !running.isDone()) {
+            running.cancel(true);
+            return;
+        }
+
         var original = getInstructions();
         if (original.isBlank()) {
             chrome.toolError("Please enter a prompt to refine");
             return;
         }
 
-        // Disable UI while refining: prevent edits and sending new commands
+        // Prepare UI: turn wand into a red Stop button; keep it enabled to allow cancel
         SwingUtilities.invokeLater(() -> {
-            wandButton.setEnabled(false);
-            wandButton.setIcon(Icons.PENDING);
-            wandButton.setToolTipText("Refining prompt...");
+            wandButton.setEnabled(true);
+            wandButton.setIcon(Icons.STOP);
+            wandButton.setToolTipText("Cancel prompt refinement");
+		  // always use the off red of the light theme
+            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
+            wandButton.setBackground(badgeBackgroundColor);
             actionButton.setEnabled(false);
             instructionsArea.setEditable(false);
         });
@@ -2013,7 +2024,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var service = cm.getService();
         var model = service.getWandModel(); // availability-based: GPT-5 Mini, else Gemini 2.0 Flash
 
-        cm.submitBackgroundTask("Refine prompt", () -> {
+        var future = cm.submitBackgroundTask("Refine prompt", () -> {
             try {
                 // Keep this operation silent (no streaming to LLM Output panel)
                 chrome.blockLlmOutput(true);
@@ -2074,17 +2085,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // ignore cancellation
             } finally {
                 chrome.blockLlmOutput(false);
+            }
+            return null;
+        });
+
+        // Track and watch the refine task so we can restore UI when it completes or is cancelled
+        currentWandFuture = future;
+        Thread watcher = new Thread(() -> {
+            try {
+                future.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException | CancellationException ignored) {
+                // ignore
+            } finally {
+                currentWandFuture = null;
                 SwingUtilities.invokeLater(() -> {
                     wandButton.setEnabled(true);
                     wandButton.setIcon(Icons.WAND);
                     wandButton.setToolTipText(
                             "Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
+                    // Reset background to default (null lets LAF/theme paint it)
+                    wandButton.setBackground(null);
                     actionButton.setEnabled(true);
                     instructionsArea.setEditable(true);
                 });
             }
-            return null;
-        });
+        }, "Brokk-Wand-Watcher");
+        watcher.setDaemon(true);
+        watcher.start();
     }
 
     public void runSearchCommand() {
@@ -2226,7 +2255,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setEnabled(true);
             actionButton.setToolTipText("Cancel the current operation");
-            actionButton.setBackground(Color.RED);
+		  // always use the off red of the light theme
+            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
+            actionButton.setBackground(badgeBackgroundColor);
         } else {
             // If there is no running action, keep the action button enabled so the user can start an action.
             actionButton.setEnabled(true);
@@ -2356,7 +2387,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
             actionButton.setEnabled(true);
-            actionButton.setBackground(Color.RED);
+		  // always use the off red of the light theme
+            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
+            actionButton.setBackground(badgeBackgroundColor);
         });
         Thread watcher = new Thread(
                 () -> {
