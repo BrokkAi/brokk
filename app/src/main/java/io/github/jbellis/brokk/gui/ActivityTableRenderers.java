@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.gui;
 
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
 import java.awt.*;
 import java.awt.geom.Path2D;
 import javax.swing.*;
@@ -13,6 +11,7 @@ import org.jetbrains.annotations.Nullable;
  * HistoryOutputPanel and SessionsDialog.
  */
 public final class ActivityTableRenderers {
+    // leaving these past tense for compatibility with old sessions
     public static final String CLEARED_TASK_HISTORY = "Cleared Task History";
     public static final String DROPPED_ALL_CONTEXT = "Dropped all Context";
 
@@ -24,8 +23,12 @@ public final class ActivityTableRenderers {
         if (actionValue == null) {
             return false;
         }
-        String action = actionValue.toString();
+        String action = actionValue.toString().trim();
         return CLEARED_TASK_HISTORY.equalsIgnoreCase(action) || DROPPED_ALL_CONTEXT.equalsIgnoreCase(action);
+    }
+
+    public static String normalizedAction(@Nullable Object actionValue) {
+        return actionValue == null ? "" : actionValue.toString().trim();
     }
 
     /**
@@ -40,10 +43,11 @@ public final class ActivityTableRenderers {
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             Object actionValue = table.getModel().getValueAt(row, 1);
             if (isSeparatorAction(actionValue)) {
-                separatorPainter.setAction(castNonNull(actionValue).toString());
+                separatorPainter.setAction(normalizedAction(actionValue));
                 separatorPainter.setCellContext(table, row, column);
                 separatorPainter.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
                 separatorPainter.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                separatorPainter.setText("");
                 return separatorPainter;
             }
 
@@ -73,10 +77,11 @@ public final class ActivityTableRenderers {
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             if (isSeparatorAction(value)) {
                 separatorPainter.setOpaque(true);
-                separatorPainter.setAction(castNonNull(value).toString());
+                separatorPainter.setAction(normalizedAction(value));
                 separatorPainter.setCellContext(table, row, column);
                 separatorPainter.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
                 separatorPainter.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                separatorPainter.setText("");
                 return separatorPainter;
             }
 
@@ -90,7 +95,7 @@ public final class ActivityTableRenderers {
     }
 
     /** A component that paints a horizontal or squiggly line for separator rows in the history table. */
-    private static class SeparatorPainter extends JComponent {
+    private static class SeparatorPainter extends JLabel {
         private String action = "";
         private @Nullable JTable table;
         private int row;
@@ -115,16 +120,15 @@ public final class ActivityTableRenderers {
 
         @Override
         public Dimension getPreferredSize() {
-            return new Dimension(super.getPreferredSize().width, 8);
+            if (getText() == null || getText().isEmpty()) {
+                return new Dimension(super.getPreferredSize().width, 8);
+            }
+            return super.getPreferredSize();
         }
 
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            if (isOpaque()) {
-                g.setColor(getBackground());
-                g.fillRect(0, 0, getWidth(), getHeight());
-            }
 
             if (table == null) {
                 return;
@@ -151,7 +155,14 @@ public final class ActivityTableRenderers {
             try {
                 g2.setColor(getForeground());
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int y = getHeight() / 2;
+
+                int y;
+                if (getText() == null || getText().isEmpty()) {
+                    y = getHeight() / 2;
+                } else {
+                    FontMetrics fm = g.getFontMetrics();
+                    y = getInsets().top + fm.getAscent() + fm.getDescent() + 1;
+                }
 
                 if (CLEARED_TASK_HISTORY.equalsIgnoreCase(action)) {
                     g2.drawLine(drawStart, y, drawEnd, y);

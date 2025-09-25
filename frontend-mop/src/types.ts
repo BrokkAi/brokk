@@ -21,6 +21,7 @@ export type BrokkEvent =
   | {
       type: 'history-task';
       epoch: number;
+      taskSequence: number;
       compressed: boolean;
       summary?: string;
       messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM' }[];
@@ -63,6 +64,7 @@ export type BubbleState = Bubble & {
 
 export type HistoryTask = {
   threadId: number;
+  taskSequence: number;
   compressed: boolean;
   entries: BubbleState[];
 };

@@ -1,17 +1,20 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
@@ -21,23 +24,26 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A drawer panel that can host development tools like terminals. Currently supports a terminal that can be toggled
- * on/off. The drawer can be collapsed when no tools are active.
+ * A drawer panel that can host development tools like terminals and task lists. Uses a right-side JTabbedPane
+ * (icon-only tabs) to switch between tools. The drawer collapses to the tab strip when no tool content is displayed.
  */
 public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TerminalDrawerPanel.class);
 
     // Core components
     private final JPanel drawerContentPanel;
-    private final JPanel drawerToolBar;
+    private final JPanel buttonBar;
     private final MaterialToggleButton terminalToggle;
-    private final MaterialToggleButton taskListToggle;
+    private final MaterialToggleButton tasksToggle;
     private @Nullable TerminalPanel activeTerminal;
     private @Nullable TaskListPanel activeTaskList;
 
     // Drawer state management
     private double lastDividerLocation = 0.5;
+    private boolean isCollapsed = false;
+    private boolean suppressPersist = false;
     private int originalDividerSize;
+    private static final int MIN_OPEN_WIDTH = 200;
 
     // Dependencies
     private final IConsoleIO console;
@@ -57,97 +63,146 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         setBorder(BorderFactory.createEmptyBorder());
 
-        // Create vertical icon bar on the EAST side
-        drawerToolBar = new JPanel();
-        drawerToolBar.setLayout(new BoxLayout(drawerToolBar, BoxLayout.Y_AXIS));
-        drawerToolBar.setOpaque(false);
-        drawerToolBar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
-        terminalToggle = new MaterialToggleButton(Icons.TERMINAL);
-        terminalToggle.setToolTipText("Toggle Terminal");
-        terminalToggle.setBorderHighlightOnly(true);
-        terminalToggle.setFocusPainted(false);
-        terminalToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        terminalToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        // Edge selection highlight is applied by MaterialToggleButton; LAF handles hover background.
-
-        drawerToolBar.add(terminalToggle);
-
-        // Task List toggle placed just south of the terminal toggle
-        taskListToggle = new MaterialToggleButton(Icons.LIST);
-        taskListToggle.setToolTipText("Toggle Task List");
-        taskListToggle.setBorderHighlightOnly(true);
-        taskListToggle.setFocusPainted(false);
-        taskListToggle.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        taskListToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        drawerToolBar.add(taskListToggle);
-
-        add(drawerToolBar, BorderLayout.EAST);
-
         // Content area for the drawer (where TerminalPanel and future tools will appear)
         drawerContentPanel = new JPanel(new BorderLayout());
         add(drawerContentPanel, BorderLayout.CENTER);
 
-        // Wire the toggle to create/show/hide a TerminalPanel
-        terminalToggle.addActionListener(ev -> {
+        // Right-side vertical toggle buttons for tools
+        buttonBar = new JPanel();
+        buttonBar.setLayout(new BoxLayout(buttonBar, BoxLayout.Y_AXIS));
+        buttonBar.setBorder(BorderFactory.createEmptyBorder());
+        buttonBar.setPreferredSize(new Dimension(40, 0));
+
+        terminalToggle = new MaterialToggleButton(Icons.TERMINAL);
+        terminalToggle.setToolTipText("Terminal");
+        terminalToggle.setFocusPainted(false);
+        terminalToggle.setBorderHighlightOnly(true);
+        terminalToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        {
+            Dimension p = terminalToggle.getPreferredSize();
+            terminalToggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, p.height));
+        }
+
+        tasksToggle = new MaterialToggleButton(Icons.LIST);
+        tasksToggle.setToolTipText("Task List");
+        tasksToggle.setFocusPainted(false);
+        tasksToggle.setBorderHighlightOnly(true);
+        tasksToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        {
+            Dimension p = tasksToggle.getPreferredSize();
+            tasksToggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, p.height));
+        }
+
+        // Add listeners after fields are initialized
+        terminalToggle.addActionListener(e -> {
             if (terminalToggle.isSelected()) {
-                // Only one tool at a time
-                if (taskListToggle.isSelected()) {
-                    taskListToggle.setSelected(false);
-                    hideTaskListDrawer();
+                tasksToggle.setSelected(false);
+                persistLastTab("terminal");
+                // Show terminal
+                drawerContentPanel.removeAll();
+                if (activeTerminal == null) {
+                    createTerminal();
+                } else {
+                    drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
+                    drawerContentPanel.revalidate();
+                    drawerContentPanel.repaint();
+                    showDrawer();
                 }
-                openTerminal();
-            } else {
                 if (activeTerminal != null) {
-                    hideTerminalDrawer();
+                    if (activeTerminal.isReady()) {
+                        activeTerminal.requestFocusInTerminal();
+                    } else {
+                        activeTerminal
+                                .whenReady()
+                                .thenAccept(t -> SwingUtilities.invokeLater(t::requestFocusInTerminal));
+                    }
+                }
+            } else {
+                // Hide terminal; if no other tool selected, collapse
+                drawerContentPanel.removeAll();
+                drawerContentPanel.revalidate();
+                drawerContentPanel.repaint();
+                if (tasksToggle.isSelected()) {
+                    if (activeTaskList != null) {
+                        drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
+                        drawerContentPanel.revalidate();
+                        drawerContentPanel.repaint();
+                        showDrawer();
+                    }
+                } else {
+                    collapseIfEmpty();
                 }
             }
         });
 
-        // Wire the Task List toggle to create/show/hide the TaskListPanel
-        taskListToggle.addActionListener(ev -> {
-            if (taskListToggle.isSelected()) {
-                // Only one tool at a time
-                if (terminalToggle.isSelected()) {
-                    terminalToggle.setSelected(false);
-                    hideTerminalDrawer();
-                }
+        tasksToggle.addActionListener(e -> {
+            if (tasksToggle.isSelected()) {
+                terminalToggle.setSelected(false);
+                persistLastTab("tasks");
+                // Show task list
+                drawerContentPanel.removeAll();
                 openTaskList();
             } else {
-                if (activeTaskList != null) {
-                    hideTaskListDrawer();
+                // Hide task list; if no other tool selected, collapse
+                drawerContentPanel.removeAll();
+                drawerContentPanel.revalidate();
+                drawerContentPanel.repaint();
+                if (terminalToggle.isSelected()) {
+                    if (activeTerminal != null) {
+                        drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
+                        drawerContentPanel.revalidate();
+                        drawerContentPanel.repaint();
+                        showDrawer();
+                    }
+                } else {
+                    collapseIfEmpty();
                 }
             }
         });
 
-        // Ensure drawer is initially collapsed (hides the split divider and reserves space for the toolbar).
-        // Use invokeLater so parentSplitPane has valid size when collapseIfEmpty() runs.
-        SwingUtilities.invokeLater(this::collapseIfEmpty);
+        buttonBar.add(terminalToggle);
+        buttonBar.add(tasksToggle);
+        buttonBar.add(Box.createVerticalGlue());
+
+        add(buttonBar, BorderLayout.EAST);
+
+        // Persist split proportion when user moves the divider
+        parentSplitPane.addPropertyChangeListener("dividerLocation", evt -> {
+            if (parentSplitPane.getDividerSize() > 0 && !isCollapsed && !suppressPersist) {
+                persistProportionFromSplit();
+            }
+        });
+
+        // Restore drawer state (per-project or global), or collapse if none is configured
+        SwingUtilities.invokeLater(this::restoreInitialState);
     }
 
     /** Opens the terminal in the drawer. If already open, ensures it has focus. */
     public void openTerminal() {
-        // Ensure only one tool is active at a time
-        taskListToggle.setSelected(false);
         openTerminalAsync().exceptionally(ex -> {
             logger.debug("Failed to open terminal", ex);
             return null;
         });
     }
 
-    /** Closes the terminal and collapses the drawer if empty. */
+    /** Opens the terminal and returns a future when it's ready (focused). */
     public CompletableFuture<TerminalPanel> openTerminalAsync() {
         var promise = new CompletableFuture<TerminalPanel>();
         SwingUtilities.invokeLater(() -> {
             try {
+                terminalToggle.setSelected(true);
+                tasksToggle.setSelected(false);
+
+                drawerContentPanel.removeAll();
                 if (activeTerminal == null) {
                     createTerminal();
                 } else {
+                    drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
+                    drawerContentPanel.revalidate();
+                    drawerContentPanel.repaint();
                     showDrawer();
-                    terminalToggle.setSelected(true);
                 }
+
                 var term = activeTerminal;
                 if (term == null) {
                     promise.completeExceptionally(new IllegalStateException("Terminal not available"));
@@ -189,84 +244,38 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 activeTerminal = null;
             }
 
-            terminalToggle.setSelected(false);
-            collapseIfEmpty();
+            if (tasksToggle.isSelected() && activeTaskList != null) {
+                drawerContentPanel.removeAll();
+                drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
+                drawerContentPanel.revalidate();
+                drawerContentPanel.repaint();
+                showDrawer();
+            } else {
+                terminalToggle.setSelected(false);
+                collapseIfEmpty();
+            }
         });
     }
 
     /** Opens the task list in the drawer. If already open, ensures it has focus. */
-    public void openTaskList() {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                if (activeTaskList == null) {
-                    activeTaskList = new TaskListPanel(console);
-                }
-                // Ensure mutual exclusivity with the terminal
-                terminalToggle.setSelected(false);
-
-                showDrawer();
-                taskListToggle.setSelected(true);
-            } catch (Exception ex) {
-                logger.debug("Failed to open task list", ex);
-                taskListToggle.setSelected(false);
-            }
-        });
-    }
-
-    /** Closes the task list and collapses the drawer if empty. */
-    public void closeTaskList() {
-        SwingUtilities.invokeLater(() -> {
-            if (activeTaskList != null) {
-                try {
-                    drawerContentPanel.remove(activeTaskList);
-                    drawerContentPanel.revalidate();
-                    drawerContentPanel.repaint();
-                } catch (Exception ex) {
-                    logger.debug("Error removing task list panel", ex);
-                }
-            }
-            taskListToggle.setSelected(false);
-            collapseIfEmpty();
-        });
-    }
-
-    private void hideTaskListDrawer() {
-        SwingUtilities.invokeLater(() -> {
-            if (activeTaskList != null) {
-                drawerContentPanel.remove(activeTaskList);
-                drawerContentPanel.revalidate();
-                drawerContentPanel.repaint();
-                collapseIfEmpty();
-            }
-        });
-    }
-
-    private void hideTerminalDrawer() {
-        SwingUtilities.invokeLater(() -> {
-            if (activeTerminal != null) {
-                drawerContentPanel.remove(activeTerminal);
-                drawerContentPanel.revalidate();
-                drawerContentPanel.repaint();
-                collapseIfEmpty();
-            }
-        });
+    public TaskListPanel openTaskList() {
+        assert SwingUtilities.isEventDispatchThread();
+        tasksToggle.setSelected(true);
+        terminalToggle.setSelected(false);
+        if (activeTaskList == null) {
+            activeTaskList = new TaskListPanel(console);
+        }
+        drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
+        drawerContentPanel.revalidate();
+        drawerContentPanel.repaint();
+        showDrawer();
+        return activeTaskList;
     }
 
     /** Shows the drawer by restoring the divider to its last known position. */
     public void showDrawer() {
         SwingUtilities.invokeLater(() -> {
-            // Ensure only the selected tool is shown
-            drawerContentPanel.removeAll();
-
-            if (terminalToggle.isSelected() && activeTerminal != null) {
-                drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
-            } else if (taskListToggle.isSelected() && activeTaskList != null) {
-                drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
-            }
-
-            drawerContentPanel.revalidate();
-            drawerContentPanel.repaint();
-
+            isCollapsed = false;
             // Restore original divider size
             if (originalDividerSize > 0) {
                 parentSplitPane.setDividerSize(originalDividerSize);
@@ -275,8 +284,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             // Reset resize weight to default
             parentSplitPane.setResizeWeight(0.5);
 
-            // Remove minimum size constraint from this drawer panel
-            setMinimumSize(null);
+            // Enforce a minimum open width for the drawer
+            setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
 
             // Use pixel-precise divider positioning for the initial 50/50 case to avoid rounding bias
             parentSplitPane.revalidate();
@@ -286,63 +295,76 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             int dividerSize = parentSplitPane.getDividerSize();
             double locProp = lastDividerLocation;
 
+            suppressPersist = true;
             if (totalWidth > 0 && Math.abs(locProp - 0.5) < 1e-6) {
-                // Ensure the two sides are exactly equal (excluding divider)
                 int half = (totalWidth - dividerSize) / 2;
                 parentSplitPane.setDividerLocation(half);
             } else {
-                // Use the stored proportion if available, otherwise default to 0.5
                 if (locProp > 0.0 && locProp < 1.0) {
                     parentSplitPane.setDividerLocation(locProp);
                 } else {
                     parentSplitPane.setDividerLocation(0.5);
                 }
             }
+            suppressPersist = false;
+
+            // Persist state after showing
+            persistOpen(true);
+            persistProportionFromSplit();
         });
     }
 
-    /** Collapses the drawer if no tools are active, showing only the toolbar. */
+    /** Collapses the drawer if no tools are active, showing only the tab strip. */
     public void collapseIfEmpty() {
         SwingUtilities.invokeLater(() -> {
+            isCollapsed = true;
             if (drawerContentPanel.getComponentCount() == 0) {
                 try {
                     // Remember last divider location only if not already collapsed
-                    int current = parentSplitPane.getDividerLocation();
                     int total = parentSplitPane.getWidth();
+                    int dividerSize = parentSplitPane.getDividerSize();
+                    int current = parentSplitPane.getDividerLocation();
                     if (total > 0) {
-                        double currentProp = (double) current / (double) total;
+                        int effective = Math.max(1, total - dividerSize);
+                        double currentProp = Math.max(0.0, Math.min(1.0, (double) current / (double) effective));
                         if (currentProp > 0.0 && currentProp < 0.95) {
                             lastDividerLocation = currentProp;
                         }
                     }
 
-                    // Calculate the minimum width needed for the toolbar
-                    int toolbarWidth = drawerToolBar.getPreferredSize().width;
-                    final int MIN_COLLAPSE_WIDTH = toolbarWidth;
+                    // Calculate the minimum width needed for the side control bar
+                    int tabStripWidth = buttonBar.getPreferredSize().width;
+                    final int MIN_COLLAPSE_WIDTH = tabStripWidth;
 
-                    int totalWidth = parentSplitPane.getWidth();
+                    int totalWidth = total;
                     if (totalWidth <= 0) {
                         // Not laid out yet; try again on the next event cycle
                         SwingUtilities.invokeLater(this::collapseIfEmpty);
                         return;
                     }
 
+                    // Prevent persisting while programmatically collapsing
+                    suppressPersist = true;
+                    // Hide the divider before moving it so we don't persist the collapsed position
+                    parentSplitPane.setDividerSize(0);
+
                     // Set resize weight so left panel gets all extra space
                     parentSplitPane.setResizeWeight(1.0);
 
-                    // Set minimum size on this drawer panel to keep toolbar visible
+                    // Set minimum size on this drawer panel to keep control bar visible
                     setMinimumSize(new Dimension(MIN_COLLAPSE_WIDTH, 0));
 
-                    // Position divider to show only the toolbar
+                    // Position divider to show only the control bar
                     int dividerLocation = totalWidth - MIN_COLLAPSE_WIDTH;
                     parentSplitPane.setDividerLocation(dividerLocation);
-
-                    // Hide the divider
-                    parentSplitPane.setDividerSize(0);
 
                     // Force layout update
                     parentSplitPane.revalidate();
                     parentSplitPane.repaint();
+                    suppressPersist = false;
+
+                    // Persist collapsed state
+                    persistOpen(false);
                 } catch (Exception ex) {
                     logger.debug("Error collapsing drawer", ex);
                 }
@@ -352,7 +374,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     /** Opens the drawer synchronously before first layout using a saved proportion. */
     public void openInitially(double proportion) {
-        // Ensure the TerminalPanel exists without invoking the 50% defaults
+        isCollapsed = false;
+        // Ensure the TerminalPanel exists
         if (activeTerminal == null) {
             try {
                 Path cwd = null;
@@ -366,6 +389,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     cwd = Path.of(System.getProperty("user.dir"));
                 }
                 activeTerminal = new TerminalPanel(console, this::closeTerminal, true, cwd);
+                drawerContentPanel.removeAll();
                 drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
             } catch (Exception ex) {
                 logger.warn("Failed to create terminal in drawer: {}", ex.getMessage());
@@ -378,20 +402,32 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             parentSplitPane.setDividerSize(originalDividerSize);
         }
         parentSplitPane.setResizeWeight(0.5);
-        setMinimumSize(null);
+        setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
 
         // Apply saved proportion if valid, else fall back to 0.5
-        double loc = (proportion > 0.0 && proportion < 1.0) ? proportion : 0.5;
+        double loc = (proportion > 0.0 && proportion < 0.90) ? proportion : 0.5;
+        suppressPersist = true;
         parentSplitPane.setDividerLocation(loc);
+        suppressPersist = false;
 
-        // Reflect toggle selected state without firing its action
+        // Reflect visible content
         terminalToggle.setSelected(true);
+        tasksToggle.setSelected(false);
+
+        // Update internal and persist
+        lastDividerLocation = loc;
+        persistLastTab("terminal");
+        persistOpen(true);
+        persistProportion(loc);
 
         revalidate();
         repaint();
     }
 
     public void openTerminalAndPasteText(String text) {
+        // Ensure the Terminal is selected so it is visible
+        terminalToggle.setSelected(true);
+        tasksToggle.setSelected(false);
         openTerminalAsync()
                 .thenAccept(tp -> {
                     try {
@@ -404,6 +440,140 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     logger.debug("Failed to open terminal and paste text", ex);
                     return null;
                 });
+    }
+
+    // --- Persistence helpers and restore ---
+
+    private boolean isUsingPerProjectPersistence() {
+        return GlobalUiSettings.isPersistPerProjectBounds() && getCurrentProject() != null;
+    }
+
+    private @Nullable AbstractProject getCurrentProject() {
+        if (console instanceof Chrome c) {
+            AbstractProject proj = c.getProject();
+            if (proj != null) {
+                return proj;
+            }
+        }
+        return null;
+    }
+
+    private void restoreInitialState() {
+        try {
+            var usePerProject = isUsingPerProjectPersistence();
+            var ap = getCurrentProject();
+
+            // Last tab
+            var lastTab = usePerProject && ap != null ? ap.getTerminalDrawerLastTab() : null;
+            if (lastTab == null) {
+                lastTab = GlobalUiSettings.getTerminalDrawerLastTab();
+            }
+            if (lastTab == null) {
+                lastTab = "terminal";
+            }
+
+            // Open flag
+            boolean open = (usePerProject && ap != null)
+                    ? Boolean.TRUE.equals(ap.getTerminalDrawerOpen()) || GlobalUiSettings.isTerminalDrawerOpen()
+                    : GlobalUiSettings.isTerminalDrawerOpen();
+
+            // Proportion
+            double prop = usePerProject && ap != null
+                    ? (ap.getTerminalDrawerProportion() > 0.0
+                            ? ap.getTerminalDrawerProportion()
+                            : GlobalUiSettings.getTerminalDrawerProportion())
+                    : GlobalUiSettings.getTerminalDrawerProportion();
+            if (!(prop > 0.0 && prop < 0.90)) {
+                prop = 0.5;
+            }
+
+            if (open) {
+                if ("tasks".equalsIgnoreCase(lastTab)) {
+                    openTaskList();
+                    applyProportion(prop);
+                } else {
+                    openInitially(prop);
+                }
+            } else {
+                collapseIfEmpty();
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to restore terminal drawer state", e);
+            collapseIfEmpty();
+        }
+    }
+
+    private void applyProportion(double proportion) {
+        isCollapsed = false;
+        if (originalDividerSize > 0) {
+            parentSplitPane.setDividerSize(originalDividerSize);
+        }
+        parentSplitPane.setResizeWeight(0.5);
+        setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
+
+        double loc = (proportion > 0.0 && proportion < 0.90) ? proportion : 0.5;
+        suppressPersist = true;
+        parentSplitPane.setDividerLocation(loc);
+        suppressPersist = false;
+        lastDividerLocation = loc;
+
+        parentSplitPane.revalidate();
+        parentSplitPane.repaint();
+
+        // Persist immediately
+        persistProportion(loc);
+        persistOpen(true);
+    }
+
+    private void persistLastTab(String tab) {
+        var ap = getCurrentProject();
+        if (isUsingPerProjectPersistence() && ap != null) {
+            ap.setTerminalDrawerLastTab(tab);
+            GlobalUiSettings.saveTerminalDrawerLastTab(tab);
+        } else {
+            GlobalUiSettings.saveTerminalDrawerLastTab(tab);
+        }
+    }
+
+    private void persistOpen(boolean open) {
+        var ap = getCurrentProject();
+        if (isUsingPerProjectPersistence() && ap != null) {
+            ap.setTerminalDrawerOpen(open);
+            GlobalUiSettings.saveTerminalDrawerOpen(open);
+        } else {
+            GlobalUiSettings.saveTerminalDrawerOpen(open);
+        }
+    }
+
+    private void persistProportionFromSplit() {
+        if (isCollapsed || suppressPersist) return;
+        int total = parentSplitPane.getWidth();
+        int dividerSize = parentSplitPane.getDividerSize();
+        if (total <= 0) return;
+        int effective = Math.max(1, total - dividerSize);
+        // If the drawer is effectively collapsed (only button bar visible), skip persisting
+        int barW = buttonBar.getPreferredSize().width;
+        int drawerW = getWidth();
+        if (drawerW <= barW + 2) return;
+        int locPx = parentSplitPane.getDividerLocation();
+        double prop = Math.max(0.0, Math.min(1.0, (double) locPx / (double) effective));
+        persistProportion(prop);
+    }
+
+    private void persistProportion(double prop) {
+        if (isCollapsed || suppressPersist) return;
+        double clamped = (prop > 0.0 && prop < 1.0) ? Math.max(0.05, Math.min(0.95, prop)) : -1.0;
+        // Treat near-collapsed positions as "collapsed" and do not overwrite the last open proportion
+        if (!(clamped > 0.0 && clamped < 1.0) || clamped >= 0.90) return;
+        lastDividerLocation = clamped;
+
+        var ap = getCurrentProject();
+        if (isUsingPerProjectPersistence() && ap != null) {
+            ap.setTerminalDrawerProportion(clamped);
+            GlobalUiSettings.saveTerminalDrawerProportion(clamped);
+        } else {
+            GlobalUiSettings.saveTerminalDrawerProportion(clamped);
+        }
     }
 
     @Override
@@ -434,11 +604,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             drawerContentPanel.revalidate();
             drawerContentPanel.repaint();
             showDrawer();
-            terminalToggle.setSelected(true);
-            taskListToggle.setSelected(false);
         } catch (Exception ex) {
             logger.warn("Failed to create terminal in drawer: {}", ex.getMessage());
-            terminalToggle.setSelected(false);
         }
     }
 

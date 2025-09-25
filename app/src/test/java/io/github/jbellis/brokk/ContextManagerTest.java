@@ -1,7 +1,13 @@
 package io.github.jbellis.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
+import java.nio.file.Files;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -76,5 +82,39 @@ class ContextManagerTest {
         });
 
         assertTrue(unexpectedMatches.isEmpty(), "Unexpectedly matched: " + unexpectedMatches);
+    }
+
+    @Test
+    public void testDropHistoryEntryBySequence() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-test");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+
+        // Build two TaskEntries with distinct sequences
+        List<ChatMessage> msgs1 = List.of(UserMessage.from("first"));
+        List<ChatMessage> msgs2 = List.of(UserMessage.from("second"));
+
+        var tf1 = new ContextFragment.TaskFragment(cm, msgs1, "First Task");
+        var tf2 = new ContextFragment.TaskFragment(cm, msgs2, "Second Task");
+
+        var entry1 = new TaskEntry(101, tf1, null);
+        var entry2 = new TaskEntry(202, tf2, null);
+
+        // Seed initial history with both entries
+        cm.pushContext(ctx -> ctx.withCompressedHistory(List.of(entry1, entry2)));
+
+        // Sanity check preconditions
+        Context before = cm.topContext();
+        assertEquals(2, before.getTaskHistory().size(), "Precondition: two history entries expected");
+
+        // Drop the first entry by its sequence
+        cm.dropHistoryEntryBySequence(101);
+
+        // Validate the new top context
+        Context after = cm.topContext();
+        assertEquals(1, after.getTaskHistory().size(), "Exactly one history entry should remain");
+        assertTrue(
+                after.getTaskHistory().stream().noneMatch(te -> te.sequence() == 101), "Dropped entry must be absent");
+        assertEquals("Delete task from history", after.getAction());
     }
 }

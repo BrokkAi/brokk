@@ -47,6 +47,8 @@ public class Service {
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
 
+    public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
+
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
         public ModelConfig(String name, ReasoningLevel reasoning) {
@@ -221,6 +223,8 @@ public class Service {
     public static final String GPT_5 = "gpt-5";
 
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
+    public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
+    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_MINI = "gpt-5-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -277,7 +281,7 @@ public class Service {
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
 
         // these should always be available
-        var qm = getModel(new ModelConfig("gemini-2.0-flash", ReasoningLevel.DEFAULT));
+        var qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
         var qqm = getModel(
@@ -840,6 +844,13 @@ public class Service {
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
+        // Dev-mode override via Settings: respect checkbox only when -Dbrokk.devmode=true
+        if (Boolean.getBoolean("brokk.devmode")) {
+            boolean force = MainProject.getForceToolEmulation();
+            logger.debug("Dev mode enabled; requiresEmulatedTools overridden by setting: {}", force);
+            return force;
+        }
+
         var location = model.defaultRequestParameters().modelName();
 
         var info = getModelInfo(location);
@@ -848,7 +859,7 @@ public class Service {
             return true;
         }
 
-        if (true) {
+        if (GLOBAL_FORCE_TOOL_EMULATION) {
             // something is broken in litellm world
             return true;
         }
@@ -1023,6 +1034,18 @@ public class Service {
     /** Returns the default speech-to-text model instance. */
     public SpeechToTextModel sttModel() {
         return sttModel;
+    }
+
+    /** Returns a model optimized for scanning tasks. */
+    public StreamingChatModel getScanModel() {
+        // fall back to 2.0 if 2.5 is not available (user is on free tier)
+        var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GEMINI_2_0_FLASH;
+        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
+        if (model == null) {
+            logger.error("Failed to get scan model '{}'", modelName);
+            return new UnavailableStreamingModel();
+        }
+        return model;
     }
 
     /**

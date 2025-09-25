@@ -244,6 +244,13 @@ public class AttachContextDialog extends JDialog {
                         KeyStroke.getKeyStroke(KeyEvent.VK_4, menuMask),
                         javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
 
+        // Hotkey for summarize checkbox
+        getRootPane()
+                .registerKeyboardAction(
+                        ev -> summarizeCheck.doClick(),
+                        KeyStroke.getKeyStroke(KeyEvent.VK_I, menuMask),
+                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+
         // Register analyzer callback to manage gating lifecycle
         registerAnalyzerCallback();
 
@@ -318,7 +325,8 @@ public class AttachContextDialog extends JDialog {
 
         // Manage summarize checkbox
         summarizeCheck.setEnabled(analyzerReady);
-        summarizeCheck.setToolTipText(analyzerReady ? null : "Summarize" + ANALYZER_NOT_READY_TOOLTIP);
+        summarizeCheck.setToolTipText(
+                analyzerReady ? hotkeyModifierString + "-I" : "Summarize" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Files is always enabled
         filesBtn.setEnabled(true);

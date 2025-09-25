@@ -3,15 +3,16 @@ package io.github.jbellis.brokk.gui.dialogs;
 import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
@@ -20,20 +21,22 @@ import io.github.jbellis.brokk.gui.util.ScaledIcon;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
-import java.io.File;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
+import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public class BlitzForgeDialog extends JDialog {
+    private static final Logger logger = LogManager.getLogger(BlitzForgeDialog.class);
     private final Chrome chrome;
     private JTextArea instructionsArea;
     private JComboBox<Service.FavoriteModel> modelComboBox;
@@ -41,10 +44,6 @@ public class BlitzForgeDialog extends JDialog {
     private JLabel tokenWarningLabel;
     private JLabel costEstimateLabel;
     private JCheckBox includeWorkspaceCheckbox;
-    private JRadioButton entireProjectScopeRadioButton;
-    private JPanel scopeCardsPanel;
-    private CardLayout scopeCardLayout;
-    private JComboBox<String> languageComboBox;
     private JComboBox<String> relatedClassesCombo;
     private JTextField perFileCommandTextField;
     private JTextArea postProcessingInstructionsArea;
@@ -67,18 +66,19 @@ public class BlitzForgeDialog extends JDialog {
     // Cache (file -> token count) to avoid recomputation on every UI refresh
     private final Map<ProjectFile, Long> tokenCountCache = new ConcurrentHashMap<>();
 
-    private FileSelectionPanel fileSelectionPanel;
+    @SuppressWarnings("NullAway.Init")
+    private JComboBox<String> languageComboBox;
+
+    @SuppressWarnings("NullAway.Init")
     private JTable selectedFilesTable;
-    private javax.swing.table.DefaultTableModel tableModel;
-    private TableRowSorter<javax.swing.table.DefaultTableModel> selectedFilesSorter;
-    private JRadioButton listFilesScopeRadioButton;
-    private JTextArea listFilesTextArea;
-    // Components for the raw-text “List Files” card
-    private javax.swing.table.DefaultTableModel parsedTableModel;
-    private JTable parsedFilesTable;
-    private JLabel parsedFilesCountLabel;
+
+    @SuppressWarnings("NullAway.Init")
+    private DefaultTableModel tableModel;
+
+    @SuppressWarnings("NullAway.Init")
+    private TableRowSorter<DefaultTableModel> selectedFilesSorter;
+
     private JLabel selectedFilesCountLabel;
-    private JComboBox<String> listLanguageCombo;
 
     private static final Icon smallInfoIcon;
 
@@ -159,261 +159,9 @@ public class BlitzForgeDialog extends JDialog {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Scope Row
-        gbc.gridx = 0;
-        gbc.gridy = 0; // Shifted up since explanationLabel is removed
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.EAST;
-        // Scope Cards Panel
-        // This is now populated before being placed into the scope selection panel below
-        scopeCardLayout = new CardLayout();
-        scopeCardsPanel = new JPanel(scopeCardLayout);
-
-        // "Entire Project" Card
-        JPanel entireProjectPanel = new JPanel(new GridBagLayout()); // Changed to GridBagLayout
-        entireProjectPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        GridBagConstraints epGBC = new GridBagConstraints();
-        epGBC.insets = new Insets(0, 0, 0, 0); // Reset insets for this panel
-
-        // Row 0: "Restrict to Language" Label and ComboBox
-        epGBC.gridx = 0;
-        epGBC.gridy = 0;
-        epGBC.anchor = GridBagConstraints.WEST;
-        epGBC.fill = GridBagConstraints.NONE;
-        epGBC.weightx = 0.0;
-        entireProjectPanel.add(new JLabel("Restrict to Language"), epGBC);
-
-        epGBC.gridx = 1;
-        epGBC.weightx = 1.0; // Allow combobox to take extra horizontal space
-        epGBC.fill = GridBagConstraints.HORIZONTAL; // Fill horizontally
-        languageComboBox = new JComboBox<>();
-        languageComboBox.addItem(ALL_LANGUAGES_OPTION);
-        chrome.getProject().getAnalyzerLanguages().stream()
-                .map(Language::toString)
-                .sorted()
-                .forEach(languageComboBox::addItem);
-        languageComboBox.setSelectedItem(ALL_LANGUAGES_OPTION);
-        entireProjectPanel.add(languageComboBox, epGBC);
-        // Action listener will be added later, after the new update method is defined
-
-        // Row 1: File Count Label
-        epGBC.gridx = 0;
-        epGBC.gridy = 1;
-        epGBC.gridwidth = 2; // Span across both columns
-        epGBC.weightx = 1.0;
-        epGBC.fill = GridBagConstraints.HORIZONTAL;
-        epGBC.anchor = GridBagConstraints.WEST;
-        JLabel entireProjectFileCountLabel = new JLabel(" ");
-        entireProjectFileCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0)); // Add a bit of top padding
-        entireProjectPanel.add(entireProjectFileCountLabel, epGBC);
-        entireProjectFileCountLabel.setVisible(false);
-
-        // Spacer to push content to the top (remaining vertical space)
-        epGBC.gridx = 0;
-        epGBC.gridy = 2;
-        epGBC.gridwidth = 2;
-        epGBC.weighty = 1.0;
-        epGBC.fill = GridBagConstraints.VERTICAL;
-        entireProjectPanel.add(new JPanel(), epGBC); // Filler panel
-
-        scopeCardsPanel.add(entireProjectPanel, "ENTIRE");
-
-        // "Select Files" Card
-        var fspConfig = new FileSelectionPanel.Config(
-                chrome.getProject(),
-                false, // no external files
-                File::isFile,
-                CompletableFuture.completedFuture(chrome.getProject().getRepo().getTrackedFiles().stream()
-                        .map(ProjectFile::absPath)
-                        .map(Path::toAbsolutePath)
-                        .toList()),
-                true, // multi-select
-                __ -> {},
-                true, // include project files in autocomplete
-                "Ctrl-Enter to add files to the list on the right");
-        fileSelectionPanel = new FileSelectionPanel(fspConfig);
-        var inputComponent = fileSelectionPanel.getFileInputComponent();
-        var addFilesAction = new AbstractAction() {
-            @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
-                addSelectedFilesToTable();
-            }
-        };
-        var ctrlEnterStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK);
-        inputComponent.getInputMap(JComponent.WHEN_FOCUSED).put(ctrlEnterStroke, "addFiles");
-        inputComponent.getActionMap().put("addFiles", addFilesAction);
-
-        JPanel selectFilesCardPanel = new JPanel(new BorderLayout(0, 5));
-        selectFilesCardPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        // Side-by-side panels (50 % each) without a resizable splitter
-        JPanel horizontalSplitPane = new JPanel(new GridLayout(1, 2, H_GAP, 0));
-
-        // Left side: FileSelectionPanel with "Add Files" button underneath
-        JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
-        leftPanel.add(fileSelectionPanel, BorderLayout.CENTER);
-        MaterialButton addFilesButton = new MaterialButton();
-        addFilesButton.setIcon(Icons.ADD);
-        addFilesButton.setToolTipText("Add Files");
-        addFilesButton.addActionListener(e -> addSelectedFilesToTable());
-        JPanel addButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        addButtonPanel.add(addFilesButton);
-        horizontalSplitPane.add(leftPanel);
-
-        // Create the JTable and its scroll pane
-        tableModel = new javax.swing.table.DefaultTableModel(new String[] {"File"}, 0);
-        selectedFilesTable = new JTable(tableModel);
-        // Persistent sorter (view ↔ model mapping)
-        selectedFilesSorter = new TableRowSorter<>(tableModel);
-        selectedFilesTable.setRowSorter(selectedFilesSorter);
-        selectedFilesSorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
-
-        JPopupMenu popupMenu = new JPopupMenu();
-        JMenuItem removeItem = new JMenuItem("Remove");
-        removeItem.addActionListener(e -> removeSelectedFilesFromTable());
-        popupMenu.add(removeItem);
-        selectedFilesTable.setComponentPopupMenu(popupMenu);
-
-        selectedFilesTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showPopup(e);
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showPopup(e);
-                }
-            }
-
-            private void showPopup(MouseEvent e) {
-                int row = selectedFilesTable.rowAtPoint(e.getPoint());
-                if (row >= 0) {
-                    // if the right-clicked row is not in the current selection, update the selection
-                    if (!selectedFilesTable.isRowSelected(row)) {
-                        selectedFilesTable.setRowSelectionInterval(row, row);
-                    }
-                }
-                popupMenu.show(e.getComponent(), e.getX(), e.getY());
-            }
-        });
-
-        JScrollPane tableScrollPane = new JScrollPane(selectedFilesTable);
-        // tableScrollPane.setPreferredSize(new Dimension(500, 120)); // No longer needed with JSplitPane
-
-        // Right side: selected-files table
-        horizontalSplitPane.add(tableScrollPane);
-
-        // Add the JSplitPane to the center of selectFilesCardPanel
-        selectFilesCardPanel.add(horizontalSplitPane, BorderLayout.CENTER);
-
-        // The removeButtonPanel remains at BorderLayout.SOUTH
-        JPanel removeButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        MaterialButton removeButton = new MaterialButton();
-        removeButton.setIcon(Icons.REMOVE);
-        removeButton.setToolTipText("Remove Selected");
-        removeButton.addActionListener(e -> removeSelectedFilesFromTable());
-        removeButtonPanel.add(removeButton);
-        // Combine Add Files and Remove Selected on a single bottom row
-        JPanel bottomButtonsPanel = new JPanel(new GridLayout(1, 2, H_GAP, 0));
-        bottomButtonsPanel.add(addButtonPanel); // left side, right-aligned within its cell
-        bottomButtonsPanel.add(removeButtonPanel); // right side
-        selectFilesCardPanel.add(bottomButtonsPanel, BorderLayout.SOUTH);
-
-        scopeCardsPanel.add(selectFilesCardPanel, "SELECT");
-
-        // "List Files" Card
-        JPanel listFilesCardPanel = new JPanel(new BorderLayout(5, 5));
-        listFilesCardPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        // Left: raw-text area and its instructions
-        JPanel rawTextPanel = new JPanel(new BorderLayout(0, 5));
-        JLabel listFilesInstructions = new JLabel("Raw text containing filenames");
-
-        // Calculate the target height from the right-side components' typical preferred sizes
-        // We create temporary components to ensure their preferred size accurately reflects the current L&F
-        // and font metrics, without depending on the order of UI initialization.
-        JLabel tempRestrictLabel = new JLabel("Restrict to Language");
-        JComboBox<String> tempLanguageCombo = new JComboBox<>();
-        tempLanguageCombo.addItem(
-                "Longest language name possible to ensure height calculation"); // Ensure combo has some content
-        int targetHeaderHeight =
-                Math.max(tempRestrictLabel.getPreferredSize().height, tempLanguageCombo.getPreferredSize().height);
-        listFilesInstructions.setPreferredSize(
-                new Dimension(listFilesInstructions.getPreferredSize().width, targetHeaderHeight));
-
-        listFilesTextArea = new JTextArea(8, 40);
-        listFilesTextArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
-                updateParsedFilesTable();
-            }
-
-            @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
-                updateParsedFilesTable();
-            }
-
-            @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
-                updateParsedFilesTable();
-            }
-        });
-        JScrollPane rawTextScroll = new JScrollPane(listFilesTextArea);
-        rawTextPanel.add(listFilesInstructions, BorderLayout.NORTH);
-        rawTextPanel.add(rawTextScroll, BorderLayout.CENTER);
-
-        // Right: parsed-file table with language filter
-        parsedTableModel = new javax.swing.table.DefaultTableModel(new String[] {"File"}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-        parsedFilesTable = new JTable(parsedTableModel);
-        JScrollPane parsedScroll = new JScrollPane(parsedFilesTable);
-
-        // top-right panel: language combo
-        JPanel rightTopPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, H_GAP, 0));
-        rightTopPanel.add(new JLabel("Restrict to Language"));
-        listLanguageCombo = new JComboBox<>();
-        listLanguageCombo.addItem(ALL_LANGUAGES_OPTION);
-        chrome.getProject().getAnalyzerLanguages().stream()
-                .map(Language::toString)
-                .sorted()
-                .forEach(listLanguageCombo::addItem);
-        listLanguageCombo.setSelectedItem(ALL_LANGUAGES_OPTION);
-        listLanguageCombo.addActionListener(e -> {
-            updateParsedFilesTable();
-            updateCostEstimate();
-        });
-        rightTopPanel.add(listLanguageCombo);
-
-        // bottom-right: file count
-        parsedFilesCountLabel = new JLabel("0 files");
-        parsedFilesCountLabel.setVisible(false);
-        parsedFilesCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
-
-        JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
-        rightPanel.add(rightTopPanel, BorderLayout.NORTH);
-        rightPanel.add(parsedScroll, BorderLayout.CENTER);
-
-        // Side-by-side panels (50 % each) without a resizable splitter
-        JPanel splitPane = new JPanel(new GridLayout(1, 2, H_GAP, 0));
-        splitPane.add(rawTextPanel);
-        splitPane.add(rightPanel);
-
-        listFilesCardPanel.add(splitPane, BorderLayout.CENTER);
-        listFilesCardPanel.add(parsedFilesCountLabel, BorderLayout.SOUTH);
-
-        scopeCardsPanel.add(listFilesCardPanel, "LIST");
-
         // Context + Post-processing option panels
-        gbc.gridy++;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
         gbc.gridwidth = 3;
         gbc.weightx = 1.0;
         gbc.weighty = 0.15;
@@ -446,7 +194,7 @@ public class BlitzForgeDialog extends JDialog {
         instructionsPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // History dropdown button (scaled to label height)
-        JButton blitzHistoryButton = new JButton("History ▼");
+        MaterialButton blitzHistoryButton = new MaterialButton("History ▼");
         blitzHistoryButton.setToolTipText("Select a previous BlitzForge instruction");
         blitzHistoryButton.addActionListener(ev -> showBlitzHistoryMenu(blitzHistoryButton));
 
@@ -923,67 +671,21 @@ public class BlitzForgeDialog extends JDialog {
         combined.add(ppPanel);
         contentPanel.add(combined, gbc);
 
-        // Scope Panel at the bottom
+        // Scope Panel: Files table + left actions (top-left aligned)
         gbc.gridy++;
         gbc.gridx = 0;
         gbc.gridwidth = 3;
         gbc.weighty = 0.1;
         gbc.fill = GridBagConstraints.BOTH;
 
-        JPanel scopePanel = new JPanel(new BorderLayout(0, 5));
-        scopePanel.setBorder(BorderFactory.createTitledBorder("Scope"));
-
-        entireProjectScopeRadioButton = new JRadioButton("Entire Project");
-        JRadioButton selectFilesScopeRadioButton = new JRadioButton("Select Files");
-        listFilesScopeRadioButton = new JRadioButton("List Files");
-        selectFilesScopeRadioButton.setSelected(true);
-
-        ButtonGroup scopeButtonGroup = new ButtonGroup();
-        scopeButtonGroup.add(entireProjectScopeRadioButton);
-        scopeButtonGroup.add(selectFilesScopeRadioButton);
-        scopeButtonGroup.add(listFilesScopeRadioButton);
-
-        JPanel scopeRadioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        scopeRadioPanel.add(entireProjectScopeRadioButton);
-        scopeRadioPanel.add(selectFilesScopeRadioButton);
-        scopeRadioPanel.add(listFilesScopeRadioButton);
-
-        scopePanel.add(scopeRadioPanel, BorderLayout.NORTH);
-        scopePanel.add(scopeCardsPanel, BorderLayout.CENTER);
-        scopePanel.add(selectedFilesCountLabel, BorderLayout.SOUTH);
-
+        JPanel scopePanel = createScopePanel();
         contentPanel.add(scopePanel, gbc);
-
-        // Listeners to switch cards
-        java.awt.event.ActionListener scopeListener = e -> {
-            String command;
-            if (entireProjectScopeRadioButton.isSelected()) {
-                command = "ENTIRE";
-                updateEntireProjectFileCountLabel();
-            } else if (listFilesScopeRadioButton.isSelected()) {
-                command = "LIST";
-            } else {
-                command = "SELECT";
-            }
-            scopeCardLayout.show(scopeCardsPanel, command);
-            updateCostEstimate();
-        };
-        languageComboBox.addActionListener(e -> {
-            updateEntireProjectFileCountLabel();
-            updateCostEstimate();
-        });
-
-        entireProjectScopeRadioButton.addActionListener(scopeListener);
-        selectFilesScopeRadioButton.addActionListener(scopeListener);
-        listFilesScopeRadioButton.addActionListener(scopeListener);
-        scopeCardLayout.show(scopeCardsPanel, "SELECT");
-
         add(contentPanel, BorderLayout.CENTER);
 
         // Buttons Panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var okButton = new MaterialButton("OK");
-        var cancelButton = new JButton("Cancel");
+        var cancelButton = new MaterialButton("Cancel");
 
         // Style OK button as primary action (bright blue with white text)
         io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(okButton);
@@ -994,6 +696,111 @@ public class BlitzForgeDialog extends JDialog {
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
         add(buttonPanel, BorderLayout.SOUTH);
+    }
+
+    private JPanel createScopePanel() {
+        JPanel scopePanel = new JPanel(new BorderLayout(H_GAP, V_GAP));
+        var scopeTitle = BorderFactory.createTitledBorder("Scope");
+        scopePanel.setBorder(
+                BorderFactory.createCompoundBorder(scopeTitle, BorderFactory.createEmptyBorder(5, 5, 5, 5)));
+
+        JPanel scopeMain = new JPanel(new GridBagLayout());
+
+        // --- right column (files table) ---
+        JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
+        tableModel = new javax.swing.table.DefaultTableModel(new String[] {"File"}, 0);
+        selectedFilesTable = new JTable(tableModel);
+        selectedFilesTable.setToolTipText("Tip: You can paste a list of files here (Ctrl+V)");
+        selectedFilesSorter = new TableRowSorter<>(tableModel);
+        selectedFilesTable.setRowSorter(selectedFilesSorter);
+        selectedFilesSorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
+
+        JScrollPane tableScrollPane = new JScrollPane(selectedFilesTable);
+        // Remove the LAF border so the table aligns with the uniform 5px scope inset
+        tableScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        rightPanel.add(tableScrollPane, BorderLayout.CENTER);
+
+        // Bottom action bar: left (entire project + language), right (attach files, remove)
+        // Left side
+        MaterialButton addEntireButton = new MaterialButton("Add entire project");
+        languageComboBox = new JComboBox<>();
+        languageComboBox.addItem(ALL_LANGUAGES_OPTION);
+        chrome.getProject().getAnalyzerLanguages().stream()
+                .map(Language::toString)
+                .sorted()
+                .forEach(languageComboBox::addItem);
+        languageComboBox.setSelectedItem(ALL_LANGUAGES_OPTION);
+        JPanel leftButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, H_GAP, 0));
+        leftButtonsPanel.add(addEntireButton);
+        leftButtonsPanel.add(languageComboBox);
+
+        // Right side
+        MaterialButton attachFilesButton = new MaterialButton();
+        attachFilesButton.setIcon(Icons.ATTACH_FILE);
+        attachFilesButton.setToolTipText("Attach files");
+        MaterialButton removeButton = new MaterialButton();
+        removeButton.setIcon(Icons.REMOVE);
+        removeButton.setToolTipText("Remove Selected");
+        removeButton.addActionListener(e -> removeSelectedFilesFromTable());
+        JPanel rightButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, H_GAP, 0));
+        rightButtonsPanel.add(attachFilesButton);
+        rightButtonsPanel.add(removeButton);
+
+        // Combine left and right into one row
+        JPanel bottomButtonsPanel = new JPanel(new BorderLayout());
+        bottomButtonsPanel.add(leftButtonsPanel, BorderLayout.WEST);
+        bottomButtonsPanel.add(rightButtonsPanel, BorderLayout.EAST);
+
+        // Count label in a separate row below the buttons
+        JPanel countRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        countRow.add(selectedFilesCountLabel);
+
+        JPanel bottomContainer = new JPanel();
+        bottomContainer.setLayout(new BoxLayout(bottomContainer, BoxLayout.Y_AXIS));
+        bottomContainer.add(bottomButtonsPanel);
+        bottomContainer.add(countRow);
+
+        rightPanel.add(bottomContainer, BorderLayout.SOUTH);
+
+        var pasteStroke = KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK);
+        selectedFilesTable.getInputMap(JComponent.WHEN_FOCUSED).put(pasteStroke, "paste-files");
+        selectedFilesTable.getActionMap().put("paste-files", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                try {
+                    var content = (String)
+                            Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+                    addRelPathsFromText(content);
+                } catch (Exception ex) {
+                    logger.debug("Failed to paste files from clipboard", ex);
+                }
+            }
+        });
+
+        GridBagConstraints rightCol = new GridBagConstraints();
+        rightCol.gridx = 0;
+        rightCol.gridy = 0;
+        rightCol.weightx = 1.0;
+        rightCol.weighty = 1.0;
+        rightCol.fill = GridBagConstraints.BOTH;
+        rightCol.anchor = GridBagConstraints.NORTHWEST;
+        scopeMain.add(rightPanel, rightCol);
+
+        scopePanel.add(scopeMain, BorderLayout.CENTER);
+
+        // Wire actions
+        addEntireButton.addActionListener(e -> {
+            var files = chrome.getProject().getRepo().getTrackedFiles().stream().filter(ProjectFile::isText);
+            String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
+            var filtered = ALL_LANGUAGES_OPTION.equals(langSel)
+                    ? files
+                    : files.filter(pf -> langSel.equals(
+                            Languages.fromExtension(pf.extension()).toString()));
+            addProjectFilesToTable(filtered.toList());
+        });
+        attachFilesButton.addActionListener(e -> openAttachFilesDialog());
+
+        return scopePanel;
     }
 
     /**
@@ -1111,39 +918,6 @@ public class BlitzForgeDialog extends JDialog {
     /** Gather the currently selected files (no validation). */
     private List<ProjectFile> getSelectedFilesForCost() {
         try {
-            if (entireProjectScopeRadioButton.isSelected()) {
-                var files =
-                        chrome.getProject().getRepo().getTrackedFiles().stream().filter(ProjectFile::isText);
-                String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
-                if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
-                    files = files.filter(pf -> langSel.equals(
-                            Languages.fromExtension(pf.extension()).toString()));
-                }
-                return files.toList();
-            }
-
-            if (listFilesScopeRadioButton.isSelected()) {
-                String text = listFilesTextArea.getText();
-                var projectFiles = chrome.getProject().getRepo().getTrackedFiles();
-                return projectFiles.parallelStream()
-                        .filter(ProjectFile::isText)
-                        .filter(pf -> {
-                            boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
-                            if (!nameMatch) {
-                                return false;
-                            }
-                            String langSel =
-                                    Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
-                            if (ALL_LANGUAGES_OPTION.equals(langSel)) {
-                                return true;
-                            }
-                            return langSel.equals(
-                                    Languages.fromExtension(pf.extension()).toString());
-                        })
-                        .toList();
-            }
-
-            // select-files scope
             List<ProjectFile> files = new ArrayList<>();
             for (int i = 0; i < tableModel.getRowCount(); i++) {
                 String rel = (String) tableModel.getValueAt(i, 0);
@@ -1153,17 +927,6 @@ public class BlitzForgeDialog extends JDialog {
         } catch (Exception e) {
             return List.of();
         }
-    }
-
-    private void updateEntireProjectFileCountLabel() {
-        var files = chrome.getProject().getRepo().getTrackedFiles().stream().filter(ProjectFile::isText);
-        String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
-        if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
-            files = files.filter(
-                    pf -> langSel.equals(Languages.fromExtension(pf.extension()).toString()));
-        }
-        long count = files.count();
-        selectedFilesCountLabel.setText(count + " file" + (count == 1 ? "" : "s") + " selected");
     }
 
     /* ---------------- existing method ------------------------------ */
@@ -1224,33 +987,6 @@ public class BlitzForgeDialog extends JDialog {
         rootPane.registerKeyboardAction(actionListener, escapeStroke, JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
-    private void addSelectedFilesToTable() {
-        List<BrokkFile> resolvedFiles = fileSelectionPanel.resolveAndGetSelectedFiles();
-        if (resolvedFiles.isEmpty()) {
-            return;
-        }
-
-        // Use a Set to prevent duplicate entries
-        Set<String> existingPaths = new HashSet<>();
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            existingPaths.add((String) tableModel.getValueAt(i, 0));
-        }
-
-        for (BrokkFile file : resolvedFiles) {
-            if (file instanceof ProjectFile pf) {
-                String relPath = pf.getRelPath().toString();
-                if (!existingPaths.contains(relPath)) {
-                    tableModel.addRow(new Object[] {relPath});
-                }
-            }
-        }
-        // Sort the table model after adding new files
-        selectedFilesSorter.sort();
-
-        fileSelectionPanel.setInputText("");
-        updateCostEstimate();
-    }
-
     private void removeSelectedFilesFromTable() {
         int[] selectedRows = selectedFilesTable.getSelectedRows();
         // Remove rows in reverse order to prevent index shifting issues
@@ -1259,50 +995,74 @@ public class BlitzForgeDialog extends JDialog {
             tableModel.removeRow(modelIndex);
         }
         selectedFilesTable.clearSelection();
+        updateSelectedFilesCount();
         updateCostEstimate();
     }
 
-    private void updateParsedFilesTable() {
-        String text = listFilesTextArea.getText();
-        parsedTableModel.setRowCount(0);
+    private void updateSelectedFilesCount() {
+        int n = tableModel.getRowCount();
+        selectedFilesCountLabel.setText(n + " file" + (n == 1 ? "" : "s") + " selected");
+    }
 
+    private void addProjectFilesToTable(Collection<ProjectFile> files) {
+        Set<String> existingPaths = new HashSet<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            existingPaths.add((String) tableModel.getValueAt(i, 0));
+        }
+        for (ProjectFile pf : files) {
+            String rel = pf.getRelPath().toString();
+            if (!existingPaths.contains(rel)) {
+                tableModel.addRow(new Object[] {rel});
+                existingPaths.add(rel);
+            }
+        }
+        selectedFilesSorter.sort();
+        updateSelectedFilesCount();
+        updateCostEstimate();
+    }
+
+    private void addRelPathsFromText(String text) {
         if (text.isBlank()) {
-            parsedFilesCountLabel.setText("0 files");
-            updateCostEstimate();
             return;
         }
+        var cm = chrome.getContextManager();
+        String normalized = text.replace("\r\n", "\n").replace('\r', '\n');
+        Iterable<String> lines = Splitter.on('\n').split(normalized);
+        Set<String> rels = new LinkedHashSet<>();
+        for (String line : lines) {
+            String rel = line.trim();
+            if (rel.isEmpty()) continue;
+            try {
+                var pf = cm.toFile(rel);
+                if (pf.isText()) {
+                    rels.add(pf.getRelPath().toString());
+                }
+            } catch (Exception ex) {
+                logger.debug("Skipping path {} while parsing pasted list", rel, ex);
+            }
+        }
+        if (!rels.isEmpty()) {
+            for (String r : rels) {
+                tableModel.addRow(new Object[] {r});
+            }
+            selectedFilesSorter.sort();
+            updateSelectedFilesCount();
+            updateCostEstimate();
+        }
+    }
 
-        var tracked = chrome.getProject().getRepo().getTrackedFiles();
-
-        String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
-
-        List<ProjectFile> matches = tracked.parallelStream()
-                .filter(ProjectFile::isText)
-                .filter(pf -> {
-                    boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
-                    if (!nameMatch) {
-                        return false;
-                    }
-                    if (ALL_LANGUAGES_OPTION.equals(langSel)) {
-                        return true;
-                    }
-                    return langSel.equals(
-                            Languages.fromExtension(pf.extension()).toString());
-                })
-                .sorted(Comparator.comparing(ProjectFile::toString))
-                .toList();
-
-        matches.forEach(
-                pf -> parsedTableModel.addRow(new Object[] {pf.getRelPath().toString()}));
-
-        // Sort the parsed table model
-        var parsedRowSorter = new TableRowSorter<>(parsedTableModel);
-        parsedFilesTable.setRowSorter(parsedRowSorter);
-        parsedRowSorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
-        parsedRowSorter.sort();
-
-        selectedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s") + " selected");
-        updateCostEstimate();
+    private void openAttachFilesDialog() {
+        var dlg = new AttachContextDialog(chrome.getFrame(), chrome.getContextManager(), false);
+        dlg.setLocationRelativeTo(this);
+        dlg.setVisible(true);
+        var result = dlg.getSelection();
+        if (result == null) {
+            return;
+        }
+        ContextFragment fragment = result.fragment();
+        var cm = chrome.getContextManager();
+        cm.submitBackgroundTask("Attach files", () -> new ArrayList<>(fragment.files()))
+                .thenAccept(files -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(files)));
     }
 
     private void onOK() {
@@ -1335,72 +1095,19 @@ public class BlitzForgeDialog extends JDialog {
             }
         }
 
-        // Determine scope and get files to process
+        // Determine files to process (from the Files table)
         List<ProjectFile> filesToProcessList;
-
-        if (entireProjectScopeRadioButton.isSelected()) {
-            var filesToProcess =
-                    chrome.getProject().getRepo().getTrackedFiles().stream().filter(ProjectFile::isText);
-
-            String selectedLanguageString = (String) languageComboBox.getSelectedItem();
-            if (selectedLanguageString != null && !ALL_LANGUAGES_OPTION.equals(selectedLanguageString)) {
-                filesToProcess = filesToProcess.filter(pf -> {
-                    Language lang = Languages.fromExtension(pf.extension());
-                    return selectedLanguageString.equals(lang.toString());
-                });
-            }
-            filesToProcessList = filesToProcess.toList();
-
-            if (filesToProcessList.isEmpty()) {
-                String message = (ALL_LANGUAGES_OPTION.equals(languageComboBox.getSelectedItem())
-                                || languageComboBox.getSelectedItem() == null)
-                        ? "No text files found in the project to process"
-                        : "No text files found for the selected language (" + languageComboBox.getSelectedItem() + ")";
-                JOptionPane.showMessageDialog(this, message, "No Files", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-        } else if (listFilesScopeRadioButton.isSelected()) {
-            String text = listFilesTextArea.getText();
-            if (text.isBlank()) {
-                JOptionPane.showMessageDialog(
-                        this, "Raw text cannot be empty", "Input Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            var projectFiles = chrome.getProject().getRepo().getTrackedFiles();
-            filesToProcessList = projectFiles.parallelStream()
-                    .filter(ProjectFile::isText)
-                    .filter(pf -> {
-                        boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
-                        if (!nameMatch) {
-                            return false;
-                        }
-                        String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
-                        if (ALL_LANGUAGES_OPTION.equals(langSel)) {
-                            return true;
-                        }
-                        return langSel.equals(
-                                Languages.fromExtension(pf.extension()).toString());
-                    })
-                    .toList();
-
-            if (filesToProcessList.isEmpty()) {
-                JOptionPane.showMessageDialog(
-                        this, "No tracked files found from the list", "No Files", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-        } else { // Select Files
-            if (tableModel.getRowCount() == 0) {
-                JOptionPane.showMessageDialog(
-                        this, "No files have been selected", "No Files", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            List<ProjectFile> selectedFiles = new java.util.ArrayList<>();
-            for (int i = 0; i < tableModel.getRowCount(); i++) {
-                String relPath = (String) tableModel.getValueAt(i, 0);
-                selectedFiles.add(chrome.getContextManager().toFile(relPath));
-            }
-            filesToProcessList = selectedFiles;
+        if (tableModel.getRowCount() == 0) {
+            JOptionPane.showMessageDialog(
+                    this, "No files have been selected", "No Files", JOptionPane.INFORMATION_MESSAGE);
+            return;
         }
+        List<ProjectFile> selectedFiles = new java.util.ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            String relPath = (String) tableModel.getValueAt(i, 0);
+            selectedFiles.add(chrome.getContextManager().toFile(relPath));
+        }
+        filesToProcessList = selectedFiles;
 
         Integer relatedK = null;
         var txt =

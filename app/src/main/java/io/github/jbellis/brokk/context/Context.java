@@ -2,15 +2,17 @@ package io.github.jbellis.brokk.context;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
+import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
+import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -223,10 +225,6 @@ public class Context {
             Map<ProjectFile, Double> weightedSeeds,
             Set<ProjectFile> ineligibleSources,
             int topK) {
-        var skp = analyzer.as(SkeletonProvider.class)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Cannot find related classes: Code Intelligence is not available."));
-
         var pagerankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
 
         List<String> targetFqns = new ArrayList<>();
@@ -234,7 +232,9 @@ public class Context {
             boolean eligible = !ineligibleSources.contains(sourceFile);
             if (!eligible) continue;
 
-            targetFqns.addAll(skp.getSkeletons(sourceFile).values());
+            targetFqns.addAll(analyzer.getDeclarationsInFile(sourceFile).stream()
+                    .map(CodeUnit::fqName)
+                    .toList());
             if (targetFqns.size() >= topK) break;
         }
         if (targetFqns.isEmpty()) {
@@ -321,7 +321,7 @@ public class Context {
     }
 
     public Context removeAll() {
-        String action = "Dropped all context";
+        String action = ActivityTableRenderers.DROPPED_ALL_CONTEXT;
         return new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture(action));
     }
 
@@ -348,7 +348,7 @@ public class Context {
                 fragments,
                 List.of(),
                 null,
-                CompletableFuture.completedFuture("Cleared task history"));
+                CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY));
     }
 
     /** @return an immutable copy of the task history. */
@@ -435,12 +435,21 @@ public class Context {
                 fragments,
                 newHistory,
                 null,
-                CompletableFuture.completedFuture("Compressed History"));
+                CompletableFuture.completedFuture("Compress History"));
     }
 
     @Nullable
     public ContextFragment.TaskFragment getParsedOutput() {
         return parsedOutput;
+    }
+
+    /** Returns true if the parsedOutput contains AI messages (useful for UI decisions). */
+    public boolean isAiResult() {
+        var parsed = getParsedOutput();
+        if (parsed == null) {
+            return false;
+        }
+        return parsed.messages().stream().anyMatch(m -> m.type() == ChatMessageType.AI);
     }
 
     /** Creates a new (live) Context that copies specific elements from the provided context. */

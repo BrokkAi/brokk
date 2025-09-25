@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.prompts;
 
-import io.github.jbellis.brokk.agents.ArchitectAgent;
+import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
@@ -20,14 +20,13 @@ public class McpPrompts {
                 """;
     }
 
-    public static @Nullable String mcpToolPrompt(List<ArchitectAgent.McpTool> selected) {
+    public static @Nullable String mcpToolPrompt(List<McpTool> selected) {
         if (selected.isEmpty()) {
             return null;
         }
 
         final var byServer = selected.stream()
-                .collect(
-                        Collectors.groupingBy(ArchitectAgent.McpTool::server, LinkedHashMap::new, Collectors.toList()));
+                .collect(Collectors.groupingBy(McpTool::server, LinkedHashMap::new, Collectors.toList()));
 
         var sections = byServer.entrySet().stream()
                 .map(entry -> {
@@ -64,4 +63,6 @@ public class McpPrompts {
         var header = "Available MCP tools callable by `callMcpTool` (restricted to this project configuration):";
         return header + "\n" + sections;
     }
+
+    public record McpTool(McpServer server, String toolName) {}
 }

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
@@ -40,7 +41,7 @@ public class LlmTest {
 
     // Simple tool for testing
     static class WeatherTool {
-        @Tool("Get the current weather")
+        @Tool(value = "Get the current weather")
         public String getWeather(@P("Location at which to perform the weather lookup") String location) {
             return "The weather in " + location + " is sunny.";
         }
@@ -134,7 +135,8 @@ public class LlmTest {
 
                         var messages = new ArrayList<ChatMessage>();
                         messages.add(new UserMessage("What is the weather like in London?"));
-                        var result = coder.sendRequest(messages, toolSpecifications, ToolChoice.REQUIRED, false);
+                        var result = coder.sendRequest(
+                                messages, new ToolContext(toolSpecifications, ToolChoice.REQUIRED, weatherTool), false);
 
                         assertNotNull(result, "Result should not be null for model: " + modelName);
                         assertFalse(false, "Request should not be cancelled for model: " + modelName);

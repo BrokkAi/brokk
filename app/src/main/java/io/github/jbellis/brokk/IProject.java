@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk;
 
 import com.jakewharton.disklrucache.DiskLruCache;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -214,6 +213,14 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default boolean getInstructionsAskMode() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setInstructionsAskMode(boolean ask) {
+        throw new UnsupportedOperationException();
+    }
+
     default List<String> loadTextHistory() {
         return List.of();
     }
@@ -293,15 +300,7 @@ public interface IProject extends AutoCloseable {
 
     default void setExecutorArgs(@Nullable String args) {}
 
-    default ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        throw new UnsupportedOperationException();
-    }
-
     default boolean getArchitectRunInWorktree() {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         throw new UnsupportedOperationException();
     }
 

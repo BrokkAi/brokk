@@ -81,7 +81,7 @@ dependencies {
     implementation(libs.mcp.sdk)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
-    
+
     // Markdown and templating
     implementation(libs.bundles.markdown)
 
@@ -392,6 +392,14 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
+}
+
+tasks.register<JavaExec>("generateThemeCss") {
+    group = "application"
+    description = "Generates theme CSS variables from ThemeColors"
+    mainClass.set("io.github.jbellis.brokk.tools.GenerateThemeCss")
+    classpath = sourceSets.main.get().runtimeClasspath
+    args = listOf("${project.rootDir}/frontend-mop/src/styles/theme-colors.generated.scss")
 }
 
 tasks.register<JavaExec>("runTreeSitterRepoRunner") {

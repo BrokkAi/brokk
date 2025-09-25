@@ -20,7 +20,7 @@ public class CommitDialog extends JDialog {
 
     private final JTextArea commitMessageArea;
     private final MaterialButton commitButton;
-    private final javax.swing.JButton cancelButton;
+    private final MaterialButton cancelButton;
     private final transient ContextManager contextManager;
     private final transient GitWorkflow workflowService;
     private final transient List<ProjectFile> filesToCommit;
@@ -61,7 +61,7 @@ public class CommitDialog extends JDialog {
         commitButton.addActionListener(e -> performCommit());
         SwingUtil.applyPrimaryButtonStyle(commitButton);
 
-        cancelButton = new JButton("Cancel");
+        cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));

@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.formdev.flatlaf.util.SystemInfo;
+import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
@@ -54,6 +55,9 @@ import org.jetbrains.annotations.Nullable;
 
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
+
+    // Track open Chrome instances for window cascading
+    private static final Set<Chrome> openInstances = ConcurrentHashMap.newKeySet();
 
     // Default layout proportions - can be overridden by saved preferences
     private static final double DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT = 0.583; // 58.3% workspace, 41.7% instructions
@@ -564,6 +568,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
+
+        // Register this instance for window tracking
+        openInstances.add(this);
     }
 
     /**
@@ -1097,6 +1104,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.info("Closing Chrome UI");
         contextManager.close();
         frame.dispose();
+        // Unregister this instance
+        openInstances.remove(this);
     }
 
     @Override
@@ -1619,51 +1628,82 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     private void loadWindowSizeAndPosition() {
-        // Global-first: read from global UI settings
-        var bounds = GlobalUiSettings.getMainWindowBounds();
-        if (bounds.width > 0 && bounds.height > 0) {
+        boolean persistPerProject = GlobalUiSettings.isPersistPerProjectBounds();
+
+        // Per-project first (only if enabled)
+        var boundsOpt = persistPerProject ? getProject().getMainWindowBounds() : java.util.Optional.<Rectangle>empty();
+        if (boundsOpt.isPresent()) {
+            var bounds = boundsOpt.get();
             frame.setSize(bounds.width, bounds.height);
             if (isPositionOnScreen(bounds.x, bounds.y)) {
                 frame.setLocation(bounds.x, bounds.y);
-                logger.debug("Restoring main window position from global settings.");
+                logger.debug("Restoring main window position from project settings.");
             } else {
                 // Saved position is off-screen, center instead
                 frame.setLocationRelativeTo(null);
-                logger.debug("Global window position is off-screen, centering window.");
+                logger.debug("Project window position is off-screen, centering window.");
             }
         } else {
-            // No valid saved bounds, apply default placement logic
-            logger.info("No global UI bounds found, using default window layout");
-            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-            GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
-            Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
+            // No (or disabled) project bounds, try global bounds with cascading offset
+            var globalBounds = GlobalUiSettings.getMainWindowBounds();
+            if (globalBounds.width > 0 && globalBounds.height > 0) {
+                // Calculate progressive DPI-aware offset based on number of open instances
+                int instanceCount = Math.max(0, openInstances.size()); // this instance not yet added
+                int step = UIScale.scale(20); // gentle, DPI-aware cascade step
+                int offsetX = globalBounds.x + (step * instanceCount);
+                int offsetY = globalBounds.y + (step * instanceCount);
 
-            // Default to 1920x1080 or screen size, whichever is smaller, and center.
-            int defaultWidth = Math.min(1920, screenBounds.width);
-            int defaultHeight = Math.min(1080, screenBounds.height);
+                frame.setSize(globalBounds.width, globalBounds.height);
+                if (isPositionOnScreen(offsetX, offsetY)) {
+                    frame.setLocation(offsetX, offsetY);
+                    logger.debug("Using global window position with cascading offset ({}) as fallback.", instanceCount);
+                } else {
+                    // Offset position is off-screen, center instead
+                    frame.setLocationRelativeTo(null);
+                    logger.debug("Global window position with offset is off-screen, centering window.");
+                }
+            } else {
+                // No valid saved bounds anywhere, apply default placement logic
+                logger.info("No UI bounds found, using default window layout");
+                GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+                GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
+                Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
 
-            int x = screenBounds.x + (screenBounds.width - defaultWidth) / 2;
-            int y = screenBounds.y + (screenBounds.height - defaultHeight) / 2;
+                // Default to 1920x1080 or screen size, whichever is smaller, and center.
+                int defaultWidth = Math.min(1920, screenBounds.width);
+                int defaultHeight = Math.min(1080, screenBounds.height);
 
-            frame.setBounds(x, y, defaultWidth, defaultHeight);
-            logger.debug(
-                    "Applying default window placement: {}x{} at ({},{}), centered on screen.",
-                    defaultWidth,
-                    defaultHeight,
-                    x,
-                    y);
+                int x = screenBounds.x + (screenBounds.width - defaultWidth) / 2;
+                int y = screenBounds.y + (screenBounds.height - defaultHeight) / 2;
+
+                frame.setBounds(x, y, defaultWidth, defaultHeight);
+                logger.debug(
+                        "Applying default window placement: {}x{} at ({},{}), centered on screen.",
+                        defaultWidth,
+                        defaultHeight,
+                        x,
+                        y);
+            }
         }
 
-        // Listener to save bounds on move/resize (global only)
+        // Listener to save bounds on move/resize:
+        // - always save globally (for cascade fallback)
+        // - save per-project only if enabled
         frame.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
                 GlobalUiSettings.saveMainWindowBounds(frame);
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    getProject().saveMainWindowBounds(frame);
+                }
             }
 
             @Override
             public void componentMoved(java.awt.event.ComponentEvent e) {
                 GlobalUiSettings.saveMainWindowBounds(frame);
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    getProject().saveMainWindowBounds(frame);
+                }
             }
         });
     }
@@ -1754,9 +1794,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         restoreDrawersFromGlobalSettings();
     }
 
-    /** Restore drawer (dependencies/terminal) state from global settings after layout sizing is known. */
+    /**
+     * Restore drawer (dependencies) state from global settings after layout sizing is known. Terminal drawer restore is
+     * handled by TerminalDrawerPanel itself to respect per-project settings.
+     */
     private void restoreDrawersFromGlobalSettings() {
-        // Dependencies drawer
+        // Dependencies drawer (global)
         boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();
         double depProp = GlobalUiSettings.getDependenciesDrawerProportion();
         if (depOpen) {
@@ -1770,15 +1813,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             dependenciesDrawerPanel.collapseIfEmpty();
         }
 
-        // Terminal drawer
-        boolean termOpen = GlobalUiSettings.isTerminalDrawerOpen();
-        double termProp = GlobalUiSettings.getTerminalDrawerProportion();
-        if (termOpen) {
-            // Open using saved proportion synchronously before first layout
-            terminalDrawer.openInitially(termProp);
-        } else {
-            terminalDrawer.collapseIfEmpty();
-        }
+        // Do not restore Terminal drawer here.
+        // TerminalDrawerPanel.restoreInitialState() handles per-project-first, then global fallback.
     }
 
     /** Adds property change listeners to split panes for saving positions (global-first). */
@@ -2099,6 +2135,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public TerminalDrawerPanel getTerminalDrawer() {
         return terminalDrawer;
+    }
+
+    /** Append tasks to the Task List panel, if present. Tasks are appended to the current session's list. */
+    public void appendTasksToTaskList(List<String> tasks) {
+        SwingUtilities.invokeLater(() -> {
+            var taskPanel = terminalDrawer.openTaskList();
+            taskPanel.appendTasks(tasks);
+        });
     }
 
     public Action getGlobalUndoAction() {

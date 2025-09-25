@@ -632,8 +632,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Bottom panel with buttons
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var codeButton = new JButton("Code");
-        var cancelButton = new JButton("Cancel");
+        var codeButton = new MaterialButton("Code");
+        var cancelButton = new MaterialButton("Cancel");
 
         cancelButton.addActionListener(e -> {
             quickEditDialog.dispose();
@@ -736,8 +736,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Bottom panel with Okay and Stop buttons
         var bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var okayButton = new JButton("Okay");
-        var stopButton = new JButton("Stop");
+        var okayButton = new MaterialButton("Okay");
+        var stopButton = new MaterialButton("Stop");
         okayButton.setEnabled(false);
         bottomPanel.add(okayButton);
         bottomPanel.add(stopButton);
