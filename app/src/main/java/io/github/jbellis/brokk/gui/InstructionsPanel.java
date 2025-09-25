@@ -2000,8 +2000,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        // Disable immediately to prevent duplicate clicks during background refinement
-        wandButton.setEnabled(false);
+        // Disable UI while refining: prevent edits and sending new commands
+        SwingUtilities.invokeLater(() -> {
+            wandButton.setEnabled(false);
+            wandButton.setIcon(Icons.PENDING);
+            wandButton.setToolTipText("Refining prompt...");
+            actionButton.setEnabled(false);
+            instructionsArea.setEditable(false);
+        });
 
         var cm = chrome.getContextManager();
         var service = cm.getService();
@@ -2065,7 +2071,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // ignore cancellation
             } finally {
                 chrome.blockLlmOutput(false);
-                SwingUtilities.invokeLater(() -> wandButton.setEnabled(true));
+                SwingUtilities.invokeLater(() -> {
+                    wandButton.setEnabled(true);
+                    wandButton.setIcon(Icons.WAND);
+                    wandButton.setToolTipText("Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
+                    actionButton.setEnabled(true);
+                    instructionsArea.setEditable(true);
+                });
             }
             return null;
         });
