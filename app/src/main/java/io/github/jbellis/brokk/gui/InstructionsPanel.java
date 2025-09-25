@@ -1098,7 +1098,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Wand button (Magic Ask) on the right
         SwingUtilities.invokeLater(() -> {
-        	wandButton.setIcon(Icons.WAND);
+            wandButton.setIcon(Icons.WAND);
         });
         wandButton.setToolTipText("Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -2018,8 +2018,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Keep this operation silent (no streaming to LLM Output panel)
                 chrome.blockLlmOutput(true);
 
-                var instruction = """
-					You are a Prompt Refiner for coding instructions. 
+                var instruction =
+                        """
+					You are a Prompt Refiner for coding instructions.
 
 					Take the draft prompt and rewrite it so it is:
 					- Clear
@@ -2034,7 +2035,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         <<<
                         %s
                         >>>
-                        """.stripIndent().formatted(original);
+                        """
+                                .stripIndent()
+                                .formatted(original);
 
                 var llm = cm.getLlm(model, "Refine Prompt", false);
                 var messages = List.<ChatMessage>of(new UserMessage(instruction));
@@ -2074,7 +2077,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 SwingUtilities.invokeLater(() -> {
                     wandButton.setEnabled(true);
                     wandButton.setIcon(Icons.WAND);
-                    wandButton.setToolTipText("Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
+                    wandButton.setToolTipText(
+                            "Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
                     actionButton.setEnabled(true);
                     instructionsArea.setEditable(true);
                 });
