@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.RelevanceClassifier;
@@ -22,6 +21,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
@@ -33,9 +33,21 @@ import java.awt.*;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -70,7 +82,7 @@ public class BlitzForgeProgressDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(BlitzForgeProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea outputTextArea;
-    private final JButton cancelButton;
+    private final MaterialButton cancelButton;
     private final SwingWorker<TaskResult, ProgressData> worker;
     private final int totalFiles;
     private final AtomicInteger processedFileCount = new AtomicInteger(0); // Tracks files processed
@@ -277,7 +289,7 @@ public class BlitzForgeProgressDialog extends JDialog {
         outputPanel.add(outputScrollPane, BorderLayout.CENTER);
         outputPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
 
-        cancelButton = new JButton("Cancel");
+        cancelButton = new MaterialButton("Cancel");
 
         llmLineCountLabel = new JLabel("Lines received: 0");
         JPanel topPanel = new JPanel(new BorderLayout(5, 5));
@@ -611,9 +623,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                     outputTextArea.append("Architect has been invoked. You can close this window.\n");
                     // Submit the Architect task; the updated BuildFragment is already in the session context.
                     contextManager.submitUserTask("Architect post-upgrade build fix", () -> {
-                        var options = new ArchitectAgent.ArchitectOptions(
-                                false, false, false, true, true, false, false, false, false, false);
-                        chrome.getInstructionsPanel().runArchitectCommand(agentInstructions, options);
+                        chrome.getInstructionsPanel().runArchitectCommand(agentInstructions);
                     });
                 }));
             }

@@ -195,7 +195,7 @@ public final class MOPBridge {
 
         // compressed summary
         if (entry.isCompressed()) {
-            var event = new BrokkEvent.HistoryTask(e, true, requireNonNull(entry.summary()), null);
+            var event = new BrokkEvent.HistoryTask(e, entry.sequence(), true, requireNonNull(entry.summary()), null);
             eventQueue.add(event);
             scheduleSend();
             return;
@@ -212,7 +212,7 @@ public final class MOPBridge {
                 messages.add(new BrokkEvent.HistoryTask.Message(text, message.type()));
             }
         }
-        var event = new BrokkEvent.HistoryTask(e, false, null, messages);
+        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), false, null, messages);
         eventQueue.add(event);
         scheduleSend();
     }
@@ -583,6 +583,15 @@ public final class MOPBridge {
         if (cm != null) {
             cm.addPastedTextFragment(text);
         }
+    }
+
+    public void deleteHistoryTask(int sequence) {
+        var cm = contextManager;
+        if (cm == null) {
+            logger.warn("Cannot delete history entry {} - no context manager", sequence);
+            return;
+        }
+        cm.submitUserTask("Delete history entry " + sequence, () -> cm.dropHistoryEntryBySequence(sequence));
     }
 
     public String getContextCacheId() {

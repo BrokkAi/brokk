@@ -1794,9 +1794,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         restoreDrawersFromGlobalSettings();
     }
 
-    /** Restore drawer (dependencies/terminal) state from global settings after layout sizing is known. */
+    /**
+     * Restore drawer (dependencies) state from global settings after layout sizing is known. Terminal drawer restore is
+     * handled by TerminalDrawerPanel itself to respect per-project settings.
+     */
     private void restoreDrawersFromGlobalSettings() {
-        // Dependencies drawer
+        // Dependencies drawer (global)
         boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();
         double depProp = GlobalUiSettings.getDependenciesDrawerProportion();
         if (depOpen) {
@@ -1810,15 +1813,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             dependenciesDrawerPanel.collapseIfEmpty();
         }
 
-        // Terminal drawer
-        boolean termOpen = GlobalUiSettings.isTerminalDrawerOpen();
-        double termProp = GlobalUiSettings.getTerminalDrawerProportion();
-        if (termOpen) {
-            // Open using saved proportion synchronously before first layout
-            terminalDrawer.openInitially(termProp);
-        } else {
-            terminalDrawer.collapseIfEmpty();
-        }
+        // Do not restore Terminal drawer here.
+        // TerminalDrawerPanel.restoreInitialState() handles per-project-first, then global fallback.
     }
 
     /** Adds property change listeners to split panes for saving positions (global-first). */

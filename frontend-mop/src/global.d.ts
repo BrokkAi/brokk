@@ -42,6 +42,7 @@ declare global {
       onSymbolClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
       onFilePathClick: (filePath: string, exists: boolean, matchesJson: string, x: number, y: number) => void;
       captureText:(text: string) => void;
+      deleteHistoryTask?: (sequence: number) => void;
       lookupSymbolsAsync?: (symbolNamesJson: string, seq: number | null, contextId: string) => void;
       lookupFilePathsAsync?: (filePathsJson: string, seq: number, contextId: string) => void;
     };

@@ -1975,7 +1975,6 @@ public class WorkspacePanel extends JPanel {
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) {
-                chrome.systemOutput("No context to drop");
                 return;
             }
             contextManager.dropAll();
@@ -1984,7 +1983,6 @@ public class WorkspacePanel extends JPanel {
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
                     contextManager.clearHistory();
-                    chrome.systemOutput("Cleared task history");
                     break;
                 }
             }

@@ -173,19 +173,8 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        return parent.getArchitectOptions();
-    }
-
-    @Override
     public boolean getArchitectRunInWorktree() {
         return parent.getArchitectRunInWorktree();
-    }
-
-    @Override
-    public void setArchitectOptions(
-            io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
-        parent.setArchitectOptions(options, runInWorktree);
     }
 
     @Override

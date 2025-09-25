@@ -820,7 +820,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Add the given files to editable. */
     public void addPathFragments(List<? extends PathFragment> fragments) {
         pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
-        io.systemOutput("Edited " + joinForOutput(fragments));
+        io.systemOutput("Edit " + contextDescription(fragments));
     }
 
     /** Drop all context. */
@@ -834,13 +834,39 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .map(f -> contextHistory.mapToLiveFragment(f).id())
                 .toList();
         pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
-        io.systemOutput("Dropped "
-                + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
+        io.systemOutput("Remove " + contextDescription(fragments));
     }
 
     /** Clear conversation history. */
     public void clearHistory() {
         pushContext(Context::clearHistory);
+    }
+
+    /**
+     * Drops a single history entry by its sequence number. If the sequence is not found in the current top context's
+     * history, this is a no-op.
+     *
+     * <p>Creates a new context state with: - updated task history (with the entry removed), - null parsedOutput, - and
+     * action set to "Dropped message".
+     *
+     * @param sequence the TaskEntry.sequence() to remove
+     */
+    public void dropHistoryEntryBySequence(int sequence) {
+        var currentHistory = topContext().getTaskHistory();
+        var newHistory = currentHistory.stream()
+                .filter(entry -> entry.sequence() != sequence)
+                .toList();
+
+        // If nothing changed, return early
+        if (newHistory.size() == currentHistory.size()) {
+            return;
+        }
+
+        // Push an updated context with the modified history and a "Delete message" action
+        pushContext(currentLiveCtx ->
+                currentLiveCtx.withCompressedHistory(newHistory).withParsedOutput(null, "Delete task from history"));
+
+        io.systemOutput("Remove history entry " + sequence);
     }
 
     /** request code-intel rebuild */
@@ -854,7 +880,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> undoContextAsync() {
         return submitUserTask("Undo", () -> {
             if (undoContext()) {
-                io.systemOutput("Undid most recent step");
+                io.systemOutput("Undo most recent step");
             } else {
                 io.systemOutput("Nothing to undo");
             }
@@ -953,9 +979,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A Future representing the completion of the task.
      */
     public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
-        return submitUserTask("Copying workspace items from historical state", () -> {
+        return submitUserTask("Copy workspace items from historical state", () -> {
             try {
-                String actionMessage = "Copied workspace items from historical state";
+                String actionMessage =
+                        "Copy workspace items from historical state: " + contextDescription(fragmentsToKeep);
 
                 // Calculate new history
                 List<TaskEntry> finalHistory = new ArrayList<>(liveContext().getTaskHistory());
@@ -1152,7 +1179,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             """
                                     .formatted(cmd, result);
                     updateBuildFragment(text);
-                    io.systemOutput("Build/Test output captured to Build Fragment");
+                    io.systemOutput("Capture build/test output to Build Fragment");
                 } catch (Exception e) {
                     logger.error("Failed to update BuildFragment from captured test output", e);
                     io.systemOutput("Failed to capture build/test output: " + e.getMessage());
@@ -1160,7 +1187,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 // Non-build capture: preserve existing behavior of adding the parsed output into the live context.
                 addVirtualFragment(parsedOutput);
-                io.systemOutput("Content captured from output");
+                io.systemOutput("Capture content from output");
             }
         });
     }
@@ -1190,7 +1217,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     "Source code for " + codeUnit.fqName(),
                     codeUnit.source().getSyntaxStyle());
             pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-            io.systemOutput("Added source code for " + codeUnit.shortName());
+            io.systemOutput("Add source code for " + codeUnit.shortName());
         } else {
             // Notify user of failed source capture
             SwingUtilities.invokeLater(() -> {
@@ -1210,7 +1237,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, false);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Added call graph for callers of " + methodName + " with depth " + depth);
+        io.systemOutput("Add call graph for callers of " + methodName + " with depth " + depth);
     }
 
     /** callees for method */
@@ -1221,7 +1248,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, true);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Added call graph for methods called by " + methodName + " with depth " + depth);
+        io.systemOutput("Add call graph for methods called by " + methodName + " with depth " + depth);
     }
 
     /** parse stacktrace */
@@ -1281,7 +1308,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var fileSummaryFragment = new ContextFragment.SkeletonFragment(
                     this, filePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass IContextManager
             addVirtualFragment(fileSummaryFragment);
-            io.systemOutput("Summarized " + joinFilesForOutput(files));
+            io.systemOutput("Summarize " + joinFilesForOutput(files));
             summariesAdded = true;
         }
 
@@ -1290,7 +1317,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var classSummaryFragment = new ContextFragment.SkeletonFragment(
                     this, classFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass IContextManager
             addVirtualFragment(classSummaryFragment);
-            io.systemOutput("Summarized " + String.join(", ", classFqns));
+            io.systemOutput("Summarize " + joinClassesForOutput(classFqns));
             summariesAdded = true;
         }
         if (!summariesAdded) {
@@ -1300,17 +1327,38 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return true;
     }
 
-    private String joinForOutput(Collection<? extends ContextFragment> fragments) {
-        return joinFilesForOutput(
-                fragments.stream().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
+    private static String joinClassesForOutput(List<String> classFqns) {
+        var toJoin = classFqns.stream().sorted().toList();
+        if (toJoin.size() <= 2) {
+            return String.join(", ", toJoin);
+        }
+        return "%d classes".formatted(toJoin.size());
+    }
+
+    /**
+     * Returns a short summary for a collection of context fragments: - If there are 0 fragments, returns "0 fragments".
+     * - If there are 1 or 2 fragments, returns a comma-delimited list of their short descriptions. - Otherwise returns
+     * "<count> fragments".
+     *
+     * <p>Note: Parameters are non-null by default in this codebase (NullAway).
+     */
+    private static String contextDescription(Collection<? extends ContextFragment> fragments) {
+        int count = fragments.size();
+        if (count == 0) {
+            return "0 fragments";
+        }
+        if (count <= 2) {
+            return fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
+        }
+        return count + " fragments";
     }
 
     private static String joinFilesForOutput(Collection<? extends BrokkFile> files) {
         var toJoin = files.stream().map(BrokkFile::getFileName).sorted().toList();
-        if (files.size() <= 3) {
-            return String.join(", ", toJoin);
+        if (files.size() <= 2) {
+            return joinClassesForOutput(toJoin);
         }
-        return String.join(", ", toJoin.subList(0, 3)) + " ...";
+        return "%d files".formatted(files.size());
     }
 
     /**

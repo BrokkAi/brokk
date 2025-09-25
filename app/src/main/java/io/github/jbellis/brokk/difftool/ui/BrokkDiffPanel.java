@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Messages;
@@ -285,9 +286,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return btnUndo;
     }
 
-    private final JButton btnUndo = new JButton("Undo"); // Initialize to prevent NullAway issues
-    private final JButton btnRedo = new JButton("Redo");
-    private final JButton btnSaveAll = new JButton("Save");
+    private final MaterialButton btnUndo = new MaterialButton("Undo"); // Initialize to prevent NullAway issues
+    private final MaterialButton btnRedo = new MaterialButton("Redo");
+    private final MaterialButton btnSaveAll = new MaterialButton("Save");
 
     // Components for undo/redo/save group that need to be hidden together
     private @Nullable Component undoRedoGroupSeparator;
@@ -295,11 +296,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private @Nullable Component undoRedoGroupStrutAfter1;
     private @Nullable Component undoRedoGroupStrutAfter2;
     private @Nullable Component undoRedoGroupStrutAfter3;
-    private final JButton captureDiffButton = new JButton("Capture Diff");
-    private final JButton btnNext = new JButton("Next Change");
-    private final JButton btnPrevious = new JButton("Previous Change");
-    private final JButton btnPreviousFile = new JButton("Previous File");
-    private final JButton btnNextFile = new JButton("Next File");
+    private final MaterialButton captureDiffButton = new MaterialButton("Capture Diff");
+    private final MaterialButton btnNext = new MaterialButton("Next Change");
+    private final MaterialButton btnPrevious = new MaterialButton("Previous Change");
+    private final MaterialButton btnPreviousFile = new MaterialButton("Previous File");
+    private final MaterialButton btnNextFile = new MaterialButton("Next File");
     private final JLabel fileIndicatorLabel = new JLabel(""); // Initialize
 
     // Flag to track when layout hierarchy needs reset after navigation

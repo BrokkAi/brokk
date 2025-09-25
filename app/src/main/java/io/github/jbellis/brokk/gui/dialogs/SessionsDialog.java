@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -49,7 +50,7 @@ public class SessionsDialog extends JDialog {
     // Sessions table components
     private JTable sessionsTable;
     private DefaultTableModel sessionsTableModel;
-    private JButton closeButton;
+    private MaterialButton closeButton;
 
     // Activity history components
     private JTable activityTable;
@@ -161,7 +162,7 @@ public class SessionsDialog extends JDialog {
         this.arrowLayerUI = new ResetArrowLayerUI(this.activityTable, this.activityTableModel);
 
         // Initialize buttons
-        closeButton = new JButton("Close");
+        closeButton = new MaterialButton("Close");
     }
 
     private void layoutComponents() {
@@ -177,6 +178,8 @@ public class SessionsDialog extends JDialog {
         JPanel activityPanel = new JPanel(new BorderLayout());
         activityPanel.setBorder(BorderFactory.createTitledBorder("Activity"));
         JScrollPane activityScrollPane = new JScrollPane(activityTable);
+        activityScrollPane.setBorder(
+                BorderFactory.createEmptyBorder(5, 5, 10, 5)); // slight bottom pad to align with Output
         var layer = new JLayer<>(activityScrollPane, arrowLayerUI);
         activityScrollPane.getViewport().addChangeListener(e -> layer.repaint());
         activityPanel.add(layer, BorderLayout.CENTER);

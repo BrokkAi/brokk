@@ -7,12 +7,15 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -188,7 +191,7 @@ public class ContextHistory {
 
     /**
      * Processes external file changes by deciding whether to replace the top context or push a new one. If the current
-     * top context's action starts with "Loaded external changes", it updates the count and replaces it. Otherwise, it
+     * top context's action starts with "Load external changes", it updates the count and replaces it. Otherwise, it
      * pushes a new context entry.
      *
      * @return The new frozen context if a change was made, otherwise null.
@@ -197,18 +200,53 @@ public class ContextHistory {
         var fr = liveContext.freezeAndCleanup();
         if (!topContext().workspaceContentEquals(fr.frozenContext())) {
             var topCtx = topContext();
+
+            // Compute list of filenames that changed (added, removed, or modified)
+            var oldMap = new HashMap<String, String>();
+            topCtx.editableFiles.stream()
+                    .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                    .forEach(fragment -> {
+                        var pf = fragment.files().iterator().next();
+                        var key = pf.getRelPath().toString();
+                        oldMap.put(key, fragment.text());
+                    });
+
+            var newMap = new HashMap<String, String>();
+            fr.frozenContext().editableFiles.stream()
+                    .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                    .forEach(fragment -> {
+                        var pf = fragment.files().iterator().next();
+                        var key = pf.getRelPath().toString();
+                        newMap.put(key, fragment.text());
+                    });
+
+            var keys = new HashSet<String>();
+            keys.addAll(oldMap.keySet());
+            keys.addAll(newMap.keySet());
+            var changedNames = new ArrayList<String>();
+            for (var key : keys) {
+                var oldText = oldMap.get(key);
+                var newText = newMap.get(key);
+                if (!Objects.equals(oldText, newText)) {
+                    var filename = Path.of(key).getFileName().toString();
+                    changedNames.add(filename);
+                }
+            }
+            var filesSuffix = changedNames.isEmpty() ? "" : ": " + String.join(", ", changedNames);
+
             var previousAction = topCtx.getAction();
-            if (!previousAction.startsWith("Loaded external changes")) {
+            if (!previousAction.startsWith("Load external changes")) {
                 // If the previous action is not about external changes, push a new context
-                var newLiveContext = fr.liveContext()
-                        .withParsedOutput(null, CompletableFuture.completedFuture("Loaded external changes"));
+                var newAction = "Load external changes" + filesSuffix;
+                var newLiveContext =
+                        fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
                 var cleaned = newLiveContext.freezeAndCleanup();
                 pushLiveAndFrozen(cleaned.liveContext(), cleaned.frozenContext());
                 return cleaned.frozenContext();
             }
 
             // Parse the existing action to extract the count if present
-            var pattern = Pattern.compile("Loaded external changes(?: \\((\\d+)\\))?");
+            var pattern = Pattern.compile("Load external changes(?: \\((\\d+)\\))?");
             var matcher = pattern.matcher(previousAction);
             int newCount;
             if (matcher.matches() && matcher.group(1) != null) {
@@ -223,8 +261,8 @@ public class ContextHistory {
             }
 
             // Form the new action string with the updated count
-            var newAction =
-                    newCount > 1 ? "Loaded external changes (%d)".formatted(newCount) : "Loaded external changes";
+            var newAction = (newCount > 1 ? "Load external changes (%d)".formatted(newCount) : "Load external changes")
+                    + filesSuffix;
             var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
             var cleaned = newLiveContext.freezeAndCleanup();
             replaceTop(cleaned.liveContext(), cleaned.frozenContext());

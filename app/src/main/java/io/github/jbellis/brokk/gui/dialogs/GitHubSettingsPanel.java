@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.github.BackgroundGitHubAuth;
 import io.github.jbellis.brokk.github.DeviceFlowModels;
 import io.github.jbellis.brokk.github.GitHubAuthConfig;
 import io.github.jbellis.brokk.github.GitHubDeviceFlowService;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
@@ -24,10 +25,10 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
     private final Component parentComponent;
 
     @Nullable
-    private JButton gitHubConnectButton;
+    private MaterialButton gitHubConnectButton;
 
     @Nullable
-    private JButton gitHubDisconnectButton;
+    private MaterialButton gitHubDisconnectButton;
 
     @Nullable
     private JLabel gitHubStatusLabel;
@@ -39,7 +40,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
     private JLabel gitHubDeviceCodeLabel;
 
     @Nullable
-    private JButton gitHubContinueBrowserButton;
+    private MaterialButton gitHubContinueBrowserButton;
 
     @Nullable
     private JPanel deviceCodePanel;
@@ -86,11 +87,11 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         add(new JLabel("GitHub Account:"), gbc);
 
         var actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        gitHubConnectButton = new JButton("Connect GitHub Account...");
+        gitHubConnectButton = new MaterialButton("Connect GitHub Account...");
         gitHubConnectButton.addActionListener(e -> startGitHubIntegration());
         actionsPanel.add(gitHubConnectButton);
 
-        gitHubDisconnectButton = new JButton("Disconnect");
+        gitHubDisconnectButton = new MaterialButton("Disconnect");
         gitHubDisconnectButton.addActionListener(e -> {
             // Clear token and invalidate client
             MainProject.setGitHubToken("");
@@ -147,7 +148,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
 
         // Row: Continue Browser Button (initially hidden, centered)
         browserButtonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
-        gitHubContinueBrowserButton = new JButton("Continue in Browser");
+        gitHubContinueBrowserButton = new MaterialButton("Continue in Browser");
         gitHubContinueBrowserButton.addActionListener(e -> onContinueInBrowser());
         browserButtonPanel.add(gitHubContinueBrowserButton);
         browserButtonPanel.setVisible(false);

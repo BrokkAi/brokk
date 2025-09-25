@@ -80,6 +80,13 @@ public class HistoryOutputPanel extends JPanel {
     @Nullable
     private String lastSpinnerMessage = null; // Explicitly initialize
 
+    // Track expand/collapse state for grouped non-LLM action runs
+    private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
+
+    // Selection directives applied after a table rebuild (for expand/collapse UX)
+    private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
+    private @Nullable UUID pendingSelectionGroupKey = null;
+
     /**
      * Constructs a new HistoryOutputPane.
      *
@@ -327,7 +334,7 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /** Builds the Activity history panel that shows past contexts */
-    private JPanel buildActivityPanel(JTable historyTable, JButton undoButton, JButton redoButton) {
+    private JPanel buildActivityPanel(JTable historyTable, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder(
@@ -347,28 +354,36 @@ public class HistoryOutputPanel extends JPanel {
         historyTable.getColumnModel().getColumn(0).setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
         historyTable.getColumnModel().getColumn(1).setCellRenderer(new ActivityTableRenderers.ActionCellRenderer());
 
-        // Add selection listener to preview context
+        // Add selection listener to preview context (ignore group header rows)
         historyTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int row = historyTable.getSelectedRow();
                 if (row >= 0 && row < historyTable.getRowCount()) {
-                    // Get the context object from the hidden third column
-                    var ctx = (Context) historyModel.getValueAt(row, 2);
-                    contextManager.setSelectedContext(ctx);
-                    // setContext is for *previewing* a context without changing selection state in the manager
-                    chrome.setContext(ctx);
+                    var val = historyModel.getValueAt(row, 2);
+                    if (val instanceof Context ctx) {
+                        contextManager.setSelectedContext(ctx);
+                        // setContext is for *previewing* a context without changing selection state in the manager
+                        chrome.setContext(ctx);
+                    }
                 }
             }
         });
 
-        // Add mouse listener for right-click context menu and double-click action
+        // Add mouse listener for right-click context menu, expand/collapse on group header, and double-click action
         historyTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) { // Double-click
-                    int row = historyTable.rowAtPoint(e.getPoint());
-                    if (row >= 0) {
-                        Context context = (Context) requireNonNull(historyModel.getValueAt(row, 2));
+                int row = historyTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+                var val = historyModel.getValueAt(row, 2);
+
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    if (val instanceof GroupRow) {
+                        // Toggle expand/collapse on click for the group header
+                        toggleGroupRow(row);
+                        return;
+                    }
+                    if (e.getClickCount() == 2 && val instanceof Context context) {
                         openOutputWindowFromContext(context);
                     }
                 }
@@ -377,15 +392,21 @@ public class HistoryOutputPanel extends JPanel {
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenu(e);
+                    showContextHistoryPopupMenuIfContext(e);
                 }
             }
 
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenu(e);
+                    showContextHistoryPopupMenuIfContext(e);
                 }
+            }
+
+            private void showContextHistoryPopupMenuIfContext(MouseEvent e) {
+                int row = historyTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+                showContextHistoryPopupMenu(e);
             }
         });
 
@@ -419,7 +440,7 @@ public class HistoryOutputPanel extends JPanel {
         // Add undo/redo buttons at the bottom, side by side
         // Use GridLayout to make buttons share width equally
         var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
-        buttonPanel.setBorder(new EmptyBorder(5, 0, 0, 0)); // Add top padding
+        buttonPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
@@ -471,17 +492,61 @@ public class HistoryOutputPanel extends JPanel {
         });
     }
 
-    /** Shows the context menu for the context history table */
+    /** Shows the context menu for the context history table (supports Context and GroupRow). */
     private void showContextHistoryPopupMenu(MouseEvent e) {
         int row = historyTable.rowAtPoint(e.getPoint());
         if (row < 0) return;
 
-        // Select the row under the cursor
-        historyTable.setRowSelectionInterval(row, row);
+        Object val = historyModel.getValueAt(row, 2);
 
-        // Get the context from the selected row
-        Context context = (Context) historyModel.getValueAt(row, 2);
+        // Direct Context row: select and show popup
+        if (val instanceof Context context) {
+            historyTable.setRowSelectionInterval(row, row);
+            showPopupForContext(context, e.getX(), e.getY());
+            return;
+        }
 
+        // Group header row: expand if needed, then target the first child row
+        if (val instanceof GroupRow group) {
+            var key = group.key();
+            boolean expandedNow = groupExpandedState.getOrDefault(key, group.expanded());
+
+            Runnable showAfterExpand = () -> {
+                int headerRow = findGroupHeaderRow(key);
+                if (headerRow >= 0) {
+                    int firstChildRow = headerRow + 1;
+                    if (firstChildRow < historyModel.getRowCount()) {
+                        Object childVal = historyModel.getValueAt(firstChildRow, 2);
+                        if (childVal instanceof Context ctx) {
+                            historyTable.setRowSelectionInterval(firstChildRow, firstChildRow);
+                            showPopupForContext(ctx, e.getX(), e.getY());
+                        }
+                    }
+                }
+            };
+
+            if (!expandedNow) {
+                groupExpandedState.put(key, true);
+                updateHistoryTable(null);
+                // Ensure the table is rebuilt first, then select and show the popup
+                SwingUtilities.invokeLater(showAfterExpand);
+            } else {
+                showAfterExpand.run();
+            }
+        }
+    }
+
+    private int findGroupHeaderRow(UUID groupKey) {
+        for (int i = 0; i < historyModel.getRowCount(); i++) {
+            var v = historyModel.getValueAt(i, 2);
+            if (v instanceof GroupRow gr && gr.key().equals(groupKey)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void showPopupForContext(Context context, int x, int y) {
         // Create popup menu
         JPopupMenu popup = new JPopupMenu();
 
@@ -513,7 +578,7 @@ public class HistoryOutputPanel extends JPanel {
         chrome.themeManager.registerPopupMenu(popup);
 
         // Show popup menu
-        popup.show(historyTable, e.getX(), e.getY());
+        popup.show(historyTable, x, y);
     }
 
     /** Restore context to a specific point in history */
@@ -548,40 +613,106 @@ public class HistoryOutputPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
 
-            // Track which row to select
             int rowToSelect = -1;
             int currentRow = 0;
 
-            // Add rows for each context in history
-            for (var ctx : contextManager.getContextHistoryList()) {
-                // Add icon for AI responses, null for user actions
-                boolean hasAiMessages = ctx.getParsedOutput() != null
-                        && ctx.getParsedOutput().messages().stream()
-                                .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
-                Icon iconEmoji = hasAiMessages ? Icons.AI_ROBOT : null;
-                historyModel.addRow(new Object[] {
-                    iconEmoji, ctx.getAction(), ctx // We store the actual context object in hidden column
-                });
+            var contexts = contextManager.getContextHistoryList();
+            boolean lastIsNonLlm = !contexts.isEmpty() && !isGroupingBoundary(contexts.getLast());
 
-                // If this is the context we want to select, record its row
-                if (ctx.equals(contextToSelect)) {
-                    rowToSelect = currentRow;
+            for (int i = 0; i < contexts.size(); i++) {
+                var ctx = contexts.get(i);
+                if (isGroupingBoundary(ctx)) {
+                    Icon icon;
+                    if (ActivityTableRenderers.DROPPED_ALL_CONTEXT.equalsIgnoreCase(ctx.getAction())) {
+                        icon = null;
+                    } else {
+                        icon = Icons.AI_ROBOT;
+                    }
+                    historyModel.addRow(new Object[] {icon, ctx.getAction(), ctx});
+                    if (ctx.equals(contextToSelect)) {
+                        rowToSelect = currentRow;
+                    }
+                    currentRow++;
+                } else {
+                    int j = i;
+                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
+                        j++;
+                    }
+                    var children = contexts.subList(i, j);
+                    if (children.size() == 1) {
+                        var child = children.get(0);
+                        // Render single-entry groups as a normal top-level entry
+                        historyModel.addRow(new Object[] {null, child.getAction(), child});
+                        if (child.equals(contextToSelect)) {
+                            rowToSelect = currentRow;
+                        }
+                        currentRow++;
+                    } else { // children.size() >= 2
+                        String title;
+                        if (children.size() == 2) {
+                            title = firstWord(children.get(0).getAction()) + " + "
+                                    + firstWord(children.get(1).getAction());
+                        } else {
+                            title = children.size() + " actions";
+                        }
+                        var first = children.get(0); // For key and other metadata
+                        var key = first.id();
+                        boolean isLastGroup = j == contexts.size();
+                        boolean expandedDefault = isLastGroup && lastIsNonLlm;
+                        boolean expanded = groupExpandedState.getOrDefault(key, expandedDefault);
+
+                        boolean containsClearHistory = children.stream()
+                                .anyMatch(c ->
+                                        ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+
+                        var groupRow = new GroupRow(key, expanded, containsClearHistory);
+                        historyModel.addRow(new Object[] {new TriangleIcon(expanded), title, groupRow});
+                        currentRow++;
+
+                        if (expanded) {
+                            for (var child : children) {
+                                String childText = "   " + child.getAction();
+                                historyModel.addRow(new Object[] {null, childText, child});
+                                if (child.equals(contextToSelect)) {
+                                    rowToSelect = currentRow;
+                                }
+                                currentRow++;
+                            }
+                        }
+                    }
+
+                    i = j - 1;
                 }
-                currentRow++;
             }
 
-            // Set selection - if no specific context to select, select the most recent (last) item
-            if (rowToSelect >= 0) {
+            // Apply pending selection directive, if any
+            if (pendingSelectionType == PendingSelectionType.FIRST_IN_GROUP && pendingSelectionGroupKey != null) {
+                int headerRow = findGroupHeaderRow(pendingSelectionGroupKey);
+                int candidate = headerRow >= 0 ? headerRow + 1 : -1;
+                if (candidate >= 0 && candidate < historyModel.getRowCount()) {
+                    Object v = historyModel.getValueAt(candidate, 2);
+                    if (v instanceof Context) {
+                        rowToSelect = candidate;
+                    }
+                }
+            }
+
+            if (pendingSelectionType == PendingSelectionType.CLEAR) {
+                historyTable.clearSelection();
+                // Do not auto-select any row when collapsing a group
+            } else if (rowToSelect >= 0) {
                 historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
                 historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
             } else if (historyModel.getRowCount() > 0) {
-                // Select the most recent item (last row)
                 int lastRow = historyModel.getRowCount() - 1;
                 historyTable.setRowSelectionInterval(lastRow, lastRow);
                 historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
             }
 
-            // Update session combo box after table update
+            // Reset directive after applying
+            pendingSelectionType = PendingSelectionType.NONE;
+            pendingSelectionGroupKey = null;
+
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
@@ -1059,15 +1190,45 @@ public class HistoryOutputPanel extends JPanel {
                 return;
             }
 
+            // Map context IDs to the visible row indices where arrows should anchor.
+            // - For visible Context rows, map directly to their row.
+            // - For contexts hidden by collapsed groups, map to the group header row.
             Map<UUID, Integer> contextIdToRow = new HashMap<>();
+
+            // 1) First pass: map all visible Context rows
             for (int i = 0; i < model.getRowCount(); i++) {
-                Context ctx = (Context) model.getValueAt(i, 2);
-                if (ctx != null) {
+                var val = model.getValueAt(i, 2);
+                if (val instanceof Context ctx) {
                     contextIdToRow.put(ctx.id(), i);
                 }
             }
 
-            // 1. Build list of all possible arrows with their geometry
+            // 2) Build helper data from the full context history to determine group membership
+            var contexts = contextManager.getContextHistoryList();
+            Map<UUID, Integer> idToIndex = new HashMap<>();
+            for (int i = 0; i < contexts.size(); i++) {
+                idToIndex.put(contexts.get(i).id(), i);
+            }
+
+            // 3) Second pass: for collapsed groups, map their children context IDs to the group header row
+            for (int row = 0; row < model.getRowCount(); row++) {
+                var val = model.getValueAt(row, 2);
+                if (val instanceof GroupRow gr && !gr.expanded()) {
+                    Integer startIdx = idToIndex.get(gr.key());
+                    if (startIdx == null) {
+                        continue;
+                    }
+                    int j = startIdx;
+                    while (j < contexts.size() && !isGroupingBoundary(contexts.get(j))) {
+                        UUID ctxId = contexts.get(j).id();
+                        // Only map if not already visible; collapsed children should anchor to the header row
+                        contextIdToRow.putIfAbsent(ctxId, row);
+                        j++;
+                    }
+                }
+            }
+
+            // 4) Build list of arrows with geometry between the resolved row anchors
             List<Arrow> arrows = new ArrayList<>();
             for (var edge : resetEdges) {
                 Integer sourceRow = contextIdToRow.get(edge.sourceId());
@@ -1081,7 +1242,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
             }
 
-            // 2. Draw arrows, longest first to prevent shorter arrows from being hidden
+            // 5) Draw arrows, longest first (so shorter arrows aren't hidden)
             arrows.sort(Comparator.comparingInt((Arrow a) -> a.length).reversed());
 
             Graphics2D g2 = (Graphics2D) g.create();
@@ -1154,6 +1315,115 @@ public class HistoryOutputPanel extends JPanel {
             var head = new Polygon(
                     new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
             g2.fill(head);
+        }
+    }
+
+    // --- Tree-like grouping support types and helpers ---
+
+    public static record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
+
+    private enum PendingSelectionType {
+        NONE,
+        CLEAR,
+        FIRST_IN_GROUP
+    }
+
+    private static final class TriangleIcon implements Icon {
+        private final boolean expanded;
+        private final int size;
+
+        TriangleIcon(boolean expanded) {
+            this(expanded, 12);
+        }
+
+        TriangleIcon(boolean expanded, int size) {
+            this.expanded = expanded;
+            this.size = size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int triW = 8;
+                int triH = 8;
+                int cx = x + (getIconWidth() - triW) / 2;
+                int cy = y + (getIconHeight() - triH) / 2;
+
+                Polygon p = new Polygon();
+                if (expanded) {
+                    // down triangle
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx + triW, cy);
+                    p.addPoint(cx + triW / 2, cy + triH);
+                } else {
+                    // right triangle
+                    p.addPoint(cx, cy);
+                    p.addPoint(cx + triW, cy + triH / 2);
+                    p.addPoint(cx, cy + triH);
+                }
+
+                Color color = c.isEnabled()
+                        ? UIManager.getColor("Label.foreground")
+                        : UIManager.getColor("Label.disabledForeground");
+                if (color == null) color = Color.DARK_GRAY;
+                g2.setColor(color);
+                g2.fillPolygon(p);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
+    }
+
+    private boolean isGroupingBoundary(Context ctx) {
+        return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
+    }
+
+    private static String firstWord(String text) {
+        if (text.isBlank()) {
+            return "";
+        }
+        var trimmed = text.trim();
+        int idx = trimmed.indexOf(' ');
+        return idx < 0 ? trimmed : trimmed.substring(0, idx);
+    }
+
+    private void toggleGroupRow(int row) {
+        var val = historyModel.getValueAt(row, 2);
+        if (!(val instanceof GroupRow groupRow)) {
+            return;
+        }
+        boolean newState = !groupExpandedState.getOrDefault(groupRow.key(), groupRow.expanded());
+        groupExpandedState.put(groupRow.key(), newState);
+
+        if (newState) {
+            // Expanding: select first entry in the group after rebuild
+            pendingSelectionType = PendingSelectionType.FIRST_IN_GROUP;
+            pendingSelectionGroupKey = groupRow.key();
+        } else {
+            // Collapsing: clear selection and do not auto-select any row
+            pendingSelectionType = PendingSelectionType.CLEAR;
+            pendingSelectionGroupKey = groupRow.key();
+        }
+
+        updateHistoryTable(null);
+
+        // Scroll back to the group header if possible
+        int headerRow = findGroupHeaderRow(groupRow.key());
+        if (headerRow >= 0) {
+            historyTable.scrollRectToVisible(historyTable.getCellRect(headerRow, 0, true));
         }
     }
 }
