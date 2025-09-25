@@ -156,6 +156,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
+        list.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "copyTasks");
+        list.getActionMap().put("copyTasks", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                copySelectedTasks();
+            }
+        });
+
         // Run Architect with Ctrl/Cmd+Enter
         list.getInputMap()
                 .put(
@@ -177,6 +189,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var editItem = new JMenuItem("Edit");
         editItem.addActionListener(e -> editSelected());
         popup.add(editItem);
+        var copyItem = new JMenuItem("Copy");
+        copyItem.addActionListener(e -> copySelectedTasks());
+        popup.add(copyItem);
         var deleteItem = new JMenuItem("Delete");
         deleteItem.addActionListener(e -> removeSelected());
         popup.add(deleteItem);
@@ -1315,6 +1330,29 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             saveTasksForCurrentSession();
         }
         updateButtonStates();
+    }
+
+    private void copySelectedTasks() {
+        int[] indices = list.getSelectedIndices();
+        if (indices.length == 0) {
+            return;
+        }
+
+        var taskTexts = new java.util.ArrayList<String>(indices.length);
+        for (int idx : indices) {
+            if (idx >= 0 && idx < model.getSize()) {
+                TaskItem item = model.get(idx);
+                if (item != null && item.text() != null) {
+                    taskTexts.add(item.text());
+                }
+            }
+        }
+
+        if (!taskTexts.isEmpty()) {
+            String clipboardText = String.join("\n", taskTexts);
+            StringSelection selection = new StringSelection(clipboardText);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+        }
     }
 
     @Override
