@@ -1361,10 +1361,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        var lines = Arrays.stream(textArea.getText().split("\\R+"))
-                .map(String::strip)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+        var lines = normalizeSplitLines(textArea.getText());
 
         if (lines.isEmpty()) {
             return;
@@ -1383,6 +1380,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         updateButtonStates();
         list.revalidate();
         list.repaint();
+    }
+
+    static List<String> normalizeSplitLines(String input) {
+        if (input == null) return java.util.Collections.emptyList();
+        return Arrays.stream(input.split("\\R+"))
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
     }
 
     private void clearCompletedTasks() {
