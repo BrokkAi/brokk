@@ -116,6 +116,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         scrollPane.setLineNumbersEnabled(true);
         scrollPane.setFoldIndicatorEnabled(false);
 
+        // Apply initial theme (same approach as FilePanel:177)
+        GuiTheme.loadRSyntaxTheme(getTheme().isDarkTheme()).ifPresent(theme -> theme.apply(textArea));
+
         logger.debug("UnifiedDiffPanel UI setup complete");
     }
 
@@ -146,13 +149,13 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         // For now, use the old approach since we need to add plain text support for BufferSources too
         var unifiedDocument = UnifiedDiffGenerator.generateUnifiedDiff(leftSource, rightSource, contextMode);
 
-        // Extract plain text manually for legacy approach
+        // Extract plain text manually for legacy approach - fix interlaced line issue
         var textBuilder = new StringBuilder();
         for (var diffLine : unifiedDocument.getFilteredLines()) {
-            textBuilder.append(diffLine.getContent());
-            if (!diffLine.getContent().endsWith("\n")) {
-                textBuilder.append('\n');
-            }
+            String content = diffLine.getContent();
+            // Don't double-add newlines - the content should be clean line content
+            textBuilder.append(content);
+            textBuilder.append('\n');
         }
 
         // Remove trailing newline if present
@@ -184,10 +187,10 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         }
     }
 
-    /** Apply syntax highlighting based on detected file type using BufferDiffPanel's robust logic. */
+    /** Apply syntax highlighting based on detected file type using FilePanel's approach. */
     private void applySyntaxHighlighting() {
-        updateSyntaxStyle(); // Use same logic as BufferDiffPanel - pure syntax highlighting only
-        logger.debug("Applied pure syntax highlighting (diff coloring disabled)");
+        updateSyntaxStyle(); // Use shared logic from AbstractDiffPanel - pure syntax highlighting only
+        logger.debug("Applied pure syntax highlighting using shared AbstractDiffPanel logic");
     }
 
     /**
@@ -205,16 +208,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         textArea.setSyntaxEditingStyle(style);
         logger.debug("Set syntax style to: {} for unified diff", style);
     }
-
-    /** Apply diff-specific coloring to the text area (disabled - using pure syntax highlighting). */
-    private void applyDiffColoring() {
-        // Diff coloring is disabled - we use pure syntax highlighting instead
-        // This method is kept for compatibility but is now a no-op
-        logger.debug("Diff coloring disabled - using pure syntax highlighting only");
-    }
-
-
-
 
     /** Set the context mode for the unified diff. */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
@@ -270,8 +263,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
             autoScrollFlag = false;
         }
 
-        // Note: Diff coloring is disabled, this is now a no-op
-        applyDiffColoring();
+        // Theme-based coloring is handled automatically by RSyntaxTextArea
     }
 
     @Override
@@ -411,28 +403,15 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        SwingUtilities.invokeLater(() -> {
-            // Update colors and fonts based on new theme using UIManager
-            Color bg = UIManager.getColor("TextArea.background");
-            Color fg = UIManager.getColor("TextArea.foreground");
-            Color currentLineBg = UIManager.getColor("TextArea.selectionBackground");
-            Color selectionBg = UIManager.getColor("TextArea.selectionBackground");
-            Color selectionFg = UIManager.getColor("TextArea.selectionForeground");
+        // Apply RSyntaxTextArea theme using the same system as FilePanel
+        GuiTheme.loadRSyntaxTheme(guiTheme.isDarkTheme()).ifPresent(theme -> {
+            // Ensure syntax style is set before applying theme
+            updateSyntaxStyle();
 
-            // Apply with fallbacks
-            if (bg != null) textArea.setBackground(bg);
-            if (fg != null) textArea.setForeground(fg);
-            if (currentLineBg != null) textArea.setCurrentLineHighlightColor(currentLineBg);
-            if (selectionBg != null) textArea.setSelectionColor(selectionBg);
-            if (selectionFg != null) textArea.setSelectedTextColor(selectionFg);
+            // Apply theme to text area (same approach as FilePanel)
+            theme.apply(textArea);
 
-            // Note: Diff coloring is disabled, this is now a no-op
-            applyDiffColoring();
-
-            textArea.revalidate();
-            textArea.repaint();
-
-            logger.debug("Applied theme to UnifiedDiffPanel");
+            logger.debug("Applied RSyntaxTextArea theme to UnifiedDiffPanel");
         });
     }
 

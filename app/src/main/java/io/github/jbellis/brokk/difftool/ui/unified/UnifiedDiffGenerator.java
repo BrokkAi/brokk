@@ -430,8 +430,17 @@ public class UnifiedDiffGenerator {
             String rightTitle = "right";
 
             if (leftBufferNode != null) {
-                leftLines = leftBufferNode.getDocument().getLineList();
+                var rawLeftLines = leftBufferNode.getDocument().getLineList();
                 leftTitle = leftBufferNode.getDocument().getName();
+                logger.debug("Left source has {} lines, first few: {}", rawLeftLines.size(),
+                    rawLeftLines.stream().limit(3).map(line -> "'" + line.replace("\n", "\\n") + "'").toList());
+
+                // Normalize lines to remove any embedded newlines that could cause spacing issues
+                leftLines = rawLeftLines.stream()
+                    .map(line -> line.replaceAll("\\r?\\n", ""))
+                    .toList();
+                logger.debug("After normalization, first few: {}",
+                    leftLines.stream().limit(3).map(line -> "'" + line + "'").toList());
             } else {
                 leftLines = new ArrayList<>();
                 leftTitle = "<empty>";
@@ -466,9 +475,20 @@ public class UnifiedDiffGenerator {
         var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(leftTitle, rightTitle, leftLines, patch, STANDARD_CONTEXT_LINES);
 
         var textBuilder = new StringBuilder();
-        for (var line : unifiedLines) {
+        logger.debug("Processing {} unified diff lines", unifiedLines.size());
+        for (int i = 0; i < unifiedLines.size(); i++) {
+            var line = unifiedLines.get(i);
             // Skip file headers (--- and +++ lines)
             if (line.startsWith("---") || line.startsWith("+++")) {
+                logger.debug("Skipping file header: {}", line);
+                continue;
+            }
+            // Debug log each line to understand the structure
+            logger.debug("Line {}: '{}' (length={})", i, line.replace("\n", "\\n").replace("\r", "\\r"), line.length());
+
+            // Skip empty lines that might cause interlacing issues
+            if (line.trim().isEmpty() && !line.startsWith(" ")) {
+                logger.debug("Skipping unexpected empty line at index {}", i);
                 continue;
             }
             textBuilder.append(line);
