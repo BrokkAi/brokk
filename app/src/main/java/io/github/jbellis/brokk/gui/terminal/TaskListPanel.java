@@ -27,6 +27,7 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.HierarchyEvent;
 import java.awt.font.TextAttribute;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -54,6 +55,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.JViewport;
 import javax.swing.JTextField;
 import javax.swing.JTextArea;
 import javax.swing.KeyStroke;
@@ -89,7 +91,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Timer runningFadeTimer;
     private long runningAnimStartMs = 0L;
 
-    private @Nullable JTextField inlineEditor = null;
+    private @Nullable JTextArea inlineEditor = null;
     private int editingIndex = -1;
     private @Nullable Integer runningIndex = null;
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
@@ -339,6 +341,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         add(scroll, BorderLayout.CENTER);
         add(controls, BorderLayout.SOUTH);
 
+        // Ensure correct initial layout with wrapped rows after the panel becomes visible
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
+                SwingUtilities.invokeLater(() -> {
+                    list.revalidate();
+                    list.repaint();
+                });
+            }
+        });
+
         // Edit on double-click only to avoid interfering with multi-select
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
@@ -554,28 +566,44 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         editingIndex = index;
         var item = model.get(index);
-        inlineEditor = new JTextField(item.text());
+
+        // Use a wrapped JTextArea so the inline editor preserves word-wrap like the renderer.
+        inlineEditor = new JTextArea(item.text());
+        inlineEditor.setLineWrap(true);
+        inlineEditor.setWrapStyleWord(true);
+        inlineEditor.setOpaque(false);
+        inlineEditor.setEditable(true);
+        inlineEditor.setBorder(BorderFactory.createEmptyBorder());
+        inlineEditor.setFont(list.getFont());
 
         // Position editor over the cell (to the right of the checkbox area)
         java.awt.Rectangle cell = list.getCellBounds(index, index);
         int checkboxRegionWidth = 28;
         int editorX = cell.x + checkboxRegionWidth;
         int editorY = cell.y;
-        int editorW = Math.max(10, cell.width - checkboxRegionWidth - 4);
-        int editorH = cell.height - 2;
+
+        int availableWidth = Math.max(10, cell.width - checkboxRegionWidth - 4);
+        // Size the text area to compute wrapped preferred height so the editor shows multiple lines if needed.
+        inlineEditor.setSize(availableWidth, Short.MAX_VALUE);
+        int prefH = inlineEditor.getPreferredSize().height;
+        int editorH = Math.max(cell.height - 2, prefH);
 
         // Ensure list can host an overlay component
         if (list.getLayout() != null) {
             list.setLayout(null);
         }
 
-        inlineEditor.setBounds(editorX, editorY, editorW, editorH);
+        inlineEditor.setBounds(editorX, editorY, availableWidth, editorH);
         list.add(inlineEditor);
         inlineEditor.requestFocusInWindow();
         inlineEditor.selectAll();
 
         // Key bindings for commit/cancel
+        // Map Enter (and platform menu shortcut + Enter) to commitEdit so Enter does NOT insert a newline.
         inlineEditor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "commitEdit");
+        inlineEditor.getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                "commitEdit");
         inlineEditor.getActionMap().put("commitEdit", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -1260,6 +1288,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             textArea.setText(value.text());
+            // Suppress text rendering for the row currently being edited to avoid overlap with the inline editor
+            boolean isEditingRow = (TaskListPanel.this.inlineEditor != null && TaskListPanel.this.editingIndex == index);
+            textArea.setVisible(!isEditingRow);
 
             // Strike-through and dim when done
             Font base = list.getFont();
@@ -1271,9 +1302,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 textArea.setFont(base.deriveFont(Font.PLAIN));
             }
 
-            // Compute wrapping height based on available width
+            // Compute wrapping height based on available width (with safe fallbacks for first render)
             int checkboxRegionWidth = 28;
             int width = list.getWidth();
+            if (width <= 0) {
+                java.awt.Container parent = list.getParent();
+                if (parent instanceof javax.swing.JViewport vp) {
+                    width = vp.getWidth();
+                }
+            }
+            if (width <= 0) {
+                // Final fallback to a reasonable width to avoid giant first row
+                width = 600;
+            }
             int available = Math.max(1, width - checkboxRegionWidth - 8);
             textArea.setSize(available, Short.MAX_VALUE);
             int prefH = textArea.getPreferredSize().height;
