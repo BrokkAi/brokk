@@ -2126,7 +2126,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             + "Please close it there or choose a different session.",
                     "Session In Use",
                     JOptionPane.WARNING_MESSAGE);
-            project.sessionsListChanged(); // to make sure sessions combox switches back the old session
+            project.sessionsListChanged(); // to make sure sessions combo box switches back to the old session
             return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
         }
 
