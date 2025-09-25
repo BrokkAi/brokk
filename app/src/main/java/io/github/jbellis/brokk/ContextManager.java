@@ -333,7 +333,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Log and refresh UI if anything was moved
                 logger.info("Quarantine complete; moved {} unreadable session zip(s).", report.movedCount());
                 if (report.movedCount() > 0 && io instanceof Chrome) {
-                    mainProject.sessionsListChanged();
+                    project.sessionsListChanged();
                 }
 
                 // If the active session was unreadable, create a new session and notify the user
@@ -1941,7 +1941,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
             renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
                 if (io instanceof Chrome) {
-                    project.getMainProject().sessionsListChanged();
+                    project.sessionsListChanged();
                 }
             });
         }
@@ -2111,7 +2111,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> switchSessionAsync(UUID sessionId) {
         var sessionManager = project.getSessionManager();
-        if (SessionRegistry.isSessionActiveElsewhere(project.getRoot(), sessionId)) {
+        var otherWorktreeOpt = SessionRegistry.findAnotherWorktreeWithActiveSession(project.getRoot(), sessionId);
+        if (otherWorktreeOpt.isPresent()) {
+            var otherWorktree = otherWorktreeOpt.get();
             String sessionName = sessionManager.listSessions().stream()
                     .filter(s -> s.id().equals(sessionId))
                     .findFirst()
@@ -2119,10 +2121,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .orElse("Unknown session");
             io.systemNotify(
                     "Session '" + sessionName + "' (" + sessionId.toString().substring(0, 8) + ")"
-                            + " is currently active in another Brokk window.\n"
+                            + " is currently active in worktree:\n"
+                            + otherWorktree + "\n\n"
                             + "Please close it there or choose a different session.",
                     "Session In Use",
                     JOptionPane.WARNING_MESSAGE);
+            project.sessionsListChanged(); // to make sure sessions combox switches back the old session
             return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
         }
 
