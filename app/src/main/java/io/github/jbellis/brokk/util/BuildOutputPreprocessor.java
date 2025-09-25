@@ -121,6 +121,9 @@ public class BuildOutputPreprocessor {
             throws InterruptedException {
         var llm = contextManager.getLlm(contextManager.getService().quickestModel(), "BuildOutputPreprocessor");
 
+        // Limit build output to fit within token constraints
+        String truncatedOutput = truncateToTokenLimit(buildOutput, llm);
+
         var systemMessage = new SystemMessage(
                 """
             You are familiar with common build and lint tools. Extract the most relevant compilation
@@ -162,12 +165,61 @@ public class BuildOutputPreprocessor {
             ```
             """
                         .stripIndent()
-                        .formatted(buildOutput));
+                        .formatted(truncatedOutput));
         var messages = List.of(systemMessage, userMessage);
 
         var result = llm.sendRequest(messages, false);
 
         return handlePreprocessingResult(result, buildOutput, contextManager);
+    }
+
+    /**
+     * Truncates build output to fit within conservative token limits by repeatedly halving the line count. Uses a
+     * conservative estimate since our tokenizer is approximate and we want to avoid exceeding limits.
+     *
+     * @param buildOutput The original build output
+     * @param llm The LLM instance (unused but kept for future extensibility)
+     * @return Truncated output that should fit within token constraints
+     */
+    @SuppressWarnings("UnusedVariable")
+    private static String truncateToTokenLimit(String buildOutput, Llm llm) {
+        // Conservative token limit estimate - assume most models have at least 8K context
+        // Use 2K tokens as safe limit for build output portion (leaving room for system message, etc.)
+        int targetTokens = 2000;
+        logger.debug("Using conservative target of {} tokens for build output", targetTokens);
+
+        List<String> lines = Splitter.on('\n').splitToList(buildOutput);
+        int currentLineCount = lines.size();
+
+        // Rough approximation: 4 characters per token (very conservative)
+        int currentEstimatedTokens = buildOutput.length() / 4;
+
+        if (currentEstimatedTokens <= targetTokens) {
+            logger.debug(
+                    "Build output estimated at {} tokens, under target of {}", currentEstimatedTokens, targetTokens);
+            return buildOutput;
+        }
+
+        // Repeatedly halve line count until we're under target
+        while (currentLineCount > 1 && currentEstimatedTokens > targetTokens) {
+            currentLineCount = currentLineCount / 2;
+            var truncatedLines = lines.subList(0, currentLineCount);
+            var truncatedOutput = String.join("\n", truncatedLines);
+            currentEstimatedTokens = truncatedOutput.length() / 4;
+
+            logger.debug("Halved to {} lines, estimated {} tokens", currentLineCount, currentEstimatedTokens);
+        }
+
+        var truncatedLines = lines.subList(0, currentLineCount);
+        String truncatedOutput = String.join("\n", truncatedLines);
+
+        logger.info(
+                "Truncated build output from {} to {} lines to fit token limit (estimated {} tokens)",
+                lines.size(),
+                currentLineCount,
+                currentEstimatedTokens);
+
+        return truncatedOutput;
     }
 
     private static String handlePreprocessingResult(
