@@ -69,6 +69,10 @@ public final class DependenciesPanel extends JPanel {
     private JPanel addRemovePanel;
     private JPanel bottomSpacer;
 
+    private MaterialButton addButton;
+    private MaterialButton removeButton;
+    private boolean controlsLocked = false;
+
     private static class NumberRenderer extends DefaultTableCellRenderer {
         public NumberRenderer() {
             setHorizontalAlignment(RIGHT);
@@ -88,7 +92,7 @@ public final class DependenciesPanel extends JPanel {
         return v instanceof Boolean b ? b : (v instanceof String s && LOADING.equals(s));
     }
 
-    private static class LiveCellRenderer extends DefaultTableCellRenderer {
+    private class LiveCellRenderer extends DefaultTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -97,6 +101,7 @@ public final class DependenciesPanel extends JPanel {
                 cb.setSelected(b);
                 cb.setHorizontalAlignment(CENTER);
                 cb.setOpaque(true);
+                cb.setEnabled(!controlsLocked);
                 if (isSelected) {
                     cb.setBackground(table.getSelectionBackground());
                     cb.setForeground(table.getSelectionForeground());
@@ -144,6 +149,7 @@ public final class DependenciesPanel extends JPanel {
             @Override
             public boolean isCellEditable(int row, int column) {
                 if (column != 0) return false;
+                if (controlsLocked) return false;
                 Object v = getValueAt(row, 0);
                 return v instanceof Boolean;
             }
@@ -220,9 +226,9 @@ public final class DependenciesPanel extends JPanel {
 
         // Add/Remove on the right
         addRemovePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
-        var addButton = new MaterialButton();
+        addButton = new MaterialButton();
         addButton.setIcon(Icons.ADD);
-        var removeButton = new MaterialButton();
+        removeButton = new MaterialButton();
         removeButton.setIcon(Icons.REMOVE);
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
@@ -246,6 +252,7 @@ public final class DependenciesPanel extends JPanel {
             var listener = new DependencyLifecycleListener() {
                 @Override
                 public void dependencyImportStarted(String name) {
+                    setControlsLocked(true);
                     addPendingDependencyRow(name);
                 }
 
@@ -254,6 +261,7 @@ public final class DependenciesPanel extends JPanel {
                     loadDependenciesAsync();
                     // Persist changes after a dependency import completes.
                     saveChangesAsync();
+                    setControlsLocked(false);
                 }
             };
             ImportDependencyDialog.show(chrome, listener);
@@ -264,7 +272,7 @@ public final class DependenciesPanel extends JPanel {
 
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                removeButton.setEnabled(table.getSelectedRow() != -1);
+                removeButton.setEnabled(!controlsLocked && table.getSelectedRow() != -1);
             }
         });
 
@@ -325,6 +333,17 @@ public final class DependenciesPanel extends JPanel {
                 }
             }
         });
+    }
+
+    private void setControlsLocked(boolean locked) {
+        controlsLocked = locked;
+        addButton.setEnabled(!locked);
+        removeButton.setEnabled(!locked && table.getSelectedRow() != -1);
+        if (table.isEditing()) {
+            var editor = table.getCellEditor();
+            if (editor != null) editor.stopCellEditing();
+        }
+        table.repaint();
     }
 
     @Override
