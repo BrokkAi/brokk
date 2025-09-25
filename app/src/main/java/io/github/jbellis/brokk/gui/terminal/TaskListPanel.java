@@ -191,7 +191,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var editItem = new JMenuItem("Edit");
         editItem.addActionListener(e -> editSelected());
         popup.add(editItem);
-        var splitItem = new JMenuItem("Split");
+        var splitItem = new JMenuItem("Split...");
         splitItem.addActionListener(e -> splitSelectedTask());
         popup.add(splitItem);
         var copyItem = new JMenuItem("Copy");
