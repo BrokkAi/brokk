@@ -2,7 +2,7 @@
 junit = "5.10.2"
 log4j = "2.20.0"
 jackson = "2.18.3"
-jgit = "7.2.1.202505142326-r"
+jgit = "7.4.0.202509020913-r"
 nullaway = "0.12.7"
 flatlaf = "3.6"
 flexmark = "0.64.8"
@@ -71,7 +71,7 @@ jediterm-core = { module = "org.jetbrains.jediterm:jediterm-core", version.ref =
 jediterm-pty = { module = "org.jetbrains.jediterm:jediterm-pty", version.ref = "jediterm-pty" }
 pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref="pty4j" }
 
-# JDKMon 
+# JDKMon
 disco = "io.foojay.api:discoclient:21.0.1"
 jdktools = "eu.hansolo:jdktools:21.0.11"
 osdetector-plugin = "com.google.gradle:osdetector-gradle-plugin:1.7.3"
