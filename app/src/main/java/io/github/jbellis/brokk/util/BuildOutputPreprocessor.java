@@ -6,11 +6,6 @@ import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -21,8 +16,8 @@ import org.jetbrains.annotations.Nullable;
  * for analysis and fixes. This helps reduce context window usage while ensuring actionable error information is
  * preserved.
  *
- * Provides both lightweight path sanitization and full LLM-based error extraction with timeout protection.
- * For LLM context optimization only - use raw output for success/failure decisions.
+ * <p>Provides both lightweight path sanitization and full LLM-based error extraction with timeout protection. For LLM
+ * context optimization only - use raw output for success/failure decisions.
  */
 public class BuildOutputPreprocessor {
     private static final Logger logger = LogManager.getLogger(BuildOutputPreprocessor.class);
@@ -40,16 +35,8 @@ public class BuildOutputPreprocessor {
     public static final int MAX_EXTRACTED_ERRORS = 10;
 
     /**
-     * Timeout in seconds for LLM calls during build output preprocessing. This ensures the non-critical preprocessing
-     * optimization fails fast and doesn't block for the full model timeout duration (2-15 minutes).
-     *
-     * <p>Applied via {@link #applyCustomTimeout(Supplier, long)} to wrap the LLM request with a 30-second timeout. If
-     * this timeout is exceeded, preprocessing is aborted and the original build output is returned.
-     */
-    public static final long PREPROCESSING_TIMEOUT_SECONDS = 30L;
-
-    /**
-     * Lightweight path sanitization without LLM processing. Converts absolute paths to relative paths for cleaner output.
+     * Lightweight path sanitization without LLM processing. Converts absolute paths to relative paths for cleaner
+     * output.
      *
      * @param rawBuildOutput The build output to sanitize (use empty string if no output)
      * @param contextManager The context manager to access project root
@@ -95,51 +82,8 @@ public class BuildOutputPreprocessor {
     }
 
     /**
-     * Applies a custom timeout to an LLM operation to ensure build output preprocessing fails fast. This ensures
-     * preprocessing doesn't block for the full model timeout duration (2-15 minutes).
-     *
-     * @param operation The LLM operation to execute with timeout
-     * @param timeoutSeconds Timeout in seconds
-     * @return LLM result, or error result if timeout occurs
-     */
-    private static Llm.StreamingResult applyCustomTimeout(Supplier<Llm.StreamingResult> operation, long timeoutSeconds)
-            throws InterruptedException {
-
-        try {
-            return CompletableFuture.supplyAsync(operation)
-                    .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
-                    .get();
-        } catch (ExecutionException e) {
-            return handleExecutionException(e, timeoutSeconds);
-        }
-    }
-
-    private static Llm.StreamingResult handleExecutionException(ExecutionException e, long timeoutSeconds)
-            throws InterruptedException {
-        var cause = e.getCause();
-
-        if (cause instanceof RuntimeException && cause.getCause() instanceof InterruptedException) {
-            Thread.currentThread().interrupt();
-            throw (InterruptedException) cause.getCause();
-        }
-
-        if (cause instanceof TimeoutException) {
-            return handleTimeout(timeoutSeconds);
-        }
-
-        return new Llm.StreamingResult(null, new RuntimeException("Build output preprocessing failed", cause));
-    }
-
-    private static Llm.StreamingResult handleTimeout(long timeoutSeconds) {
-        logger.warn("Build output preprocessing timed out after {} seconds", timeoutSeconds);
-        return new Llm.StreamingResult(
-                null,
-                new RuntimeException("Build output preprocessing timed out after " + timeoutSeconds + " seconds"));
-    }
-
-    /**
      * Preprocesses build output by extracting the most relevant errors when the output is longer than the threshold.
-     * Uses the quickest model for fast error extraction with a 30-second timeout.
+     * Uses the quickest model for fast error extraction, relying on the LLM service's built-in timeout protection.
      *
      * @param buildOutput The raw build output from compilation/test commands (empty string if no output)
      * @param contextManager The context manager to access the quickest model via getLlm
@@ -185,16 +129,7 @@ public class BuildOutputPreprocessor {
         var llm = contextManager.getLlm(contextManager.getService().quickestModel(), "BuildOutputPreprocessor");
         var messages = List.of(createSystemMessage(), createExtractionRequest(buildOutput));
 
-        var result = applyCustomTimeout(
-                () -> {
-                    try {
-                        return llm.sendRequest(messages, false);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException(e);
-                    }
-                },
-                PREPROCESSING_TIMEOUT_SECONDS);
+        var result = llm.sendRequest(messages, false);
 
         return handlePreprocessingResult(result, buildOutput, contextManager);
     }
@@ -228,19 +163,10 @@ public class BuildOutputPreprocessor {
             return;
         }
 
-        boolean isCustomTimeout =
-                error.getMessage() != null && error.getMessage().contains("Build output preprocessing timed out");
-        boolean isModelTimeout =
-                error.getMessage() != null && error.getMessage().contains("timed out");
-
-        if (isCustomTimeout) {
+        boolean isTimeout = error.getMessage() != null && error.getMessage().contains("timed out");
+        if (isTimeout) {
             logger.warn(
-                    "Build output preprocessing timed out after {} seconds (quickest model: {}). Using original output.",
-                    PREPROCESSING_TIMEOUT_SECONDS,
-                    contextManager.getService().quickestModel().getClass().getSimpleName());
-        } else if (isModelTimeout) {
-            logger.warn(
-                    "Build output preprocessing timed out at model level (quickest model: {}). Using original output.",
+                    "Build output preprocessing timed out (quickest model: {}). Using original output.",
                     contextManager.getService().quickestModel().getClass().getSimpleName());
         } else {
             logger.warn("Error during build output preprocessing: {}. Using original output.", error.getMessage());
