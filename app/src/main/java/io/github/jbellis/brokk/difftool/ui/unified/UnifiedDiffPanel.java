@@ -5,7 +5,10 @@ import io.github.jbellis.brokk.difftool.ui.AbstractDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import io.github.jbellis.brokk.difftool.ui.CompositeHighlighter;
+import io.github.jbellis.brokk.difftool.ui.JMHighlighter;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -25,9 +28,9 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Unified diff panel that displays diffs in GitHub-style unified format. This implementation starts as read-only and
- * provides navigation between hunks.
+ * provides navigation between hunks. Supports diff highlighting similar to side-by-side panels.
  */
-public class UnifiedDiffPanel extends AbstractDiffPanel {
+public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffPanel.class);
 
     // Legacy fields for backward compatibility (deprecated)
@@ -41,6 +44,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
 
     private final RSyntaxTextArea textArea;
     private final RTextScrollPane scrollPane;
+    private final JMHighlighter jmHighlighter;
+    private final CompositeHighlighter compositeHighlighter;
 
     @Nullable
     private UnifiedDiffNavigator navigator;
@@ -69,6 +74,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         this.textArea = new RSyntaxTextArea();
         this.scrollPane = new RTextScrollPane(textArea);
 
+        // Initialize highlighting system similar to FilePanel
+        this.jmHighlighter = new JMHighlighter();
+        this.compositeHighlighter = new CompositeHighlighter(jmHighlighter);
+        textArea.setHighlighter(compositeHighlighter);
+
         setupUI();
         setDiffNode(diffNode);
     }
@@ -91,6 +101,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         // Create text area for unified diff display
         this.textArea = new RSyntaxTextArea();
         this.scrollPane = new RTextScrollPane(textArea);
+
+        // Initialize highlighting system similar to FilePanel
+        this.jmHighlighter = new JMHighlighter();
+        this.compositeHighlighter = new CompositeHighlighter(jmHighlighter);
+        textArea.setHighlighter(compositeHighlighter);
 
         setupUI();
         generateDiffFromBufferSources();
@@ -133,6 +148,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
 
+        // Apply diff highlights after content is set
+        reDisplay();
+
         logger.debug(
                 "Generated unified diff from JMDiffNode {} (plain text mode)",
                 diffNode.getName());
@@ -171,6 +189,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
 
+        // Apply diff highlights after content is set
+        reDisplay();
+
         logger.debug("Generated unified diff from BufferSources (plain text mode)");
     }
 
@@ -184,6 +205,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
             // Clear the content when no diff node is provided
             textArea.setText("");
             this.navigator = new UnifiedDiffNavigator("", textArea);
+            // Clear highlights when no content
+            removeHighlights();
         }
     }
 
@@ -403,15 +426,23 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        // Apply RSyntaxTextArea theme using the same system as FilePanel
+        // Apply theme to syntax highlighting
         GuiTheme.loadRSyntaxTheme(guiTheme.isDarkTheme()).ifPresent(theme -> {
-            // Ensure syntax style is set before applying theme
+            // Update syntax style first
             updateSyntaxStyle();
 
-            // Apply theme to text area (same approach as FilePanel)
+            // Apply theme to the composite highlighter (which will forward to JMHighlighter)
+            if (compositeHighlighter != null) {
+                compositeHighlighter.applyTheme(guiTheme);
+            }
+
+            // Apply RSyntax theme
             theme.apply(textArea);
 
-            logger.debug("Applied RSyntaxTextArea theme to UnifiedDiffPanel");
+            // Refresh highlights with new theme colors
+            reDisplay();
+
+            logger.debug("Applied theme and refreshed highlights in UnifiedDiffPanel");
         });
     }
 
@@ -470,4 +501,49 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
     public String getNavigationInfo() {
         return navigator != null ? navigator.getNavigationInfo() : "No navigator";
     }
+
+    /** Get the JMHighlighter for external access (similar to FilePanel). */
+    public JMHighlighter getHighlighter() {
+        return jmHighlighter;
+    }
+
+    /** Remove all diff highlights from the highlighter. */
+    private void removeHighlights() {
+        UnifiedDiffHighlighter.removeHighlights(jmHighlighter);
+        logger.debug("Removed all diff highlights from unified diff panel");
+    }
+
+    /** Apply diff highlights to the current unified diff content. */
+    private void applyHighlights() {
+        try {
+            boolean isDarkTheme = getTheme().isDarkTheme();
+            UnifiedDiffHighlighter.applyHighlights(textArea, jmHighlighter, isDarkTheme);
+            logger.debug("Applied diff highlights to unified diff content");
+        } catch (Exception e) {
+            logger.warn("Failed to apply highlights: {}", e.getMessage(), e);
+        }
+    }
+
+    /** Refresh highlights and force repaint (similar to FilePanel.reDisplayInternal). */
+    @Override
+    public void reDisplay() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::reDisplay);
+            return;
+        }
+
+        try {
+            removeHighlights();
+            applyHighlights();
+
+            // Force both the JMHighlighter and editor to repaint
+            jmHighlighter.repaint();
+            textArea.repaint();
+
+            logger.debug("UnifiedDiffPanel reDisplay completed");
+        } catch (Exception e) {
+            logger.warn("Error during unified diff reDisplay: {}", e.getMessage(), e);
+        }
+    }
+
 }

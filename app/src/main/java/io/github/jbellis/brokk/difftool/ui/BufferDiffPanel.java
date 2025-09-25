@@ -291,7 +291,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     }
 
     /** Tells each FilePanel to re-apply highlights, then repaint the parent panel. */
-    private void reDisplay() {
+    @Override
+    public void reDisplay() {
         for (var entry : filePanels.entrySet()) {
             entry.getValue().reDisplay();
         }
