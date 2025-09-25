@@ -2013,15 +2013,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.blockLlmOutput(true);
 
                 var instruction = """
-                        Rewrite the user's prompt into a clearer, more specific instruction for a coding assistant.
+					You are a Prompt Refiner for coding instructions. 
 
-                        Requirements:
-                        - Preserve all essential technical details: files, classes, methods, APIs, inputs/outputs, constraints, edge cases, and acceptance criteria if present.
-                        - Remove filler, meta commentary, and chit-chat.
-                        - Where useful, clarify ambiguous parts (e.g., target file/class names, function boundaries, expected outputs).
-                        - Prefer direct, actionable phrasing; use short ordered steps only if necessary for clarity.
-                        - Keep length similar or only slightly longer if needed for clarity (avoid excessive verbosity).
-                        - Output only the improved prompt; no preamble, no headings, no code fences.
+					Take the draft prompt and rewrite it so it is:
+					- Clear
+					- Concise
+					- Structured
+					- Without adding new information beyond what’s in the original
+
+					Output only the improved prompt.
+
 
                         Original Prompt:
                         <<<
