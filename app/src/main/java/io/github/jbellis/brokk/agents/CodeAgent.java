@@ -18,7 +18,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
-import io.github.jbellis.brokk.util.BuildOutputPipeline;
+import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LogDescription;
@@ -699,9 +699,9 @@ public class CodeAgent {
         try {
             rawBuildError = performBuildVerification();
             // Sanitize for user-facing error storage (lightweight path cleanup)
-            sanitizedBuildError = BuildOutputPipeline.sanitizeOnly(rawBuildError, contextManager);
+            sanitizedBuildError = BuildOutputPreprocessor.sanitizeOnly(rawBuildError, contextManager);
             // Process build output through full pipeline for LLM context
-            processedBuildError = BuildOutputPipeline.processForLlm(rawBuildError, contextManager);
+            processedBuildError = BuildOutputPreprocessor.processForLlm(rawBuildError, contextManager);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();

@@ -25,7 +25,7 @@ import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
-import io.github.jbellis.brokk.util.BuildOutputPipeline;
+import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
@@ -535,7 +535,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                                 } catch (Environment.SubprocessException e) {
                                     String buildOutput = e.getMessage() + "\n\n" + e.getOutput();
                                     // Process build output through standardized pipeline before passing to Architect
-                                    return BuildOutputPipeline.processForLlm(buildOutput, contextManager);
+                                    return BuildOutputPreprocessor.processForLlm(buildOutput, contextManager);
                                 } catch (InterruptedException e) {
                                     Thread.currentThread().interrupt();
                                     return "Build command was interrupted.";
