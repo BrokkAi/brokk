@@ -26,8 +26,8 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.HierarchyEvent;
+import java.awt.event.KeyEvent;
 import java.awt.font.TextAttribute;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -55,9 +55,8 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
-import javax.swing.JViewport;
-import javax.swing.JTextField;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
@@ -335,9 +334,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             controls.add(buttonBar, gbc);
         }
 
-        var scroll = new JScrollPane(list,
-                                     JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                                     JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        var scroll =
+                new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         add(scroll, BorderLayout.CENTER);
         add(controls, BorderLayout.SOUTH);
 
@@ -601,9 +599,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Key bindings for commit/cancel
         // Map Enter (and platform menu shortcut + Enter) to commitEdit so Enter does NOT insert a newline.
         inlineEditor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "commitEdit");
-        inlineEditor.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                "commitEdit");
+        inlineEditor
+                .getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "commitEdit");
         inlineEditor.getActionMap().put("commitEdit", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -1289,7 +1290,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             textArea.setText(value.text());
             // Suppress text rendering for the row currently being edited to avoid overlap with the inline editor
-            boolean isEditingRow = (TaskListPanel.this.inlineEditor != null && TaskListPanel.this.editingIndex == index);
+            boolean isEditingRow =
+                    (TaskListPanel.this.inlineEditor != null && TaskListPanel.this.editingIndex == index);
             textArea.setVisible(!isEditingRow);
 
             // Strike-through and dim when done
