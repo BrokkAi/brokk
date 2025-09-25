@@ -54,6 +54,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JSeparator;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -61,6 +62,7 @@ import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
@@ -81,7 +83,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
-    private final JTextArea input = new JTextArea();
+    private final JTextField input = new JTextField();
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
@@ -273,12 +275,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Multiline input: word wrap, Ctrl/Cmd+Enter adds, Ctrl/Cmd+Shift+Enter adds and keeps, Escape clears
-        input.setLineWrap(true);
-        input.setWrapStyleWord(true);
-        input.setRows(3);
-        var inputScroll = new JScrollPane(
-                input, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        // Single-line input (no wrap). Shortcuts: Enter adds, Ctrl/Cmd+Enter adds, Ctrl/Cmd+Shift+Enter adds and keeps, Escape clears
+        input.setColumns(50);
+        input.putClientProperty("JTextField.placeholderText", "Add task here and press Enter");
+        input.setToolTipText("Add task here and press Enter");
+        // Enter adds
+        input.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "addTask");
+        // Ctrl/Cmd+Enter also adds
         input.getInputMap()
                 .put(
                         KeyStroke.getKeyStroke(
@@ -313,7 +316,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        controls.add(inputScroll, gbc);
+        controls.add(input, gbc);
 
         removeBtn.setIcon(Icons.REMOVE);
         // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
@@ -374,20 +377,27 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             splitBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
-            JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-            buttonBar.setOpaque(false);
-            buttonBar.add(removeBtn);
-            buttonBar.add(toggleDoneBtn);
-            buttonBar.add(playBtn);
-            buttonBar.add(playAllBtn);
-            buttonBar.add(combineBtn);
-            buttonBar.add(splitBtn);
-            buttonBar.add(clearCompletedBtn);
+            // Top toolbar (below title, above list): left group + separator + play all/clear completed
+            JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            topToolbar.setOpaque(false);
 
-            gbc.gridx = 1;
-            gbc.weightx = 0.0;
-            gbc.fill = GridBagConstraints.NONE;
-            controls.add(buttonBar, gbc);
+            // Left group: remaining buttons
+            topToolbar.add(removeBtn);
+            topToolbar.add(toggleDoneBtn);
+            topToolbar.add(playBtn);
+            topToolbar.add(combineBtn);
+            topToolbar.add(splitBtn);
+
+            // Vertical separator between groups
+            JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
+            sep.setPreferredSize(new java.awt.Dimension(8, 24));
+            topToolbar.add(sep);
+
+            // Right group: Play All and Clear Completed
+            topToolbar.add(playAllBtn);
+            topToolbar.add(clearCompletedBtn);
+
+            add(topToolbar, BorderLayout.NORTH);
         }
 
         var scroll =
