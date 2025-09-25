@@ -309,14 +309,16 @@ public abstract class TreeSitterAnalyzer
         try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-parser-");
                 var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(1, "ts-ingest-")) {
             for (var pf : filesToProcess) {
-                CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> readFileBytes(pf, timing), ioExecutor)
+                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
+                                () -> readFileBytes(pf, timing), ioExecutor)
                         .thenApplyAsync(
                                 fileBytes -> {
                                     totalFilesAttempted.incrementAndGet();
                                     return analyzeFile(pf, fileBytes, timing);
                                 },
                                 ioExecutor)
-                        .thenAcceptAsync(analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
+                        .thenAcceptAsync(
+                                analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
                         .whenComplete((Void ignored, @Nullable Throwable ex) -> {
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
@@ -346,7 +348,6 @@ public abstract class TreeSitterAnalyzer
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
 
-
         // Log summary of file processing results
         int totalAttempted = totalFilesAttempted.get();
         int successful = successfullyProcessed.get();
@@ -370,14 +371,21 @@ public abstract class TreeSitterAnalyzer
 
         // Total wall clock derived from stage coverage: min(firstStart) .. max(lastEnd)
         long totalStart = Math.min(
-                Math.min(timing.readStageFirstStartNanos().get(), timing.parseStageFirstStartNanos().get()),
-                Math.min(timing.processStageFirstStartNanos().get(), timing.mergeStageFirstStartNanos().get()));
+                Math.min(
+                        timing.readStageFirstStartNanos().get(),
+                        timing.parseStageFirstStartNanos().get()),
+                Math.min(
+                        timing.processStageFirstStartNanos().get(),
+                        timing.mergeStageFirstStartNanos().get()));
         long totalEnd = Math.max(
-                Math.max(timing.readStageLastEndNanos().get(), timing.parseStageLastEndNanos().get()),
-                Math.max(timing.processStageLastEndNanos().get(), timing.mergeStageLastEndNanos().get()));
-        long totalWall = (totalStart == Long.MAX_VALUE || totalEnd == 0L || totalEnd < totalStart)
-                ? 0L
-                : totalEnd - totalStart;
+                Math.max(
+                        timing.readStageLastEndNanos().get(),
+                        timing.parseStageLastEndNanos().get()),
+                Math.max(
+                        timing.processStageLastEndNanos().get(),
+                        timing.mergeStageLastEndNanos().get()));
+        long totalWall =
+                (totalStart == Long.MAX_VALUE || totalEnd == 0L || totalEnd < totalStart) ? 0L : totalEnd - totalStart;
 
         log.debug(
                 "Stage timing (wall clock coverage; stages overlap): Read Files={}, Parse Files={}, Process Files={}, Merge Results={}, Total={}",
@@ -998,7 +1006,11 @@ public abstract class TreeSitterAnalyzer
     /* ---------- core parsing ---------- */
 
     /** Analyzes a single file and extracts declaration information from provided bytes. */
-    private FileAnalysisResult analyzeFileContent(ProjectFile file, byte[] fileBytes, TSParser localParser, @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
+    private FileAnalysisResult analyzeFileContent(
+            ProjectFile file,
+            byte[] fileBytes,
+            TSParser localParser,
+            @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
         log.trace("analyzeFileContent: Parsing file: {}", file);
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
