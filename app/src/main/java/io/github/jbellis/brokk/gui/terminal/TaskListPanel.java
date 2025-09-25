@@ -55,6 +55,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
+import javax.swing.JTextArea;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
@@ -108,6 +109,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
+        list.setFixedCellHeight(-1);
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> updateButtonStates());
@@ -331,7 +333,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             controls.add(buttonBar, gbc);
         }
 
-        add(new JScrollPane(list), BorderLayout.CENTER);
+        var scroll = new JScrollPane(list,
+                                     JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                                     JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        add(scroll, BorderLayout.CENTER);
         add(controls, BorderLayout.SOUTH);
 
         // Edit on double-click only to avoid interfering with multi-select
@@ -1212,7 +1217,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final class TaskRenderer extends JPanel implements ListCellRenderer<TaskItem> {
         private final JCheckBox check = new JCheckBox();
-        private final javax.swing.JLabel label = new javax.swing.JLabel();
+        private final JTextArea textArea = new JTextArea();
 
         TaskRenderer() {
             super(new BorderLayout(6, 0));
@@ -1221,7 +1226,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             check.setIcon(Icons.CIRCLE);
             check.setSelectedIcon(Icons.CHECK);
             add(check, BorderLayout.WEST);
-            add(label, BorderLayout.CENTER);
+
+            textArea.setLineWrap(true);
+            textArea.setWrapStyleWord(true);
+            textArea.setOpaque(false);
+            textArea.setEditable(false);
+            textArea.setFocusable(false);
+            textArea.setBorder(BorderFactory.createEmptyBorder());
+            add(textArea, BorderLayout.CENTER);
         }
 
         @Override
@@ -1246,17 +1258,26 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
-            label.setText(value.text());
+
+            textArea.setText(value.text());
 
             // Strike-through and dim when done
             Font base = list.getFont();
             if (value.done()) {
                 var attrs = new java.util.HashMap<java.awt.font.TextAttribute, Object>(base.getAttributes());
                 attrs.put(TextAttribute.STRIKETHROUGH, TextAttribute.STRIKETHROUGH_ON);
-                label.setFont(base.deriveFont(attrs));
+                textArea.setFont(base.deriveFont(attrs));
             } else {
-                label.setFont(base.deriveFont(Font.PLAIN));
+                textArea.setFont(base.deriveFont(Font.PLAIN));
             }
+
+            // Compute wrapping height based on available width
+            int checkboxRegionWidth = 28;
+            int width = list.getWidth();
+            int available = Math.max(1, width - checkboxRegionWidth - 8);
+            textArea.setSize(available, Short.MAX_VALUE);
+            int prefH = textArea.getPreferredSize().height;
+            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, prefH));
 
             if (isRunningRow) {
                 long now = System.currentTimeMillis();
@@ -1275,21 +1296,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 setBackground(new java.awt.Color(r, g, b));
 
                 if (isSelected) {
-                    label.setForeground(list.getSelectionForeground());
+                    textArea.setForeground(list.getSelectionForeground());
                     // Subtle selection indicator while flashing
                     java.awt.Color borderColor = selBg.darker();
                     setBorder(javax.swing.BorderFactory.createLineBorder(borderColor, 1));
                 } else {
-                    label.setForeground(list.getForeground());
+                    textArea.setForeground(list.getForeground());
                     setBorder(null);
                 }
             } else if (isSelected) {
                 setBackground(list.getSelectionBackground());
-                label.setForeground(list.getSelectionForeground());
+                textArea.setForeground(list.getSelectionForeground());
                 setBorder(null);
             } else {
                 setBackground(list.getBackground());
-                label.setForeground(list.getForeground());
+                textArea.setForeground(list.getForeground());
                 setBorder(null);
             }
 
