@@ -2017,7 +2017,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.toolError("Please provide a search query");
             return null;
         }
-        return executeSearchInternal(query);
+        var future = executeSearchInternal(query);
+        if (future != null) {
+            setActionRunning(future);
+        }
+        return future;
     }
 
     /** sets the llm output to indicate the action has started, and submits the task on the user pool */
