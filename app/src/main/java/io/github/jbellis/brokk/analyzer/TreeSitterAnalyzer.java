@@ -102,21 +102,37 @@ public abstract class TreeSitterAnalyzer
     // Ensures reads see a consistent view while updates mutate internal maps atomically
     private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
 
-    // Cumulative stage timing (nanoseconds) for constructor-run analysis
-    private final AtomicLong readStageNanos = new AtomicLong();
-    private final AtomicLong parseStageNanos = new AtomicLong();
-    private final AtomicLong processStageNanos = new AtomicLong();
-    private final AtomicLong mergeStageNanos = new AtomicLong();
+    // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
+    private record ConstructionTiming(
+            AtomicLong readStageNanos,
+            AtomicLong parseStageNanos,
+            AtomicLong processStageNanos,
+            AtomicLong mergeStageNanos,
+            AtomicLong readStageFirstStartNanos,
+            AtomicLong readStageLastEndNanos,
+            AtomicLong parseStageFirstStartNanos,
+            AtomicLong parseStageLastEndNanos,
+            AtomicLong processStageFirstStartNanos,
+            AtomicLong processStageLastEndNanos,
+            AtomicLong mergeStageFirstStartNanos,
+            AtomicLong mergeStageLastEndNanos) {
 
-    // Wall-clock coverage tracking for each stage
-    private final AtomicLong readStageFirstStartNanos = new AtomicLong(Long.MAX_VALUE);
-    private final AtomicLong readStageLastEndNanos = new AtomicLong(0L);
-    private final AtomicLong parseStageFirstStartNanos = new AtomicLong(Long.MAX_VALUE);
-    private final AtomicLong parseStageLastEndNanos = new AtomicLong(0L);
-    private final AtomicLong processStageFirstStartNanos = new AtomicLong(Long.MAX_VALUE);
-    private final AtomicLong processStageLastEndNanos = new AtomicLong(0L);
-    private final AtomicLong mergeStageFirstStartNanos = new AtomicLong(Long.MAX_VALUE);
-    private final AtomicLong mergeStageLastEndNanos = new AtomicLong(0L);
+        static ConstructionTiming create() {
+            return new ConstructionTiming(
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L));
+        }
+    }
 
     private final IProject project;
     private final Language language;
@@ -287,19 +303,20 @@ public abstract class TreeSitterAnalyzer
                 })
                 .toList();
 
+        var timing = ConstructionTiming.create();
         List<CompletableFuture<?>> futures = new ArrayList<>();
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
         try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-parser-");
                 var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(1, "ts-ingest-")) {
             for (var pf : filesToProcess) {
-                CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> readFileBytes(pf), ioExecutor)
+                CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> readFileBytes(pf, timing), ioExecutor)
                         .thenApplyAsync(
                                 fileBytes -> {
                                     totalFilesAttempted.incrementAndGet();
-                                    return analyzeFile(pf, fileBytes);
+                                    return analyzeFile(pf, fileBytes, timing);
                                 },
                                 ioExecutor)
-                        .thenAcceptAsync(analysisResult -> mergeAnalysisResult(pf, analysisResult), ingestExecutor)
+                        .thenAcceptAsync(analysisResult -> mergeAnalysisResult(pf, analysisResult, timing), ingestExecutor)
                         .whenComplete((Void ignored, @Nullable Throwable ex) -> {
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
@@ -346,23 +363,23 @@ public abstract class TreeSitterAnalyzer
         }
 
         // Wall-clock timings per stage (coverage windows; stages overlap)
-        long readWall = wallDuration(readStageFirstStartNanos, readStageLastEndNanos);
-        long parseWall = wallDuration(parseStageFirstStartNanos, parseStageLastEndNanos);
-        long processWall = wallDuration(processStageFirstStartNanos, processStageLastEndNanos);
-        long mergeWall = wallDuration(mergeStageFirstStartNanos, mergeStageLastEndNanos);
+        long readWall = wallDuration(timing.readStageFirstStartNanos(), timing.readStageLastEndNanos());
+        long parseWall = wallDuration(timing.parseStageFirstStartNanos(), timing.parseStageLastEndNanos());
+        long processWall = wallDuration(timing.processStageFirstStartNanos(), timing.processStageLastEndNanos());
+        long mergeWall = wallDuration(timing.mergeStageFirstStartNanos(), timing.mergeStageLastEndNanos());
 
         // Total wall clock derived from stage coverage: min(firstStart) .. max(lastEnd)
         long totalStart = Math.min(
-                Math.min(readStageFirstStartNanos.get(), parseStageFirstStartNanos.get()),
-                Math.min(processStageFirstStartNanos.get(), mergeStageFirstStartNanos.get()));
+                Math.min(timing.readStageFirstStartNanos().get(), timing.parseStageFirstStartNanos().get()),
+                Math.min(timing.processStageFirstStartNanos().get(), timing.mergeStageFirstStartNanos().get()));
         long totalEnd = Math.max(
-                Math.max(readStageLastEndNanos.get(), parseStageLastEndNanos.get()),
-                Math.max(processStageLastEndNanos.get(), mergeStageLastEndNanos.get()));
+                Math.max(timing.readStageLastEndNanos().get(), timing.parseStageLastEndNanos().get()),
+                Math.max(timing.processStageLastEndNanos().get(), timing.mergeStageLastEndNanos().get()));
         long totalWall = (totalStart == Long.MAX_VALUE || totalEnd == 0L || totalEnd < totalStart)
                 ? 0L
                 : totalEnd - totalStart;
 
-        log.info(
+        log.debug(
                 "Stage timing (wall clock coverage; stages overlap): Read Files={}, Parse Files={}, Process Files={}, Merge Results={}, Total={}",
                 formatSecondsMillis(readWall),
                 formatSecondsMillis(parseWall),
@@ -981,7 +998,7 @@ public abstract class TreeSitterAnalyzer
     /* ---------- core parsing ---------- */
 
     /** Analyzes a single file and extracts declaration information from provided bytes. */
-    private FileAnalysisResult analyzeFileContent(ProjectFile file, byte[] fileBytes, TSParser localParser) {
+    private FileAnalysisResult analyzeFileContent(ProjectFile file, byte[] fileBytes, TSParser localParser, @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
         log.trace("analyzeFileContent: Parsing file: {}", file);
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
@@ -1002,9 +1019,11 @@ public abstract class TreeSitterAnalyzer
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
         long __parseEnd = System.nanoTime();
-        parseStageNanos.addAndGet(__parseEnd - __parseStart);
-        parseStageFirstStartNanos.accumulateAndGet(__parseStart, Math::min);
-        parseStageLastEndNanos.accumulateAndGet(__parseEnd, Math::max);
+        if (timing != null) {
+            timing.parseStageNanos().addAndGet(__parseEnd - __parseStart);
+            timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
+            timing.parseStageLastEndNanos().accumulateAndGet(__parseEnd, Math::max);
+        }
         // Cache the parsed tree for later use to avoid redundant parsing
         parsedTreeCache.put(file, tree);
         TSNode rootNode = tree.getRootNode();
@@ -1012,9 +1031,11 @@ public abstract class TreeSitterAnalyzer
         if (rootNode.isNull()) {
             log.warn("Parsing failed or produced null root node for {}", file);
             long __processEnd = System.nanoTime();
-            processStageNanos.addAndGet(__processEnd - __processStart);
-            processStageFirstStartNanos.accumulateAndGet(__processStart, Math::min);
-            processStageLastEndNanos.accumulateAndGet(__processEnd, Math::max);
+            if (timing != null) {
+                timing.processStageNanos().addAndGet(__processEnd - __processStart);
+                timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+                timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
+            }
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
         }
         // Log root node type
@@ -1444,9 +1465,11 @@ public abstract class TreeSitterAnalyzer
         localSourceRanges.forEach((c, ranges) -> finalLocalSourceRanges.put(c, Collections.unmodifiableList(ranges)));
 
         long __processEnd = System.nanoTime();
-        processStageNanos.addAndGet(__processEnd - __processStart);
-        processStageFirstStartNanos.accumulateAndGet(__processStart, Math::min);
-        processStageLastEndNanos.accumulateAndGet(__processEnd, Math::max);
+        if (timing != null) {
+            timing.processStageNanos().addAndGet(__processEnd - __processStart);
+            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
+        }
         return new FileAnalysisResult(
                 Collections.unmodifiableList(localTopLevelCUs),
                 finalLocalChildren,
@@ -2311,7 +2334,7 @@ public abstract class TreeSitterAnalyzer
 
     /* ---------- async stage helpers ---------- */
 
-    private byte[] readFileBytes(ProjectFile pf) {
+    private byte[] readFileBytes(ProjectFile pf, ConstructionTiming timing) {
         long __readStart = System.nanoTime();
         try {
             return Files.readAllBytes(pf.absPath());
@@ -2319,13 +2342,13 @@ public abstract class TreeSitterAnalyzer
             throw new UncheckedIOException(e);
         } finally {
             long __readEnd = System.nanoTime();
-            readStageFirstStartNanos.accumulateAndGet(__readStart, Math::min);
-            readStageLastEndNanos.accumulateAndGet(__readEnd, Math::max);
-            readStageNanos.addAndGet(__readEnd - __readStart);
+            timing.readStageFirstStartNanos().accumulateAndGet(__readStart, Math::min);
+            timing.readStageLastEndNanos().accumulateAndGet(__readEnd, Math::max);
+            timing.readStageNanos().addAndGet(__readEnd - __readStart);
         }
     }
 
-    private FileAnalysisResult analyzeFile(ProjectFile pf, byte[] fileBytes) {
+    private FileAnalysisResult analyzeFile(ProjectFile pf, byte[] fileBytes, ConstructionTiming timing) {
         log.trace("Processing file: {}", pf);
         var localParser = new TSParser();
         if (!localParser.setLanguage(getTSLanguage())) {
@@ -2336,10 +2359,10 @@ public abstract class TreeSitterAnalyzer
             // Return an empty result to skip ingestion
             return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
         }
-        return analyzeFileContent(pf, fileBytes, localParser);
+        return analyzeFileContent(pf, fileBytes, localParser, timing);
     }
 
-    private void mergeAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult) {
+    private void mergeAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult, ConstructionTiming timing) {
         if (!analysisResult.topLevelCUs().isEmpty()
                 || !analysisResult.signatures().isEmpty()
                 || !analysisResult.sourceRanges().isEmpty()) {
@@ -2347,9 +2370,9 @@ public abstract class TreeSitterAnalyzer
             long __mergeStart = System.nanoTime();
             ingestAnalysisResult(pf, analysisResult);
             long __mergeEnd = System.nanoTime();
-            mergeStageNanos.addAndGet(__mergeEnd - __mergeStart);
-            mergeStageFirstStartNanos.accumulateAndGet(__mergeStart, Math::min);
-            mergeStageLastEndNanos.accumulateAndGet(__mergeEnd, Math::max);
+            timing.mergeStageNanos().addAndGet(__mergeEnd - __mergeStart);
+            timing.mergeStageFirstStartNanos().accumulateAndGet(__mergeStart, Math::min);
+            timing.mergeStageLastEndNanos().accumulateAndGet(__mergeEnd, Math::max);
 
             log.trace(
                     "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
@@ -2423,7 +2446,7 @@ public abstract class TreeSitterAnalyzer
                             continue;
                         }
                         byte[] bytes = Files.readAllBytes(file.absPath());
-                        var analysisResult = analyzeFileContent(file, bytes, localParser);
+                        var analysisResult = analyzeFileContent(file, bytes, localParser, null);
                         ingestAnalysisResult(file, analysisResult);
                     } catch (IOException e) {
                         log.warn("IO error re-analysing {}: {}", file, e.getMessage());
