@@ -15,23 +15,40 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 public class UnifiedDiffNavigator {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffNavigator.class);
 
-    private final UnifiedDiffDocument document;
     private final RSyntaxTextArea textArea;
     private List<Integer> hunkStartLines = List.of(); // Cached hunk positions
     private int currentHunkIndex = 0;
 
-    public UnifiedDiffNavigator(UnifiedDiffDocument document, RSyntaxTextArea textArea) {
-        this.document = document;
+    public UnifiedDiffNavigator(String plainTextContent, RSyntaxTextArea textArea) {
         this.textArea = textArea;
         refreshHunkPositions();
     }
 
     /**
-     * Refresh the cached hunk positions from the document. Should be called when the document content changes (e.g.,
+     * Refresh the cached hunk positions from the text area content. Should be called when the content changes (e.g.,
      * context mode switch).
      */
     public void refreshHunkPositions() {
-        this.hunkStartLines = document.getHunkHeaderLines();
+        var hunkLines = new java.util.ArrayList<Integer>();
+
+        try {
+            var document = textArea.getDocument();
+            int lineCount = textArea.getLineCount();
+
+            for (int i = 0; i < lineCount; i++) {
+                int lineStart = textArea.getLineStartOffset(i);
+                int lineEnd = textArea.getLineEndOffset(i);
+                String lineText = document.getText(lineStart, lineEnd - lineStart);
+
+                if (lineText.startsWith("@@")) {
+                    hunkLines.add(i);
+                }
+            }
+        } catch (BadLocationException e) {
+            logger.warn("Failed to refresh hunk positions", e);
+        }
+
+        this.hunkStartLines = hunkLines;
 
         // Ensure current hunk index is still valid
         if (currentHunkIndex >= hunkStartLines.size()) {
@@ -143,7 +160,7 @@ public class UnifiedDiffNavigator {
     public int findHunkForLine(int lineNumber) {
         for (int i = 0; i < hunkStartLines.size(); i++) {
             var hunkStart = hunkStartLines.get(i);
-            var hunkEnd = (i + 1 < hunkStartLines.size()) ? hunkStartLines.get(i + 1) : document.getLineCount();
+            var hunkEnd = (i + 1 < hunkStartLines.size()) ? hunkStartLines.get(i + 1) : textArea.getLineCount();
 
             if (lineNumber >= hunkStart && lineNumber < hunkEnd) {
                 return i;

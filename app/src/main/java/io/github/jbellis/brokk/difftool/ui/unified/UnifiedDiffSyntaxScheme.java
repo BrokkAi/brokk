@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui.unified;
 
+import io.github.jbellis.brokk.difftool.utils.Colors;
 import java.awt.Color;
 import java.awt.Font;
 import javax.swing.UIManager;
@@ -16,8 +17,8 @@ import org.jetbrains.annotations.Nullable;
 public class UnifiedDiffSyntaxScheme {
 
     /**
-     * Create appropriate diff colors based on the current theme. Uses UIManager colors and creates diff-specific colors
-     * if not available.
+     * Create appropriate diff colors based on the current theme. Uses the same color system as the side-by-side
+     * diff panel for consistency.
      *
      * @param isDark true if dark theme is active
      * @return DiffColors instance with theme-appropriate colors
@@ -26,28 +27,22 @@ public class UnifiedDiffSyntaxScheme {
         // Base colors from UIManager
         Color defaultText = UIManager.getColor("Label.foreground");
         Color defaultBackground = UIManager.getColor("Panel.background");
-        // Note: selectionBackground could be used for future enhancements
 
-        // Create diff-specific colors
-        Color additionFg, additionBg, deletionFg, deletionBg, headerFg, headerBg;
+        // Use the same colors as side-by-side diff for consistency
+        Color basedAddedColor = Colors.getAdded(isDark);
+        Color baseDeletedColor = Colors.getDeleted(isDark);
+        Color baseChangedColor = Colors.getChanged(isDark);
 
-        if (isDark) {
-            // Dark theme colors
-            additionFg = new Color(144, 238, 144); // Light green
-            additionBg = new Color(0, 64, 0); // Dark green background
-            deletionFg = new Color(255, 182, 193); // Light red
-            deletionBg = new Color(64, 0, 0); // Dark red background
-            headerFg = new Color(173, 216, 230); // Light blue
-            headerBg = new Color(0, 32, 64); // Dark blue background
-        } else {
-            // Light theme colors
-            additionFg = new Color(0, 128, 0); // Dark green
-            additionBg = new Color(220, 255, 220); // Light green background
-            deletionFg = new Color(178, 34, 34); // Dark red
-            deletionBg = new Color(255, 220, 220); // Light red background
-            headerFg = new Color(0, 0, 139); // Dark blue
-            headerBg = new Color(220, 220, 255); // Light blue background
-        }
+        // Create foreground and background colors for unified diff display
+        // Background uses the base colors, foreground uses darker/contrasting versions
+        Color additionBg = basedAddedColor;
+        Color additionFg = deriveContrastingForeground(basedAddedColor);
+
+        Color deletionBg = baseDeletedColor;
+        Color deletionFg = deriveContrastingForeground(baseDeletedColor);
+
+        Color headerBg = baseChangedColor;
+        Color headerFg = deriveContrastingForeground(baseChangedColor);
 
         // Fallback if UIManager colors are null
         if (defaultText == null) {
@@ -59,6 +54,27 @@ public class UnifiedDiffSyntaxScheme {
 
         return new DiffColors(
                 defaultText, defaultBackground, additionFg, additionBg, deletionFg, deletionBg, headerFg, headerBg);
+    }
+
+    /**
+     * Derive a contrasting foreground color from a background color for good readability.
+     *
+     * @param backgroundColor The background color
+     * @return A contrasting foreground color
+     */
+    private static Color deriveContrastingForeground(Color backgroundColor) {
+        // Calculate relative luminance to determine if we need dark or light text
+        double luminance = 0.299 * backgroundColor.getRed() +
+                          0.587 * backgroundColor.getGreen() +
+                          0.114 * backgroundColor.getBlue();
+
+        if (luminance > 128) {
+            // Light background, use dark text
+            return backgroundColor.darker().darker();
+        } else {
+            // Dark background, use light text
+            return backgroundColor.brighter().brighter();
+        }
     }
 
     /** Record to hold diff-specific colors. */

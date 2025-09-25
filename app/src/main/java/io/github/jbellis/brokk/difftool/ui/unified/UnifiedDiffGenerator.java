@@ -402,6 +402,151 @@ public class UnifiedDiffGenerator {
         return Arrays.asList(content.split("\\R"));
     }
 
+    /**
+     * Generate plain text unified diff content from a JMDiffNode (for pure syntax highlighting).
+     * This method produces simple text output without complex DiffLine objects.
+     *
+     * @param diffNode The JMDiffNode containing pre-processed diff information
+     * @param contextMode Context mode to use (3-line or full context)
+     * @return Plain text unified diff content ready for RSyntaxTextArea
+     */
+    public static String generatePlainTextFromDiffNode(
+            JMDiffNode diffNode, UnifiedDiffDocument.ContextMode contextMode) {
+
+        try {
+            // Get the pre-processed patch from the diff node
+            var patch = diffNode.getPatch();
+            if (patch == null) {
+                logger.warn("JMDiffNode {} has no patch - no differences detected", diffNode.getName());
+                return ""; // Return empty string for no differences
+            }
+
+            // Get the source content from buffer nodes
+            var leftBufferNode = diffNode.getBufferNodeLeft();
+            var rightBufferNode = diffNode.getBufferNodeRight();
+
+            List<String> leftLines;
+            String leftTitle = "left";
+            String rightTitle = "right";
+
+            if (leftBufferNode != null) {
+                leftLines = leftBufferNode.getDocument().getLineList();
+                leftTitle = leftBufferNode.getDocument().getName();
+            } else {
+                leftLines = new ArrayList<>();
+                leftTitle = "<empty>";
+            }
+
+            if (rightBufferNode != null) {
+                rightTitle = rightBufferNode.getDocument().getName();
+            } else {
+                rightTitle = "<empty>";
+            }
+
+            // Generate plain text based on context mode
+            if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
+                return generateFullContextPlainText(leftLines, patch);
+            } else {
+                return generateStandardContextPlainText(leftLines, patch, leftTitle, rightTitle);
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to generate plain text unified diff from JMDiffNode {}", diffNode.getName(), e);
+            throw new RuntimeException("Failed to generate plain text unified diff from JMDiffNode", e);
+        }
+    }
+
+    /**
+     * Generate standard context plain text using difflib's UnifiedDiffUtils.
+     */
+    private static String generateStandardContextPlainText(
+            List<String> leftLines, Patch<String> patch, String leftTitle, String rightTitle) {
+
+        // Use UnifiedDiffUtils to generate standard unified diff from the existing patch
+        var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(leftTitle, rightTitle, leftLines, patch, STANDARD_CONTEXT_LINES);
+
+        var textBuilder = new StringBuilder();
+        for (var line : unifiedLines) {
+            // Skip file headers (--- and +++ lines)
+            if (line.startsWith("---") || line.startsWith("+++")) {
+                continue;
+            }
+            textBuilder.append(line);
+            textBuilder.append('\n');
+        }
+
+        // Remove trailing newline if present
+        if (textBuilder.length() > 0 && textBuilder.charAt(textBuilder.length() - 1) == '\n') {
+            textBuilder.setLength(textBuilder.length() - 1);
+        }
+
+        return textBuilder.toString();
+    }
+
+    /**
+     * Generate full context plain text showing all lines between changes.
+     */
+    private static String generateFullContextPlainText(List<String> leftLines, Patch<String> patch) {
+        var textBuilder = new StringBuilder();
+        var deltas = patch.getDeltas();
+
+        int leftIndex = 0;
+
+        for (var delta : deltas) {
+            // Add context lines before this delta
+            while (leftIndex < delta.getSource().getPosition()) {
+                if (leftIndex < leftLines.size()) {
+                    textBuilder.append(" "); // Context prefix
+                    textBuilder.append(leftLines.get(leftIndex));
+                    textBuilder.append('\n');
+                    leftIndex++;
+                } else {
+                    break;
+                }
+            }
+
+            // Add hunk header
+            var hunkHeader = String.format(
+                    "@@ -%d,%d +%d,%d @@",
+                    delta.getSource().getPosition() + 1,
+                    delta.getSource().size(),
+                    delta.getTarget().getPosition() + 1,
+                    delta.getTarget().size());
+            textBuilder.append(hunkHeader);
+            textBuilder.append('\n');
+
+            // Add deleted lines
+            for (var deletedLine : delta.getSource().getLines()) {
+                textBuilder.append("-");
+                textBuilder.append(deletedLine);
+                textBuilder.append('\n');
+                leftIndex++;
+            }
+
+            // Add added lines
+            for (var addedLine : delta.getTarget().getLines()) {
+                textBuilder.append("+");
+                textBuilder.append(addedLine);
+                textBuilder.append('\n');
+            }
+        }
+
+        // Add remaining context lines after all deltas
+        while (leftIndex < leftLines.size()) {
+            textBuilder.append(" "); // Context prefix
+            textBuilder.append(leftLines.get(leftIndex));
+            textBuilder.append('\n');
+            leftIndex++;
+        }
+
+        // Remove trailing newline if present
+        if (textBuilder.length() > 0 && textBuilder.charAt(textBuilder.length() - 1) == '\n') {
+            textBuilder.setLength(textBuilder.length() - 1);
+        }
+
+        return textBuilder.toString();
+    }
+
     /** Create a simple unified diff for testing purposes. */
     public static UnifiedDiffDocument createTestDiff() {
         var diffLines = List.of(

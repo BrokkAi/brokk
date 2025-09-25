@@ -43,10 +43,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
     private final RTextScrollPane scrollPane;
 
     @Nullable
-    private UnifiedDiffDocument unifiedDocument;
-
-    @Nullable
     private UnifiedDiffNavigator navigator;
+
+    private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
     private boolean autoScrollFlag = true;
 
@@ -110,7 +109,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         textArea.setTabsEmulated(true);
         textArea.setTabSize(4);
 
-        // Set up custom document filter for future editing support
+        // Custom document filter not needed for plain text approach
         this.documentFilter = new UnifiedDiffDocumentFilter();
 
         // Add scroll pane configuration
@@ -122,20 +121,18 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
     private void generateDiffFromDiffNode(JMDiffNode diffNode) {
-        var contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES; // Default
-        this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
+        // Generate plain text directly from the diff node
+        String plainTextContent = UnifiedDiffGenerator.generatePlainTextFromDiffNode(diffNode, contextMode);
+        textArea.setText(plainTextContent);
 
-        textArea.setDocument(unifiedDocument);
-        this.navigator = new UnifiedDiffNavigator(unifiedDocument, textArea);
+        this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
 
-        // Apply syntax highlighting and theme
+        // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
-        applyDiffColoring();
 
         logger.debug(
-                "Generated unified diff from JMDiffNode {} with {} lines",
-                diffNode.getName(),
-                unifiedDocument.getLineCount());
+                "Generated unified diff from JMDiffNode {} (plain text mode)",
+                diffNode.getName());
     }
 
     /** Generate the unified diff content from BufferSources (legacy approach). */
@@ -146,17 +143,32 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
             throw new IllegalStateException("Cannot generate diff - BufferSources are null");
         }
 
-        var contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES; // Default
-        this.unifiedDocument = UnifiedDiffGenerator.generateUnifiedDiff(leftSource, rightSource, contextMode);
+        // For now, use the old approach since we need to add plain text support for BufferSources too
+        var unifiedDocument = UnifiedDiffGenerator.generateUnifiedDiff(leftSource, rightSource, contextMode);
 
-        textArea.setDocument(unifiedDocument);
-        this.navigator = new UnifiedDiffNavigator(unifiedDocument, textArea);
+        // Extract plain text manually for legacy approach
+        var textBuilder = new StringBuilder();
+        for (var diffLine : unifiedDocument.getFilteredLines()) {
+            textBuilder.append(diffLine.getContent());
+            if (!diffLine.getContent().endsWith("\n")) {
+                textBuilder.append('\n');
+            }
+        }
 
-        // Apply syntax highlighting and theme
+        // Remove trailing newline if present
+        if (textBuilder.length() > 0 && textBuilder.charAt(textBuilder.length() - 1) == '\n') {
+            textBuilder.setLength(textBuilder.length() - 1);
+        }
+
+        String plainTextContent = textBuilder.toString();
+        textArea.setText(plainTextContent);
+
+        this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
+
+        // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
-        applyDiffColoring();
 
-        logger.debug("Generated unified diff from BufferSources with {} lines", unifiedDocument.getLineCount());
+        logger.debug("Generated unified diff from BufferSources (plain text mode)");
     }
 
     @Override
@@ -167,17 +179,15 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         } else {
             logger.warn("setDiffNode called with null - clearing unified diff content");
             // Clear the content when no diff node is provided
-            this.unifiedDocument = new UnifiedDiffDocument(
-                    new java.util.ArrayList<>(), UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
-            textArea.setDocument(unifiedDocument);
-            this.navigator = new UnifiedDiffNavigator(unifiedDocument, textArea);
+            textArea.setText("");
+            this.navigator = new UnifiedDiffNavigator("", textArea);
         }
     }
 
     /** Apply syntax highlighting based on detected file type using BufferDiffPanel's robust logic. */
     private void applySyntaxHighlighting() {
-        updateSyntaxStyle(); // Use same logic as BufferDiffPanel
-        logger.debug("Applied syntax highlighting using BufferDiffPanel logic");
+        updateSyntaxStyle(); // Use same logic as BufferDiffPanel - pure syntax highlighting only
+        logger.debug("Applied pure syntax highlighting (diff coloring disabled)");
     }
 
     /**
@@ -196,27 +206,30 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         logger.debug("Set syntax style to: {} for unified diff", style);
     }
 
-    /** Apply diff-specific coloring to the text area (now handled by syntax highlighting). */
+    /** Apply diff-specific coloring to the text area (disabled - using pure syntax highlighting). */
     private void applyDiffColoring() {
-        // Diff coloring is now integrated with syntax highlighting in applySyntaxHighlighting()
-        // This method is kept for compatibility but no longer needed
-        logger.debug("Diff coloring integrated with syntax highlighting - no separate coloring needed");
+        // Diff coloring is disabled - we use pure syntax highlighting instead
+        // This method is kept for compatibility but is now a no-op
+        logger.debug("Diff coloring disabled - using pure syntax highlighting only");
     }
+
 
 
 
     /** Set the context mode for the unified diff. */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
-        if (unifiedDocument != null && unifiedDocument.getContextMode() != contextMode) {
-            logger.debug("Switching context mode from {} to {}", unifiedDocument.getContextMode(), contextMode);
+        if (this.contextMode != contextMode) {
+            logger.debug("Switching context mode from {} to {}", this.contextMode, contextMode);
 
-            unifiedDocument.switchContextMode(contextMode);
-            if (navigator != null) {
-                navigator.refreshHunkPositions();
+            this.contextMode = contextMode;
+
+            // Regenerate the diff content with new context mode
+            var diffNode = getDiffNode();
+            if (diffNode != null) {
+                generateDiffFromDiffNode(diffNode);
+            } else if (leftSource != null && rightSource != null) {
+                generateDiffFromBufferSources();
             }
-
-            // Reapply coloring after content change
-            applyDiffColoring();
 
             textArea.revalidate();
             textArea.repaint();
@@ -225,9 +238,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
 
     /** Get the current context mode. */
     public UnifiedDiffDocument.ContextMode getContextMode() {
-        return unifiedDocument != null
-                ? unifiedDocument.getContextMode()
-                : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
+        return contextMode;
     }
 
     // IDiffPanel implementation
@@ -259,7 +270,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
             autoScrollFlag = false;
         }
 
-        // Ensure diff coloring is applied (in case theme changed)
+        // Note: Diff coloring is disabled, this is now a no-op
         applyDiffColoring();
     }
 
@@ -395,9 +406,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
     public void dispose() {
         // Clean up resources
         super.dispose();
-        if (unifiedDocument != null) {
-            // Any cleanup needed for the document
-        }
         logger.debug("UnifiedDiffPanel disposed");
     }
 
@@ -418,7 +426,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
             if (selectionBg != null) textArea.setSelectionColor(selectionBg);
             if (selectionFg != null) textArea.setSelectedTextColor(selectionFg);
 
-            // Reapply diff coloring with new theme
+            // Note: Diff coloring is disabled, this is now a no-op
             applyDiffColoring();
 
             textArea.revalidate();
@@ -465,7 +473,13 @@ public class UnifiedDiffPanel extends AbstractDiffPanel {
         private boolean isEditAllowed(int offset) {
             try {
                 int line = textArea.getLineOfOffset(offset);
-                return unifiedDocument != null && unifiedDocument.isLineEditable(line);
+                // For plain text approach, determine editability by line content
+                String lineContent = textArea.getDocument().getText(
+                    textArea.getLineStartOffset(line),
+                    textArea.getLineEndOffset(line) - textArea.getLineStartOffset(line));
+
+                // Allow editing of addition lines (+) and context lines (space), but not deletion lines (-) or headers (@@)
+                return !lineContent.startsWith("-") && !lineContent.startsWith("@@");
             } catch (BadLocationException e) {
                 logger.warn("Failed to check edit permission for offset {}", offset, e);
                 return false; // Deny edit if we can't determine
