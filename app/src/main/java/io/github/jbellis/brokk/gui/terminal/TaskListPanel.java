@@ -515,7 +515,40 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void removeSelected() {
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
+            // Determine how many tasks can actually be removed (exclude running/queued)
+            int deletableCount = 0;
+            for (int idx : indices) {
+                if (runningIndex != null && idx == runningIndex.intValue()) {
+                    continue; // running task cannot be removed
+                }
+                if (pendingQueue.contains(idx)) {
+                    continue; // queued task cannot be removed
+                }
+                if (idx >= 0 && idx < model.size()) {
+                    deletableCount++;
+                }
+            }
+
+            if (deletableCount == 0) {
+                // No-op if only running/queued tasks were selected
+                updateButtonStates();
+                return;
+            }
+
+            String plural = deletableCount == 1 ? "task" : "tasks";
+            String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
+                    + "Tasks that are running or queued will not be removed.\n"
+                    + "This action cannot be undone.";
+            int result = console.showConfirmDialog(
+                    message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+            if (result != JOptionPane.YES_OPTION) {
+                updateButtonStates();
+                return;
+            }
+
             boolean removedAny = false;
+            // Remove from bottom to top to keep indices valid
             for (int i = indices.length - 1; i >= 0; i--) {
                 int idx = indices[i];
                 if (runningIndex != null && idx == runningIndex.intValue()) {
