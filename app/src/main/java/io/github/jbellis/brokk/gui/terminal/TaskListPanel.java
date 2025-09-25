@@ -81,7 +81,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
-    private final JTextField input = new JTextField();
+    private final JTextArea input = new JTextArea();
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
@@ -273,9 +273,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Modern input: placeholder + Enter adds, Escape clears
-        input.putClientProperty("JTextField.placeholderText", "Add a task...");
-        input.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "addTask");
+        // Multiline input: word wrap, Ctrl/Cmd+Enter adds, Ctrl/Cmd+Shift+Enter adds and keeps, Escape clears
+        input.setLineWrap(true);
+        input.setWrapStyleWord(true);
+        input.setRows(3);
+        var inputScroll = new JScrollPane(
+                input, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        input.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "addTask");
         input.getActionMap().put("addTask", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -285,7 +293,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         input.getInputMap()
                 .put(
                         KeyStroke.getKeyStroke(
-                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                                KeyEvent.VK_ENTER,
+                                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | KeyEvent.SHIFT_DOWN_MASK),
                         "addTaskKeep");
         input.getActionMap().put("addTaskKeep", new AbstractAction() {
             @Override
@@ -304,7 +313,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        controls.add(input, gbc);
+        controls.add(inputScroll, gbc);
 
         removeBtn.setIcon(Icons.REMOVE);
         // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
@@ -1612,7 +1621,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             textArea.setSize(available, Short.MAX_VALUE);
             int prefH = textArea.getPreferredSize().height;
             // Ensure minimum height to show full checkbox icon
-            int minHeight = Math.max(prefH, 24);
+            int minHeight = Math.max(prefH, 48);
             this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, minHeight));
 
             if (isRunningRow) {
