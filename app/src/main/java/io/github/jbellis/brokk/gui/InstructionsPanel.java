@@ -106,6 +106,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Ask");
     private final MaterialButton actionButton;
+    private final MaterialButton wandButton = new MaterialButton();
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
     private String storedAction;
@@ -1095,6 +1096,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
+        // Wand button (Magic Ask) on the right
+        SwingUtilities.invokeLater(() -> {
+        	wandButton.setIcon(Icons.WAND);
+        });
+        wandButton.setToolTipText("Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
+        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        wandButton.addActionListener(e -> onWandPressed());
+        // Size set after fixedHeight is computed below
+        bottomPanel.add(wandButton);
+        bottomPanel.add(Box.createHorizontalStrut(4));
+
         // Action button (Go/Stop toggle) on the right
         actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Make the action button slightly smaller while keeping a fixed minimum height
@@ -1104,6 +1116,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMinimumSize(prefSize);
         actionButton.setMaximumSize(prefSize);
         actionButton.setMargin(new Insets(4, 10, 4, 10));
+
+        // Size the wand button to match height of action button
+        var wandSize = new Dimension(fixedHeight, fixedHeight);
+        wandButton.setPreferredSize(wandSize);
+        wandButton.setMinimumSize(wandSize);
+        wandButton.setMaximumSize(wandSize);
+
         bottomPanel.add(actionButton);
 
         return bottomPanel;
@@ -1973,6 +1992,84 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         setActionRunning(future);
     }
 
+    /** Handler for the Wand button: silently refine the prompt in the background and replace the input. */
+    private void onWandPressed() {
+        var original = getInstructions();
+        if (original.isBlank()) {
+            chrome.toolError("Please enter a prompt to refine");
+            return;
+        }
+
+        // Disable immediately to prevent duplicate clicks during background refinement
+        wandButton.setEnabled(false);
+
+        var cm = chrome.getContextManager();
+        var service = cm.getService();
+        var model = service.getWandModel(); // availability-based: GPT-5 Mini, else Gemini 2.0 Flash
+
+        cm.submitBackgroundTask("Refine prompt", () -> {
+            try {
+                // Keep this operation silent (no streaming to LLM Output panel)
+                chrome.blockLlmOutput(true);
+
+                var instruction = """
+                        Rewrite the user's prompt into a clearer, more specific instruction for a coding assistant.
+
+                        Requirements:
+                        - Preserve all essential technical details: files, classes, methods, APIs, inputs/outputs, constraints, edge cases, and acceptance criteria if present.
+                        - Remove filler, meta commentary, and chit-chat.
+                        - Where useful, clarify ambiguous parts (e.g., target file/class names, function boundaries, expected outputs).
+                        - Prefer direct, actionable phrasing; use short ordered steps only if necessary for clarity.
+                        - Keep length similar or only slightly longer if needed for clarity (avoid excessive verbosity).
+                        - Output only the improved prompt; no preamble, no headings, no code fences.
+
+                        Original Prompt:
+                        <<<
+                        %s
+                        >>>
+                        """.stripIndent().formatted(original);
+
+                var llm = cm.getLlm(model, "Refine Prompt", false);
+                var messages = List.<ChatMessage>of(new UserMessage(instruction));
+                var result = llm.sendRequest(messages, false);
+
+                var refinedRaw = result.text();
+                var refined = refinedRaw.trim();
+
+                // Basic sanitization: strip code fences and leading labels
+                if (refined.startsWith("```")) {
+                    int start = refined.indexOf('\n');
+                    int endFence = refined.lastIndexOf("```");
+                    if (start >= 0 && endFence > start) {
+                        refined = refined.substring(start + 1, endFence).trim();
+                    } else {
+                        refined = refined.replace("```", "").trim();
+                    }
+                }
+                var lowered = refined.toLowerCase(Locale.ROOT);
+                if (lowered.startsWith("improved prompt:")) {
+                    int idx = refined.indexOf(':');
+                    if (idx >= 0 && idx + 1 < refined.length()) {
+                        refined = refined.substring(idx + 1).trim();
+                    }
+                }
+
+                if (refined.isBlank()) {
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Could not refine prompt, please try again"));
+                } else {
+                    var finalRefined = refined;
+                    SwingUtilities.invokeLater(() -> populateInstructionsArea(finalRefined));
+                }
+            } catch (InterruptedException ignored) {
+                // ignore cancellation
+            } finally {
+                chrome.blockLlmOutput(false);
+                SwingUtilities.invokeLater(() -> wandButton.setEnabled(true));
+            }
+            return null;
+        });
+    }
+
     public void runSearchCommand() {
         var input = getInstructions();
         if (input.isBlank()) {
@@ -2118,6 +2215,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setEnabled(true);
             actionButton.setBackground(defaultActionButtonBg);
         }
+
+        // Wand is disabled while any action is running
+        wandButton.setEnabled(!isActionRunning());
     }
 
     /**
@@ -2160,6 +2260,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setBackground(defaultActionButtonBg);
         }
         actionButton.setEnabled(true);
+
+        // Enable/disable wand depending on running state
+        wandButton.setEnabled(!isActionRunning());
 
         // Ensure the action button is the root pane's default button so Enter triggers it by default.
         // This mirrors the intended "default" behavior for the Go action.

@@ -1048,6 +1048,17 @@ public class Service {
         return model;
     }
 
+    /** Returns a model for the Wand button: prefer GPT-5 Mini; fall back to Gemini 2.0 Flash. */
+    public StreamingChatModel getWandModel() {
+        var modelName = modelLocations.containsKey(GPT_5_MINI) ? GPT_5_MINI : GEMINI_2_0_FLASH;
+        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
+        if (model == null) {
+            logger.error("Failed to get wand model '{}'", modelName);
+            return new UnavailableStreamingModel();
+        }
+        return model;
+    }
+
     /**
      * Convenience helper to check whether a real STT model is available.
      *
