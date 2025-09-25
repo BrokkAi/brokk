@@ -50,4 +50,5 @@ public final class Icons {
     public static final Icon CLEAR_ALL = SwingUtil.uiIcon("Brokk.clear_all");
     public static final Icon CELL_MERGE = SwingUtil.uiIcon("Brokk.cell_merge");
     public static final Icon FAST_FORWARD = SwingUtil.uiIcon("Brokk.fast_forward");
+    public static final Icon FORK_RIGHT = SwingUtil.uiIcon("Brokk.fork_right");
 }
