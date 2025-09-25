@@ -1396,7 +1396,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             int available = Math.max(1, width - checkboxRegionWidth - 8);
             textArea.setSize(available, Short.MAX_VALUE);
             int prefH = textArea.getPreferredSize().height;
-            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, prefH));
+            // Ensure minimum height to show full checkbox icon
+            int minHeight = Math.max(prefH, 24);
+            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, minHeight));
 
             if (isRunningRow) {
                 long now = System.currentTimeMillis();
