@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.util.TextCanonicalizer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -49,13 +50,18 @@ import org.treesitter.*;
  * how to map a capture to a {@link CodeUnit}.
  */
 public abstract class TreeSitterAnalyzer
-        implements IAnalyzer, SkeletonProvider, SourceCodeProvider, IncrementalUpdateProvider {
+        implements IAnalyzer, SkeletonProvider, SourceCodeProvider, IncrementalUpdateProvider, TypeAliasProvider {
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
     // Common separators across languages to denote hierarchy or member access.
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
+    // Definition priority constants - lower values are preferred for sorting
+    protected static final int PRIORITY_DEFAULT = 0;
+    protected static final int PRIORITY_HIGH = -1;
+    protected static final int PRIORITY_LOW = 1;
 
     private static boolean containsAnyHierarchySeparator(String s) {
         for (String sep : COMMON_HIERARCHY_SEPARATORS) {
@@ -65,6 +71,14 @@ public abstract class TreeSitterAnalyzer
         }
         return false;
     }
+
+    // Comparator for sorting CodeUnit definitions by priority
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
+                    (CodeUnit cu) -> definitionOverridePriority(cu))
+            .thenComparingInt(this::firstStartByteForSelection)
+            .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(cu -> cu.kind().name());
 
     /* ---------- instance state ---------- */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
@@ -185,7 +199,7 @@ public abstract class TreeSitterAnalyzer
         }
     }
 
-    public record Range(int startByte, int endByte, int startLine, int endLine) {}
+    public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -249,9 +263,9 @@ public abstract class TreeSitterAnalyzer
                         return false;
                     }
 
-                    // Check extension
-                    var pathStr = filePath.toString();
-                    return validExtensions.stream().anyMatch(pathStr::endsWith);
+                    // Check extension using proper file extension matching
+                    var extension = pf.extension();
+                    return validExtensions.contains(extension);
                 })
                 .parallel()
                 .forEach(pf -> {
@@ -383,9 +397,24 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        return uniqueCodeUnitList().stream()
-                .filter(cu -> cu.fqName().equals(fqName))
-                .findFirst();
+        final String methodTarget = nearestMethodName(fqName);
+
+        List<CodeUnit> matches = uniqueCodeUnitList().stream()
+                .filter(cu -> cu.isFunction()
+                        ? cu.fqName().equals(methodTarget)
+                        : cu.fqName().equals(fqName))
+                .toList();
+
+        if (matches.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return matches.stream().sorted(DEFINITION_COMPARATOR).findFirst();
+    }
+
+    @Override
+    public boolean isDefinitionAvailable(String fqName) {
+        return withReadLock(() -> allCodeUnits().anyMatch(cu -> cu.fqName().equals(fqName)));
     }
 
     @Override
@@ -399,7 +428,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public List<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, @Nullable String fallbackPattern, Pattern compiledPattern) {
+            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // an explicit search for everything should return everything, not just classes
         if (originalPattern.equals(".*")) {
             return uniqueCodeUnitList();
@@ -410,10 +439,14 @@ public abstract class TreeSitterAnalyzer
             return uniqueCodeUnitList().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
                     .toList();
-        } else {
+        } else if (compiledPattern != null) {
             // Primary search using compiled regex pattern
             return uniqueCodeUnitList().stream()
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                    .toList();
+        } else {
+            return uniqueCodeUnitList().stream()
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
                     .toList();
         }
     }
@@ -426,8 +459,6 @@ public abstract class TreeSitterAnalyzer
 
         var results = new LinkedHashSet<CodeUnit>();
         final String lowerCaseQuery = query.toLowerCase(Locale.ROOT);
-        // Normalize hierarchical separators so '.' and '$' are treated equivalently for matching.
-        final String normalizedQuery = lowerCaseQuery.replace('$', '.');
 
         // Determine if this is a CamelCase-style query (all uppercase letters, length > 1)
         boolean isAllUpper = query.length() > 1 && query.chars().allMatch(Character::isUpperCase);
@@ -462,7 +493,6 @@ public abstract class TreeSitterAnalyzer
         // the camel-case heuristic. Skip symbols already handled by the prefix optimization to avoid redundant work.
         for (String symbol : keys) {
             String symbolLower = symbol.toLowerCase(Locale.ROOT);
-            String normalizedSymbol = symbolLower.replace('$', '.');
 
             if (usePrefixOptimization && symbolLower.startsWith(lowerCaseQuery)) {
                 // already collected by prefix scan
@@ -471,7 +501,7 @@ public abstract class TreeSitterAnalyzer
 
             boolean matches = false;
 
-            if (symbolLower.contains(lowerCaseQuery) || normalizedSymbol.contains(normalizedQuery)) {
+            if (symbolLower.contains(lowerCaseQuery)) {
                 matches = true;
             } else if (isAllUpper
                     && camelCasePattern != null
@@ -484,21 +514,10 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        // ALSO: make sure to match against CodeUnit fully-qualified names (FQNs).
-        // Some queries are hierarchical and mix '.'/'$' and might not be present as keys in the symbol index.
-        // Normalize FQNs by mapping '$' -> '.' and do a case-insensitive contains check.
-        for (CodeUnit cu : uniqueCodeUnitList()) {
-            String fq = cu.fqName().toLowerCase(Locale.ROOT).replace('$', '.');
-            if (fq.contains(normalizedQuery)) {
-                results.add(cu);
-            }
-        }
-
         // Fallback for very short queries (single letter): ensure we include declarations whose FQNs contain the query.
         if (query.length() == 1) {
-            String lc = lowerCaseQuery;
             uniqueCodeUnitList().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lc))
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lowerCaseQuery))
                     .forEach(results::add);
         }
 
@@ -517,6 +536,11 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        // Only process files relevant to this analyzer's language
+        if (!isRelevantFile(file)) {
+            return Map.of();
+        }
+
         List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
         if (topCUs.isEmpty()) return Map.of();
 
@@ -536,6 +560,11 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
+        // Only process files relevant to this analyzer's language
+        if (!isRelevantFile(file)) {
+            return Set.of();
+        }
+
         List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
         if (topCUs.isEmpty()) return Set.of();
 
@@ -632,30 +661,64 @@ public abstract class TreeSitterAnalyzer
         });
     }
 
+    /**
+     * Assuming the fqName is an entity nested within a method, or is a method itself, will return the fqName of the
+     * method. This is mostly useful with escaping lambdas to their parent method.
+     *
+     * @param fqName the fqName of a method.
+     * @return the surrounding method, or the given fqName otherwise.
+     */
+    protected String nearestMethodName(String fqName) {
+        // Should be overridden by the subclasses
+        return fqName;
+    }
+
+    /**
+     * Hook for language-specific preference when multiple CodeUnits share the same FQN. Lower values are preferred.
+     * Default is PRIORITY_DEFAULT (no preference).
+     */
+    protected int definitionOverridePriority(CodeUnit cu) {
+        return PRIORITY_DEFAULT;
+    }
+
+    /** Returns the earliest startByte among recorded ranges for deterministic ordering. */
+    private int firstStartByteForSelection(CodeUnit cu) {
+        return withReadLock(() -> sourceRanges.getOrDefault(cu, List.of()).stream()
+                .mapToInt(Range::startByte)
+                .min()
+                .orElse(Integer.MAX_VALUE));
+    }
+
     @Override
-    public Optional<String> getClassSource(String fqName) {
+    public Optional<String> getClassSource(String fqName, boolean includeComments) {
         var cu = getDefinition(fqName)
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
 
         var ranges = sourceRanges.get(cu);
+
         if (ranges == null || ranges.isEmpty()) {
             throw new SymbolNotFoundException("Source range not found for class: " + fqName);
         }
 
-        // For classes, expect one primary definition range.
+        // For classes, expect one primary definition range (already expanded with comments)
         var range = ranges.getFirst();
-        String src;
-        try {
-            src = cu.source().read();
-        } catch (IOException e) {
+
+        var srcOpt = cu.source().read();
+        if (srcOpt.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte()));
+        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
+
+        // Choose start byte based on includeComments parameter
+        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, extractStartByte, range.endByte());
+
+        return Optional.of(extractedSource);
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
+    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
         return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
                 // overloads)
                 .filter(CodeUnit::isFunction)
@@ -669,24 +732,25 @@ public abstract class TreeSitterAnalyzer
                         return Optional.empty();
                     }
 
-                    String fileContent;
-                    try {
-                        fileContent = cu.source().read();
-                    } catch (IOException e) {
-                        log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, e.getMessage());
+                    var fileContentOpt = cu.source().read();
+                    if (fileContentOpt.isEmpty()) {
+                        log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
                         return Optional.empty();
                     }
+                    String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
 
                     List<String> individualMethodSources = new ArrayList<>();
                     for (Range range : rangesForOverloads) {
+                        // Choose start byte based on includeComments parameter
+                        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
                         String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, range.startByte(), range.endByte());
+                                fileContent, extractStartByte, range.endByte());
                         if (!methodSource.isEmpty()) {
                             individualMethodSources.add(methodSource);
                         } else {
                             log.warn(
                                     "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    range.startByte(),
+                                    extractStartByte,
                                     range.endByte(),
                                     cu,
                                     fqName);
@@ -702,6 +766,65 @@ public abstract class TreeSitterAnalyzer
                     }
                     return Optional.of(String.join("\n\n", individualMethodSources));
                 });
+    }
+
+    @Override
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
+        if (codeUnit.isFunction()) {
+            return getMethodSource(codeUnit.fqName(), includeComments);
+        } else if (codeUnit.isClass()) {
+            return getClassSource(codeUnit.fqName(), includeComments);
+        } else {
+            return Optional.empty(); // Fields and other types not supported by default
+        }
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        // Default: languages that don't support or expose type aliases return false.
+        return false;
+    }
+
+    /**
+     * Calculates the line number (1-based) from a byte offset in the source text. This is used for on-demand line
+     * calculation when needed.
+     *
+     * @param source the source text
+     * @param byteOffset the byte offset to calculate line for
+     * @return the line number (1-based)
+     */
+    protected int calculateLineFromByteOffset(String source, int byteOffset) {
+        if (byteOffset <= 0) {
+            return 1;
+        }
+
+        int clampedOffset = Math.min(byteOffset, source.length());
+        return (int) source.substring(0, clampedOffset)
+                        .chars()
+                        .filter(c -> c == '\n')
+                        .count()
+                + 1;
+    }
+
+    /**
+     * Gets the starting line number (0-based) for the given CodeUnit for UI positioning purposes. Returns the original
+     * code definition line (not expanded with comments) for better navigation.
+     *
+     * @param codeUnit The CodeUnit to get the line number for
+     * @return The 0-based starting line number of the actual definition, or -1 if not found
+     */
+    public int getStartLineForCodeUnit(CodeUnit codeUnit) {
+        return withReadLock(() -> {
+            var ranges = sourceRanges.get(codeUnit);
+            if (ranges == null || ranges.isEmpty()) {
+                return -1;
+            }
+
+            // Use the first range's startLine (0-based from TreeSitter)
+            // For classes and functions, this gives us the actual definition line
+            var range = ranges.getFirst();
+            return range.startLine();
+        });
     }
 
     /* ---------- abstract hooks ---------- */
@@ -823,16 +946,7 @@ public abstract class TreeSitterAnalyzer
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
         byte[] fileBytes = Files.readAllBytes(file.absPath());
-        // Strip UTF-8 BOM if present (EF BB BF)
-        if (fileBytes.length >= 3
-                && (fileBytes[0] & 0xFF) == 0xEF
-                && (fileBytes[1] & 0xFF) == 0xBB
-                && (fileBytes[2] & 0xFF) == 0xBF) {
-            byte[] bytesWithoutBom = new byte[fileBytes.length - 3];
-            System.arraycopy(fileBytes, 3, bytesWithoutBom, 0, fileBytes.length - 3);
-            fileBytes = bytesWithoutBom;
-            log.trace("Stripped UTF-8 BOM from file: {}", file);
-        }
+        fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
@@ -1031,11 +1145,11 @@ public abstract class TreeSitterAnalyzer
                 }
                 tempParent = tempParent.getParent();
             }
-            String classChain = String.join("$", enclosingClassNames);
+            String classChain = String.join(".", enclosingClassNames);
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
             // Adjust simpleName and classChain for Go methods to correctly include the receiver type
-            if (language == Language.GO && "method.definition".equals(primaryCaptureName)) {
+            if (language == Languages.GO && "method.definition".equals(primaryCaptureName)) {
                 // The SCM query for Go methods captures `@method.receiver.type` and `@method.identifier`
                 // `simpleName` at this point is from `@method.identifier` (e.g., "MyMethod")
                 // We need to find the receiver type from the original captures for this match
@@ -1155,7 +1269,7 @@ public abstract class TreeSitterAnalyzer
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
-                    && (language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)) {
+                    && (language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)) {
                 List<String> existingSignatures =
                         localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
                 boolean newIsExported = signature.trim().startsWith("export");
@@ -1187,12 +1301,20 @@ public abstract class TreeSitterAnalyzer
                     sigsForCu.add(signature);
                 }
             }
-            var currentRange = new Range(
+            var originalRange = new Range(
                     node.getStartByte(),
                     node.getEndByte(),
                     node.getStartPoint().getRow(),
-                    node.getEndPoint().getRow());
-            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(currentRange);
+                    node.getEndPoint().getRow(),
+                    node.getStartByte()); // commentStartByte initially same as startByte
+
+            // Pre-expand range to include contiguous preceding comments and metadata for classes and functions.
+            // Always include contiguous leading comments and attribute-like nodes for both classes and functions.
+            var finalRange = (cu.isClass() || cu.isFunction())
+                    ? expandRangeWithComments(file, originalRange, false)
+                    : originalRange;
+
+            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
             localChildren.putIfAbsent(cu, new ArrayList<>()); // Ensure every CU can be a parent
 
@@ -1241,13 +1363,16 @@ public abstract class TreeSitterAnalyzer
                 // Add a general range for the module CU (e.g. entire file or first import to last)
                 // For simplicity, can use the range of the root node or skip detailed range for module CU.
                 // Here, we'll use the root node's range as a placeholder.
+                var moduleRange = new Range(
+                        rootNode.getStartByte(),
+                        rootNode.getEndByte(),
+                        rootNode.getStartPoint().getRow(),
+                        rootNode.getEndPoint().getRow(),
+                        rootNode.getStartByte()); // commentStartByte same as startByte for module
+                // Module CUs typically don't need comment expansion as they represent the whole file
                 localSourceRanges
                         .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(new Range(
-                                rootNode.getStartByte(),
-                                rootNode.getEndByte(),
-                                rootNode.getStartPoint().getRow(),
-                                rootNode.getEndPoint().getRow()));
+                        .add(moduleRange);
                 log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
             } else {
                 log.warn(
@@ -1309,7 +1434,7 @@ public abstract class TreeSitterAnalyzer
 
         // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
         // For JAVASCRIPT/TYPESCRIPT: unwrap for processing but keep original for signature
-        if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                 && "export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
@@ -1322,12 +1447,12 @@ public abstract class TreeSitterAnalyzer
                         typeMatch = profile.functionLikeNodeTypes().contains(innerType)
                                 ||
                                 // Special case for TypeScript/JavaScript arrow functions in lexical declarations
-                                ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+                                ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                                         && ("lexical_declaration".equals(innerType)
                                                 || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
                     case ALIAS_LIKE ->
-                        typeMatch = (project.getAnalyzerLanguages().contains(Language.TYPESCRIPT)
+                        typeMatch = (project.getAnalyzerLanguages().contains(Languages.TYPESCRIPT)
                                 && "type_alias_declaration".equals(innerType));
                     default -> {}
                 }
@@ -1347,7 +1472,7 @@ public abstract class TreeSitterAnalyzer
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
-        if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)
+        if ((language == Languages.TYPESCRIPT || language == Languages.JAVASCRIPT)
                 && ("lexical_declaration".equals(nodeForContent.getType())
                         || "variable_declaration".equals(nodeForContent.getType()))
                 && (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
@@ -1392,7 +1517,7 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        if (language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
+        if (language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
             // Python's decorated_definition: decorators and actual def are children.
             // Process decorators directly here and identify the actual content node.
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
@@ -1407,7 +1532,7 @@ public abstract class TreeSitterAnalyzer
         }
         // 2. Handle decorators for languages where they precede the definition
         //    (Skip if Python already handled its specific decorator structure)
-        if (!(language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
+        if (!(language == Languages.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
             List<TSNode> decorators =
                     getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
             for (TSNode decoratorNode : decorators) {
@@ -1811,8 +1936,6 @@ public abstract class TreeSitterAnalyzer
                     functionName);
         }
 
-        // exportPrefix already contains all modifiers including 'async' if present.
-        // The asyncPrefix logic is removed as it's now part of the unified exportPrefix.
         String paramsText = formatParameterList(paramsNode, src);
         String returnTypeText = formatReturnType(returnTypeNode, src);
 
@@ -1825,9 +1948,37 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        // The asyncPrefix parameter is removed from assembleFunctionSignature
+        // Combine captured/export prefix with any modifier nodes present on the function node itself.
+        var modifierTokens = new LinkedHashSet<String>();
+        var trimmedExport = exportPrefix.strip();
+        if (!trimmedExport.isEmpty()) {
+            for (String tok :
+                    Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(trimmedExport)) {
+                modifierTokens.add(tok);
+            }
+        }
+
+        for (int i = 0; i < funcNode.getChildCount(); i++) {
+            TSNode child = funcNode.getChild(i);
+            if (child == null || child.isNull()) continue;
+            String t = child.getType();
+            boolean isModifierType = profile.modifierNodeTypes().contains(t)
+                    || (!profile.asyncKeywordNodeType().isEmpty() && t.equals(profile.asyncKeywordNodeType()));
+            if (isModifierType) {
+                String text = textSlice(child, src).strip();
+                if (!text.isEmpty()) {
+                    for (String tok : Splitter.on(Pattern.compile("\\s+"))
+                            .omitEmptyStrings()
+                            .split(text)) {
+                        modifierTokens.add(tok);
+                    }
+                }
+            }
+        }
+        String combinedPrefix = modifierTokens.isEmpty() ? "" : String.join(" ", modifierTokens) + " ";
+
         String functionLine = assembleFunctionSignature(
-                funcNode, src, exportPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
+                funcNode, src, combinedPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
         if (!functionLine.isBlank()) {
             lines.add(functionLine);
         }
@@ -2070,6 +2221,29 @@ public abstract class TreeSitterAnalyzer
         return withReadLock(() -> childrenByParent.getOrDefault(cu, List.of()));
     }
 
+    /* ---------- file filtering helpers ---------- */
+
+    /**
+     * Checks if a file is relevant to this analyzer based on its language extensions.
+     *
+     * @param file the file to check
+     * @return true if the file extension matches this analyzer's language extensions
+     */
+    private boolean isRelevantFile(ProjectFile file) {
+        var languageExtensions = this.language.getExtensions();
+        return languageExtensions.contains(file.extension());
+    }
+
+    /**
+     * Filters a set of files to only include those relevant to this analyzer.
+     *
+     * @param files the files to filter
+     * @return a new set containing only files with extensions matching this analyzer's language
+     */
+    private Set<ProjectFile> filterRelevantFiles(Set<ProjectFile> files) {
+        return files.stream().filter(this::isRelevantFile).collect(Collectors.toSet());
+    }
+
     /* ---------- incremental updates ---------- */
 
     @Override
@@ -2078,10 +2252,17 @@ public abstract class TreeSitterAnalyzer
             return this;
         }
 
+        // Filter files by language extensions - only process files this analyzer can understand
+        var relevantFiles = filterRelevantFiles(changedFiles);
+
+        if (relevantFiles.isEmpty()) {
+            return this; // No relevant files to process
+        }
+
         var writeLock = stateRwLock.writeLock();
         writeLock.lock();
         try {
-            for (var file : changedFiles) {
+            for (var file : relevantFiles) {
                 // -------- cleanup ----------
                 parsedTreeCache.remove(file);
                 topLevelDeclarations.remove(file);
@@ -2149,9 +2330,12 @@ public abstract class TreeSitterAnalyzer
         Set<ProjectFile> currentFiles = project.getAllFiles().stream()
                 .filter(pf -> {
                     Path abs = pf.absPath().toAbsolutePath().normalize();
-                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) return false;
+                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) {
+                        return false;
+                    }
                     String p = abs.toString();
-                    return language.getExtensions().stream().anyMatch(p::endsWith);
+                    boolean matches = language.getExtensions().stream().anyMatch(p::endsWith);
+                    return matches;
                 })
                 .collect(Collectors.toSet());
 
@@ -2230,5 +2414,172 @@ public abstract class TreeSitterAnalyzer
                     merged.addAll(newRanges);
                     return List.copyOf(merged);
                 }));
+    }
+
+    /* ---------- comment detection for source expansion ---------- */
+
+    /** Checks if a Tree-Sitter node represents a comment. Supports common comment node types across languages. */
+    protected boolean isCommentNode(TSNode node) {
+        if (node.isNull()) {
+            return false;
+        }
+        String nodeType = node.getType();
+        return nodeType.equals("comment")
+                || nodeType.equals("line_comment")
+                || nodeType.equals("block_comment")
+                || nodeType.equals("doc_comment")
+                || nodeType.equals("documentation_comment");
+    }
+
+    /** Returns true if the node is considered leading metadata (comments or attribute-like nodes). */
+    protected boolean isLeadingMetadataNode(TSNode node) {
+        if (isCommentNode(node)) {
+            return true;
+        }
+        String type = node.getType();
+        return getLeadingMetadataNodeTypes().contains(type);
+    }
+
+    /**
+     * Node types considered attribute-like metadata that should be included with leading comments. Default is empty;
+     * language-specific analyzers should override to add their own metadata node types.
+     */
+    protected Set<String> getLeadingMetadataNodeTypes() {
+        return Set.of();
+    }
+
+    /** Finds a Tree-Sitter node by its byte range within the given tree. */
+    protected Optional<TSNode> findNodeByRange(TSTree tree, int startByte, int endByte) {
+        TSNode root = tree.getRootNode();
+        return findNodeByRangeRecursive(root, startByte, endByte);
+    }
+
+    private Optional<TSNode> findNodeByRangeRecursive(TSNode node, int targetStartByte, int targetEndByte) {
+        // Check if this node matches the target range
+        if (node.getStartByte() == targetStartByte && node.getEndByte() == targetEndByte) {
+            return Optional.of(node);
+        }
+
+        // Check children
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null && !child.isNull()) {
+                // Only recurse if the target range could be within this child
+                if (child.getStartByte() <= targetStartByte && child.getEndByte() >= targetEndByte) {
+                    Optional<TSNode> result = findNodeByRangeRecursive(child, targetStartByte, targetEndByte);
+                    if (result.isPresent()) {
+                        return result;
+                    }
+                }
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Finds all comment nodes that directly precede the given declaration node. Returns comments in source order
+     * (earliest first).
+     */
+    protected List<TSNode> findPrecedingComments(TSNode declarationNode) {
+        List<TSNode> comments = new ArrayList<>();
+        TSNode current = declarationNode.getPrevSibling();
+
+        while (current != null && !current.isNull()) {
+            if (isCommentNode(current)) {
+                comments.add(current);
+            } else if (!isWhitespaceOnlyNode(current)) {
+                // Stop at first non-comment, non-whitespace node
+                break;
+            }
+            current = current.getPrevSibling();
+        }
+
+        // Reverse to get source order (earliest first)
+        Collections.reverse(comments);
+        return comments;
+    }
+
+    /** Checks if a node contains only whitespace (spaces, tabs, newlines). */
+    protected boolean isWhitespaceOnlyNode(TSNode node) {
+        if (node.isNull()) {
+            return false;
+        }
+        // Common whitespace node types in Tree-Sitter grammars
+        String nodeType = node.getType();
+        return nodeType.equals("whitespace")
+                || nodeType.equals("newline")
+                || nodeType.equals("\n")
+                || nodeType.equals(" ");
+    }
+
+    /**
+     * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
+     * preceding the declaration node. Reuses the cached AST; does not re-parse.
+     */
+    protected Range expandRangeWithComments(ProjectFile file, Range originalRange, boolean ignoredIncludeOnlyDocLike) {
+        try {
+            // Reuse cached tree created during analyzeFileDeclarations
+            TSTree tree = getCachedTree(file);
+            if (tree == null) {
+                log.debug("No cached AST available for {} during comment expansion; keeping original range", file);
+                return originalRange;
+            }
+
+            // Find the declaration node by its range
+            Optional<TSNode> declarationNode =
+                    findNodeByRange(tree, originalRange.startByte(), originalRange.endByte());
+            if (declarationNode.isEmpty()) {
+                log.debug(
+                        "Could not find declaration node for range [{}, {}] in file {}",
+                        originalRange.startByte(),
+                        originalRange.endByte(),
+                        file);
+                return originalRange;
+            }
+
+            TSNode decl = declarationNode.get();
+
+            // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
+            List<TSNode> leading = new ArrayList<>();
+            TSNode current = decl.getPrevSibling();
+            while (current != null && !current.isNull()) {
+                if (isLeadingMetadataNode(current)) {
+                    leading.add(current);
+                    current = current.getPrevSibling();
+                    continue;
+                }
+                break;
+            }
+            // leading currently has closest-first order; reverse to earliest-first
+            if (leading.isEmpty()) {
+                return originalRange;
+            }
+            Collections.reverse(leading);
+
+            int newStartByte = leading.get(0).getStartByte();
+
+            Range expandedRange = new Range(
+                    originalRange.startByte(),
+                    originalRange.endByte(),
+                    originalRange.startLine(),
+                    originalRange.endLine(),
+                    newStartByte);
+
+            log.trace(
+                    "Expanded range for file {} from [{}, {}] to [{}, {}] (added {} preceding metadata nodes)",
+                    file,
+                    originalRange.startByte(),
+                    originalRange.endByte(),
+                    expandedRange.startByte(),
+                    expandedRange.endByte(),
+                    leading.size());
+
+            return expandedRange;
+
+        } catch (Exception e) {
+            log.warn("Error during comment/metadata expansion for file {}: {}", file, e.getMessage());
+            return originalRange;
+        }
     }
 }

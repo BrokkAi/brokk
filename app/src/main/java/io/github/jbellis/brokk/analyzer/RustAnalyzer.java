@@ -40,7 +40,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             /* modifier node types  */ Set.of(VISIBILITY_MODIFIER));
 
     public RustAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.RUST, excludedFiles);
+        super(project, Languages.RUST, excludedFiles);
     }
 
     public RustAnalyzer(IProject project) {
@@ -343,5 +343,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean requiresSemicolons() {
         return false; // Rust fields like "pub x: i32," should not have semicolons added
+    }
+
+    @Override
+    protected Set<String> getLeadingMetadataNodeTypes() {
+        return Set.of("attribute_item", "inner_attribute");
     }
 }

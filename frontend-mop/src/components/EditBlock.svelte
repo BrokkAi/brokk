@@ -1,10 +1,7 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
     import {expandDiff} from '../worker/worker-bridge';
-    import type {BubbleState} from '../stores/bubblesStore';
-    import { bubblesStore } from '../stores/bubblesStore';
-    import { get } from 'svelte/store';
-
+    import { findMarkdownBySeq } from '../stores/lookup';
     import type { EditBlockProperties } from '../worker/shared';
 
     let {
@@ -26,8 +23,7 @@
     function toggleDetails() {
         showDetails = !showDetails;
         if (showDetails) {
-            const markdown =
-                get(bubblesStore).find(b => b.seq === bubbleId)?.markdown ?? '';
+            const markdown = findMarkdownBySeq(bubbleId) ?? '';
             expandDiff(markdown, bubbleId, id);
         }
     }
@@ -61,10 +57,6 @@
 
 <style>
     .edit-block-wrapper {
-        --diff-add: #28a745;
-        --diff-del: #dc3545;
-        --diff-add-bg: rgba(40, 167, 69, 0.1);
-        --diff-del-bg: rgba(220, 53, 69, 0.1);
         border: 1px solid var(--message-border-custom);
         border-radius: 8px;
         margin: 1em 0;
@@ -139,7 +131,7 @@
         /* It also adds horizontal padding, which we override on lines. */
         padding-top: 0.8em;
         padding-bottom: 0.8em;
-        white-space: pre-wrap;
+        white-space: inherit;
         font-size: 0;
     }
 
@@ -147,7 +139,7 @@
         display: block;
         padding-left: 0.8em;
         padding-right: 0.8em;
-        font-size: 0.8rem;
+        font-size: calc(0.9 * 14px * var(--zoom-level, 1));
         line-height: 1.4;
     }
 

@@ -117,8 +117,7 @@ public class ContextSerializationTest {
         // focusing on serializable aspects.
         // For a "no fragments" context, primarily the task history (welcome message) is relevant.
         Context loadedCtx = loadedHistory.getHistory().get(0);
-        assertNotNull(loadedCtx.getParsedOutput()); // Welcome message
-        assertEquals("Welcome", loadedCtx.getParsedOutput().description());
+        assertNull(loadedCtx.getParsedOutput());
     }
 
     @Test
@@ -126,7 +125,7 @@ public class ContextSerializationTest {
         // Context 1: Project file, string fragment
         var projectFile1 = new ProjectFile(tempDir, "src/File1.java");
         var context1 = new Context(mockContextManager, "Context 1 started")
-                .addEditableFiles(List.of(new ContextFragment.ProjectPathFragment(projectFile1, mockContextManager)))
+                .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(projectFile1, mockContextManager)))
                 .addVirtualFragment(new ContextFragment.StringFragment(
                         mockContextManager, "Virtual content 1", "VC1", SyntaxConstants.SYNTAX_STYLE_JAVA));
         ContextHistory originalHistory = new ContextHistory(context1);
@@ -194,40 +193,17 @@ public class ContextSerializationTest {
     }
 
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
-        // Compare editable files
-        var expectedEditable = expected.editableFiles()
+        // Compare all fragments sorted by ID
+        var expectedFragments = expected.allFragments()
                 .sorted(java.util.Comparator.comparing(ContextFragment::id))
                 .toList();
-        var actualEditable = actual.editableFiles()
+        var actualFragments = actual.allFragments()
                 .sorted(java.util.Comparator.comparing(ContextFragment::id))
                 .toList();
-        assertEquals(expectedEditable.size(), actualEditable.size(), "Editable files count mismatch");
-        for (int i = 0; i < expectedEditable.size(); i++) {
-            assertContextFragmentsEqual(expectedEditable.get(i), actualEditable.get(i));
-        }
 
-        // Compare readonly files
-        var expectedReadonly = expected.readonlyFiles()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
-                .toList();
-        var actualReadonly = actual.readonlyFiles()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
-                .toList();
-        assertEquals(expectedReadonly.size(), actualReadonly.size(), "Readonly files count mismatch");
-        for (int i = 0; i < expectedReadonly.size(); i++) {
-            assertContextFragmentsEqual(expectedReadonly.get(i), actualReadonly.get(i));
-        }
-
-        // Compare virtual fragments
-        var expectedVirtuals = expected.virtualFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
-                .toList();
-        var actualVirtuals = actual.virtualFragments()
-                .sorted(java.util.Comparator.comparing(ContextFragment::id))
-                .toList();
-        assertEquals(expectedVirtuals.size(), actualVirtuals.size(), "Virtual fragments count mismatch");
-        for (int i = 0; i < expectedVirtuals.size(); i++) {
-            assertContextFragmentsEqual(expectedVirtuals.get(i), actualVirtuals.get(i));
+        assertEquals(expectedFragments.size(), actualFragments.size(), "Fragments count mismatch");
+        for (int i = 0; i < expectedFragments.size(); i++) {
+            assertContextFragmentsEqual(expectedFragments.get(i), actualFragments.get(i));
         }
 
         // Compare task history
@@ -270,14 +246,10 @@ public class ContextSerializationTest {
             }
         }
 
-        // Compare files (ProjectFile and CodeUnit DTOs are by value)
-        // FrozenFragment.sources() intentionally throws UnsupportedOperationException, so untested
-        if (!(expected instanceof FrozenFragment)) {
-            assertEquals(
-                    expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                    actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                    "Fragment sources mismatch for ID " + expected.id());
-        }
+        // Compare additional serialized top-level methods
+        assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
+
+        // Compare files (sources are not snapshotted into FrozenFragment directly)
         assertEquals(
                 expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
@@ -413,7 +385,7 @@ public class ContextSerializationTest {
                 mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var context = new Context(mockContextManager, "Initial")
-                .addEditableFiles(List.of(ctxFragment))
+                .addPathFragments(List.of(ctxFragment))
                 .addVirtualFragment(strFragment);
         var history = new ContextHistory(context);
 
@@ -481,7 +453,7 @@ public class ContextSerializationTest {
         Files.writeString(projectFile.absPath(), "public class Test {}");
         var fragment = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
 
-        var updatedContext1 = context1.addEditableFiles(List.of(fragment));
+        var updatedContext1 = context1.addPathFragments(List.of(fragment));
         var history = new ContextHistory(updatedContext1);
 
         // Create context with a slow-resolving action (simulates async operation)
@@ -562,12 +534,12 @@ public class ContextSerializationTest {
 
         // Context 1
         var updatedContext1 =
-                context1.addEditableFiles(List.of(liveProjectPathFragment)).addVirtualFragment(liveStringFragment);
+                context1.addPathFragments(List.of(liveProjectPathFragment)).addVirtualFragment(liveStringFragment);
         var history = new ContextHistory(updatedContext1);
 
         // Context 2 also uses the same live instances
         var context2 = new Context(mockContextManager, "Context 2")
-                .addEditableFiles(List.of(liveProjectPathFragment))
+                .addPathFragments(List.of(liveProjectPathFragment))
                 .addVirtualFragment(liveStringFragment);
         history.addFrozenContextAndClearRedo(context2.freeze());
 
@@ -583,7 +555,7 @@ public class ContextSerializationTest {
         // After freezeOnly(), liveProjectPathFragment is turned into a FrozenFragment.
         // Both contexts will reference the *same instance* of this FrozenFragment due to interning by content hash.
         var frozenPathFrag1 = loadedCtx1
-                .editableFiles()
+                .allFragments()
                 .filter(f -> f instanceof FrozenFragment
                         && ((FrozenFragment) f)
                                 .originalClassName()
@@ -593,7 +565,7 @@ public class ContextSerializationTest {
                 .orElseThrow(() -> new AssertionError("Frozen ProjectPathFragment not found in loadedCtx1"));
 
         var frozenPathFrag2 = loadedCtx2
-                .editableFiles()
+                .allFragments()
                 .filter(f -> f instanceof FrozenFragment
                         && ((FrozenFragment) f)
                                 .originalClassName()
@@ -684,7 +656,7 @@ public class ContextSerializationTest {
 
         var fragment = new ContextFragment.GitFileFragment(projectFile, "abcdef1234567890", "content for git file");
 
-        var context = new Context(mockContextManager, "Test GitFileFragment").addReadonlyFiles(List.of(fragment));
+        var context = new Context(mockContextManager, "Test GitFileFragment").addPathFragments(List.of(fragment));
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_gitfile_history.zip");
@@ -696,7 +668,7 @@ public class ContextSerializationTest {
         // Verify specific GitFileFragment properties after general assertion
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = (ContextFragment.GitFileFragment) loadedCtx
-                .readonlyFiles()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE)
                 .findFirst()
                 .orElseThrow();
@@ -714,7 +686,7 @@ public class ContextSerializationTest {
         var externalFile = new io.github.jbellis.brokk.analyzer.ExternalFile(externalFilePath);
         var fragment = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
 
-        var context = new Context(mockContextManager, "Test ExternalPathFragment").addReadonlyFiles(List.of(fragment));
+        var context = new Context(mockContextManager, "Test ExternalPathFragment").addPathFragments(List.of(fragment));
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_externalpath_history.zip");
@@ -725,7 +697,7 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
-                .readonlyFiles()
+                .allFragments()
                 .filter(f -> f.getType()
                         == ContextFragment.FragmentType.EXTERNAL_PATH) // getType on FrozenFragment returns originalType
                 .findFirst()
@@ -748,7 +720,7 @@ public class ContextSerializationTest {
                 tempDir, tempDir.relativize(imageFilePath)); // Treat as project file for test
         var fragment = new ContextFragment.ImageFileFragment(brokkImageFile, mockContextManager);
 
-        var context = new Context(mockContextManager, "Test ImageFileFragment").addReadonlyFiles(List.of(fragment));
+        var context = new Context(mockContextManager, "Test ImageFileFragment").addPathFragments(List.of(fragment));
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_imagefile_history.zip");
@@ -759,7 +731,7 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
-                .readonlyFiles()
+                .allFragments()
                 .filter(f -> f.getType()
                         == ContextFragment.FragmentType.IMAGE_FILE) // getType on FrozenFragment returns originalType
                 .findFirst()
@@ -782,6 +754,54 @@ public class ContextSerializationTest {
         assertNotNull(loadedImageFromBytes);
         assertEquals(20, loadedImageFromBytes.getWidth(null));
         assertEquals(20, loadedImageFromBytes.getHeight(null));
+    }
+
+    @Test
+    void testRoundTripBuildFragment() throws Exception {
+        // Create a BuildFragment with content
+        var buildFragment = new ContextFragment.BuildFragment(mockContextManager);
+        buildFragment.setContent("Build successful\nAll tests passed");
+
+        var context = new Context(mockContextManager, "Test BuildFragment").addVirtualFragment(buildFragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_buildfrag_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        // Basic structural equality (frozen representation should be present)
+        assertContextsEqual(
+                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+
+        var loadedRawFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
+                .findFirst()
+                .orElseThrow();
+
+        if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.BUILD_LOG, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.BuildFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            // Ensure frozen text contains original build content
+            assertNotNull(loadedFrozenFragment.text());
+            assertTrue(loadedFrozenFragment.text().contains("All tests passed"));
+
+            // And unfreeze should produce a live BuildFragment with the same content
+            ContextFragment unfrozen = loadedFrozenFragment.unfreeze(mockContextManager);
+            assertTrue(unfrozen instanceof ContextFragment.BuildFragment);
+            String expectedContent = "Build successful\nAll tests passed";
+            // BuildFragment.text() prefixes content with "# CURRENT BUILD STATUS\n\n"
+            String actualContent =
+                    ((ContextFragment.BuildFragment) unfrozen).text().substring("# CURRENT BUILD STATUS\n\n".length());
+            assertEquals(expectedContent, actualContent);
+        } else if (loadedRawFragment instanceof ContextFragment.BuildFragment bf) {
+            // In case it's already live (unlikely after deserialization), just check content
+            String actualContent = bf.text().substring("# CURRENT BUILD STATUS\n\n".length());
+            assertEquals("Build successful\nAll tests passed", actualContent);
+        } else {
+            fail("Expected FrozenFragment or BuildFragment, got: " + loadedRawFragment.getClass());
+        }
     }
 
     @Test
@@ -881,6 +901,34 @@ public class ContextSerializationTest {
             assertEquals(ContextFragment.UsageFragment.class.getName(), loadedFrozenFragment.originalClassName());
             assertEquals(
                     "com.example.MyClass.myMethod", loadedFrozenFragment.meta().get("targetIdentifier"));
+        } else {
+            fail("Expected UsageFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
+        }
+    }
+
+    @Test
+    void testRoundTripUsageFragmentIncludeTestFiles() throws Exception {
+        var fragment = new ContextFragment.UsageFragment(mockContextManager, "com.example.MyClass.myMethod", true);
+
+        var context = new Context(mockContextManager, "Test UsageFragment include").addVirtualFragment(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_usage_include_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedRawFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.USAGE)
+                .findFirst()
+                .orElseThrow();
+
+        if (loadedRawFragment instanceof ContextFragment.UsageFragment loadedFragment) {
+            assertTrue(loadedFragment.includeTestFiles(), "includeTestFiles should be preserved as true");
+            assertEquals("com.example.MyClass.myMethod", loadedFragment.targetIdentifier());
+        } else if (loadedRawFragment instanceof FrozenFragment ff) {
+            assertEquals(ContextFragment.FragmentType.USAGE, ff.getType());
         } else {
             fail("Expected UsageFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }
@@ -1138,5 +1186,50 @@ public class ContextSerializationTest {
         assertTrue(loadedGitState2.isPresent());
         assertEquals("test-commit-hash-2", loadedGitState2.get().commitHash());
         assertNull(loadedGitState2.get().diff());
+    }
+
+    @Test
+    void testRoundTripCodeFragment() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/CodeFragmentTarget.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class CodeFragmentTarget {}");
+        var codeUnit = createTestCodeUnit("com.example.CodeFragmentTarget", projectFile);
+
+        var fragment = new ContextFragment.CodeFragment(mockContextManager, codeUnit);
+
+        var context = new Context(mockContextManager, "Test CodeFragment").addVirtualFragment(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_codefragment_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(
+                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedRawFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.CODE)
+                .findFirst()
+                .orElseThrow();
+
+        if (loadedRawFragment instanceof ContextFragment.CodeFragment loadedFragment) {
+            assertEquals(codeUnit.fqName(), loadedFragment.getCodeUnit().fqName());
+        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.CODE, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.CodeFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            assertEquals(
+                    "com.example.CodeFragmentTarget",
+                    loadedFrozenFragment.meta().get("fqName"));
+            assertEquals(
+                    projectFile.getRoot().toString(),
+                    loadedFrozenFragment.meta().get("repoRoot"));
+            assertEquals(
+                    projectFile.getRelPath().toString(),
+                    loadedFrozenFragment.meta().get("relPath"));
+        } else {
+            fail("Expected CodeFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
+        }
     }
 }

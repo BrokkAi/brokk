@@ -15,7 +15,6 @@ import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
@@ -36,6 +35,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -69,14 +69,16 @@ public class CodeAgent {
         this.io = io;
     }
 
+    public enum Option {
+        PRESERVE_RAW_MESSAGES,
+        DEFER_BUILD
+    }
+
     /**
-     * Implementation of the LLM task that runs in a separate thread. Uses the provided model for the initial request
-     * and potentially switches for fixes.
-     *
      * @param userInput The user's goal/instructions.
      * @return A TaskResult containing the conversation history and original file contents
      */
-    public TaskResult runTask(String userInput, boolean forArchitect) {
+    public TaskResult runTask(String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
@@ -100,17 +102,20 @@ public class CodeAgent {
         io.systemOutput(msg);
         TaskResult.StopDetails stopDetails = null;
 
-        var parser = contextManager.getParserForWorkspace();
+        var parser = EditBlockParser.instance;
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
+        var instructionsFlags = getInstructionsFlags();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, null);
+                userInput.trim(),
+                CodePrompts.instance.codeReminder(contextManager.getService(), model),
+                parser,
+                instructionsFlags);
 
         // FSM state
-        var cs = new ConversationState(taskMessages, nextRequest, taskMessages.size());
+        var cs = new ConversationState(taskMessages, nextRequest, 0);
         var es = new EditState(
                 blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
-        final String userGoal = userInput;
 
         while (true) {
             if (Thread.interrupted()) {
@@ -119,10 +124,8 @@ public class CodeAgent {
                 break;
             }
 
-            // Variables needed across phase calls if not passed via Step results
-            StreamingResult streamingResult; // Will be set before requestPhase
-
             // Make the LLM request
+            StreamingResult streamingResult;
             try {
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         contextManager,
@@ -130,7 +133,8 @@ public class CodeAgent {
                         parser,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        es.changedFiles());
+                        es.changedFiles(),
+                        Set.of());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {
@@ -197,13 +201,25 @@ public class CodeAgent {
                 if (msgsThisTurn > 2) {
                     var srb = es.toSearchReplaceBlocks();
                     var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
-                            + srb.stream().map(parser::repr).collect(Collectors.joining("\n"));
+                            + srb.stream()
+                                    .map(EditBlock.SearchReplaceBlock::repr)
+                                    .collect(Collectors.joining("\n"));
                     cs = cs.replaceCurrentTurnMessages(summaryText);
                 }
             }
 
-            // VERIFY PHASE runs the build
+            // VERIFY or finish if build is deferred
             assert es.pendingBlocks().isEmpty() : es;
+
+            if (options.contains(Option.DEFER_BUILD)) {
+                reportComplete(
+                        es.blocksAppliedWithoutBuild() > 0
+                                ? "Edits applied. Build/check deferred."
+                                : "No edits to apply. Build/check deferred.");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+                break;
+            }
+
             var verifyOutcome = verifyPhase(cs, es, metrics);
             if (verifyOutcome instanceof Step.Retry retryVerify) {
                 cs = retryVerify.cs();
@@ -228,41 +244,54 @@ public class CodeAgent {
 
         // create the Result for history
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
-                ? userGoal
-                : userGoal + " [" + stopDetails.reason().name() + "]";
+                ? userInput
+                : userInput + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
-        var finalMessages = forArchitect
+        var finalMessages = options.contains(Option.PRESERVE_RAW_MESSAGES)
                 ? List.copyOf(io.getLlmRawMessages(false))
                 : prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
         return new TaskResult(
                 "Code: " + finalActionDescription,
-                new ContextFragment.TaskFragment(contextManager, finalMessages, userGoal),
+                new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
                 es.changedFiles(),
                 stopDetails);
     }
 
-    /**
-     * Runs a “single-file edit” session in which the LLM is asked to modify exactly {@code file}. The method drives the
-     * same request / parse / apply FSM that {@link #runTask(String, boolean)} uses, but it stops after all
-     * SEARCH/REPLACE blocks have been applied (no build verification is performed).
-     *
-     * @param file the file to edit
-     * @param instructions user instructions describing the desired change
-     * @param readOnlyMessages conversation context that should be provided to the LLM as read-only (e.g., other related
-     *     files, build output, etc.)
-     * @return a {@link TaskResult} recording the conversation and the original contents of all files that were changed
-     */
-    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
+    private @NotNull Set<CodePrompts.InstructionsFlags> getInstructionsFlags() {
+        var hasMergeMarkers = contextManager
+                        .liveContext()
+                        .fileFragments()
+                        .flatMap(cf -> cf.files().stream())
+                        .anyMatch(f -> f.read()
+                                .map(s -> s.contains("BRK_CONFLICT_BEGIN"))
+                                .orElse(false))
+                && contextManager
+                        .liveContext()
+                        .fileFragments()
+                        .flatMap(cf -> cf.files().stream())
+                        .anyMatch(f -> f.read()
+                                .map(s -> s.contains("BRK_CONFLICT_END"))
+                                .orElse(false));
+        var instructionsFlags = hasMergeMarkers
+                ? EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS)
+                : Set.<CodePrompts.InstructionsFlags>of();
+        return instructionsFlags;
+    }
+
+    public TaskResult runSingleFileEdit(
+            ProjectFile file,
+            String instructions,
+            List<ChatMessage> readOnlyMessages,
+            Set<CodePrompts.InstructionsFlags> flags) {
         // 0.  Setup: coder, parser, initial messages, and initial state
         var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
         coder.setOutput(io);
 
-        // Keeping conflicts-aware parser for single-file edits
-        var parser = EditBlockConflictsParser.instance;
+        EditBlockParser parser = EditBlockParser.instance;
 
         UserMessage initialRequest = CodePrompts.instance.codeRequest(
-                instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, file);
+                instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, flags);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
         var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
@@ -281,7 +310,8 @@ public class CodeAgent {
                     readOnlyMessages,
                     conversationState.taskMessages(),
                     requireNonNull(conversationState.nextRequest(), "nextRequest must be set before sending to LLM"),
-                    file);
+                    file,
+                    flags);
 
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
@@ -500,12 +530,7 @@ public class CodeAgent {
         // directly
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
-        String fileContents;
-        try {
-            fileContents = file.read();
-        } catch (java.io.IOException e) {
-            throw new java.io.UncheckedIOException(e);
-        }
+        String fileContents = file.read().orElse("");
 
         var styleGuide = contextManager.getProject().getStyleGuide();
 
@@ -631,43 +656,10 @@ public class CodeAgent {
     private EditBlock.EditResult applyBlocksAndHandleErrors(
             List<EditBlock.SearchReplaceBlock> blocksToApply, Set<ProjectFile> changedFilesCollector)
             throws EditStopException, InterruptedException {
-        // Identify files referenced by blocks that are not already editable
-        final var invalidFileBlocks = new HashSet<EditBlock.FailedBlock>();
-        var filesToAdd = blocksToApply.stream()
-                .filter(editBlock -> Objects.nonNull(editBlock.rawFileName()))
-                .distinct()
-                .map(editBlock -> {
-                    final var f = editBlock.rawFileName();
-                    try {
-                        return contextManager.toFile(f);
-                    } catch (IllegalArgumentException e) {
-                        invalidFileBlocks.add(
-                                new EditBlock.FailedBlock(editBlock, EditBlock.EditBlockFailureReason.FILE_NOT_FOUND));
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .filter(file -> !contextManager.getEditableFiles().contains(file))
-                .toList();
-
-        // Check for conflicts with read-only files
-        var readOnlyFiles = filesToAdd.stream()
-                .filter(file -> contextManager.getReadonlyProjectFiles().contains(file))
-                .toList();
-        if (!readOnlyFiles.isEmpty()) {
-            var msg =
-                    "LLM attempted to edit read-only file(s): %s.\nNo edits applied. Mark the file(s) editable or clarify the approach."
-                            .formatted(readOnlyFiles.stream()
-                                    .map(ProjectFile::toString)
-                                    .collect(Collectors.joining(",")));
-            reportComplete(msg);
-            var filenames = readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
-            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
-        }
 
         EditBlock.EditResult editResult;
         try {
-            editResult = EditBlock.applyEditBlocks(contextManager, io, blocksToApply);
+            editResult = EditBlock.apply(contextManager, io, blocksToApply);
         } catch (IOException e) {
             var eMessage = requireNonNull(e.getMessage());
             // io.toolError is handled by caller if this exception propagates
@@ -675,7 +667,6 @@ public class CodeAgent {
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
-        editResult.failedBlocks().addAll(invalidFileBlocks);
         return editResult;
     }
 
@@ -1080,12 +1071,7 @@ public class CodeAgent {
             for (var file : sorted) {
                 String original = originals.getOrDefault(file, "");
                 String revised;
-                try {
-                    revised = file.read();
-                } catch (IOException ioe) {
-                    logger.warn("Unable to read file {} to generate summary diff; skipping", file, ioe);
-                    continue;
-                }
+                revised = file.read().orElse("");
 
                 if (Objects.equals(original, revised)) {
                     continue; // No effective change

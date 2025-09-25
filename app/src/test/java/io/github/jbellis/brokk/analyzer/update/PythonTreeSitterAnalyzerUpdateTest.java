@@ -20,7 +20,7 @@ class PythonTreeSitterAnalyzerUpdateTest {
         def foo():
             return 1
         """);
-        project = UpdateTestUtil.newTestProject(rootDir, Language.PYTHON);
+        project = UpdateTestUtil.newTestProject(rootDir, Languages.PYTHON);
         analyzer = new PythonAnalyzer(project);
     }
 

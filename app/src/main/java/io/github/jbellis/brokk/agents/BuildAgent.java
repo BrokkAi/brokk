@@ -8,6 +8,7 @@ import com.github.mustachejava.MustacheFactory;
 import com.github.mustachejava.util.DecoratedCollection;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -20,7 +21,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -158,7 +159,7 @@ public class BuildAgent {
             // Make the LLM request
             Llm.StreamingResult result;
             try {
-                result = llm.sendRequest(messages, tools, ToolChoice.REQUIRED, false);
+                result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, this), false);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Unexpected request cancellation in build agent");
@@ -291,9 +292,7 @@ public class BuildAgent {
         return messages;
     }
 
-    @Tool(
-            value =
-                    "Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
+    @Tool("Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
     public String reportBuildDetails(
             @P(
                             "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.")
@@ -320,9 +319,7 @@ public class BuildAgent {
         return "Build details report received and processed.";
     }
 
-    @Tool(
-            value =
-                    "Abort the process if you cannot determine the build details or the project structure is unsupported.")
+    @Tool("Abort the process if you cannot determine the build details or the project structure is unsupported.")
     public String abortBuildDetails(
             @P("Explanation of why the build details cannot be determined") String explanation) {
         // Store the explanation in the agent's field
@@ -427,8 +424,8 @@ public class BuildAgent {
 
         // Get ProjectFiles from editable and read-only fragments
         var topContext = requireNonNull(cm.topContext());
-        var projectFilesFromEditableOrReadOnly = Stream.concat(topContext.editableFiles(), topContext.readonlyFiles())
-                .flatMap(fragment -> fragment.files().stream()); // No analyzer
+        var projectFilesFromEditableOrReadOnly =
+                topContext.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
         var projectFilesFromSkeletons = topContext
@@ -473,7 +470,7 @@ public class BuildAgent {
             return command;
         }
         // Only prefix for Java projects
-        if (project.getBuildLanguage() != Language.JAVA) {
+        if (project.getBuildLanguage() != Languages.JAVA) {
             return command;
         }
         var trimmed = command.stripLeading();

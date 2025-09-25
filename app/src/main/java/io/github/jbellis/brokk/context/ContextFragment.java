@@ -5,6 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.AnalyzerUtil.CodeWithSource;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
@@ -32,45 +33,69 @@ import org.jetbrains.annotations.Nullable;
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
  * UncheckedIOException or CancellationException for IOException/InterruptedException, respectively; freeze() will throw
  * the checked variants at which point the caller should deal with the interruption or remove no-longer-valid Fragments
+ *
+ * <p>ContextFragment MUST be kept in sync with FrozenFragment: any polymorphic methods added to CF must be serialized
+ * into FF so they can be accurately represented as well. If you are tasked with adding such a method to CF without also
+ * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
+    /**
+     * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well
+     */
     enum FragmentType {
-        PROJECT_PATH(true, false, false), // Dynamic ID
-        GIT_FILE(true, false, false), // Content-hashed ID
-        EXTERNAL_PATH(true, false, false), // Dynamic ID
-        IMAGE_FILE(true, false, false), // Dynamic ID, isText=false for this path fragment
+        PROJECT_PATH,
+        GIT_FILE,
+        EXTERNAL_PATH,
+        IMAGE_FILE,
 
-        STRING(false, true, false), // Content-hashed ID
-        SEARCH(false, true, true), // Content-hashed ID (SearchFragment extends TaskFragment)
-        SKELETON(false, true, false), // Dynamic ID
-        USAGE(false, true, false), // Dynamic ID
-        CALL_GRAPH(false, true, false), // Dynamic ID
-        HISTORY(false, true, true), // Content-hashed ID
-        TASK(false, true, true), // Content-hashed ID
-        PASTE_TEXT(false, true, false), // Content-hashed ID
-        PASTE_IMAGE(false, true, false), // Content-hashed ID, isText=false for this virtual fragment
-        STACKTRACE(false, true, false); // Content-hashed ID
+        STRING,
+        SEARCH,
+        SKELETON,
+        USAGE,
+        CODE,
+        CALL_GRAPH,
+        HISTORY,
+        TASK,
+        PASTE_TEXT,
+        PASTE_IMAGE,
+        STACKTRACE,
+        BUILD_LOG;
 
-        private final boolean isPath;
-        private final boolean isVirtual;
-        private final boolean isOutput;
+        private static final EnumSet<FragmentType> PATH_TYPES =
+                EnumSet.of(PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);
 
-        FragmentType(boolean isPath, boolean isVirtual, boolean isOutput) {
-            this.isPath = isPath;
-            this.isVirtual = isVirtual;
-            this.isOutput = isOutput;
+        private static final EnumSet<FragmentType> VIRTUAL_TYPES = EnumSet.of(
+                STRING,
+                SEARCH,
+                SKELETON,
+                USAGE,
+                CODE,
+                CALL_GRAPH,
+                HISTORY,
+                TASK,
+                PASTE_TEXT,
+                PASTE_IMAGE,
+                STACKTRACE,
+                BUILD_LOG);
+
+        private static final EnumSet<FragmentType> OUTPUT_TYPES = EnumSet.of(SEARCH, HISTORY, TASK);
+
+        private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE);
+
+        public boolean isPath() {
+            return PATH_TYPES.contains(this);
         }
 
-        public boolean isPathFragment() {
-            return isPath;
+        public boolean isVirtual() {
+            return VIRTUAL_TYPES.contains(this);
         }
 
-        public boolean isVirtualFragment() {
-            return isVirtual;
+        public boolean isOutput() {
+            return OUTPUT_TYPES.contains(this);
         }
 
-        public boolean isOutputFragment() {
-            return isOutput;
+        public boolean isEditable() {
+            return EDITABLE_TYPES.contains(this);
         }
     }
 
@@ -127,6 +152,15 @@ public interface ContextFragment {
     /** content formatted for LLM */
     String format() throws UncheckedIOException, CancellationException;
 
+    /** fragment toc entry, usually id + description */
+    default String formatToc() {
+        // ACHTUNG! if we ever start overriding this, we'll need to serialize it into FrozenFragment
+        return """
+               <fragment-toc description="%s" fragmentid="%s" />
+               """
+                .formatted(description(), id());
+    }
+
     /** Indicates if the fragment's content can change based on project/file state. */
     boolean isDynamic();
 
@@ -175,6 +209,10 @@ public interface ContextFragment {
 
     default ContextFragment unfreeze(IContextManager cm) throws IOException {
         return this;
+    }
+
+    default List<TaskEntry> entries() {
+        return List.of();
     }
 
     /**
@@ -235,11 +273,7 @@ public interface ContextFragment {
 
         @Override
         default String text() throws UncheckedIOException {
-            try {
-                return file().read();
-            } catch (IOException e) {
-                return ""; // let freeze() clean it out later
-            }
+            return file().read().orElse("");
         }
 
         @Override
@@ -854,7 +888,7 @@ public interface ContextFragment {
         public SearchFragment(
                 IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
             // The ID (hash) is calculated by the TaskFragment constructor based on sessionName and messages.
-            super(contextManager, messages, sessionName);
+            super(contextManager, messages, sessionName, true);
             this.sources = sources;
         }
 
@@ -870,7 +904,8 @@ public interface ContextFragment {
                     contextManager,
                     EditBlockParser.instance,
                     messages,
-                    sessionName); // existingHashId is expected to be a content hash
+                    sessionName,
+                    true); // existingHashId is expected to be a content hash
             this.sources = sources;
         }
 
@@ -1171,14 +1206,6 @@ public interface ContextFragment {
         }
     }
 
-    static String toClassname(String methodname) {
-        int lastDot = methodname.lastIndexOf('.');
-        if (lastDot == -1) {
-            return methodname;
-        }
-        return methodname.substring(0, lastDot);
-    }
-
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
@@ -1215,20 +1242,21 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            return analyzer.as(UsagesProvider.class)
-                    .map(up -> {
-                        List<CodeUnit> uses = up.getUses(targetIdentifier);
-                        if (!includeTestFiles) {
-                            uses = uses.stream()
-                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
-                                    .toList();
-                        }
-                        var result = AnalyzerUtil.processUsages(analyzer, uses);
-                        return result.code().isEmpty()
-                                ? "No relevant usages found for symbol: " + targetIdentifier
-                                : result.code();
-                    })
-                    .orElse("Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".");
+            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
+            if (maybeUsagesProvider.isEmpty()) {
+                return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
+            }
+            var up = maybeUsagesProvider.get();
+
+            List<CodeUnit> uses = up.getUses(targetIdentifier);
+            if (!includeTestFiles) {
+                uses = uses.stream()
+                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                        .toList();
+            }
+            var parts = AnalyzerUtil.processUsages(analyzer, uses);
+            var formatted = CodeWithSource.text(parts);
+            return formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
         }
 
         @Override
@@ -1238,19 +1266,21 @@ public interface ContextFragment {
 
         @Override
         public Set<CodeUnit> sources() {
-            final IAnalyzer analyzer = getAnalyzer();
-            return analyzer.as(UsagesProvider.class)
-                    .map(up -> {
-                        List<CodeUnit> uses = up.getUses(targetIdentifier);
-                        if (!includeTestFiles) {
-                            uses = uses.stream()
-                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
-                                    .toList();
-                        }
-                        var result = AnalyzerUtil.processUsages(analyzer, uses);
-                        return result.sources();
-                    })
-                    .orElseThrow(UnsupportedOperationException::new);
+            var analyzer = getAnalyzer();
+            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
+            if (maybeUsagesProvider.isEmpty()) {
+                return Set.of(); // If no provider, no sources can be found.
+            }
+            var up = maybeUsagesProvider.get();
+
+            List<CodeUnit> uses = up.getUses(targetIdentifier);
+            if (!includeTestFiles) {
+                uses = uses.stream()
+                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                        .toList();
+            }
+            var parts = AnalyzerUtil.processUsages(analyzer, uses);
+            return parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
         }
 
         @Override
@@ -1277,18 +1307,110 @@ public interface ContextFragment {
 
         @Override
         public String syntaxStyle() {
-            // Syntax can vary based on the language of the usages.
-            // Default to Java or try to infer from a source CodeUnit if available.
-            // For simplicity, returning Java, but this could be improved.
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+            return sources().stream()
+                    .findFirst()
+                    .map(s -> s.source().getSyntaxStyle())
+                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         public String targetIdentifier() {
             return targetIdentifier;
         }
 
-        public boolean getIncludeTestFiles() {
+        public boolean includeTestFiles() {
             return includeTestFiles;
+        }
+    }
+
+    /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
+    class CodeFragment extends VirtualFragment { // Dynamic, uses nextId
+        private final CodeUnit unit;
+
+        public CodeFragment(IContextManager contextManager, CodeUnit unit) {
+            super(contextManager);
+            validateCodeUnit(unit);
+            this.unit = unit;
+        }
+
+        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
+        public CodeFragment(String existingId, IContextManager contextManager, CodeUnit unit) {
+            super(existingId, contextManager);
+            validateCodeUnit(unit);
+            this.unit = unit;
+        }
+
+        private static void validateCodeUnit(CodeUnit unit) {
+            if (!(unit.isClass() || unit.isFunction())) {
+                throw new IllegalArgumentException(unit.toString());
+            }
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.CODE;
+        }
+
+        @Override
+        public String description() {
+            return "Source for " + unit.fqName();
+        }
+
+        @Override
+        public String text() {
+            var analyzer = getAnalyzer();
+
+            var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
+            if (maybeSourceCodeProvider.isEmpty()) {
+                return "Code Intelligence cannot extract source for: " + unit.fqName();
+            }
+            var scp = maybeSourceCodeProvider.get();
+
+            if (unit.isFunction()) {
+                var code = scp.getMethodSource(unit.fqName(), true).orElse("");
+                if (!code.isEmpty()) {
+                    return new AnalyzerUtil.CodeWithSource(code, unit).text();
+                }
+                return "No source found for method: " + unit.fqName();
+            } else {
+                var code = scp.getClassSource(unit.fqName(), true).orElse("");
+                if (!code.isEmpty()) {
+                    return new AnalyzerUtil.CodeWithSource(code, unit).text();
+                }
+                return "No source found for class: " + unit.fqName();
+            }
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return true;
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return unit.classUnit().map(Set::of).orElseThrow();
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public String repr() {
+            if (unit.isFunction()) {
+                return "Methods(['%s'])".formatted(unit.fqName());
+            } else {
+                return "Classes(['%s'])".formatted(unit.fqName());
+            }
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return unit.source().getSyntaxStyle();
+        }
+
+        public CodeUnit getCodeUnit() {
+            return unit;
         }
     }
 
@@ -1546,9 +1668,7 @@ public interface ContextFragment {
                    </summary>
                    """
                     .stripIndent()
-                    .formatted(
-                            String.join(", ", targetIdentifiers), summaryType.name(), id(), text() // No analyzer
-                            );
+                    .formatted(String.join(", ", targetIdentifiers), summaryType.name(), id(), text());
         }
 
         @Override
@@ -1577,9 +1697,59 @@ public interface ContextFragment {
         }
     }
 
+    // Special dynamic fragment that holds the latest build results.
+    // Only ContextManager should update its content.
+    class BuildFragment extends VirtualFragment { // Dynamic, uses nextId
+        private volatile String content = "";
+
+        public BuildFragment(IContextManager contextManager) {
+            super(contextManager);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.BUILD_LOG;
+        }
+
+        @Override
+        public String description() {
+            return "Latest build results";
+        }
+
+        @Override
+        public String text() {
+            return "# CURRENT BUILD STATUS\n\n" + content;
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return true;
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            // Do not seed auto-context from build output
+            return false;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            // Build output may contain Markdown formatting
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        }
+
+        public void setContent(String newContent) {
+            content = newContent;
+        }
+
+        @Override
+        public String toString() {
+            return "BuildFragment('%s')".formatted(description());
+        }
+    }
+
     interface OutputFragment {
         List<TaskEntry> entries();
-
         /** Should raw HTML inside markdown be escaped before rendering? */
         default boolean isEscapeHtml() {
             return true;
@@ -1677,9 +1847,12 @@ public interface ContextFragment {
 
     /** represents a single session's Task History */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
-        private final EditBlockParser parser; // TODO this doesn't belong in TaskFragment anymore
         private final List<ChatMessage> messages; // Content is fixed once created
-        private final String sessionName;
+
+        @SuppressWarnings({"unused", "UnusedVariable"})
+        private final EditBlockParser parser;
+
+        private final String description;
         private final boolean escapeHtml;
 
         private static String calculateId(String sessionName, List<ChatMessage> messages) {
@@ -1698,30 +1871,22 @@ public interface ContextFragment {
                 IContextManager contextManager,
                 EditBlockParser parser,
                 List<ChatMessage> messages,
-                String sessionName,
+                String description,
                 boolean escapeHtml) {
-            super(calculateId(sessionName, messages), contextManager); // ID is content hash
+            super(calculateId(description, messages), contextManager); // ID is content hash
             this.parser = parser;
             this.messages = List.copyOf(messages);
-            this.sessionName = sessionName;
+            this.description = description;
             this.escapeHtml = escapeHtml;
         }
 
         public TaskFragment(
-                IContextManager contextManager,
-                EditBlockParser parser,
-                List<ChatMessage> messages,
-                String sessionName) {
-            this(contextManager, parser, messages, sessionName, true);
+                IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
+            this(contextManager, EditBlockParser.instance, messages, description, escapeHtml);
         }
 
-        public TaskFragment(
-                IContextManager contextManager, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
-            this(contextManager, EditBlockParser.instance, messages, sessionName, escapeHtml);
-        }
-
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
-            this(contextManager, EditBlockParser.instance, messages, sessionName, true);
+        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
+            this(contextManager, EditBlockParser.instance, messages, description, true);
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1730,12 +1895,12 @@ public interface ContextFragment {
                 IContextManager contextManager,
                 EditBlockParser parser,
                 List<ChatMessage> messages,
-                String sessionName,
+                String description,
                 boolean escapeHtml) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
             this.parser = parser;
             this.messages = List.copyOf(messages);
-            this.sessionName = sessionName;
+            this.description = description;
             this.escapeHtml = escapeHtml;
         }
 
@@ -1744,22 +1909,22 @@ public interface ContextFragment {
                 IContextManager contextManager,
                 EditBlockParser parser,
                 List<ChatMessage> messages,
-                String sessionName) {
-            this(existingHashId, contextManager, parser, messages, sessionName, true);
+                String description) {
+            this(existingHashId, contextManager, parser, messages, description, true);
         }
 
         public TaskFragment(
                 String existingHashId,
                 IContextManager contextManager,
                 List<ChatMessage> messages,
-                String sessionName,
+                String description,
                 boolean escapeHtml) {
-            this(existingHashId, contextManager, EditBlockParser.instance, messages, sessionName, escapeHtml);
+            this(existingHashId, contextManager, EditBlockParser.instance, messages, description, escapeHtml);
         }
 
         public TaskFragment(
-                String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
-            this(existingHashId, contextManager, EditBlockParser.instance, messages, sessionName, true);
+                String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String description) {
+            this(existingHashId, contextManager, EditBlockParser.instance, messages, description, true);
         }
 
         @Override
@@ -1774,18 +1939,13 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isText() {
-            return true;
-        }
-
-        @Override
         public boolean isDynamic() {
             return false;
         }
 
         @Override
         public String description() {
-            return sessionName;
+            return description;
         }
 
         @Override
@@ -1812,10 +1972,6 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
-        }
-
-        public EditBlockParser parser() {
-            return parser;
         }
     }
 }

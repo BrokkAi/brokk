@@ -37,7 +37,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             Set.of());
 
     public CSharpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.C_SHARP, excludedFiles);
+        super(project, Languages.C_SHARP, excludedFiles);
         log.debug(
                 "CSharpAnalyzer: Constructor called for project: {} with {} excluded files",
                 project,

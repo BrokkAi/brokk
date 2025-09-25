@@ -1,12 +1,16 @@
 package io.github.jbellis.brokk.git;
 
+import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
+import io.github.jbellis.brokk.prompts.MergePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import java.net.URI;
 import java.util.Arrays;
@@ -18,6 +22,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.Constants;
 import org.jetbrains.annotations.Nullable;
 
 public final class GitWorkflow {
@@ -31,12 +36,12 @@ public final class GitWorkflow {
 
     public record PrSuggestion(String title, String description, boolean usedCommitMessages) {}
 
-    private final ContextManager contextManager;
+    private final IContextManager contextManager;
     private final GitRepo repo;
 
-    public GitWorkflow(ContextManager contextManager) {
-        this.contextManager = Objects.requireNonNull(contextManager, "contextManager");
-        this.repo = (GitRepo) Objects.requireNonNull(contextManager.getProject().getRepo(), "repo cannot be null");
+    public GitWorkflow(IContextManager contextManager) {
+        this.contextManager = contextManager;
+        this.repo = (GitRepo) contextManager.getProject().getRepo();
     }
 
     /**
@@ -258,5 +263,113 @@ public final class GitWorkflow {
     public static boolean isSyntheticBranchName(String branchName) {
         // Callers (evaluatePushPull, push, pull) ensure branchName is not null.
         return "stashes".equals(branchName) || branchName.startsWith("Search:");
+    }
+
+    private String parentOrEmptyTree(String rev) {
+        var parentRev = rev + "^";
+        try {
+            // If parent cannot be resolved (e.g., rev is a root commit), fall back to the empty tree.
+            repo.resolve(parentRev);
+            return parentRev;
+        } catch (GitAPIException e) {
+            return Constants.EMPTY_TREE_ID.getName();
+        }
+    }
+
+    /**
+     * Explain a single commit by generating a unified diff between the commit and its parent (or the empty tree if it
+     * is a root commit), and asking an LLM to summarize it with emphasis on public API changes.
+     *
+     * @param model The LLM model to use.
+     * @param revision The commit id (or any rev resolvable to a single commit).
+     * @return Markdown-formatted explanation text from the LLM (may be empty if an error occurs).
+     */
+    public String explainCommit(StreamingChatModel model, String revision) {
+        Objects.requireNonNull(model, "model must not be null");
+        if (revision.isBlank()) {
+            throw new IllegalArgumentException("revision must be non-blank");
+        }
+
+        String diff;
+        try {
+            // Always explain a single commit relative to its parent (or empty tree)
+            diff = repo.showDiff(revision, parentOrEmptyTree(revision));
+        } catch (GitAPIException e) {
+            logger.error("Failed to compute diff for commit {}", revision, e);
+            throw new RuntimeException("Failed to produce diff for commit " + revision, e);
+        }
+
+        var messages = MergePrompts.instance.collectMessages(diff, revision, revision);
+        if (messages.isEmpty()) {
+            return "No changes detected for %s.".formatted(revision);
+        }
+
+        try {
+            var shortId = repo.shortHash(revision);
+            var llm = contextManager.getLlm(model, "Explain commit %s".formatted(shortId));
+            Llm.StreamingResult response = llm.sendRequest(messages);
+
+            if (response.error() != null) {
+                logger.warn("LLM returned an error while explaining {}: {}", revision, response.error());
+
+                // 1) Obtain the full commit message if possible
+                var commitMessage = "";
+                try {
+                    var commits = repo.listCommitsDetailed(revision);
+                    commitMessage = commits.isEmpty() ? "" : commits.getFirst().message();
+                } catch (Exception e) {
+                    logger.debug("Could not retrieve commit message for {}", revision, e);
+                }
+
+                // 2) Extract file list + statuses from the unified diff
+                var entries = parseFileStatuses(diff);
+                var filesText = entries.isEmpty() ? "(no files detected in diff)" : String.join("\n", entries);
+
+                // 3) Compose fallback output
+                var header = commitMessage.isBlank() ? "Commit %s".formatted(revision) : commitMessage.trim();
+
+                return """
+                       %s
+
+                       Modified files:
+                       %s
+                       """
+                        .formatted(header, filesText)
+                        .trim();
+            }
+
+            return response.text().trim();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Commit explanation was interrupted", ie);
+        }
+    }
+
+    private static List<String> parseFileStatuses(String diffText) {
+        var entries = new java.util.ArrayList<String>();
+        String currentFile = null;
+        String currentStatus = "M";
+        for (var line : Splitter.on('\n').split(diffText)) {
+            if (line.startsWith("diff --git ")) {
+                if (currentFile != null) {
+                    entries.add(currentStatus + " " + currentFile);
+                }
+                currentFile = null;
+                currentStatus = "M";
+                var parts = Splitter.on(' ').splitToList(line);
+                if (parts.size() >= 4) {
+                    var bpath = parts.get(3);
+                    currentFile = bpath.startsWith("b/") ? bpath.substring(2) : bpath;
+                }
+            } else if (line.startsWith("new file mode")) {
+                currentStatus = "A";
+            } else if (line.startsWith("deleted file mode")) {
+                currentStatus = "D";
+            }
+        }
+        if (currentFile != null) {
+            entries.add(currentStatus + " " + currentFile);
+        }
+        return List.copyOf(entries);
     }
 }

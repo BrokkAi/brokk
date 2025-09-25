@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.search;
 
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.awt.event.ActionListener;
@@ -113,7 +114,7 @@ public class SearchBarPanel extends JPanel {
             // Buttons row
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 5));
 
-            JButton previousButton = new JButton("Previous");
+            MaterialButton previousButton = new MaterialButton("Previous");
             if (hasIcon("/images/prev.png")) {
                 previousButton.setIcon(
                         new ImageIcon(Objects.requireNonNull(getClass().getResource("/images/prev.png"))));
@@ -121,7 +122,7 @@ public class SearchBarPanel extends JPanel {
             previousButton.addActionListener(getPreviousAction());
             initButton(previousButton);
 
-            JButton nextButton = new JButton("Next");
+            MaterialButton nextButton = new MaterialButton("Next");
             if (hasIcon("/images/next.png")) {
                 nextButton.setIcon(
                         new ImageIcon(Objects.requireNonNull(getClass().getResource("/images/next.png"))));
@@ -129,7 +130,7 @@ public class SearchBarPanel extends JPanel {
             nextButton.addActionListener(getNextAction());
             initButton(nextButton);
 
-            JButton clearButton = new JButton("Clear");
+            MaterialButton clearButton = new MaterialButton("Clear");
             clearButton.addActionListener(getClearAction());
             initButton(clearButton);
 

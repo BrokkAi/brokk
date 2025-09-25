@@ -18,8 +18,7 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpInitializationAndSkeletons() {
-        TestProject project =
-                TestProject.createTestProject("testcode-cs", io.github.jbellis.brokk.analyzer.Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         IAnalyzer ana = new CSharpAnalyzer(project);
         assertInstanceOf(CSharpAnalyzer.class, ana);
 
@@ -87,8 +86,7 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpMixedScopesAndNestedNamespaces() {
-        TestProject project =
-                TestProject.createTestProject("testcode-cs", io.github.jbellis.brokk.analyzer.Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
 
         ProjectFile mixedScopeFile = new ProjectFile(project.getRoot(), "MixedScope.cs");
@@ -160,16 +158,17 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpGetMethodSource() throws IOException {
-        TestProject project = TestProject.createTestProject("testcode-cs", Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
         assertFalse(analyzer.isEmpty());
 
         // Case 1: Single method (Constructor in this case, as it's simple and unique)
         // FQName for constructor of class A in TestNamespace is "TestNamespace.A.<init>"
-        Optional<String> constructorSourceOpt = analyzer.getMethodSource("TestNamespace.A.<init>");
+        Optional<String> constructorSourceOpt = analyzer.getMethodSource("TestNamespace.A.<init>", true);
         assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.<init> should be present.");
         String expectedConstructorSource =
                 """
+        // Constructor
         public A()
         {
             MyField = 0;
@@ -181,17 +180,19 @@ public final class CSharpAnalyzerTest {
                 "Constructor A.<init> source mismatch.");
 
         // Case 2: Multiple overloads for TestNamespace.A.MethodA
-        Optional<String> methodASourcesOpt = analyzer.getMethodSource("TestNamespace.A.MethodA");
+        Optional<String> methodASourcesOpt = analyzer.getMethodSource("TestNamespace.A.MethodA", true);
         assertTrue(methodASourcesOpt.isPresent(), "Sources for TestNamespace.A.MethodA overloads should be present.");
 
         String expectedMethodAOverload1Source =
                 """
+        // Method
         public void MethodA()
         {
             // Method body
         }""";
         String expectedMethodAOverload2Source =
                 """
+        // Overloaded Method
         public void MethodA(int param)
         {
             // Overloaded method body
@@ -206,11 +207,12 @@ public final class CSharpAnalyzerTest {
                 "Combined sources for TestNamespace.A.MethodA mismatch.");
 
         // Case 3: Non-existent method
-        Optional<String> nonExistentSourceOpt = analyzer.getMethodSource("TestNamespace.A.NonExistentMethod");
+        Optional<String> nonExistentSourceOpt = analyzer.getMethodSource("TestNamespace.A.NonExistentMethod", true);
         assertFalse(nonExistentSourceOpt.isPresent(), "Source for non-existent method should be empty.");
 
         // Case 4: Method in a nested namespace class
-        Optional<String> nestedMethodSourceOpt = analyzer.getMethodSource("Outer.Inner.MyNestedClass.NestedMethod");
+        Optional<String> nestedMethodSourceOpt =
+                analyzer.getMethodSource("Outer.Inner.MyNestedClass.NestedMethod", true);
         assertTrue(
                 nestedMethodSourceOpt.isPresent(),
                 "Source for Outer.Inner.MyNestedClass.NestedMethod should be present.");
@@ -225,7 +227,7 @@ public final class CSharpAnalyzerTest {
 
     @Test
     void testCSharpInterfaceSkeleton() {
-        TestProject project = TestProject.createTestProject("testcode-cs", Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
         ProjectFile file = new ProjectFile(project.getRoot(), "AssetRegistrySA.cs");
 
@@ -300,21 +302,21 @@ public final class CSharpAnalyzerTest {
                 "SkeletonFragment.description() mismatch.");
 
         // Method source extraction for interface methods
-        Optional<String> validateSourceOpt = analyzer.getMethodSource(validateCU.fqName());
+        Optional<String> validateSourceOpt = analyzer.getMethodSource(validateCU.fqName(), true);
         assertTrue(validateSourceOpt.isPresent(), "Source for ValidateExistenceAsync should be present.");
         assertEquals(
                 normalizeSource.apply("public Task<Message> ValidateExistenceAsync(Guid assetId);"),
                 normalizeSource.apply(validateSourceOpt.get()),
                 "ValidateExistenceAsync source mismatch.");
 
-        Optional<String> canConnectSourceOpt = analyzer.getMethodSource(canConnectCU.fqName());
+        Optional<String> canConnectSourceOpt = analyzer.getMethodSource(canConnectCU.fqName(), true);
         assertTrue(canConnectSourceOpt.isPresent(), "Source for CanConnectAsync should be present.");
         assertEquals(
                 normalizeSource.apply("public Task<bool> CanConnectAsync();"),
                 normalizeSource.apply(canConnectSourceOpt.get()),
                 "CanConnectAsync source mismatch.");
 
-        Optional<String> getDescSourceOpt = analyzer.getMethodSource(getDescCU.fqName());
+        Optional<String> getDescSourceOpt = analyzer.getMethodSource(getDescCU.fqName(), true);
         assertTrue(getDescSourceOpt.isPresent(), "Source for GetDeliveryPointDescriptionAsync should be present.");
         assertEquals(
                 normalizeSource.apply("public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId);"),
@@ -328,7 +330,7 @@ public final class CSharpAnalyzerTest {
         // The issue: TreeSitter returns byte offsets, but String.substring requires char offsets
         // Without proper handling, names in non-ASCII files get truncated
 
-        TestProject project = TestProject.createTestProject("testcode-cs", Language.C_SHARP);
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
 
         // GetTerminationRecordByIdHandler.cs contains a UTF-8 BOM

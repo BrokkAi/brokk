@@ -4,8 +4,13 @@ import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -55,13 +60,19 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark, boolean isDevMode) implements HostCommand {}
+        record SetTheme(boolean isDark, boolean isDevMode, boolean wrapMode, double zoom) implements HostCommand {}
+
+        record SetZoom(double zoom) implements HostCommand {}
 
         record ShowSpinner(String message) implements HostCommand {}
 
         record HideSpinner() implements HostCommand {}
 
         record Clear() implements HostCommand {}
+
+        record HistoryReset() implements HostCommand {}
+
+        record HistoryTask(TaskEntry entry) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -94,6 +105,46 @@ public final class MOPWebViewHost extends JPanel {
         Platform.runLater(() -> {
             var view = new WebView();
             view.setContextMenuEnabled(false);
+
+            // Set unique user data directory per process to avoid DirectoryLock conflicts
+            // when multiple brokk instances are running simultaneously
+            // First get the default user data directory that JavaFX would use
+            File defaultUserDataDir = view.getEngine().getUserDataDirectory();
+            Path userDataDir;
+            if (defaultUserDataDir != null) {
+                // Append PID to the default directory name
+                Path defaultPath = defaultUserDataDir.toPath();
+                userDataDir = defaultPath.resolveSibling(defaultPath.getFileName() + "-"
+                        + ProcessHandle.current().pid());
+            } else {
+                // Fallback: use OS-appropriate cache directory if default is null
+                Path cacheDir;
+                if (Environment.isMacOs()) {
+                    cacheDir = Environment.getHomePath().resolve("Library/Caches");
+                } else if (Environment.isWindows()) {
+                    String localAppData = System.getenv("LOCALAPPDATA");
+                    cacheDir = localAppData != null
+                            ? Path.of(localAppData)
+                            : Environment.getHomePath().resolve("AppData/Local");
+                } else {
+                    // Linux/Unix: follow XDG Base Directory spec
+                    String xdgCache = System.getenv("XDG_CACHE_HOME");
+                    cacheDir = xdgCache != null
+                            ? Path.of(xdgCache)
+                            : Environment.getHomePath().resolve(".cache");
+                }
+                userDataDir = cacheDir.resolve(
+                        "brokk/webview-" + ProcessHandle.current().pid());
+            }
+            try {
+                Files.createDirectories(userDataDir);
+                view.getEngine().setUserDataDirectory(userDataDir.toFile());
+                logger.debug("Set WebView user data directory to: {}", userDataDir);
+            } catch (Exception e) {
+                logger.warn(
+                        "Failed to create WebView user data directory: {}, falling back to default", userDataDir, e);
+            }
+
             webViewRef.set(view); // Store reference for later theme updates
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
@@ -281,7 +332,7 @@ public final class MOPWebViewHost extends JPanel {
             }
             // Initial theme — queue until bridge ready
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            setInitialTheme(darkTheme, isDevMode);
+            setInitialTheme(darkTheme, isDevMode, MainProject.getCodeBlockWrapMode());
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -297,9 +348,12 @@ public final class MOPWebViewHost extends JPanel {
      * Initial theme setup used while the WebView is still boot-strapping. The command is queued until the JS bridge
      * reports it is ready.
      */
-    public void setInitialTheme(boolean isDark, boolean isDevMode) {
+    public void setInitialTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         darkTheme = isDark;
-        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
+        double zoom = MainProject.getMopZoom();
+        sendOrQueue(
+                new HostCommand.SetTheme(isDark, isDevMode, wrapMode, zoom),
+                bridge -> bridge.setTheme(isDark, isDevMode, wrapMode, zoom));
         applyTheme(Theme.create(isDark));
     }
 
@@ -307,13 +361,14 @@ public final class MOPWebViewHost extends JPanel {
      * Runtime theme switch triggered from the settings panel. Executes immediately if the bridge exists; otherwise the
      * command is queued so that the frontend is updated once the bridge appears.
      */
-    public void setRuntimeTheme(boolean isDark, boolean isDevMode) {
+    public void setRuntimeTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         darkTheme = isDark;
+        double zoom = MainProject.getMopZoom();
         var bridge = bridgeRef.get();
         if (bridge != null) {
-            bridge.setTheme(isDark, isDevMode);
+            bridge.setTheme(isDark, isDevMode, wrapMode, zoom);
         } else {
-            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode));
+            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode, wrapMode, zoom));
         }
         applyTheme(Theme.create(isDark));
     }
@@ -340,7 +395,8 @@ public final class MOPWebViewHost extends JPanel {
                     }
                     html, body {
                         background-color: var(--chat-background) !important;
-                    }"""
+                    }
+                    """
                                 .formatted(theme.cssColor());
                 String encodedCss = java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8)
                         .replace("+", "%20");
@@ -354,12 +410,34 @@ public final class MOPWebViewHost extends JPanel {
         sendOrQueue(new HostCommand.Clear(), MOPBridge::clear);
     }
 
+    public void historyReset() {
+        sendOrQueue(new HostCommand.HistoryReset(), MOPBridge::sendHistoryReset);
+    }
+
+    public void historyTask(TaskEntry entry) {
+        sendOrQueue(new HostCommand.HistoryTask(entry), bridge -> bridge.sendHistoryTask(entry));
+    }
+
     public void showSpinner(String message) {
         sendOrQueue(new HostCommand.ShowSpinner(message), bridge -> bridge.showSpinner(message));
     }
 
     public void hideSpinner() {
         sendOrQueue(new HostCommand.HideSpinner(), bridge -> bridge.hideSpinner());
+    }
+
+    /**
+     * Push a fresh snapshot of environment information to the WebView.
+     *
+     * @param analyzerReady whether the analyzer is ready
+     */
+    public void sendEnvironmentInfo(boolean analyzerReady) {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("sendEnvironmentInfo ignored; bridge not ready");
+            return;
+        }
+        bridge.sendEnvironmentInfo(analyzerReady);
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
@@ -423,6 +501,37 @@ public final class MOPWebViewHost extends JPanel {
         bridge.scrollToCurrent();
     }
 
+    public void zoomIn() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("zoomIn ignored; bridge not ready");
+            return;
+        }
+        bridge.zoomIn();
+    }
+
+    public void zoomOut() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("zoomOut ignored; bridge not ready");
+            return;
+        }
+        bridge.zoomOut();
+    }
+
+    public void resetZoom() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("resetZoom ignored; bridge not ready");
+            return;
+        }
+        bridge.resetZoom();
+    }
+
+    public void setZoom(double zoom) {
+        sendOrQueue(new HostCommand.SetZoom(zoom), bridge -> bridge.setZoom(zoom));
+    }
+
     public void onAnalyzerReadyResponse(String contextId) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -480,10 +589,13 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode());
+                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode(), t.wrapMode(), t.zoom());
+                    case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
+                    case HostCommand.HistoryReset ignored -> bridge.sendHistoryReset();
+                    case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(ht.entry());
                 }
             });
             pendingCommands.clear();

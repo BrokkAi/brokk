@@ -191,6 +191,24 @@ public class Brokk {
                 }
             }
         }
+
+        // Initialize JavaFX platform to prevent deadlocks during MOPWebViewHost creation
+        // See: https://docs.oracle.com/javase/8/javafx/interoperability-tutorial/swing-fx-interoperability.htm
+        try {
+            javafx.application.Platform.startup(() -> {});
+            // Prevent JavaFX thread from dying when JFXPanels are removed/hidden
+            javafx.application.Platform.setImplicitExit(false);
+            logger.debug("JavaFX platform initialized at startup");
+        } catch (IllegalStateException e) {
+            var message = e.getMessage();
+            if (message != null && message.contains("Toolkit already initialized")) {
+                logger.debug("JavaFX platform already initialized");
+                // Still set implicit exit to false even if already initialized
+                javafx.application.Platform.setImplicitExit(false);
+            } else {
+                logger.warn("Failed to initialize JavaFX platform: {}", message);
+            }
+        }
     }
 
     private static void initializeLookAndFeelAndSplashScreen(boolean isDark) {
@@ -198,9 +216,9 @@ public class Brokk {
             SwingUtilities.invokeAndWait(() -> {
                 try {
                     if (isDark) {
-                        com.formdev.flatlaf.FlatDarkLaf.setup();
+                        com.formdev.flatlaf.FlatDarculaLaf.setup();
                     } else {
-                        com.formdev.flatlaf.FlatLightLaf.setup();
+                        com.formdev.flatlaf.FlatIntelliJLaf.setup();
                     }
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);
@@ -292,7 +310,16 @@ public class Brokk {
             // If a project was selected during key validation, prioritize it
             projectsToAttemptOpen.add(dialogProjectPathFromKey);
         } else if (!parsedArgs.noProjectFlag) {
-            projectsToAttemptOpen.addAll(MainProject.getOpenProjects());
+            if (MainProject.getStartupOpenMode() == MainProject.StartupOpenMode.ALL) {
+                projectsToAttemptOpen.addAll(MainProject.getOpenProjects());
+            } else {
+                var recent = MainProject.loadRecentProjects();
+                if (!recent.isEmpty()) {
+                    var mostRecent = recent.entrySet().stream()
+                            .max(Comparator.comparingLong(e -> e.getValue().lastOpened()));
+                    mostRecent.ifPresent(e -> projectsToAttemptOpen.add(e.getKey()));
+                }
+            }
         }
         return projectsToAttemptOpen;
     }
@@ -768,6 +795,16 @@ public class Brokk {
         Chrome ourChromeInstance = openProjectWindows.get(projectPath);
         IProject projectBeingClosed = null;
         if (ourChromeInstance != null) {
+            if (ourChromeInstance.getContextManager().isLlmTaskInProgress()) {
+                int choice = ourChromeInstance.showConfirmDialog(
+                        "An AI task is in progress. Are you sure you want to close this project?",
+                        "Task in Progress",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+                if (choice == JOptionPane.NO_OPTION) {
+                    return;
+                }
+            }
             projectBeingClosed = ourChromeInstance.getContextManager().getProject();
         }
 

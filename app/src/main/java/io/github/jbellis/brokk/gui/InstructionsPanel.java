@@ -23,10 +23,11 @@ import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
-import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
@@ -36,8 +37,6 @@ import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -51,6 +50,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
@@ -80,9 +80,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
-    public static final String ACTION_ASK = "Answer";
+    public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
+    public static final String ACTION_RUN_TESTS = "Run Selected Tests";
     public static final String ACTION_SCAN_PROJECT = "Scan Project";
 
     private static final String PLACEHOLDER_TEXT =
@@ -92,17 +93,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
+    private final Color defaultActionButtonBg;
+    private final Color secondaryActionButtonBg;
+
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
     private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox searchProjectCheckBox;
-    private final JButton planOptionsLink;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
-    private final JLabel answerModeLabel = new JLabel("Answer");
-    private final JButton actionButton;
+    private final JLabel answerModeLabel = new JLabel("Ask");
+    private final MaterialButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
     private String storedAction;
@@ -117,6 +120,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
+
+    // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
+    private @Nullable JPanel optionsPanel;
+    private static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
+    private static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
     private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
     private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
@@ -175,9 +183,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 """
                 <html>
                 <b>Code Mode:</b> For generating or modifying code based on your instructions.<br>
-                <b>Answer Mode:</b> For answering questions about your project or general programming topics.<br>
+                <b>Ask Mode:</b> For answering questions about your project or general programming topics.<br>
                 <br>
-                Click to toggle between Code and Answer modes (%s).
+                Click to toggle between Code and Ask modes (%s).
                 </html>
                 """
                         .formatted(formatKeyStroke(toggleKs));
@@ -200,10 +208,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setRolloverEnabled(false);
         modeSwitch.setMargin(new Insets(0, 0, 0, 0));
         modeSwitch.setText("");
-        modeSwitch.setSelected(false); // Code by default
 
         codeCheckBox = new JCheckBox("Plan First");
-        // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search First".
+        // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
         KeyStroke toggleSearchKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
 
@@ -212,12 +219,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 + "<li><b>unchecked:</b> Assumes necessary files are already in Workspace. Useful for small, well-defined code changes.</li>"
                 + "</ul>  (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
-        searchProjectCheckBox = new JCheckBox("Search First");
+        searchProjectCheckBox = new JCheckBox("Search");
 
         // Append the shortcut to the tooltip for discoverability
-        searchProjectCheckBox.setToolTipText("<html><b>Search First:</b><br><ul>"
+        searchProjectCheckBox.setToolTipText("<html><b>Search:</b><br><ul>"
                 + "<li><b>checked:</b> Performs an &quot;agentic&quot; search across your entire project (even files not in the Workspace) to find relevant code</li>"
-                + "<li><b>unchecked:</b> Answers using only the Workspace (faster for follow-ups)</li>"
+                + "<li><b>unchecked:</b> Asks using only the Workspace (faster for follow-ups)</li>"
                 + "</ul> (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
         io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
@@ -233,41 +240,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
-        planOptionsLink = new JButton("Plan Options");
-        // Visual and input configuration
-        KeyStroke planOptionsKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-        planOptionsLink.setToolTipText(
-                "Configure options for the Architect agent (Plan First) (" + formatKeyStroke(planOptionsKs) + ")");
-        planOptionsLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        planOptionsLink.setBorderPainted(false);
-        planOptionsLink.setFocusable(true);
-        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
-        planOptionsLink.putClientProperty("JButton.buttonType", "borderless");
-
-        // Action listener for click/activation
-        planOptionsLink.addActionListener(e -> {
-            ArchitectOptionsDialog.showDialogAndWait(chrome);
-            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-        });
-
-        // Register global platform shortcut (e.g., Ctrl+, or Cmd+,) to open Plan Options and restore focus
-        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
-                chrome.getFrame().getRootPane(), planOptionsKs, "PlanOptions", () -> {
-                    ArchitectOptionsDialog.showDialogAndWait(chrome);
-                    javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                });
-
-        // Try to use a link-like color from UI, fall back to label foreground or blue
-        java.awt.Color linkColor = UIManager.getColor("Label.linkForeground");
-        if (linkColor == null) linkColor = UIManager.getColor("Label.foreground");
-        if (linkColor == null) linkColor = java.awt.Color.BLUE;
-        planOptionsLink.setForeground(linkColor);
-
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
+        modeSwitch.setSelected(proj.getInstructionsAskMode());
         if (proj instanceof MainProject mp) {
             codeCheckBox.setSelected(mp.getPlanFirst());
+            // Default to Search checked for Ask mode, but use persisted preference when available
             searchProjectCheckBox.setSelected(mp.getSearchFirst());
         } else {
             // Fallback: both checked
@@ -275,31 +253,38 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             searchProjectCheckBox.setSelected(true);
         }
 
-        // default stored action: Architect
-        storedAction = ACTION_ARCHITECT;
+        // default stored action: Search (Ask + Search)
+        storedAction = ACTION_SEARCH;
 
         // Toggle listeners update visibility and storedAction
         modeSwitch.addItemListener(e2 -> {
             boolean askMode = modeSwitch.isSelected();
             if (askMode) {
-                searchProjectCheckBox.setVisible(true);
+                // Show the ASK card (search checkbox)
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+                }
                 searchProjectCheckBox.setEnabled(true);
-                codeCheckBox.setVisible(false);
-                planOptionsLink.setVisible(false);
                 // Checked => Search, Unchecked => Answer
                 storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
-                codeCheckBox.setVisible(true);
+                // Show the CODE card (plan/code checkbox)
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+                }
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
-                searchProjectCheckBox.setVisible(false);
-                planOptionsLink.setVisible(codeCheckBox.isSelected());
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
             // Update label emphasis
             updateModeLabels();
             refreshModeIndicator();
+            try {
+                chrome.getProject().setInstructionsAskMode(askMode);
+            } catch (Exception ex) {
+                logger.warn("Unable to persist instructions mode", ex);
+            }
         });
 
         codeCheckBox.addActionListener(e -> {
@@ -307,8 +292,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
-            // Show Plan Options only when Plan First is selected
-            planOptionsLink.setVisible(codeCheckBox.isSelected());
             if (chrome.getProject() instanceof MainProject mp) {
                 mp.setPlanFirst(codeCheckBox.isSelected());
             }
@@ -323,55 +306,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Initial checkbox visibility
-        codeCheckBox.setVisible(true);
-        planOptionsLink.setVisible(codeCheckBox.isSelected());
-        searchProjectCheckBox.setVisible(false);
+        // Initial checkbox visibility is handled by the optionsPanel (CardLayout) in buildBottomPanel().
 
+        this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
+        // this is when the button is in the blocking state
+        this.secondaryActionButtonBg = UIManager.getColor("Button.background");
         // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
-        actionButton = new JButton() {
-            private static final long serialVersionUID = 1L;
+        actionButton = new ThemeAwareRoundedButton(
+                () -> isActionRunning(), this.secondaryActionButtonBg, this.defaultActionButtonBg);
 
-            @Override
-            protected void paintComponent(Graphics g) {
-                // Paint rounded background
-                Graphics2D g2 = (Graphics2D) g.create();
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    int arc = 12;
-                    Color bg = getBackground();
-                    if (!isEnabled()) {
-                        Color disabled = UIManager.getColor("Button.disabledBackground");
-                        if (disabled != null) bg = disabled;
-                    } else if (getModel().isPressed()) {
-                        bg = bg.darker();
-                    } else if (getModel().isRollover()) {
-                        bg = bg.brighter();
-                    }
-                    g2.setColor(bg);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                } finally {
-                    g2.dispose();
-                }
-                // Let the button render its icon/text on top
-                super.paintComponent(g);
-            }
-
-            @Override
-            protected void paintBorder(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    int arc = 12;
-                    Color borderColor = UIManager.getColor("Component.borderColor");
-                    if (borderColor == null) borderColor = Color.GRAY;
-                    g2.setColor(borderColor);
-                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
-                } finally {
-                    g2.dispose();
-                }
-            }
-        };
         KeyStroke submitKs = KeyStroke.getKeyStroke(
                 KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
@@ -381,6 +324,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
         actionButton.setRolloverEnabled(true);
         actionButton.addActionListener(e -> onActionButtonPressed());
+        actionButton.setBackground(this.defaultActionButtonBg);
 
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
@@ -601,6 +545,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private JPanel buildTopBarPanel() {
+        // Restored History dropdown alongside branch split button.
+        // Replaced history dropdown with compact branch split button in top bar
         JPanel topBarPanel = new JPanel(new BorderLayout(H_GAP, 0));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
@@ -625,12 +571,197 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         leftPanel.add(micButton);
         leftPanel.add(Box.createHorizontalStrut(H_GAP));
         leftPanel.add(modelComp);
-        topBarPanel.add(leftPanel, BorderLayout.WEST);
+
+        // Place mic, model, branch dropdown, and history dropdown left-to-right in the top bar
+        // Insert small gap, branch split button, then history dropdown so ordering is: mic, model, branch, history.
+        leftPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        var cm = chrome.getContextManager();
+        var project = chrome.getProject();
+        var branchSplitButton = new SplitButton("No Git");
+        branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
+
+        int branchWidth = 210;
+        var branchDim = new Dimension(branchWidth, controlHeight);
+        branchSplitButton.setPreferredSize(branchDim);
+        branchSplitButton.setMinimumSize(branchDim);
+        branchSplitButton.setMaximumSize(branchDim);
+        branchSplitButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Build a fresh popup menu on demand so the branch list is always up-to-date
+        Supplier<JPopupMenu> branchMenuSupplier = () -> {
+            var menu = new JPopupMenu();
+            try {
+                if (project.hasGit()) {
+                    IGitRepo repo = project.getRepo();
+                    List<String> branches;
+                    if (repo instanceof GitRepo gitRepo) {
+                        branches = gitRepo.listLocalBranches();
+                    } else {
+                        branches = List.of();
+                    }
+                    String current = repo.getCurrentBranch();
+
+                    if (!current.isBlank()) {
+                        JMenuItem header = new JMenuItem("Current: " + current);
+                        header.setEnabled(false);
+                        menu.add(header);
+                        menu.add(new JSeparator());
+                    }
+
+                    for (var b : branches) {
+                        JMenuItem item = new JMenuItem(b);
+                        item.addActionListener(ev -> {
+                            // Checkout in background via ContextManager to get spinner/cancel behavior
+                            cm.submitUserTask("Checkout branch " + b, true, () -> {
+                                try {
+                                    IGitRepo r = project.getRepo();
+                                    r.checkout(b);
+                                    SwingUtilities.invokeLater(() -> {
+                                        try {
+                                            branchSplitButton.setText("branch: " + r.getCurrentBranch());
+                                        } catch (Exception ex) {
+                                            logger.debug("Error updating branch label after checkout", ex);
+                                        }
+                                        chrome.systemOutput("Checked out: " + b);
+                                    });
+                                } catch (Exception ex) {
+                                    logger.error("Error checking out branch {}", b, ex);
+                                    SwingUtilities.invokeLater(
+                                            () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
+                                }
+                            });
+                        });
+                        menu.add(item);
+                    }
+                } else {
+                    JMenuItem noRepo = new JMenuItem("No Git repository");
+                    noRepo.setEnabled(false);
+                    menu.add(noRepo);
+                }
+            } catch (Exception ex) {
+                logger.error("Error building branch menu", ex);
+                JMenuItem err = new JMenuItem("Error loading branches");
+                err.setEnabled(false);
+                menu.add(err);
+            }
+
+            // If project has git, add actions
+            if (project.hasGit()) {
+                menu.addSeparator();
+
+                JMenuItem create = new JMenuItem("Create New Branch...");
+                create.addActionListener(ev -> {
+                    // Prompt on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        String name = JOptionPane.showInputDialog(chrome.getFrame(), "New branch name:");
+                        if (name == null || name.isBlank()) return;
+                        final String proposed = name.strip();
+                        cm.submitUserTask("Create branch " + proposed, true, () -> {
+                            try {
+                                IGitRepo r = project.getRepo();
+                                String sanitized = r.sanitizeBranchName(proposed);
+                                String source = r.getCurrentBranch();
+                                try {
+                                    if (r instanceof GitRepo gitRepo) {
+                                        // Prefer atomic create+checkout if available on concrete GitRepo
+                                        try {
+                                            gitRepo.createAndCheckoutBranch(sanitized, source);
+                                        } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
+                                            // Fallback to create + checkout on GitRepo
+                                            gitRepo.createBranch(sanitized, source);
+                                            gitRepo.checkout(sanitized);
+                                        }
+                                    } else {
+                                        // Repo implementation doesn't support branch creation via IGitRepo
+                                        throw new UnsupportedOperationException(
+                                                "Repository implementation does not support branch creation");
+                                    }
+                                } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
+                                    // Re-throw so outer catch displays the error to the user as before
+                                    throw nsme;
+                                }
+                                SwingUtilities.invokeLater(() -> {
+                                    try {
+                                        branchSplitButton.setText("branch: " + r.getCurrentBranch());
+                                    } catch (Exception ex) {
+                                        logger.debug("Error updating branch label after branch creation", ex);
+                                    }
+                                    chrome.systemOutput("Created and checked out: " + sanitized);
+                                });
+                            } catch (Exception ex) {
+                                logger.error("Error creating branch", ex);
+                                SwingUtilities.invokeLater(
+                                        () -> chrome.toolError("Error creating branch: " + ex.getMessage()));
+                            }
+                        });
+                    });
+                });
+                menu.add(create);
+
+                JMenuItem refresh = new JMenuItem("Refresh Branches");
+                refresh.addActionListener(ev -> {
+                    // Menu is rebuilt when shown; simply notify user
+                    SwingUtilities.invokeLater(() -> chrome.systemOutput("Branches refreshed"));
+                });
+                menu.add(refresh);
+            }
+
+            return menu;
+        };
+        branchSplitButton.setMenuSupplier(branchMenuSupplier);
+
+        // Show the popup when the main button area is clicked (treat as a dropdown)
+        branchSplitButton.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
+            try {
+                var menu = branchMenuSupplier.get();
+                // Allow theme manager to style/popups as other popups do
+                try {
+                    chrome.themeManager.registerPopupMenu(menu);
+                } catch (Exception e) {
+                    logger.debug("Error registering popup menu", e);
+                }
+                menu.show(branchSplitButton, 0, branchSplitButton.getHeight());
+            } catch (Exception ex) {
+                logger.error("Error showing branch dropdown", ex);
+            }
+        }));
+
+        // Initialize current branch label and enabled state
+        try {
+            if (project.hasGit()) {
+                IGitRepo repo = project.getRepo();
+                String cur = repo.getCurrentBranch();
+                if (!cur.isBlank()) {
+                    branchSplitButton.setText("branch: " + cur);
+                    branchSplitButton.setEnabled(true);
+                } else {
+                    branchSplitButton.setText("branch: Unknown");
+                    branchSplitButton.setEnabled(true);
+                }
+            } else {
+                branchSplitButton.setText("No Git");
+                branchSplitButton.setEnabled(false);
+            }
+        } catch (Exception ex) {
+            logger.error("Error initializing branch button", ex);
+            branchSplitButton.setText("No Git");
+            branchSplitButton.setEnabled(false);
+        }
 
         var historyDropdown = createHistoryDropdown();
-        var historyPanel = new JPanel(new BorderLayout());
-        historyPanel.add(historyDropdown, BorderLayout.CENTER);
-        topBarPanel.add(historyPanel, BorderLayout.CENTER);
+        // Make the control itself compact; popup will expand on open
+        historyDropdown.setPreferredSize(new Dimension(120, controlHeight));
+        historyDropdown.setMinimumSize(new Dimension(120, controlHeight));
+        historyDropdown.setMaximumSize(new Dimension(400, controlHeight));
+        historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
+        leftPanel.add(historyDropdown);
+        leftPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Add branchSplitButton after the History dropdown
+        leftPanel.add(branchSplitButton);
+
+        topBarPanel.add(leftPanel, BorderLayout.WEST);
 
         return topBarPanel;
     }
@@ -868,7 +999,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         if (modeBadge != null) {
-            modeBadge.setText(askMode ? "ANSWER MODE" : "CODE MODE");
+            modeBadge.setText(askMode ? "ASK MODE" : "CODE MODE");
             modeBadge.setBackground(badgeBg);
             modeBadge.setForeground(badgeFg);
             modeBadge.repaint();
@@ -885,7 +1016,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionGroupPanel.setAccentColor(accent);
 
         if (instructionsTitledBorder != null) {
-            instructionsTitledBorder.setTitle(askMode ? "Instructions - Answer" : "Instructions - Code");
+            instructionsTitledBorder.setTitle(askMode ? "Instructions - Ask" : "Instructions - Code");
             revalidate();
             repaint();
         }
@@ -920,23 +1051,46 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(this.actionGroupPanel);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-        // Dynamic options depending on toggle selection
-        bottomPanel.add(codeCheckBox);
-        bottomPanel.add(Box.createHorizontalStrut(10));
-        // Size planOptionsLink to match the height of the actionButton, but avoid forcing excessive width.
-        int planFixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
-        var planPrefSize = planOptionsLink.getPreferredSize();
-        // Limit the button width to a reasonable maximum to prevent it from being too wide
-        int maxPlanWidth = 160;
-        int preferredPlanWidth = Math.min(planPrefSize.width + 4, maxPlanWidth);
-        var newPlanSize = new Dimension(preferredPlanWidth, planFixedHeight);
-        planOptionsLink.setPreferredSize(newPlanSize);
-        planOptionsLink.setMinimumSize(new Dimension(40, planFixedHeight));
-        // Allow some flexibility while preventing extreme growth
-        planOptionsLink.setMaximumSize(new Dimension(maxPlanWidth, planFixedHeight));
-        bottomPanel.add(planOptionsLink);
-        bottomPanel.add(searchProjectCheckBox);
+        // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
+        optionsPanel = new JPanel(new CardLayout());
+
+        // Create a CODE card that contains the Plan First checkbox.
+        JPanel codeOptionsPanel = new JPanel();
+        codeOptionsPanel.setOpaque(false);
+        codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
+        codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        codeOptionsPanel.add(codeCheckBox);
+
+        optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
+        optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
+
+        // Group the card panel so it stays aligned with other toolbar controls.
+        Box optionGroup = Box.createHorizontalBox();
+        optionGroup.setOpaque(false);
+        optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
+        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        int planFixedHeight = Math.max(
+                Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
+
+        // Constrain the card panel height to align with other toolbar controls.
+        var optPanelPref = optionsPanel.getPreferredSize();
+        optionsPanel.setPreferredSize(new Dimension(optPanelPref.width, planFixedHeight));
+        optionsPanel.setMaximumSize(new Dimension(optPanelPref.width, planFixedHeight));
+        optionsPanel.setMinimumSize(new Dimension(0, planFixedHeight));
+        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Add the composite card panel; the PLAN button lives inside the CODE card now.
+        optionGroup.add(optionsPanel);
+
+        bottomPanel.add(optionGroup);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Ensure the initial visible card matches the current mode
+        if (optionsPanel != null) {
+            ((CardLayout) optionsPanel.getLayout())
+                    .show(optionsPanel, modeSwitch.isSelected() ? OPTIONS_CARD_ASK : OPTIONS_CARD_CODE);
+        }
 
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
@@ -955,100 +1109,63 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    private JComboBox<Object> createHistoryDropdown() {
+    @SuppressWarnings("unused")
+    private SplitButton createHistoryDropdown() {
         final var placeholder = "History";
         final var noHistory = "(No history items)";
 
         var project = chrome.getProject();
 
-        var model = new DefaultComboBoxModel<>();
-        model.addElement(placeholder);
-
-        var dropdown = new JComboBox<>(model);
+        var dropdown = new SplitButton(placeholder);
         dropdown.setToolTipText("Select a previous instruction from history");
 
-        dropdown.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof String historyItem) {
-                    // To prevent the dropdown from becoming excessively wide, we truncate the display text
-                    // to fit within the width of the JComboBox itself.
-                    String displayText = historyItem.replace('\n', ' ');
-                    int width = dropdown.getWidth();
-                    if (width > 20) {
-                        FontMetrics fm = getFontMetrics(getFont());
-                        if (fm.stringWidth(displayText) > width) {
-                            displayText = SwingUtilities.layoutCompoundLabel(
-                                    this,
-                                    fm,
-                                    displayText,
-                                    null,
-                                    SwingConstants.CENTER,
-                                    SwingConstants.LEFT,
-                                    SwingConstants.CENTER,
-                                    SwingConstants.LEFT,
-                                    new Rectangle(width, getHeight()),
-                                    new Rectangle(),
-                                    new Rectangle(),
-                                    0);
-                        }
+        // Build popup menu on demand, same pattern as branch button
+        Supplier<JPopupMenu> historyMenuSupplier = () -> {
+            var menu = new JPopupMenu();
+            List<String> historyItems = project.loadTextHistory();
+
+            logger.trace("History items loaded: {}", historyItems.size());
+            if (historyItems.isEmpty()) {
+                JMenuItem noHistoryItem = new JMenuItem(noHistory);
+                noHistoryItem.setEnabled(false);
+                menu.add(noHistoryItem);
+            } else {
+                for (var item : historyItems) {
+                    JMenuItem historyMenuItem = new JMenuItem();
+                    // Truncate display text but keep full text in tooltip
+                    String displayText = item.replace('\n', ' ');
+                    if (displayText.length() > 60) {
+                        displayText = displayText.substring(0, 57) + "...";
                     }
+                    historyMenuItem.setText(displayText);
+                    historyMenuItem.setToolTipText(item);
 
-                    setText(displayText);
-                    setEnabled(true);
-                    if (historyItem.equals(noHistory) || historyItem.equals(placeholder)) {
-                        setToolTipText(null);
-                    } else {
-                        setToolTipText(historyItem);
-                    }
-                }
-                return this;
-            }
-        });
+                    historyMenuItem.addActionListener(ev -> {
+                        Objects.requireNonNull(commandInputOverlay).hideOverlay();
+                        Objects.requireNonNull(instructionsArea).setEnabled(true);
 
-        dropdown.addActionListener(e -> {
-            var selected = dropdown.getSelectedItem();
-            if (selected instanceof String historyItem
-                    && !selected.equals(placeholder)
-                    && !selected.equals(noHistory)) {
-                // This is a valid history item
-                Objects.requireNonNull(commandInputOverlay).hideOverlay();
-                Objects.requireNonNull(instructionsArea).setEnabled(true);
-
-                instructionsArea.setText(historyItem);
-                Objects.requireNonNull(commandInputUndoManager).discardAllEdits();
-                instructionsArea.requestFocusInWindow();
-
-                // Reset to placeholder
-                SwingUtilities.invokeLater(() -> dropdown.setSelectedItem(placeholder));
-            }
-        });
-
-        dropdown.addPopupMenuListener(new PopupMenuListener() {
-            @Override
-            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
-                model.removeAllElements();
-                model.addElement(placeholder);
-                List<String> historyItems = project.loadTextHistory();
-
-                logger.trace("History items loaded: {}", historyItems.size());
-                if (historyItems.isEmpty()) {
-                    model.addElement(noHistory);
-                } else {
-                    for (var item : historyItems) {
-                        model.addElement(item);
-                    }
+                        instructionsArea.setText(item);
+                        Objects.requireNonNull(commandInputUndoManager).discardAllEdits();
+                        instructionsArea.requestFocusInWindow();
+                    });
+                    menu.add(historyMenuItem);
                 }
             }
+            return menu;
+        };
 
-            @Override
-            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+        dropdown.setMenuSupplier(historyMenuSupplier);
 
-            @Override
-            public void popupMenuCanceled(PopupMenuEvent e) {}
-        });
+        // Show popup when main button area is clicked (same as branch button)
+        dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
+            try {
+                var menu = historyMenuSupplier.get();
+                chrome.themeManager.registerPopupMenu(menu);
+                menu.show(dropdown, 0, dropdown.getHeight());
+            } catch (Exception ex) {
+                logger.error("Error showing history dropdown", ex);
+            }
+        }));
 
         return dropdown;
     }
@@ -1063,7 +1180,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return contextManager
                 .topContext()
                 .allFragments()
-                .anyMatch(f -> !f.isText() && !f.getType().isOutputFragment());
+                .anyMatch(f -> !f.isText() && !f.getType().isOutput());
     }
 
     /**
@@ -1436,7 +1553,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         contextManager.getAnalyzerWrapper().pause();
         try {
-            var result = new CodeAgent(contextManager, model).runTask(input, false);
+            CodeAgent agent = new CodeAgent(contextManager, model);
+            var result = agent.runTask(input, Set.of());
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             // code agent has displayed status in llmoutput
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -1460,7 +1578,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,
-                    "Answer: " + question,
+                    "Ask: " + question,
                     List.of(),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
@@ -1497,7 +1615,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         requireNonNull(stop);
         return new TaskResult(
                 cm,
-                "Answer: " + question,
+                "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages(false)),
                 Set.of(), // Ask never changes files
                 stop);
@@ -1529,24 +1647,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * contextManager.submitAction.
      *
      * @param goal The initial user instruction passed to the agent.
-     * @param options The configured options for the agent's tools.
      */
-    private void executeArchitectCommand(
-            StreamingChatModel planningModel,
-            StreamingChatModel codeModel,
-            String goal,
-            ArchitectAgent.ArchitectOptions options) {
+    private TaskResult executeArchitectCommand(
+            StreamingChatModel planningModel, StreamingChatModel codeModel, String goal) {
         var contextManager = chrome.getContextManager();
         try {
-            var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal, options);
+            var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal);
             var result = agent.execute();
             chrome.systemOutput("Agent complete!");
             contextManager.addToHistory(result, false);
+            return result;
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error during Architect execution", e);
-            chrome.toolError("Internal error during Architect command: " + e.getMessage());
         }
     }
 
@@ -1562,7 +1674,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var contextManager = chrome.getContextManager();
         try {
-            SearchAgent agent = new SearchAgent(query, contextManager, model, 0);
+            SearchAgent agent = new SearchAgent(
+                    query,
+                    contextManager,
+                    model,
+                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
             var result = agent.execute();
 
             // Search does not stream to llmOutput, so add the final answer here
@@ -1572,55 +1688,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
         }
-    }
-
-    /**
-     * Executes the core logic for the "Run in Shell" command. This runs inside the Runnable passed to
-     * contextManager.submitAction.
-     */
-    private void executeRunCommand(String input) {
-        assert !SwingUtilities.isEventDispatchThread();
-
-        var contextManager = chrome.getContextManager();
-        String actionMessage = "Run: " + input;
-
-        try {
-            chrome.showOutputSpinner("Executing command...");
-            String shellLang = ExecutorConfig.getShellLanguageFromProject(chrome.getProject());
-            chrome.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
-            long timeoutSecs;
-            if (chrome.getProject() instanceof MainProject mainProject) {
-                timeoutSecs = mainProject.getRunCommandTimeoutSeconds();
-            } else {
-                timeoutSecs = Environment.DEFAULT_TIMEOUT.toSeconds();
-            }
-            Environment.instance.runShellCommand(
-                    input,
-                    contextManager.getRoot(),
-                    line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    java.time.Duration.ofSeconds(timeoutSecs),
-                    chrome.getProject());
-            chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
-            chrome.systemOutput("Run command complete!");
-        } catch (Environment.SubprocessException e) {
-            chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Ensure markdown block is closed on error
-            actionMessage = "Run: " + input + " (failed: " + e.getMessage() + ")";
-            chrome.systemOutput("Run command completed with errors -- see Output");
-            logger.warn("Run command '{}' failed: {}", input, e.getMessage(), e);
-            chrome.llmOutput("\n**Command Failed**", ChatMessageType.CUSTOM);
-        } catch (InterruptedException e) {
-            throw new CancellationException(e.getMessage());
-        } finally {
-            chrome.hideOutputSpinner();
-        }
-
-        // Add to context history with the action message (which includes success/failure)
-        final String finalActionMessage = actionMessage; // Effectively final for lambda
-        contextManager.pushContext(ctx -> {
-            var parsed = new TaskFragment(
-                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalActionMessage);
-            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
-        });
     }
 
     // --- Action Handlers ---
@@ -1636,18 +1703,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
 
         var project = chrome.getProject();
-        var options = project.getArchitectOptions();
         var runInWorktree = project.getArchitectRunInWorktree();
 
         if (runInWorktree) {
-            runArchitectInNewWorktree(goal, options);
+            runArchitectInNewWorktree(goal);
         } else {
             // User confirmed options, now submit the actual agent execution to the background.
-            runArchitectCommand(goal, options);
+            runArchitectCommand(goal);
         }
     }
 
-    private void runArchitectInNewWorktree(String originalInstructions, ArchitectAgent.ArchitectOptions options) {
+    private void runArchitectInNewWorktree(String originalInstructions) {
         var currentProject = chrome.getProject();
         ContextManager cm = chrome.getContextManager();
 
@@ -1669,8 +1735,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 String generatedBranchName = cm.getRepo().sanitizeBranchName(rawBranchNameSuggestion);
 
                 // Check Git availability (original position relative to setup)
-                // This check is also done in ArchitectOptionsDialog for the checkbox,
-                // but good to have a safeguard here.
                 if (!currentProject.hasGit() || !currentProject.getRepo().supportsWorktrees()) {
                     chrome.hideOutputSpinner();
                     chrome.toolError(
@@ -1709,7 +1773,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 Consumer<Chrome> initialArchitectTask = newWorktreeChrome -> {
                     InstructionsPanel newWorktreeIP = newWorktreeChrome.getInstructionsPanel();
                     // Run the architect command directly with the original instructions and determined options
-                    newWorktreeIP.runArchitectCommand(originalInstructions, options);
+                    newWorktreeIP.runArchitectCommand(originalInstructions);
                 };
 
                 MainProject mainProject = (currentProject instanceof MainProject mainProj)
@@ -1752,12 +1816,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * or from the worktree setup.
      *
      * @param goal The user's goal/instructions.
-     * @param options The pre-configured ArchitectOptions.
      */
-    public void runArchitectCommand(String goal, ArchitectAgent.ArchitectOptions options) {
+    public Future<TaskResult> runArchitectCommand(String goal) {
         var future = submitAction(ACTION_ARCHITECT, goal, () -> {
             var service = chrome.getContextManager().getService();
-            var planningModel = service.getModel(options.planningModel());
+            var planningModel = service.getModel(Service.GEMINI_2_5_PRO);
             if (planningModel == null) {
                 planningModel = service.quickModel();
             }
@@ -1777,9 +1840,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 codeModel = service.quickModel();
             }
             // Proceed with execution using the selected options
-            executeArchitectCommand(planningModel, codeModel, goal, options);
+            return executeArchitectCommand(planningModel, codeModel, goal);
         });
         setActionRunning(future);
+        return future;
     }
 
     // Methods for running commands. These prepare the input and model, then delegate
@@ -1850,13 +1914,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        var future = submitAction(ACTION_CODE, input, () -> executeCodeCommand(modelToUse, input));
+        var future = submitAction(ACTION_CODE, input, () -> {
+            executeCodeCommand(modelToUse, input);
+            var cm2 = chrome.getContextManager();
+            return new TaskResult(
+                    cm2,
+                    "Code: " + input,
+                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        });
         setActionRunning(future);
     }
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        final var modelToUse = selectDropdownModelOrShowError("Answer", true);
+        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
         if (modelToUse == null) {
             return;
         }
@@ -1891,11 +1964,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Provide a brief status update
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                chrome.llmOutput("Answer command complete!", ChatMessageType.CUSTOM);
+                chrome.llmOutput("Ask command complete!", ChatMessageType.CUSTOM);
             } else {
-                chrome.llmOutput(
-                        "Answer command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
+                chrome.llmOutput("Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
             }
+            return result;
         });
         setActionRunning(future);
     }
@@ -1906,46 +1979,52 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.toolError("Please provide a search query");
             return;
         }
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
 
+        var future = executeSearchInternal(input);
+        if (future != null) {
+            setActionRunning(future);
+        }
+    }
+
+    private @Nullable Future<?> executeSearchInternal(String query) {
         final var modelToUse = selectDropdownModelOrShowError("Search", true);
         if (modelToUse == null) {
-            return;
+            return null;
         }
 
-        chrome.getProject().addToInstructionsHistory(input, 20);
         // Update the LLM output panel directly via Chrome
         chrome.llmOutput(
                 "# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.",
                 ChatMessageType.CUSTOM);
-        clearCommandInput();
+
         // Submit the action, calling the private execute method inside the lambda
-        var future = submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(modelToUse, input));
-        setActionRunning(future);
+        return submitAction(ACTION_SEARCH, query, () -> {
+            executeSearchCommand(modelToUse, query);
+            var cm2 = chrome.getContextManager();
+            return new TaskResult(
+                    cm2,
+                    "Search: " + query,
+                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        });
     }
 
-    public void runRunCommand() {
-        var input = getInstructions();
-        if (input.isBlank()) {
-            chrome.toolError("Please enter a command to run", "Error");
-            return;
+    public @Nullable Future<?> runSearchCommand(String query) {
+        if (query.isBlank()) {
+            chrome.toolError("Please provide a search query");
+            return null;
         }
-        chrome.getProject().addToInstructionsHistory(input, 20);
-
-        runRunCommand(input);
-    }
-
-    public void runRunCommand(String input) {
-        clearCommandInput();
-        var future = submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
-        setActionRunning(future);
+        return executeSearchInternal(query);
     }
 
     /** sets the llm output to indicate the action has started, and submits the task on the user pool */
-    public Future<?> submitAction(String action, String input, Runnable task) {
+    public Future<TaskResult> submitAction(String action, String input, Callable<TaskResult> task) {
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
-
         // Map some actions to a more user-friendly display string for the spinner.
         // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
         // affecting other subsystems that detect action by name, but present a clearer label
@@ -1954,28 +2033,70 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
             displayAction = "Code With Plan";
         } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
-            displayAction = "Answer with Search";
+            displayAction = "Ask with Search";
         } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
-            displayAction = "Answer";
+            displayAction = "Ask";
         } else {
             displayAction = action;
         }
 
-        chrome.setLlmOutput(new ContextFragment.TaskFragment(
-                cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
-        return cm.submitUserTask(finalAction, true, () -> {
+        var currentTaskFragment =
+                new ContextFragment.TaskFragment(cm, List.of(new UserMessage(finalAction, input)), input);
+        var history = cm.topContext().getTaskHistory();
+        chrome.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
+
+        // Adapt Runnable submission with LLM flag to return a Future<TaskResult>
+        final TaskResult[] holder = new TaskResult[1];
+
+        var underlying = cm.submitUserTask(finalAction, true, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + displayAction + " command...");
-                task.run();
+                var result = task.call();
+                holder[0] = requireNonNull(result);
             } catch (CancellationException e) {
                 maybeAddInterruptedResult(action, input);
                 throw e; // propagate to ContextManager
+            } catch (Exception e) {
+                // Let unexpected exceptions propagate so the underlying Future completes exceptionally
+                throw new RuntimeException(e);
             } finally {
                 chrome.hideOutputSpinner();
                 contextManager.checkBalanceAndNotify();
                 notifyActionComplete(action);
             }
         });
+
+        // Return a delegating Future<TaskResult> that mirrors the underlying future,
+        // and yields the TaskResult computed by the callable.
+        return new Future<TaskResult>() {
+            @Override
+            public boolean cancel(boolean mayInterruptIfRunning) {
+                return underlying.cancel(mayInterruptIfRunning);
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return underlying.isCancelled();
+            }
+
+            @Override
+            public boolean isDone() {
+                return underlying.isDone();
+            }
+
+            @Override
+            public TaskResult get() throws InterruptedException, ExecutionException {
+                underlying.get();
+                return requireNonNull(holder[0]);
+            }
+
+            @Override
+            public TaskResult get(long timeout, TimeUnit unit)
+                    throws InterruptedException, ExecutionException, TimeoutException {
+                underlying.get(timeout, unit);
+                return requireNonNull(holder[0]);
+            }
+        };
     }
 
     // Methods to disable and enable buttons.
@@ -1991,9 +2112,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setEnabled(true);
             actionButton.setToolTipText("Cancel the current operation");
+            actionButton.setBackground(Color.RED);
         } else {
             // If there is no running action, keep the action button enabled so the user can start an action.
             actionButton.setEnabled(true);
+            actionButton.setBackground(defaultActionButtonBg);
         }
     }
 
@@ -2009,14 +2132,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Checkbox visibility and enablement
         if (!modeSwitch.isSelected()) {
-            codeCheckBox.setVisible(true);
-            planOptionsLink.setVisible(codeCheckBox.isSelected());
-            searchProjectCheckBox.setVisible(false);
+            // Show the CODE card
+            if (optionsPanel != null) {
+                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+            }
             codeCheckBox.setEnabled(gitAvailable);
         } else {
-            codeCheckBox.setVisible(false);
-            planOptionsLink.setVisible(false);
-            searchProjectCheckBox.setVisible(true);
+            // Show the ASK card
+            if (optionsPanel != null) {
+                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+            }
             searchProjectCheckBox.setEnabled(true);
         }
 
@@ -2027,12 +2152,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setIcon(Icons.STOP);
             actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
+            actionButton.setBackground(secondaryActionButtonBg);
         } else {
-            actionButton.setIcon(Icons.SEND);
+            actionButton.setIcon(Icons.ARROW_WARM_UP);
             actionButton.setText(null);
             actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+            actionButton.setBackground(defaultActionButtonBg);
         }
         actionButton.setEnabled(true);
+
+        // Ensure the action button is the root pane's default button so Enter triggers it by default.
+        // This mirrors the intended "default" behavior for the Go action.
+        var root = chrome.getFrame().getRootPane();
+        if (root != null) {
+            root.setDefaultButton(actionButton);
+        }
 
         // Ensure storedAction is consistent with current UI
         if (!modeSwitch.isSelected()) {
@@ -2102,6 +2236,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
             actionButton.setEnabled(true);
+            actionButton.setBackground(Color.RED);
         });
         Thread watcher = new Thread(
                 () -> {
@@ -2117,7 +2252,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             KeyStroke submitKs = KeyStroke.getKeyStroke(
                                     KeyEvent.VK_ENTER,
                                     Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-                            actionButton.setIcon(Icons.SEND);
+                            actionButton.setIcon(Icons.ARROW_WARM_UP);
                             actionButton.setText(null);
                             actionButton.setToolTipText(
                                     "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
@@ -2176,7 +2311,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(goal, 20);
         clearCommandInput();
 
-        var future = submitAction("Scan Project", goal, () -> executeScanProjectCommand(modelToUse, goal));
+        var future = submitAction("Scan Project", goal, () -> {
+            executeScanProjectCommand(modelToUse, goal);
+            var cm2 = chrome.getContextManager();
+            return new TaskResult(
+                    cm2,
+                    "Scan Project: " + goal,
+                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        });
         setActionRunning(future);
     }
 
@@ -2223,13 +2367,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Returns the currently selected Code model configuration from the model selector. Falls back to a reasonable
      * default if none is available.
      */
-    public Service.ModelConfig getCurrentCodeModelConfig() {
+    public Service.ModelConfig getSelectedModel() {
         try {
             return modelSelector.getModel();
         } catch (IllegalStateException e) {
             // Fallback to a basic default; Reasoning & Tier defaulted inside ModelConfig
             return new Service.ModelConfig(Service.GPT_5_MINI);
         }
+    }
+
+    /**
+     * Register a listener to be notified when the model selection in the InstructionsPanel changes. The listener
+     * receives the new Service.ModelConfig.
+     */
+    public void addModelSelectionListener(Consumer<Service.ModelConfig> listener) {
+        modelSelector.addSelectionListener(listener);
     }
 
     /** Returns cosine similarity of two equal-length vectors. */
@@ -2259,6 +2411,87 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         return (float) (dot / denominator);
+    }
+
+    private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
+        private static final long serialVersionUID = 1L;
+        private final Supplier<Boolean> isActionRunning;
+        private final Color secondaryActionButtonBg;
+        private final Color defaultActionButtonBg;
+
+        public ThemeAwareRoundedButton(
+                Supplier<Boolean> isActionRunning, Color secondaryActionButtonBg, Color defaultActionButtonBg) {
+            super();
+            this.isActionRunning = isActionRunning;
+            this.secondaryActionButtonBg = secondaryActionButtonBg;
+            this.defaultActionButtonBg = defaultActionButtonBg;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            // Paint rounded background (same behavior as previous anonymous class)
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int arc = 12;
+                Color bg = getBackground();
+                if (!isEnabled()) {
+                    Color disabled = UIManager.getColor("Button.disabledBackground");
+                    if (disabled != null) bg = disabled;
+                } else if (getModel().isPressed()) {
+                    bg = bg.darker();
+                } else if (getModel().isRollover()) {
+                    bg = bg.brighter();
+                }
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+            } finally {
+                g2.dispose();
+            }
+            super.paintComponent(g);
+        }
+
+        @Override
+        protected void paintBorder(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int arc = 12;
+                Color borderColor = UIManager.getColor("Component.borderColor");
+                if (borderColor == null) borderColor = Color.GRAY;
+                g2.setColor(borderColor);
+                g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+            if (this.isActionRunning.get()) {
+                setBackground(this.secondaryActionButtonBg);
+            } else {
+                setBackground(this.defaultActionButtonBg);
+            }
+            // Mark for any global reapply mechanism
+            // putClientProperty("brokk.primaryButton", true);
+
+            // Update visuals
+            // revalidate();
+            // repaint();
+        }
+
+        /**
+         * Backwards-compatible single-argument applyTheme method.
+         *
+         * <p>Some ThemeAware interface variants (depending on codebase versions) declare a single-argument
+         * applyTheme(GuiTheme). Provide this overload so the class fulfills that contract as well.
+         */
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            // Delegate to the two-argument variant with a sensible default for wordWrap.
+            applyTheme(guiTheme, false);
+        }
     }
 
     private final class AtTriggerFilter extends DocumentFilter {

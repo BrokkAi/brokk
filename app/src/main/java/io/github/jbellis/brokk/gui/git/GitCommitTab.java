@@ -13,6 +13,8 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.DiffWindowManager;
+import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
@@ -44,8 +46,8 @@ public class GitCommitTab extends JPanel {
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
     private FileStatusTable fileStatusPane;
-    private JButton commitButton;
-    private JButton stashButton;
+    private MaterialButton commitButton;
+    private MaterialButton stashButton;
     private JPanel buttonPanel;
 
     @Nullable
@@ -158,7 +160,7 @@ public class GitCommitTab extends JPanel {
 
         editFileItem.addActionListener(e -> {
             var selectedProjectFiles = getSelectedFilesFromTable();
-            contextManager.editFiles(selectedProjectFiles);
+            contextManager.addFiles(selectedProjectFiles);
             rightClickedFile = null; // Clear after use
         });
 
@@ -201,7 +203,8 @@ public class GitCommitTab extends JPanel {
         buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         // Commit Button
-        commitButton = new JButton("Commit All..."); // Default label with ellipsis
+        commitButton = new MaterialButton("Commit All..."); // Default label with ellipsis
+        SwingUtil.applyPrimaryButtonStyle(commitButton);
         commitButton.setToolTipText("Commit files...");
         commitButton.setEnabled(false);
         commitButton.addActionListener(e -> {
@@ -236,7 +239,7 @@ public class GitCommitTab extends JPanel {
         buttonPanel.add(commitButton);
 
         // Stash Button
-        stashButton = new JButton("Stash All"); // Default label
+        stashButton = new MaterialButton("Stash All"); // Default label
         stashButton.setToolTipText("Save your changes to the stash");
         stashButton.setEnabled(false);
         stashButton.addActionListener(e -> {
@@ -268,23 +271,12 @@ public class GitCommitTab extends JPanel {
             }
         });
 
-        // Stack the table and buttons at the top so they don't stretch to fill the panel
-        var contentPanel = new JPanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        fileStatusPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-        buttonPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(fileStatusPane);
-        contentPanel.add(Box.createVerticalStrut(Constants.V_GAP));
-        contentPanel.add(buttonPanel);
-
         JPanel titledPanel = new JPanel(new BorderLayout());
         titledPanel.setBorder(BorderFactory.createTitledBorder("Changes"));
-        titledPanel.add(contentPanel, BorderLayout.NORTH);
+        titledPanel.add(fileStatusPane, BorderLayout.CENTER);
+        titledPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(titledPanel, BorderLayout.CENTER);
-
-        // Ensure initial sizing is only as large as the table contents
-        shrinkTableToContents();
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -333,8 +325,6 @@ public class GitCommitTab extends JPanel {
                     // Populate the table via the reusable FileStatusTable widget
                     // This also populates the statusMap within FileStatusTable
                     fileStatusPane.setFiles(uncommittedFilesList);
-                    // Ensure the table's viewport only takes as much space as its contents
-                    shrinkTableToContents();
 
                     // Restore selection
                     List<Integer> rowsToSelect = new ArrayList<>();
@@ -623,7 +613,7 @@ public class GitCommitTab extends JPanel {
                         .collect(Collectors.toSet());
 
                 // 2. Add all selected files to the workspace to snapshot their current state.
-                contextManager.editFiles(selectedFiles);
+                contextManager.addFiles(selectedFiles);
 
                 // 3. Separate files into "new" and "other".
                 var newFiles = selectedFiles.stream()
@@ -637,7 +627,7 @@ public class GitCommitTab extends JPanel {
                 // These fragments were just created by `editFiles`.
                 var fragmentsForNewFiles = contextManager
                         .liveContext()
-                        .editableFiles()
+                        .fileFragments()
                         .filter(f ->
                                 f instanceof ContextFragment.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
                         .toList();
@@ -700,7 +690,7 @@ public class GitCommitTab extends JPanel {
                 if (!otherFilesToDrop.isEmpty()) {
                     var fragmentsToDrop = contextManager
                             .liveContext()
-                            .editableFiles()
+                            .fileFragments()
                             .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf
                                     && otherFilesToDrop.contains(ppf.file()))
                             .toList();
@@ -778,23 +768,5 @@ public class GitCommitTab extends JPanel {
 
         // Update the git tab badge
         chrome.updateGitTabBadge(newCount);
-    }
-
-    /**
-     * Adjust the table's viewport and the surrounding scroll pane so the table only takes as much vertical space as it
-     * needs instead of expanding to fill the panel.
-     */
-    private void shrinkTableToContents() {
-        assert SwingUtilities.isEventDispatchThread() : "shrinkTableToContents must be called on EDT";
-        var table = uncommittedFilesTable;
-        var header = table.getTableHeader();
-        var tablePref = table.getPreferredSize();
-        int headerHeight = header == null ? 0 : header.getPreferredSize().height;
-        int height = tablePref.height + headerHeight;
-        int width = Math.max(tablePref.width, fileStatusPane.getPreferredSize().width);
-        table.setPreferredScrollableViewportSize(tablePref);
-        fileStatusPane.setPreferredSize(new Dimension(width, height));
-        fileStatusPane.revalidate();
-        fileStatusPane.repaint();
     }
 }

@@ -399,6 +399,12 @@ public final class FilterBox extends JPanel implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
     }
 
+    @Override
+    public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+        // Word wrap not applicable to filter UI
+        applyTheme(guiTheme);
+    }
+
     /**
      * Prevent the FilterBox from expanding beyond its preferred width so that adjacent filter boxes sit tightly
      * together.

@@ -188,7 +188,7 @@ public class ContextHistory {
 
     /**
      * Processes external file changes by deciding whether to replace the top context or push a new one. If the current
-     * top context's action starts with "Loaded external changes", it updates the count and replaces it. Otherwise, it
+     * top context's action starts with "Load external changes", it updates the count and replaces it. Otherwise, it
      * pushes a new context entry.
      *
      * @return The new frozen context if a change was made, otherwise null.
@@ -198,7 +198,7 @@ public class ContextHistory {
         if (!topContext().workspaceContentEquals(fr.frozenContext())) {
             var topCtx = topContext();
             var previousAction = topCtx.getAction();
-            if (!previousAction.startsWith("Loaded external changes")) {
+            if (!previousAction.startsWith("Load external changes")) {
                 // If the previous action is not about external changes, push a new context
                 var newLiveContext = fr.liveContext()
                         .withParsedOutput(null, CompletableFuture.completedFuture("Loaded external changes"));
@@ -208,7 +208,7 @@ public class ContextHistory {
             }
 
             // Parse the existing action to extract the count if present
-            var pattern = Pattern.compile("Loaded external changes(?: \\((\\d+)\\))?");
+            var pattern = Pattern.compile("Load external changes(?: \\((\\d+)\\))?");
             var matcher = pattern.matcher(previousAction);
             int newCount;
             if (matcher.matches() && matcher.group(1) != null) {
@@ -223,8 +223,7 @@ public class ContextHistory {
             }
 
             // Form the new action string with the updated count
-            var newAction =
-                    newCount > 1 ? "Loaded external changes (%d)".formatted(newCount) : "Loaded external changes";
+            var newAction = newCount > 1 ? "Load external changes (%d)".formatted(newCount) : "Load external changes";
             var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
             var cleaned = newLiveContext.freezeAndCleanup();
             replaceTop(cleaned.liveContext(), cleaned.frozenContext());
@@ -436,27 +435,27 @@ public class ContextHistory {
             return;
         }
         assert !frozenContext.containsDynamicFragments();
-        frozenContext.editableFiles.forEach(fragment -> {
-            assert fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH : fragment.getType();
-            assert fragment.files().size() == 1 : fragment.files();
+        frozenContext
+                .getEditableFragments()
+                .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .forEach(fragment -> {
+                    assert fragment.files().size() == 1 : fragment.files();
 
-            var pf = fragment.files().iterator().next();
-            try {
-                var newContent = fragment.text();
-                var currentContent = pf.exists() ? pf.read() : "";
+                    var pf = fragment.files().iterator().next();
+                    try {
+                        var newContent = fragment.text();
+                        var currentContent = pf.exists() ? pf.read().orElse("") : "";
 
-                if (!newContent.equals(currentContent)) {
-                    pf.write(newContent);
-                    var restoredFiles = new ArrayList<String>();
-                    restoredFiles.add(pf.toString());
-                    if (!restoredFiles.isEmpty()) {
-                        io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
+                        if (!newContent.equals(currentContent)) {
+                            pf.write(newContent);
+                            var restoredFiles = new ArrayList<String>();
+                            restoredFiles.add(pf.toString());
+                            io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
+                            io.updateWorkspace();
+                        }
+                    } catch (IOException e) {
+                        io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
                     }
-                    io.updateWorkspace();
-                }
-            } catch (IOException e) {
-                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
-            }
-        });
+                });
     }
 }

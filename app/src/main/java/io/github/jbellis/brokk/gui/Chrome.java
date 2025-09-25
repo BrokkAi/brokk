@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.formdev.flatlaf.util.SystemInfo;
+import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
@@ -14,6 +15,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -28,6 +30,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.*;
@@ -41,6 +44,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -52,12 +56,27 @@ import org.jetbrains.annotations.Nullable;
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
+    // Track open Chrome instances for window cascading
+    private static final Set<Chrome> openInstances = ConcurrentHashMap.newKeySet();
+
+    // Default layout proportions - can be overridden by saved preferences
+    private static final double DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT = 0.583; // 58.3% workspace, 41.7% instructions
+    private static final double DEFAULT_OUTPUT_MAIN_SPLIT = 0.4; // 40% output, 60% main content
+    private static final double MIN_SIDEBAR_WIDTH_FRACTION = 0.10; // 10% minimum sidebar width
+    private static final double MAX_SIDEBAR_WIDTH_FRACTION = 0.40; // 40% maximum sidebar width (normal screens)
+    private static final double MAX_SIDEBAR_WIDTH_FRACTION_WIDE = 0.25; // 25% maximum sidebar width (wide screens)
+    private static final int WIDE_SCREEN_THRESHOLD = 2000; // Screen width threshold for wide screen layout
+    private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
+
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
     private final String SYSMSG_EMPTY = "Ready";
 
     // is a setContext updating the MOP?
     private boolean skipNextUpdateOutputPanelOnContextChange = false;
+
+    // Track active preview windows for reuse
+    private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -108,24 +127,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
         lastTabToggleTime = currentTime;
 
-        if (leftTabbedPanel.getSelectedIndex() == tabIndex) {
+        if (!sidebarCollapsed && leftTabbedPanel.getSelectedIndex() == tabIndex) {
             // Tab already selected: capture current expanded width (if not already minimized), then minimize
             int currentLocation = bottomSplitPane.getDividerLocation();
-            if (currentLocation >= 50) {
+            if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
                 lastExpandedSidebarLocation = currentLocation;
             }
-            leftTabbedPanel.setSelectedIndex(-1);
+            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
             bottomSplitPane.setDividerSize(0);
             bottomSplitPane.setDividerLocation(40);
+            sidebarCollapsed = true;
         } else {
             leftTabbedPanel.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
-            if (bottomSplitPane.getDividerLocation() < 50) {
+            if (sidebarCollapsed) {
                 bottomSplitPane.setDividerSize(originalBottomDividerSize);
                 int target = (lastExpandedSidebarLocation > 0)
                         ? lastExpandedSidebarLocation
                         : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(target);
+                sidebarCollapsed = false;
             }
         }
     }
@@ -136,6 +157,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Remember the last non-minimized divider location of the left sidebar
     // Used to restore the previous width when re-expanding after a minimize
     private int lastExpandedSidebarLocation = -1;
+    private boolean sidebarCollapsed = false;
 
     // Swing components:
     final JFrame frame;
@@ -154,6 +176,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final HistoryOutputPanel historyOutputPanel;
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
+
+    // Workspace | Dependencies (right drawer)
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JSplitPane workspaceDependenciesSplit;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel workspaceTopContainer;
+
+    @SuppressWarnings("NullAway.Init")
+    private io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel dependenciesDrawerPanel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -193,18 +225,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final InstructionsPanel instructionsPanel;
 
     // Right-hand drawer (tools) - split and content
-    private InstructionsDrawerSplit instructionsDrawerSplit;
+    private DrawerSplitPanel instructionsDrawerSplit;
     private TerminalDrawerPanel terminalDrawer;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
     public Chrome(ContextManager contextManager) {
+        assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         // Install centralized application-level QuitHandler so Cmd+Q and platform quit can be intercepted
         AppQuitHandler.install();
         frame.setSize(800, 1200); // Taller than wide
@@ -386,20 +419,30 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // 1) Nested split for Workspace (top) / Instructions (bottom)
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        workspaceInstructionsSplit.setTopComponent(workspacePanel);
-        workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
-        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
+
+        // Create a right-hand Dependencies drawer beside the Workspace
+        workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        this.dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
+        workspaceDependenciesSplit.setResizeWeight(0.67); // Give more space to workspace by default
+        workspaceDependenciesSplit.setLeftComponent(workspacePanel);
+        workspaceDependenciesSplit.setRightComponent(this.dependenciesDrawerPanel);
+        // Drawer state will be restored from GlobalUiSettings after layout
+
+        workspaceTopContainer = new JPanel(new BorderLayout());
+        workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
 
         // Create terminal drawer panel
-        instructionsDrawerSplit = new InstructionsDrawerSplit();
+        instructionsDrawerSplit = new DrawerSplitPanel();
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
         // Attach instructions (left) and drawer (right)
-        instructionsDrawerSplit.setInstructionsComponent(instructionsPanel);
+        instructionsDrawerSplit.setParentComponent(instructionsPanel);
         instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
 
         // Attach the combined instructions+drawer split as the bottom component
+        workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
         workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
+        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
@@ -434,10 +477,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         outputStackSplit.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
         bottomSplitPane.setResizeWeight(0.0);
-        int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-        bottomSplitPane.setDividerLocation(initialDividerLocation);
-        // Initialize the remembered expanded location
-        lastExpandedSidebarLocation = initialDividerLocation;
+        int tempDividerLocation = 300; // Reasonable default that will be recalculated
+        bottomSplitPane.setDividerLocation(tempDividerLocation);
+        // Initialize the remembered expanded location (will be updated later)
+        lastExpandedSidebarLocation = tempDividerLocation;
 
         // Store original divider size
         originalBottomDividerSize = bottomSplitPane.getDividerSize();
@@ -447,10 +490,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
         bottomPanel.repaint();
-
-        // Now that every split pane exists, restore previous window size and
-        // divider locations and hook their listeners.
-        loadWindowSizeAndPosition();
 
         // Set initial enabled state for global actions after all components are ready
         this.globalUndoAction.updateEnabledState();
@@ -493,20 +532,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Register global keyboard shortcuts now that actions are fully initialized
         registerGlobalKeyboardShortcuts();
 
-        // Show the window
-        frame.setVisible(true);
+        // Complete all layout operations synchronously before showing window
+        completeLayoutSynchronously();
+
+        // Final validation and repaint before making window visible
         frame.validate();
         frame.repaint();
-
-        // Title bar will be applied after layout restoration in loadWindowSizeAndPosition()
+        // Now show the window with complete layout
+        frame.setVisible(true);
 
         // Possibly check if .gitignore is set
         if (getProject().hasGit()) {
             contextManager.submitBackgroundTask("Checking .gitignore", () -> {
                 if (!getProject().isGitIgnoreSet()) {
                     SwingUtilities.invokeLater(() -> {
-                        int result = JOptionPane.showConfirmDialog(
-                                frame,
+                        int result = showConfirmDialog(
                                 "Update .gitignore and add .brokk project files to git?",
                                 "Git Configuration",
                                 JOptionPane.YES_NO_OPTION,
@@ -528,6 +568,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
+
+        // Register this instance for window tracking
+        openInstances.add(this);
     }
 
     /**
@@ -646,11 +689,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // and contextManager should be properly set
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
-        // Apply current theme based on project settings
+        // Apply current theme and wrap mode based on global settings
         String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
-        switchTheme(isDark);
+        boolean wrapMode = MainProject.getCodeBlockWrapMode();
+        switchThemeAndWrapMode(isDark, wrapMode);
     }
 
     /**
@@ -677,10 +721,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
             if (updateOutput) {
-                if (ctx.getParsedOutput() != null) {
-                    historyOutputPanel.setLlmOutput(ctx.getParsedOutput());
-                } else {
+                var taskHistory = ctx.getTaskHistory();
+                if (taskHistory.isEmpty()) {
                     historyOutputPanel.clearLlmOutput();
+                } else {
+                    var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
+                    var mainTask = taskHistory.getLast();
+                    historyOutputPanel.setLlmAndHistoryOutput(historyTasks, mainTask);
                 }
             }
             updateCaptureButtons();
@@ -692,6 +739,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
+    }
+
+    public void switchThemeAndWrapMode(boolean isDark, boolean wordWrap) {
+        themeManager.applyTheme(isDark, wordWrap);
     }
 
     public GuiTheme getTheme() {
@@ -847,7 +898,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 SwingUtilities.invokeLater(() -> {
                     try {
                         instructionsPanel.toggleCodeAnswerMode();
-                        systemOutput("Toggled Code/Answer mode");
+                        systemOutput("Toggled Code/Ask mode");
                     } catch (Exception ex) {
                         logger.warn("Error toggling Code/Answer mode via shortcut", ex);
                     }
@@ -936,6 +987,42 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
         }
+
+        // Zoom shortcuts: Ctrl/Cmd + Plus, Minus, 0
+        var zoomInKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var zoomInEqualsKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var zoomOutKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var resetZoomKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInKeyStroke, "zoomIn");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInEqualsKeyStroke, "zoomIn");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomOutKeyStroke, "zoomOut");
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(resetZoomKeyStroke, "resetZoom");
+
+        rootPane.getActionMap().put("zoomIn", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().zoomIn();
+            }
+        });
+
+        rootPane.getActionMap().put("zoomOut", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().zoomOut();
+            }
+        });
+
+        rootPane.getActionMap().put("resetZoom", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyOutputPanel.getLlmStreamArea().resetZoom();
+            }
+        });
     }
 
     @Override
@@ -946,6 +1033,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
+    }
+
+    public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }
 
     @Override
@@ -1013,6 +1104,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.info("Closing Chrome UI");
         contextManager.close();
         frame.dispose();
+        // Unregister this instance
+        openInstances.remove(this);
     }
 
     @Override
@@ -1126,49 +1219,91 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /**
      * Creates and shows a standard preview JFrame for a given component. Handles title, default close operation,
-     * loading/saving bounds using the "preview" key, and visibility.
+     * loading/saving bounds using the "preview" key, and visibility. Reuses existing preview windows when possible to
+     * avoid cluttering the desktop.
      *
      * @param contextManager The context manager for accessing project settings.
      * @param title The title for the JFrame.
      * @param contentComponent The JComponent to display within the frame.
      */
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
-        JFrame previewFrame = newFrame(title);
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            var titleBar = new JPanel(new BorderLayout());
-            titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
-            var label = new JLabel(title, SwingConstants.CENTER);
-            titleBar.add(label, BorderLayout.CENTER);
-            previewFrame.add(titleBar, BorderLayout.NORTH);
-        }
-        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        previewFrame.add(contentComponent, BorderLayout.CENTER);
-        previewFrame.setBackground(themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
+        // Generate a key for window reuse based on the content type and title
+        String windowKey = generatePreviewWindowKey(title, contentComponent);
 
-        var project = contextManager.getProject();
-        var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
-        if (storedBounds.width > 0 && storedBounds.height > 0) {
-            previewFrame.setBounds(storedBounds);
-            if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+        // Check if we have an existing window for this content
+        JFrame previewFrame = activePreviewWindows.get(windowKey);
+        boolean isNewWindow = false;
+
+        if (previewFrame == null || !previewFrame.isDisplayable()) {
+            // Create new window if none exists or existing one was disposed
+            previewFrame = newFrame(title);
+            activePreviewWindows.put(windowKey, previewFrame);
+            isNewWindow = true;
+
+            // Set up new window configuration
+            if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+                var titleBar = new JPanel(new BorderLayout());
+                titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
+                var label = new JLabel(title, SwingConstants.CENTER);
+                titleBar.add(label, BorderLayout.CENTER);
+                previewFrame.add(titleBar, BorderLayout.NORTH);
             }
+            previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+            previewFrame.setBackground(
+                    themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
+
+            var project = contextManager.getProject();
+            var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
+            if (storedBounds.width > 0 && storedBounds.height > 0) {
+                previewFrame.setBounds(storedBounds);
+                if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                    previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                }
+            } else {
+                previewFrame.setSize(800, 600); // Default size if no bounds saved
+                previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+            }
+
+            // Add listener to save bounds using the "preview" key
+            final JFrame finalFrameForBounds = previewFrame;
+            previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override
+                public void componentMoved(java.awt.event.ComponentEvent e) {
+                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                }
+
+                @Override
+                public void componentResized(java.awt.event.ComponentEvent e) {
+                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                }
+            });
         } else {
-            previewFrame.setSize(800, 600); // Default size if no bounds saved
-            previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+            // Reuse existing window - update title and content
+            previewFrame.setTitle(title);
+            // Only remove the CENTER component to preserve title bar and other layout components
+            var contentPane = previewFrame.getContentPane();
+            Component centerComponent =
+                    ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+            if (centerComponent != null) {
+                contentPane.remove(centerComponent);
+            }
+
+            // Update title bar label on macOS if it exists
+            if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+                Component northComponent =
+                        ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.NORTH);
+                if (northComponent instanceof JPanel titleBar) {
+                    Component centerInTitleBar =
+                            ((BorderLayout) titleBar.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+                    if (centerInTitleBar instanceof JLabel label) {
+                        label.setText(title);
+                    }
+                }
+            }
         }
 
-        // Add listener to save bounds using the "preview" key
-        previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override
-            public void componentMoved(java.awt.event.ComponentEvent e) {
-                project.savePreviewWindowBounds(previewFrame); // Save JFrame bounds
-            }
-
-            @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
-                project.savePreviewWindowBounds(previewFrame); // Save JFrame bounds
-            }
-        });
+        // Add content component (for both new and reused windows)
+        previewFrame.add(contentComponent, BorderLayout.CENTER);
 
         // Only use DO_NOTHING_ON_CLOSE for PreviewTextPanel (which has its own confirmation dialog)
         // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
@@ -1190,7 +1325,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
 
+        // Add window cleanup listener to remove from tracking map when window is disposed
+        final String finalWindowKey = windowKey;
+        final JFrame finalPreviewFrame = previewFrame;
+        if (isNewWindow) {
+            previewFrame.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    // Remove from tracking map when window is closed
+                    activePreviewWindows.remove(finalWindowKey, finalPreviewFrame);
+                }
+            });
+        }
+
         // Add ESC key binding to close the window (delegates to windowClosing)
+        final JFrame finalFrameForESC = previewFrame;
         var rootPane = previewFrame.getRootPane();
         var actionMap = rootPane.getActionMap();
         var inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -1200,11 +1349,41 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
                 // Simulate window closing event to trigger the WindowListener logic
-                previewFrame.dispatchEvent(new WindowEvent(previewFrame, WindowEvent.WINDOW_CLOSING));
+                finalFrameForESC.dispatchEvent(new WindowEvent(finalFrameForESC, WindowEvent.WINDOW_CLOSING));
             }
         });
 
+        // Bring window to front and make visible
+        previewFrame.toFront();
         previewFrame.setVisible(true);
+    }
+
+    /**
+     * Generates a key for identifying and reusing preview windows based on content type and context. For file previews,
+     * uses the file path. For other content, uses the title.
+     */
+    private String generatePreviewWindowKey(String title, JComponent contentComponent) {
+        if (contentComponent instanceof PreviewTextPanel) {
+            // For file previews, extract file path from title or use title as fallback
+            if (title.startsWith("Preview: ")) {
+                return "file:" + title.substring(9); // Remove "Preview: " prefix
+            } else {
+                return "file:" + title;
+            }
+        } else {
+            // For other types of previews, use a generic key based on class and title
+            return "preview:" + contentComponent.getClass().getSimpleName() + ":" + title;
+        }
+    }
+
+    /** Closes all active preview windows and clears the tracking map. Useful for cleanup or when switching projects. */
+    public void closeAllPreviewWindows() {
+        for (JFrame frame : activePreviewWindows.values()) {
+            if (frame.isDisplayable()) {
+                frame.dispose();
+            }
+        }
+        activePreviewWindows.clear();
     }
 
     /**
@@ -1214,28 +1393,65 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * @param pf The ProjectFile to preview.
      */
     public void previewFile(ProjectFile pf) {
+        previewFile(pf, -1);
+    }
+
+    /**
+     * Centralized method to open a preview for a specific ProjectFile at a specified line position.
+     *
+     * @param pf The ProjectFile to preview.
+     * @param startLine The line number (0-based) to position the caret at, or -1 to use default positioning.
+     */
+    public void previewFile(ProjectFile pf, int startLine) {
         assert SwingUtilities.isEventDispatchThread() : "Preview must be initiated on EDT";
 
         try {
             // 1. Read file content
             var content = pf.read();
+            if (content.isEmpty()) {
+                toolError("Unable to read file for preview");
+                return;
+            }
 
             // 2. Deduce syntax style
             var syntax = pf.getSyntaxStyle();
 
-            // 3. Build the PTP
-            // 3. Build the PTP
-            // Pass null for the fragment when previewing a file directly.
-            // The fragment is primarily relevant when opened from the context table.
-            var panel =
-                    new PreviewTextPanel(contextManager, pf, content, syntax, themeManager, null); // Pass null fragment
+            // 3. Build the PTP with custom positioning
+            var panel = new PreviewTextPanel(contextManager, pf, content.get(), syntax, themeManager, null);
 
-            // 4. Show in frame using toString for the title
+            // 4. Show in frame first
             showPreviewFrame(contextManager, "Preview: " + pf, panel);
 
-        } catch (IOException ex) {
-            toolError("Error reading file for preview: " + ex.getMessage());
-            logger.error("Error reading file {} for preview", pf.absPath(), ex);
+            // 5. Position the caret at the specified line if provided, after showing the frame
+            if (startLine >= 0) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        // Convert line number to character offset
+                        var lines = content.get().split("\\r?\\n", -1); // -1 to include trailing empty lines
+                        if (startLine < lines.length) {
+                            var charOffset = 0;
+                            for (var i = 0; i < startLine; i++) {
+                                charOffset += lines[i].length() + 1; // +1 for line separator
+                            }
+                            panel.setCaretPositionAndCenter(charOffset);
+                        } else {
+                            logger.warn(
+                                    "Start line {} exceeds file length {} for {}",
+                                    startLine,
+                                    lines.length,
+                                    pf.absPath());
+                        }
+                    } catch (Exception e) {
+                        logger.warn(
+                                "Failed to position caret at line {} for {}: {}",
+                                startLine,
+                                pf.absPath(),
+                                e.getMessage());
+                        // Fall back to default positioning (beginning of file)
+                    }
+                });
+            }
+
         } catch (Exception ex) {
             toolError("Error opening file preview: " + ex.getMessage());
             logger.error("Unexpected error opening preview for file {}", pf.absPath(), ex);
@@ -1267,7 +1483,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // If it is current *and* is a frozen PathFragment, unfreeze so we can work on
             // a true PathFragment instance (gives us access to BrokkFile, etc.).
             ContextFragment workingFragment;
-            if (isCurrentContext && fragment.getType().isPathFragment() && fragment instanceof FrozenFragment frozen) {
+            if (isCurrentContext && fragment.getType().isPath() && fragment instanceof FrozenFragment frozen) {
                 workingFragment = frozen.unfreeze(contextManager);
             } else {
                 workingFragment = fragment;
@@ -1277,7 +1493,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var title = "Preview: " + workingFragment.description();
 
             // 2. Output-only fragments (Task / History / Search)
-            if (workingFragment.getType().isOutputFragment()) {
+            if (workingFragment.getType().isOutput()) {
                 var outputFragment = (ContextFragment.OutputFragment) workingFragment;
                 // var escapeHtml = outputFragment.isEscapeHtml();
                 var combinedMessages = new ArrayList<ChatMessage>();
@@ -1330,7 +1546,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             // 5. Path fragments (files on disk) – live vs. snapshot decision
-            if (workingFragment.getType().isPathFragment()) {
+            if (workingFragment.getType().isPath()) {
                 // If we were able to unfreeze to a real PathFragment AND it belongs to the
                 // current context, show the live file so the user can edit/save.
                 if (isCurrentContext && workingFragment instanceof ContextFragment.PathFragment pf) {
@@ -1346,19 +1562,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     } else if (brokkFile instanceof ExternalFile externalFile) {
                         // External file on disk – read it live.
                         Runnable task = () -> {
-                            try {
-                                var panel = new PreviewTextPanel(
-                                        contextManager,
-                                        null,
-                                        externalFile.read(),
-                                        externalFile.getSyntaxStyle(),
-                                        themeManager,
-                                        workingFragment);
-                                showPreviewFrame(contextManager, "Preview: " + externalFile, panel);
-                            } catch (IOException ex) {
-                                toolError("Error reading external file: " + ex.getMessage());
-                                logger.error("Error reading external file {}", externalFile.absPath(), ex);
-                            }
+                            var panel = new PreviewTextPanel(
+                                    contextManager,
+                                    null,
+                                    externalFile.read().orElse(""),
+                                    externalFile.getSyntaxStyle(),
+                                    themeManager,
+                                    workingFragment);
+                            showPreviewFrame(contextManager, "Preview: " + externalFile, panel);
                         };
                         if (!SwingUtilities.isEventDispatchThread()) {
                             SwingUtilities.invokeLater(task);
@@ -1417,121 +1628,266 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     private void loadWindowSizeAndPosition() {
-        var project = getProject();
+        boolean persistPerProject = GlobalUiSettings.isPersistPerProjectBounds();
 
-        var boundsOptional = project.getMainWindowBounds();
-        if (boundsOptional.isEmpty()) {
-            // No valid saved bounds, apply default placement logic
-            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-            GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
-            Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
-            logger.debug(
-                    "No saved window bounds found for project. Detected screen size: {}x{} at ({},{})",
-                    screenBounds.width,
-                    screenBounds.height,
-                    screenBounds.x,
-                    screenBounds.y);
-
-            // Default to 1920x1080 or screen size, whichever is smaller, and center.
-            int defaultWidth = Math.min(1920, screenBounds.width);
-            int defaultHeight = Math.min(1080, screenBounds.height);
-
-            int x = screenBounds.x + (screenBounds.width - defaultWidth) / 2;
-            int y = screenBounds.y + (screenBounds.height - defaultHeight) / 2;
-
-            frame.setBounds(x, y, defaultWidth, defaultHeight);
-            logger.debug(
-                    "Applying default window placement: {}x{} at ({},{}), centered on screen.",
-                    defaultWidth,
-                    defaultHeight,
-                    x,
-                    y);
-        } else {
-            var bounds = boundsOptional.get();
-            // Valid bounds found, use them
+        // Per-project first (only if enabled)
+        var boundsOpt = persistPerProject ? getProject().getMainWindowBounds() : java.util.Optional.<Rectangle>empty();
+        if (boundsOpt.isPresent()) {
+            var bounds = boundsOpt.get();
             frame.setSize(bounds.width, bounds.height);
             if (isPositionOnScreen(bounds.x, bounds.y)) {
                 frame.setLocation(bounds.x, bounds.y);
-                logger.debug("Restoring window position from saved bounds.");
+                logger.debug("Restoring main window position from project settings.");
             } else {
                 // Saved position is off-screen, center instead
                 frame.setLocationRelativeTo(null);
-                logger.debug("Saved window position is off-screen, centering window.");
+                logger.debug("Project window position is off-screen, centering window.");
+            }
+        } else {
+            // No (or disabled) project bounds, try global bounds with cascading offset
+            var globalBounds = GlobalUiSettings.getMainWindowBounds();
+            if (globalBounds.width > 0 && globalBounds.height > 0) {
+                // Calculate progressive DPI-aware offset based on number of open instances
+                int instanceCount = Math.max(0, openInstances.size()); // this instance not yet added
+                int step = UIScale.scale(20); // gentle, DPI-aware cascade step
+                int offsetX = globalBounds.x + (step * instanceCount);
+                int offsetY = globalBounds.y + (step * instanceCount);
+
+                frame.setSize(globalBounds.width, globalBounds.height);
+                if (isPositionOnScreen(offsetX, offsetY)) {
+                    frame.setLocation(offsetX, offsetY);
+                    logger.debug("Using global window position with cascading offset ({}) as fallback.", instanceCount);
+                } else {
+                    // Offset position is off-screen, center instead
+                    frame.setLocationRelativeTo(null);
+                    logger.debug("Global window position with offset is off-screen, centering window.");
+                }
+            } else {
+                // No valid saved bounds anywhere, apply default placement logic
+                logger.info("No UI bounds found, using default window layout");
+                GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+                GraphicsDevice defaultScreen = ge.getDefaultScreenDevice();
+                Rectangle screenBounds = defaultScreen.getDefaultConfiguration().getBounds();
+
+                // Default to 1920x1080 or screen size, whichever is smaller, and center.
+                int defaultWidth = Math.min(1920, screenBounds.width);
+                int defaultHeight = Math.min(1080, screenBounds.height);
+
+                int x = screenBounds.x + (screenBounds.width - defaultWidth) / 2;
+                int y = screenBounds.y + (screenBounds.height - defaultHeight) / 2;
+
+                frame.setBounds(x, y, defaultWidth, defaultHeight);
+                logger.debug(
+                        "Applying default window placement: {}x{} at ({},{}), centered on screen.",
+                        defaultWidth,
+                        defaultHeight,
+                        x,
+                        y);
             }
         }
 
-        // Listener to save bounds on move/resize
+        // Listener to save bounds on move/resize:
+        // - always save globally (for cascade fallback)
+        // - save per-project only if enabled
         frame.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
-                project.saveMainWindowBounds(frame);
+                GlobalUiSettings.saveMainWindowBounds(frame);
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    getProject().saveMainWindowBounds(frame);
+                }
             }
 
             @Override
             public void componentMoved(java.awt.event.ComponentEvent e) {
-                project.saveMainWindowBounds(frame);
+                GlobalUiSettings.saveMainWindowBounds(frame);
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    getProject().saveMainWindowBounds(frame);
+                }
+            }
+        });
+    }
+
+    /**
+     * Completes all window and split pane layout operations synchronously. This ensures the window has proper layout
+     * before becoming visible.
+     *
+     * <p>CRITICAL FIX: Uses frame.pack() to force proper component sizing, then restores intended window size. This
+     * resolves the issue where components had zero size when workspace.properties is missing, causing empty gray window
+     * on startup.
+     */
+    private void completeLayoutSynchronously() {
+        // First, set up window size and position
+        loadWindowSizeAndPosition();
+
+        // Then complete split pane layout synchronously
+        var project = getProject();
+
+        // Force a layout pass so split panes have proper sizes before setting divider locations
+        frame.validate();
+
+        // Set horizontal (sidebar) split pane divider now - it depends on frame width which is already known
+        // Global-first for horizontal split
+        int globalHorizontalPos = GlobalUiSettings.getHorizontalSplitPosition();
+        int properDividerLocation;
+        if (globalHorizontalPos > 0) {
+            properDividerLocation = Math.min(globalHorizontalPos, Math.max(50, frame.getWidth() - 200));
+        } else {
+            // No saved global position, calculate based on current frame size
+            int computedWidth = computeInitialSidebarWidth();
+            properDividerLocation = computedWidth + bottomSplitPane.getDividerSize();
+        }
+
+        bottomSplitPane.setDividerLocation(properDividerLocation);
+
+        if (properDividerLocation < SIDEBAR_COLLAPSED_THRESHOLD) {
+            bottomSplitPane.setDividerSize(0);
+            leftTabbedPanel.setSelectedIndex(0); // Show Project Files when collapsed
+            sidebarCollapsed = true;
+        } else {
+            lastExpandedSidebarLocation = properDividerLocation;
+        }
+
+        // Add property change listeners for future updates (also persist globally)
+        addSplitPaneListeners(project);
+
+        // Apply title bar now that layout is complete
+        applyTitleBar(frame, frame.getTitle());
+
+        // Force a complete layout validation
+        frame.revalidate();
+
+        // Fix zero-sized components by forcing layout calculation with pack()
+        // Remember the intended size before pack changes it
+        int intendedWidth = frame.getWidth();
+        int intendedHeight = frame.getHeight();
+
+        frame.pack(); // This forces proper component sizing
+        frame.setSize(intendedWidth, intendedHeight); // Restore intended window size
+        frame.validate();
+
+        // NOW calculate vertical split pane dividers with proper component heights
+
+        // Global-first for top split (Workspace | Instructions)
+        int topSplitPos = GlobalUiSettings.getLeftVerticalSplitPosition();
+        if (topSplitPos > 0) {
+            topSplitPane.setDividerLocation(topSplitPos);
+        } else {
+            // Calculate absolute position with proper component height
+            int topSplitHeight = topSplitPane.getHeight();
+            int defaultTopSplitPos = (int) (topSplitHeight * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT);
+            topSplitPane.setDividerLocation(defaultTopSplitPos);
+        }
+
+        // Global-first for main vertical split (Output | Main)
+        int mainVerticalPos = GlobalUiSettings.getRightVerticalSplitPosition();
+        if (mainVerticalPos > 0) {
+            mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
+        } else {
+            // Calculate absolute position with proper component height
+            int mainVerticalHeight = mainVerticalSplitPane.getHeight();
+            int defaultMainVerticalPos = (int) (mainVerticalHeight * DEFAULT_OUTPUT_MAIN_SPLIT);
+            mainVerticalSplitPane.setDividerLocation(defaultMainVerticalPos);
+        }
+
+        // Restore drawer states from global settings
+        restoreDrawersFromGlobalSettings();
+    }
+
+    /**
+     * Restore drawer (dependencies) state from global settings after layout sizing is known. Terminal drawer restore is
+     * handled by TerminalDrawerPanel itself to respect per-project settings.
+     */
+    private void restoreDrawersFromGlobalSettings() {
+        // Dependencies drawer (global)
+        boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();
+        double depProp = GlobalUiSettings.getDependenciesDrawerProportion();
+        if (depOpen) {
+            // Ensure drawer is open synchronously before first layout to avoid startup motion
+            dependenciesDrawerPanel.openInitially();
+            if (depProp > 0.0 && depProp < 1.0) {
+                workspaceDependenciesSplit.setDividerLocation(depProp);
+            }
+        } else {
+            // Ensure it is collapsed
+            dependenciesDrawerPanel.collapseIfEmpty();
+        }
+
+        // Do not restore Terminal drawer here.
+        // TerminalDrawerPanel.restoreInitialState() handles per-project-first, then global fallback.
+    }
+
+    /** Adds property change listeners to split panes for saving positions (global-first). */
+    private void addSplitPaneListeners(AbstractProject project) {
+        topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (topSplitPane.isShowing()) {
+                var newPos = topSplitPane.getDividerLocation();
+                if (newPos > 0) {
+                    // Keep backward-compat but persist globally as the source of truth
+                    project.saveLeftVerticalSplitPosition(newPos);
+                    GlobalUiSettings.saveLeftVerticalSplitPosition(newPos);
+                }
             }
         });
 
-        SwingUtilities.invokeLater(() -> {
-            // Load and set top split position (Instructions | Workspace)
-            int topSplitPos = project.getLeftVerticalSplitPosition(); // Reuse this setting
-            if (topSplitPos > 0) {
-                topSplitPane.setDividerLocation(topSplitPos);
-            } else {
-                topSplitPane.setDividerLocation(0.583);
+        mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (mainVerticalSplitPane.isShowing()) {
+                var newPos = mainVerticalSplitPane.getDividerLocation();
+                if (newPos > 0) {
+                    // Keep backward-compat but persist globally as the source of truth
+                    project.saveRightVerticalSplitPosition(newPos);
+                    GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+                }
             }
-            topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (topSplitPane.isShowing()) {
-                    var newPos = topSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveLeftVerticalSplitPosition(newPos); // Reuse this setting
+        });
+
+        bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (bottomSplitPane.isShowing()) {
+                var newPos = bottomSplitPane.getDividerLocation();
+                if (newPos > 0) {
+                    // Keep backward-compat but persist globally as the source of truth
+                    project.saveHorizontalSplitPosition(newPos);
+                    GlobalUiSettings.saveHorizontalSplitPosition(newPos);
+                    // Remember expanded locations only (ignore collapsed sidebar)
+                    if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
+                        lastExpandedSidebarLocation = newPos;
                     }
                 }
-            });
-
-            // Load and set main vertical split position (Top | Bottom tabs)
-            int mainVerticalPos = project.getRightVerticalSplitPosition(); // Reuse this setting
-            if (mainVerticalPos > 0) {
-                mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
-            } else {
-                mainVerticalSplitPane.setDividerLocation(0.4);
             }
-            mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (mainVerticalSplitPane.isShowing()) {
-                    var newPos = mainVerticalSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveRightVerticalSplitPosition(newPos); // Reuse this setting
-                    }
+        });
+
+        // Persist Dependencies drawer open/proportion globally
+        workspaceDependenciesSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (workspaceDependenciesSplit.isShowing()) {
+                int total = workspaceDependenciesSplit.getWidth();
+                if (total > 0) {
+                    double prop = Math.max(
+                            0.05,
+                            Math.min(0.95, (double) workspaceDependenciesSplit.getDividerLocation() / (double) total));
+                    GlobalUiSettings.saveDependenciesDrawerProportion(prop);
+                    GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
                 }
-            });
-
-            // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
-            int safePosition = project.getSafeHorizontalSplitPosition(frame.getWidth());
-            bottomSplitPane.setDividerLocation(safePosition);
-
-            if (safePosition < 50) {
-                bottomSplitPane.setDividerSize(0);
-                leftTabbedPanel.setSelectedIndex(-1);
-            } else {
-                lastExpandedSidebarLocation = safePosition;
             }
+        });
+        workspaceDependenciesSplit.addPropertyChangeListener("dividerSize", e -> {
+            GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
+        });
 
-            bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (bottomSplitPane.isShowing()) {
-                    var newPos = bottomSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveHorizontalSplitPosition(newPos);
-                        // Remember expanded locations only (ignore minimized 40px)
-                        if (newPos >= 50) {
-                            lastExpandedSidebarLocation = newPos;
-                        }
-                    }
+        // Persist Terminal drawer open/proportion globally
+        instructionsDrawerSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (instructionsDrawerSplit.isShowing()) {
+                int total = instructionsDrawerSplit.getWidth();
+                if (total > 0) {
+                    double prop = Math.max(
+                            0.05,
+                            Math.min(0.95, (double) instructionsDrawerSplit.getDividerLocation() / (double) total));
+                    GlobalUiSettings.saveTerminalDrawerProportion(prop);
+                    GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
                 }
-            });
-
-            // Apply title bar after all layout restoration is complete
-            applyTitleBar(frame, frame.getTitle());
+            }
+        });
+        instructionsDrawerSplit.addPropertyChangeListener("dividerSize", e -> {
+            GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
         });
     }
 
@@ -1775,6 +2131,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public HistoryOutputPanel getHistoryOutputPanel() {
         return historyOutputPanel;
+    }
+
+    public TerminalDrawerPanel getTerminalDrawer() {
+        return terminalDrawer;
+    }
+
+    /** Append tasks to the Task List panel, if present. Tasks are appended to the current session's list. */
+    public void appendTasksToTaskList(List<String> tasks) {
+        SwingUtilities.invokeLater(() -> {
+            var taskPanel = terminalDrawer.openTaskList();
+            taskPanel.appendTasks(tasks);
+        });
     }
 
     public Action getGlobalUndoAction() {
@@ -2088,9 +2456,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public int showConfirmDialog(
-            @Nullable JFrame frame, String message, String title, int optionType, int messageType) {
+            @Nullable Component parent, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
-        return JOptionPane.showConfirmDialog(frame, message, title, optionType, messageType);
+        return JOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
     }
 
     @Override
@@ -2213,11 +2581,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         int ideal = projectFilesPanel.getPreferredSize().width;
         int frameWidth = frame.getWidth();
 
-        // Allow between 10 % and 40 % on normal displays.
-        // On very wide screens ( > 2000 px ), 40 % is excessive,
-        // so cap the maximum at 25 %.
-        int min = (int) (frameWidth * 0.10); // 10 % of window width
-        double maxFraction = frameWidth > 2000 ? 0.25 : 0.40;
+        // Allow between minimum and maximum percentage based on screen width
+        int min = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
+        double maxFraction =
+                frameWidth > WIDE_SCREEN_THRESHOLD ? MAX_SIDEBAR_WIDTH_FRACTION_WIDE : MAX_SIDEBAR_WIDTH_FRACTION;
         int max = (int) (frameWidth * maxFraction);
 
         return Math.max(min, Math.min(ideal, max));

@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.CallGraphProvider;
 import io.github.jbellis.brokk.analyzer.CallSite;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.util.*;
@@ -15,8 +16,8 @@ import org.jetbrains.annotations.Nullable;
 public class CallGraphDialog extends JDialog {
 
     private final SymbolSelectionPanel selectionPanel;
-    private final JButton okButton;
-    private final JButton cancelButton;
+    private final MaterialButton okButton;
+    private final MaterialButton cancelButton;
     private final JSpinner depthSpinner;
     private final JLabel callSitesLabel;
     private final IAnalyzer analyzer;
@@ -24,7 +25,8 @@ public class CallGraphDialog extends JDialog {
     @Nullable
     private String selectedMethod = null;
 
-    private int depth = 5;
+    private static final int DEFAULT_DEPTH = 3;
+    private int depth = DEFAULT_DEPTH;
 
     private boolean confirmed = false;
 
@@ -57,7 +59,7 @@ public class CallGraphDialog extends JDialog {
 
         // First row - depth spinner
         var depthLabel = new JLabel("Depth: ");
-        var spinnerModel = new SpinnerNumberModel(5, 1, 10, 1);
+        var spinnerModel = new SpinnerNumberModel(DEFAULT_DEPTH, 1, 10, 1);
         depthSpinner = new JSpinner(spinnerModel);
 
         gbc.gridx = 0;
@@ -97,9 +99,9 @@ public class CallGraphDialog extends JDialog {
 
         // Buttons at the bottom
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        okButton = new JButton("OK");
+        okButton = new MaterialButton("OK");
         okButton.addActionListener(e -> doOk());
-        cancelButton = new JButton("Cancel");
+        cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> {
             confirmed = false;
             dispose();

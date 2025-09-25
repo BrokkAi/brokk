@@ -53,7 +53,7 @@ public final class GenerateThemeCss {
         // Get the appropriate color map
         Map<String, Color> colors = ThemeColors.getAllColors(isDarkTheme);
 
-        for (var entry : colors.entrySet()) {
+        colors.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
             String key = entry.getKey();
             Color color = entry.getValue();
             // Convert color to hex format
@@ -62,7 +62,7 @@ public final class GenerateThemeCss {
             String cssVarName =
                     key.replaceAll("([a-z])([A-Z])", "$1-$2").replace('_', '-').toLowerCase(Locale.ROOT);
             sb.append("  --").append(cssVarName).append(": ").append(hexColor).append(";\n");
-        }
+        });
 
         sb.append("}");
         return sb.toString();

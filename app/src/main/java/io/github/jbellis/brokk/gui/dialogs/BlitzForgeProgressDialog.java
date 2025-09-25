@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.RelevanceClassifier;
@@ -22,8 +21,9 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
+import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
 import io.github.jbellis.brokk.util.Environment;
@@ -34,9 +34,21 @@ import java.awt.*;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -71,7 +83,7 @@ public class BlitzForgeProgressDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(BlitzForgeProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea outputTextArea;
-    private final JButton cancelButton;
+    private final MaterialButton cancelButton;
     private final SwingWorker<TaskResult, ProgressData> worker;
     private final int totalFiles;
     private final AtomicInteger processedFileCount = new AtomicInteger(0); // Tracks files processed
@@ -198,7 +210,7 @@ public class BlitzForgeProgressDialog extends JDialog {
             result = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);
         } else { // "Code"
             var agent = new CodeAgent(cm, model, dialogConsoleIO);
-            result = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
+            result = agent.runSingleFileEdit(file, instructions, readOnlyMessages, Set.of());
         }
         // output the result
         if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -278,7 +290,7 @@ public class BlitzForgeProgressDialog extends JDialog {
         outputPanel.add(outputScrollPane, BorderLayout.CENTER);
         outputPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
 
-        cancelButton = new JButton("Cancel");
+        cancelButton = new MaterialButton("Cancel");
 
         llmLineCountLabel = new JLabel("Lines received: 0");
         JPanel topPanel = new JPanel(new BorderLayout(5, 5));
@@ -358,19 +370,16 @@ public class BlitzForgeProgressDialog extends JDialog {
                             completionService.submit(new TokenAwareCallable() {
                                 @Override
                                 public int tokens() {
-                                    int tokens = 0;
-                                    try {
-                                        var readOnly = new ArrayList<ChatMessage>();
-                                        if (includeWorkspace) {
-                                            readOnly.addAll(
-                                                    CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
-                                            readOnly.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
-                                        }
-                                        tokens = Messages.getApproximateTokens(readOnly)
-                                                + Messages.getApproximateTokens(file.read());
-                                    } catch (Exception e) {
-                                        logger.debug("Token estimation failed for {} – {}", file, e.toString());
+                                    int tokens;
+                                    var readOnly = new ArrayList<ChatMessage>();
+                                    if (includeWorkspace) {
+                                        readOnly.addAll(
+                                                CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
+                                        readOnly.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
                                     }
+                                    tokens = Messages.getApproximateTokens(readOnly)
+                                            + Messages.getApproximateTokens(
+                                                    file.read().orElse(""));
                                     return tokens;
                                 }
 
@@ -425,8 +434,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                             ? List.<ChatMessage>of()
                             : List.of(
                                     new UserMessage(instructions),
-                                    CodePrompts.redactAiMessage(
-                                                    new AiMessage(uiMessageText), EditBlockConflictsParser.instance)
+                                    CodePrompts.redactAiMessage(new AiMessage(uiMessageText), EditBlockParser.instance)
                                             .orElse(new AiMessage("")));
 
                     List<String> failures = results.stream()
@@ -577,6 +585,22 @@ public class BlitzForgeProgressDialog extends JDialog {
                             : "Here are the postprocessing instructions:\n```\n%s```"
                                     .formatted(postProcessingInstructions);
 
+                    // Prepare concise build-fragment content and update the project's BuildFragment so the
+                    // Architect can consult it instead of inlining raw build output into the prompt.
+                    var buildFragmentContent = new StringBuilder();
+                    if (buildFailureText.isBlank()) {
+                        buildFragmentContent.append("Build succeeded.");
+                    } else {
+                        buildFragmentContent.append("Build output:\n").append(buildFailureText);
+                    }
+                    // Include the parallel-details summary to provide context (kept concise).
+                    buildFragmentContent.append("\n\n").append(parallelDetails);
+
+                    // Update the BuildFragment in the ContextManager (so it's visible to LLMs/Agents).
+                    contextManager.updateBuildFragment(buildFragmentContent.toString());
+
+                    // Build the agent instructions WITHOUT embedding raw build output; Architect should consult
+                    // the Build Results fragment in the session context for full build logs/details.
                     var agentInstructions =
                             """
                                             I just finished a parallel upgrade task with the following instructions:
@@ -586,14 +610,12 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                                             %s
 
-                                            Build status:
-                                            ```
-                                            %s
-                                            ```
+                                            Build details and verification output are available in the session's Build Results fragment;
+                                            please consult it when fixing any remaining issues.
 
                                             %s
                                             """
-                                    .formatted(instructions, parallelDetails, buildFailureText, effectiveGoal);
+                                    .formatted(instructions, parallelDetails, effectiveGoal);
 
                     if (runOption == PostProcessingOption.ASK) {
                         outputTextArea.append("Ask command has been invoked. You can close this window.\n");
@@ -602,10 +624,9 @@ public class BlitzForgeProgressDialog extends JDialog {
                     }
 
                     outputTextArea.append("Architect has been invoked. You can close this window.\n");
+                    // Submit the Architect task; the updated BuildFragment is already in the session context.
                     contextManager.submitUserTask("Architect post-upgrade build fix", () -> {
-                        var options = new ArchitectAgent.ArchitectOptions(
-                                false, false, false, true, true, false, false, false, false, false);
-                        chrome.getInstructionsPanel().runArchitectCommand(agentInstructions, options);
+                        chrome.getInstructionsPanel().runArchitectCommand(agentInstructions);
                     });
                 }));
             }
@@ -629,7 +650,7 @@ public class BlitzForgeProgressDialog extends JDialog {
             @Override
             public void windowClosing(java.awt.event.WindowEvent windowEvent) {
                 if (!worker.isDone()) {
-                    int choice = JOptionPane.showConfirmDialog(
+                    int choice = chrome.showConfirmDialog(
                             BlitzForgeProgressDialog.this,
                             "Are you sure you want to cancel the upgrade process?",
                             "Confirm Cancel",

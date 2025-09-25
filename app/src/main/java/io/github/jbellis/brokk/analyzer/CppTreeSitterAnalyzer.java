@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
 import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
-import static java.util.Optional.*;
 
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.cpp.NamespaceProcessor;
@@ -75,7 +74,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
     public CppTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.CPP_TREESITTER, excludedFiles);
+        super(project, Languages.CPP_TREESITTER, excludedFiles);
 
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();

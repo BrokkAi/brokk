@@ -1,8 +1,11 @@
 package io.github.jbellis.brokk.gui.terminal;
 
 import com.jediterm.pty.PtyProcessTtyConnector;
+import com.jediterm.terminal.CursorShape;
 import com.jediterm.terminal.TerminalColor;
+import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.TtyConnector;
+import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
@@ -11,7 +14,9 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Cursor;
@@ -19,19 +24,26 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
-import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -41,6 +53,10 @@ import org.jetbrains.annotations.Nullable;
 class MutableSettingsProvider extends DefaultSettingsProvider {
     private TerminalColor bg = TerminalColor.BLACK;
     private TerminalColor fg = TerminalColor.WHITE;
+
+    // Selection colors: defaults chosen to be visible on dark background
+    private TerminalColor selBg = new TerminalColor(60, 100, 170);
+    private TerminalColor selFg = TerminalColor.WHITE;
 
     @Override
     public @NotNull TerminalColor getDefaultBackground() {
@@ -57,12 +73,49 @@ class MutableSettingsProvider extends DefaultSettingsProvider {
         return MainProject.getTerminalFontSize();
     }
 
+    @Override
+    public boolean useInverseSelectionColor() {
+        // Explicit selection coloring instead of inverse
+        return false;
+    }
+
+    @Override
+    public @NotNull TextStyle getSelectionColor() {
+        // Provide explicit selection background/foreground to ensure visibility
+        return new TextStyle(selFg, selBg);
+    }
+
     public void setBackground(TerminalColor c) {
         bg = c;
     }
 
     public void setForeground(TerminalColor c) {
         fg = c;
+    }
+
+    public void setSelectionBackground(TerminalColor c) {
+        selBg = c;
+    }
+
+    public void setSelectionForeground(TerminalColor c) {
+        selFg = c;
+    }
+
+    @Override
+    public @NotNull TerminalActionPresentation getSelectAllActionPresentation() {
+        // Preserve the default action name (for consistency/localization)
+        TerminalActionPresentation def = super.getSelectAllActionPresentation();
+        String name = def.getName();
+
+        boolean isMac = Environment.isMacOs();
+        KeyStroke ks;
+        if (isMac) {
+            int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // maps to Cmd on macOS
+            ks = KeyStroke.getKeyStroke(KeyEvent.VK_A, menuMask);
+        } else {
+            ks = KeyStroke.getKeyStroke(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
+        }
+        return new TerminalActionPresentation(name, ks);
     }
 }
 
@@ -84,6 +137,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
     private @Nullable TtyConnector connector;
     private final @Nullable BrokkJediTermWidget widget;
     private final @Nullable MutableSettingsProvider terminalSettings;
+    private final CompletableFuture<TerminalPanel> readyFuture = new CompletableFuture<>();
 
     /**
      * New constructor that optionally omits the built-in header and sets initial working directory.
@@ -138,13 +192,21 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         var panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
+        // Create tab-like panel with shell name and close button
+        var tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        tabPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 1, 0, 1, UIManager.getColor("Component.borderColor")),
+                BorderFactory.createEmptyBorder(4, 12, 4, 8)));
+        tabPanel.setOpaque(true);
+        tabPanel.setBackground(UIManager.getColor("Panel.background"));
+
         var shellName = Path.of(shellCommand).getFileName().toString();
         var label = new JLabel(shellName, Icons.TERMINAL, SwingConstants.LEFT);
-        label.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        label.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 
-        var closeButton = new JButton("×");
-        closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
-        closeButton.setPreferredSize(new Dimension(24, 24));
+        var closeButton = new MaterialButton("×");
+        closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        closeButton.setPreferredSize(new Dimension(18, 18));
         closeButton.setMargin(new Insets(0, 0, 0, 0));
         closeButton.setContentAreaFilled(false);
         closeButton.setBorderPainted(false);
@@ -174,12 +236,68 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             }
         });
 
-        var tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        tabHeader.setOpaque(false);
-        tabHeader.add(label);
-        tabHeader.add(closeButton);
+        tabPanel.add(label);
+        tabPanel.add(closeButton);
 
-        panel.add(tabHeader, BorderLayout.WEST);
+        // Capture button: capture selected text or entire terminal buffer into workspace
+        var captureButton = new MaterialButton();
+        captureButton.setIcon(Icons.CONTENT_CAPTURE);
+        captureButton.setPreferredSize(new Dimension(60, 24));
+        captureButton.setMargin(new Insets(0, 0, 0, 0));
+        captureButton.setToolTipText(
+                "<html><p width='280'>Capture the terminal's current output into a new text fragment in your workspace context. This action appends to your context and does not replace or update any previous terminal captures.</p></html>");
+        captureButton.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            try {
+                var w = widget;
+                if (w == null) {
+                    console.systemNotify(
+                            "No terminal available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                // Get the terminal content from the buffer
+                var buffer = w.getTerminalTextBuffer();
+                if (buffer == null) {
+                    console.systemNotify(
+                            "No terminal buffer available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                var lines = new ArrayList<String>();
+                for (int i = 0; i < buffer.getHeight(); i++) {
+                    var line = buffer.getLine(i);
+                    if (line != null) {
+                        lines.add(line.getText());
+                    }
+                }
+
+                String content =
+                        lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
+
+                if (content.isBlank()) {
+                    console.systemNotify(
+                            "No terminal content available to capture",
+                            "Terminal Capture",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                // Add to workspace
+                if (console instanceof Chrome c) {
+                    c.getContextManager().addPastedTextFragment(content);
+                }
+            } catch (Exception ex) {
+                logger.debug("Error capturing terminal output", ex);
+                try {
+                    console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture");
+                } catch (Exception ignore) {
+                    logger.debug("Error reporting capture failure", ignore);
+                }
+            }
+        }));
+
+        panel.add(tabPanel, BorderLayout.WEST);
+        panel.add(captureButton, BorderLayout.EAST);
         return panel;
     }
 
@@ -199,6 +317,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         if (w != null) {
             w.setTtyConnector(connector);
             w.start();
+            readyFuture.complete(this);
         }
 
         // Focus the terminal after startup
@@ -253,6 +372,25 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         }
     }
 
+    public void pasteText(String text) {
+        var c = connector;
+        if (c != null && !text.isEmpty()) {
+            try {
+                c.write(text.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception ex) {
+                logger.debug("Error pasting text into terminal", ex);
+            }
+        }
+    }
+
+    public boolean isReady() {
+        return readyFuture.isDone();
+    }
+
+    public CompletableFuture<TerminalPanel> whenReady() {
+        return readyFuture;
+    }
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         boolean dark = guiTheme.isDarkTheme();
@@ -270,14 +408,21 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         // Define terminal colors based on theme
         TerminalColor bg = dark ? new TerminalColor(30, 30, 30) : new TerminalColor(255, 255, 255);
         TerminalColor fg = dark ? new TerminalColor(221, 221, 221) : new TerminalColor(0, 0, 0);
+        // Selection colors: explicit background/foreground to ensure visibility
+        TerminalColor selBg = dark ? new TerminalColor(60, 100, 170) : new TerminalColor(173, 214, 255);
+        TerminalColor selFg = dark ? new TerminalColor(255, 255, 255) : new TerminalColor(0, 0, 0);
 
         // Apply colors through JediTerm's settings system
         settings.setBackground(bg);
         settings.setForeground(fg);
+        settings.setSelectionBackground(selBg);
+        settings.setSelectionForeground(selFg);
 
         // Trigger repaint to apply the changes
         var w = widget;
         if (w != null) {
+            // needed to force the color update
+            w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
             w.repaint();
         }
     }

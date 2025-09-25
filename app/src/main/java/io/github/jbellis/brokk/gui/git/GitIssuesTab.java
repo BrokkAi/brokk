@@ -1,13 +1,13 @@
 package io.github.jbellis.brokk.gui.git;
 
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.*;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -50,9 +50,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     /** Panel that shows the selected issue’s description; hidden until needed. */
     private final JPanel issueDetailPanel;
 
-    private JButton copyIssueDescriptionButton;
-    private JButton openInBrowserButton;
-    private JButton captureButton;
+    private MaterialButton copyIssueDescriptionButton;
+    private MaterialButton openInBrowserButton;
+    private MaterialButton captureButton;
 
     private FilterBox statusFilter;
 
@@ -92,9 +92,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
     private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
 
-    @Nullable
-    private volatile Future<?> currentSearchFuture;
-
+    private volatile @Nullable Future<?> currentSearchFuture;
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
@@ -163,7 +161,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // ── Refresh button ──────────────────────────────────────────────────────
         // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        JButton refreshButton = new JButton(); // Unicode clockwise arrow
+        MaterialButton refreshButton = new MaterialButton(); // Unicode clockwise arrow
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
@@ -430,9 +428,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // No separate bottom-button panel needed after redesign
 
-        copyIssueDescriptionButton = new JButton(copyDescriptionAction);
-        openInBrowserButton = new JButton(openInBrowserAction);
-        captureButton = new JButton(captureAction);
+        copyIssueDescriptionButton = new MaterialButton();
+        copyIssueDescriptionButton.setAction(copyDescriptionAction);
+        openInBrowserButton = new MaterialButton();
+        openInBrowserButton.setAction(openInBrowserAction);
+        captureButton = new MaterialButton();
+        captureButton.setAction(captureAction);
 
         // ── compact icon-style buttons ───────────────────────────────────────
         final Icon copyIcon = Icons.CONTENT_COPY;
@@ -444,6 +445,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         openInBrowserButton.setIcon(browserIcon);
         openInBrowserButton.setText("");
         openInBrowserButton.setMargin(new Insets(2, 2, 2, 2));
+
+        final Icon captureIcon = Icons.CONTENT_CAPTURE;
+        captureButton.setIcon(captureIcon);
+        captureButton.setText("");
+        captureButton.setMargin(new Insets(2, 2, 2, 2));
 
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
@@ -762,6 +768,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
+
         searchBox.setLoading(true, "Searching issues");
         currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<IssueHeader> fetchedIssueHeaders;
@@ -907,14 +914,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
 
         // Data for EDT update
-        final List<IssueHeader> finalSourceListForApiField = isFullUpdate ? new ArrayList<>(sourceList) : null;
         final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
 
         SwingUtilities.invokeLater(() -> {
             // This part runs on the EDT
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
-            if (isFullUpdate && finalSourceListForApiField != null) {
-                allIssuesFromApi = finalSourceListForApiField;
+            if (isFullUpdate) {
+                allIssuesFromApi = new ArrayList<>(sourceList);
                 logger.debug(
                         "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
                         allIssuesFromApi.size());
@@ -1026,11 +1032,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
-        IssueHeader header = displayedIssues.get(selectedRow);
-        captureIssueHeader(header);
+        captureIssue(displayedIssues.get(selectedRow));
     }
 
-    private void captureIssueHeader(IssueHeader header) {
+    private void captureIssue(IssueHeader header) {
         var future = contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
@@ -1092,16 +1097,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
                 header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
                 bodyForCapture);
-        return List.of(new CustomMessage(Map.of("text", content)));
+        return List.of(UserMessage.from(header.author(), content));
     }
 
     private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(
             IssueDetails details, List<ChatMessage> messages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: %s", header.id(), header.title());
-        return new ContextFragment.TaskFragment(
-                this.contextManager, messages, description, false // some issues contain HTML
-                );
+        return new ContextFragment.TaskFragment(this.contextManager, messages, description, false);
     }
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
@@ -1126,9 +1129,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             IssueDetails details, List<ChatMessage> commentMessages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: Comments", header.id());
-        return new ContextFragment.TaskFragment(
-                this.contextManager, commentMessages, description, false // some comments contain HTML
-                );
+        return new ContextFragment.TaskFragment(this.contextManager, commentMessages, description, false);
     }
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {

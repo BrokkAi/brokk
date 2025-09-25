@@ -198,7 +198,7 @@ class SymbolLookupServiceTest {
                     createCodeUnit("com.example.util.ParserUtil", "ParserUtil"), // Should NOT match
                     createCodeUnit("com.example.data.XmlParser", "XmlParser")); // Should NOT match
 
-            var javaMatches = invokePrivateFindAllJavaClassMatches("Parser", searchResults);
+            var javaMatches = SymbolLookupService.findAllClassMatches("Parser", searchResults);
 
             assertEquals(3, javaMatches.size(), "Should find all 3 classes named 'Parser'");
 
@@ -232,7 +232,7 @@ class SymbolLookupServiceTest {
                             "com.example",
                             "Config.PARSER_ENABLED")); // FIELD - should NOT match
 
-            var javaMatches = invokePrivateFindAllJavaClassMatches("Parser", searchResults);
+            var javaMatches = SymbolLookupService.findAllClassMatches("Parser", searchResults);
 
             assertEquals(1, javaMatches.size(), "Should find only the class, not methods or fields");
             assertEquals("com.example.Parser", javaMatches.get(0).fqName());
@@ -247,7 +247,7 @@ class SymbolLookupServiceTest {
                     createCodeUnit("com.example.data.XmlParser", "XmlParser"),
                     createCodeUnit("com.example.json.JsonParser", "JsonParser"));
 
-            var javaMatches = invokePrivateFindAllJavaClassMatches("Parser", searchResults);
+            var javaMatches = SymbolLookupService.findAllClassMatches("Parser", searchResults);
 
             assertTrue(javaMatches.isEmpty(), "Should find no exact matches for 'Parser'");
         }
@@ -317,18 +317,6 @@ class SymbolLookupServiceTest {
             return (String) method.invoke(null, fqName);
         } catch (Exception e) {
             throw new RuntimeException("Failed to invoke private method getSimpleName", e);
-        }
-    }
-
-    private List<CodeUnit> invokePrivateFindAllJavaClassMatches(String searchTerm, List<CodeUnit> searchResults) {
-        try {
-            var method = SymbolLookupService.class.getDeclaredMethod("findAllClassMatches", String.class, List.class);
-            method.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            var result = (List<CodeUnit>) method.invoke(null, searchTerm, searchResults);
-            return result;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to invoke private method findAllClassMatches", e);
         }
     }
 }

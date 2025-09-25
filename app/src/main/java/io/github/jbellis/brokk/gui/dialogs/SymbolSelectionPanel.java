@@ -5,8 +5,6 @@ import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -33,10 +31,11 @@ public class SymbolSelectionPanel extends JPanel {
         // Build text input with autocomplete at the top
         symbolInput = new JTextField(30);
         var provider = createSymbolCompletionProvider(analyzer);
+        // Enable auto-activation so suggestions appear on every keystroke (immediate popup).
+        provider.setAutoActivationRules(true, "._$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
         autoCompletion = new AutoCompletion(provider);
-        // Trigger with Ctrl+Space (Always. On Mac cmd-space is Spotlight)
-        autoCompletion.setAutoActivationEnabled(false);
-        autoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
+        autoCompletion.setAutoActivationEnabled(true);
+        autoCompletion.setAutoActivationDelay(0);
         autoCompletion.install(symbolInput);
 
         JPanel inputPanel = new JPanel(new BorderLayout());
@@ -44,11 +43,11 @@ public class SymbolSelectionPanel extends JPanel {
         inputPanel.add(symbolInput, BorderLayout.CENTER);
         String autocompleteText;
         if (typeFilter.equals(CodeUnitType.ALL)) {
-            autocompleteText = "Ctrl-space to autocomplete class and member names";
+            autocompleteText = "Type to autocomplete class and member names";
         } else {
             assert typeFilter.size() == 1 : "Expected exactly one type filter";
             var type = typeFilter.iterator().next();
-            autocompleteText = "Ctrl-space to autocomplete " + type.toString().toLowerCase(Locale.ROOT) + " names";
+            autocompleteText = "Type to autocomplete " + type.toString().toLowerCase(Locale.ROOT) + " names";
         }
         inputPanel.add(new JLabel(autocompleteText), BorderLayout.SOUTH);
         add(inputPanel, BorderLayout.CENTER);

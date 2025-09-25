@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import java.io.File;
@@ -144,7 +145,7 @@ public class OpenProjectDialog extends JDialog {
 
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
 
-        var openButton = new JButton("Open Selected");
+        var openButton = new MaterialButton("Open Selected");
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(openButton);
         panel.add(buttonPanel, BorderLayout.SOUTH);
@@ -211,7 +212,13 @@ public class OpenProjectDialog extends JDialog {
         if (chooseIcon == null) {
             chooseIcon = UIManager.getIcon("FileView.directoryIcon");
         }
-        var chooseButton = chooseIcon != null ? new JButton(chooseIcon) : new JButton("...");
+        MaterialButton chooseButton;
+        if (chooseIcon != null) {
+            chooseButton = new MaterialButton();
+            chooseButton.setIcon(chooseIcon);
+        } else {
+            chooseButton = new MaterialButton("...");
+        }
         if (chooseIcon != null) {
             var iconDim = new Dimension(chooseIcon.getIconWidth(), chooseIcon.getIconHeight());
             chooseButton.setPreferredSize(iconDim);
@@ -270,7 +277,7 @@ public class OpenProjectDialog extends JDialog {
             }
         });
 
-        var cloneButton = new JButton("Clone and Open");
+        var cloneButton = new MaterialButton("Clone and Open");
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(cloneButton);
 

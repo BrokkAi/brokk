@@ -26,15 +26,6 @@
 
   <Loggers>
     <!-- Logger configuration for specific packages logging only errors -->
-    <Logger name="io.joern" level="error" additivity="false">
-      <AppenderRef ref="RollingFileLogger"/>
-    </Logger>
-    <Logger name="io.shiftleft" level="error" additivity="false">
-      <AppenderRef ref="RollingFileLogger"/>
-    </Logger>
-    <Logger name="flatgraph" level="error" additivity="false">
-      <AppenderRef ref="RollingFileLogger"/>
-    </Logger>
     <Logger name="org.eclipse" level="error" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
     </Logger>

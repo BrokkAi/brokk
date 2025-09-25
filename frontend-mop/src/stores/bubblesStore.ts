@@ -2,11 +2,15 @@ import {writable} from 'svelte/store';
 import type {BrokkEvent, BubbleState} from '../types';
 import type {ResultMsg} from '../worker/shared';
 import {clearState, pushChunk, parse} from '../worker/worker-bridge';
+import {register, unregister} from '../worker/parseRouter';
+import { getNextThreadId, threadStore } from './threadStore';
 
 export const bubblesStore = writable<BubbleState[]>([]);
 
 /* ─── monotonic IDs & seq  ───────────────────────────── */
 let nextBubbleSeq = 0;   // grows forever (DOM keys never reused)
+let currentThreadId = getNextThreadId();
+threadStore.setThreadCollapsed(currentThreadId, false, 'live');
 
 /* ─── main entry from Java bridge ─────────────────────── */
 export function onBrokkEvent(evt: BrokkEvent): void {
@@ -14,9 +18,13 @@ export function onBrokkEvent(evt: BrokkEvent): void {
     bubblesStore.update(list => {
         switch (evt.type) {
             case 'clear':
+                list.forEach(bubble => unregister(bubble.seq));
                 nextBubbleSeq++;
                 // clear without flushing (hard clear; no next message)
                 clearState(false);
+                threadStore.clearThreadsByType('live');
+                currentThreadId = getNextThreadId();
+                threadStore.setThreadCollapsed(currentThreadId, false, 'live');
                 return [];
 
             case 'chunk': {
@@ -30,7 +38,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         reasoningComplete: true,
                         streaming: false,
                         duration: durationInMs / 1000,
-                        isCollapsed: true, // Auto-collapse
+                        isCollapsed: true, // Auto-collapse reasoning bubble
                     };
                     list = [...list.slice(0, -1), updatedBubble];
                 }
@@ -48,6 +56,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     nextBubbleSeq++;
                     bubble = {
                         seq: nextBubbleSeq,
+                        threadId: currentThreadId,
                         type: evt.msgType ?? 'AI',
                         markdown: evt.text ?? '',
                         epoch: evt.epoch,
@@ -76,6 +85,12 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     list = [...list.slice(0, -1), bubble];
                 }
 
+                // Register a handler for this bubble's parse results
+                register(bubble.seq, (msg: ResultMsg) => {
+                    bubblesStore.update(l =>
+                        l.map(b => (b.seq === msg.seq ? {...b, hast: msg.tree} : b))
+                    );
+                });
                 if (isStreaming) {
                     pushChunk(evt.text ?? '', bubble.seq);
                 } else {
@@ -95,22 +110,20 @@ export function onBrokkEvent(evt: BrokkEvent): void {
 /* ─── entry from worker ───────────────────────────────── */
 export function reparseAll(contextId = 'main-context'): void {
     bubblesStore.update(list => {
-        // Clear HAST trees to force re-rendering when worker sends back results
-        const clearedList = list.map(bubble => ({...bubble, hast: undefined}));
-
-        for (const bubble of clearedList) {
+        for (const bubble of list) {
+            // Re-register a handler for each bubble. This overwrites any existing handler
+            // for the same seq, so there is no need to unregister first.
+            register(bubble.seq, (msg: ResultMsg) => {
+                bubblesStore.update(l =>
+                    l.map(b => (b.seq === msg.seq ? {...b, hast: msg.tree} : b))
+                );
+            });
             // Re-parse any bubble that has markdown content and might contain code.
             // skip updating the internal worker buffer, to give the worker the chance to go ahead where it stopped after reparseAll
-            parse(bubble.markdown, bubble.seq, false);
+            parse(bubble.markdown, bubble.seq, false, false);
         }
-        return clearedList; // Return new list with cleared HAST to trigger reactivity
+        return list; // Return new list with cleared HAST to trigger reactivity
     });
-}
-
-export function onWorkerResult(msg: ResultMsg): void {
-    bubblesStore.update(list =>
-        list.map(b => (b.seq === msg.seq ? {...b, hast: msg.tree} : b))
-    );
 }
 
 /* ─── UI actions ──────────────────────────────────────── */

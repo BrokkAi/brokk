@@ -12,7 +12,8 @@ public class MultiAnalyzer
                 UsagesProvider,
                 SkeletonProvider,
                 SourceCodeProvider,
-                IncrementalUpdateProvider {
+                IncrementalUpdateProvider,
+                TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -86,15 +87,17 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName)));
+    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
+        return findFirst(analyzer ->
+                analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName, includeComments)));
     }
 
     @Override
-    public Optional<String> getClassSource(String fqcn) {
+    public Optional<String> getClassSource(String fqcn, boolean includeComments) {
         for (var delegate : delegates.values()) {
             try {
-                final var maybeSource = delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn));
+                final var maybeSource =
+                        delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn, includeComments));
                 if (maybeSource.isPresent()) {
                     return maybeSource;
                 }
@@ -106,8 +109,14 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
+        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
+                .flatMap(scp -> scp.getSourceForCodeUnit(codeUnit, includeComments)));
+    }
+
+    @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        var lang = Language.fromExtension(Files.getFileExtension(file.absPath().toString()));
+        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
         if (delegate == null) {
             return Collections.emptyMap();
@@ -138,7 +147,7 @@ public class MultiAnalyzer
 
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
-        var lang = Language.fromExtension(
+        var lang = Languages.fromExtension(
                 com.google.common.io.Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
         if (delegate != null) {
@@ -155,6 +164,11 @@ public class MultiAnalyzer
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return findFirst(analyzer -> analyzer.getDefinition(fqName));
+    }
+
+    @Override
+    public boolean isDefinitionAvailable(String fqName) {
+        return delegates.values().stream().anyMatch(analyzer -> analyzer.isDefinitionAvailable(fqName));
     }
 
     @Override
@@ -198,16 +212,47 @@ public class MultiAnalyzer
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-        for (var an : delegates.values()) {
-            an.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> incAnalyzer.update(changedFiles));
+
+        for (var entry : delegates.entrySet()) {
+            var delegateKey = entry.getKey();
+            var analyzer = entry.getValue();
+
+            // Filter files by language extensions
+            var languageExtensions = delegateKey.getExtensions();
+            var relevantFiles = changedFiles.stream()
+                    .filter(pf -> languageExtensions.contains(pf.extension()))
+                    .collect(Collectors.toSet());
+
+            if (relevantFiles.isEmpty()) {
+                continue;
+            }
+
+            analyzer.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> {
+                incAnalyzer.update(relevantFiles);
+            });
         }
+
         return this;
     }
 
     @Override
-    public FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
-        // TODO -- unused right now
-        throw new UnsupportedOperationException();
+    public Optional<String> extractClassName(String reference) {
+        return findFirst(analyzer -> analyzer.extractClassName(reference));
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        for (var delegate : delegates.values()) {
+            try {
+                var providerOpt = delegate.as(TypeAliasProvider.class);
+                if (providerOpt.isPresent() && providerOpt.get().isTypeAlias(cu)) {
+                    return true;
+                }
+            } catch (UnsupportedOperationException ignored) {
+                // delegate doesn't implement capability
+            }
+        }
+        return false;
     }
 
     /** @return a copy of the delegates of this analyzer. */

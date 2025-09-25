@@ -204,6 +204,40 @@ public class GitHubAuth {
         return !token.isBlank();
     }
 
+    public static boolean validateStoredToken() {
+        String token = MainProject.getGitHubToken();
+        if (token.isEmpty()) {
+            return false;
+        }
+
+        try {
+            var github = new GitHubBuilder().withOAuthToken(token).build();
+            github.getMyself();
+            logger.debug("Stored GitHub token is valid");
+            return true;
+        } catch (IOException e) {
+            logger.warn("Stored GitHub token is invalid: {}", e.getMessage());
+            MainProject.setGitHubToken("");
+            invalidateInstance();
+            return false;
+        }
+    }
+
+    public static @Nullable String getAuthenticatedUsername() {
+        String token = MainProject.getGitHubToken();
+        if (token.isEmpty()) {
+            return null;
+        }
+
+        try {
+            var github = new GitHubBuilder().withOAuthToken(token).build();
+            return github.getMyself().getLogin();
+        } catch (Exception e) {
+            // Silently ignore all errors for this nice-to-have feature
+            return null;
+        }
+    }
+
     public String getOwner() {
         return owner;
     }

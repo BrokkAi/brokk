@@ -190,11 +190,11 @@ public class SkeletonPrinter {
 
     private static Language parseLanguage(String languageStr) {
         return switch (languageStr) {
-            case "typescript", "ts" -> Language.TYPESCRIPT;
-            case "javascript", "js" -> Language.JAVASCRIPT;
-            case "java" -> Language.JAVA;
-            case "python", "py" -> Language.PYTHON;
-            case "cpp", "c++" -> Language.CPP_TREESITTER;
+            case "typescript", "ts" -> Languages.TYPESCRIPT;
+            case "javascript", "js" -> Languages.JAVASCRIPT;
+            case "java" -> Languages.JAVA;
+            case "python", "py" -> Languages.PYTHON;
+            case "cpp", "c++" -> Languages.CPP_TREESITTER;
             default -> null;
         };
     }

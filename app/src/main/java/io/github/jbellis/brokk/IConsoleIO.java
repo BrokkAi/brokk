@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.util.Messages;
+import java.awt.*;
 import java.util.List;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -24,7 +25,7 @@ public interface IConsoleIO {
     }
 
     default int showConfirmDialog(
-            @Nullable JFrame frame, String message, String title, int optionType, int messageType) {
+            @Nullable Component parent, String message, String title, int optionType, int messageType) {
         throw new UnsupportedOperationException();
     }
 

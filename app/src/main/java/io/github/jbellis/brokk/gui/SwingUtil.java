@@ -161,6 +161,23 @@ public class SwingUtil {
      * Icon wrapper that always fetches the current value from UIManager. By delegating on every call we ensure the
      * image really changes after a theme switch without recreating every component that uses it.
      */
+    public static void applyPrimaryButtonStyle(javax.swing.AbstractButton b) {
+        java.awt.Color bg = UIManager.getColor("Button.default.background");
+        if (bg == null) {
+            bg = UIManager.getColor("Component.linkColor");
+        }
+
+        b.setOpaque(true);
+        b.setBackground(bg);
+        b.setForeground(Color.WHITE);
+        b.setBorderPainted(false);
+        b.setFocusPainted(false);
+
+        // Mark this button so we can re-apply the primary style after Look-and-Feel/theme changes.
+        // This avoids leaving an explicitly-set background that becomes stale when UIManager changes.
+        b.putClientProperty("brokk.primaryButton", true);
+    }
+
     public static class ThemedIcon implements Icon {
 
         private final String uiKey;

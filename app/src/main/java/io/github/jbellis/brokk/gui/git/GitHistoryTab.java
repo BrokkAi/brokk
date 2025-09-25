@@ -114,7 +114,7 @@ public class GitHistoryTab extends JPanel {
 
             if (single) {
                 var selFile = contextManager.toFile(getFilePath());
-                editFileItem.setEnabled(!contextManager.getEditableFiles().contains(selFile));
+                editFileItem.setEnabled(!contextManager.getFilesInContext().contains(selFile));
             } else {
                 editFileItem.setEnabled(false);
             }
