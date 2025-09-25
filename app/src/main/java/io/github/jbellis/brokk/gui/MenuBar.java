@@ -31,7 +31,6 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
-import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
     /**
@@ -550,7 +549,7 @@ public class MenuBar {
                     public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
                         SwingUtilities.invokeLater(() -> {
                             // Find the focused Chrome window, or fallback to any active window
-                            var targetChrome = findFocusedOrActiveChromeWindow();
+                            var targetChrome = Brokk.getActiveWindow();
                             if (targetChrome != null) {
                                 openSettingsDialog(targetChrome);
                             }
@@ -561,53 +560,6 @@ public class MenuBar {
         } catch (Throwable t) {
             // If global handler setup fails, individual windows will fall back to their own handlers
         }
-    }
-
-    /**
-     * Finds the currently focused Chrome window, or returns any active Chrome window as fallback.
-     *
-     * @return the focused Chrome window, or null if no windows are active
-     */
-    @Nullable
-    private static Chrome findFocusedOrActiveChromeWindow() {
-        var openChromeInstances = Brokk.getOpenProjectWindows().values();
-        if (openChromeInstances.isEmpty()) {
-            return null;
-        }
-
-        // First try to find the focused window that is displayable and showing
-        var focusedWindow = openChromeInstances.stream()
-                .filter(chrome -> {
-                    var frame = chrome.getFrame();
-                    return frame.isFocused() && frame.isDisplayable() && frame.isShowing();
-                })
-                .findFirst();
-        if (focusedWindow.isPresent()) {
-            return focusedWindow.get();
-        }
-
-        // Fallback: try to find the active window (not minimized) that is displayable and showing
-        var activeWindow = openChromeInstances.stream()
-                .filter(chrome -> {
-                    var frame = chrome.getFrame();
-                    return frame.isActive()
-                            && (frame.getExtendedState() & Frame.ICONIFIED) == 0
-                            && frame.isDisplayable()
-                            && frame.isShowing();
-                })
-                .findFirst();
-        if (activeWindow.isPresent()) {
-            return activeWindow.get();
-        }
-
-        // Last resort: return any displayable and showing Chrome instance
-        return openChromeInstances.stream()
-                .filter(chrome -> {
-                    var frame = chrome.getFrame();
-                    return frame.isDisplayable() && frame.isShowing();
-                })
-                .findFirst()
-                .orElse(null);
     }
 
     /**

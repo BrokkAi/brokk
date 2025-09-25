@@ -1028,6 +1028,54 @@ public class Brokk {
         return openProjectWindows;
     }
 
+    /**
+     * Finds the focused or active Chrome window among open project windows. First tries to find a focused window, then
+     * falls back to an active (non-minimized) window, and finally returns any displayable and showing Chrome instance.
+     *
+     * @return the focused or active Chrome window, or null if no suitable window is found
+     */
+    @Nullable
+    public static Chrome getActiveWindow() {
+        var openChromeInstances = getOpenProjectWindows().values();
+        if (openChromeInstances.isEmpty()) {
+            return null;
+        }
+
+        // First try to find the focused window that is displayable and showing
+        var focusedWindow = openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isFocused() && frame.isDisplayable() && frame.isShowing();
+                })
+                .findFirst();
+        if (focusedWindow.isPresent()) {
+            return focusedWindow.get();
+        }
+
+        // Fallback: try to find the active window (not minimized) that is displayable and showing
+        var activeWindow = openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isActive()
+                            && (frame.getExtendedState() & Frame.ICONIFIED) == 0
+                            && frame.isDisplayable()
+                            && frame.isShowing();
+                })
+                .findFirst();
+        if (activeWindow.isPresent()) {
+            return activeWindow.get();
+        }
+
+        // Last resort: return any displayable and showing Chrome instance
+        return openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isDisplayable() && frame.isShowing();
+                })
+                .findFirst()
+                .orElse(null);
+    }
+
     public static List<Chrome> getWorktreeChromes(IProject mainProject) {
         return mainToWorktreeChromes.getOrDefault(mainProject, List.of());
     }
