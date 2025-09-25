@@ -51,6 +51,7 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
+import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -86,6 +87,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton playBtn = new MaterialButton();
     private final MaterialButton playAllBtn = new MaterialButton();
     private final MaterialButton combineBtn = new MaterialButton();
+    private final MaterialButton splitBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final IConsoleIO console;
     private final Timer llmStateTimer;
@@ -336,6 +338,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Combine two selected tasks into one new task.<br>The text from both tasks will be merged and the originals deleted.<br>Enabled only when exactly 2 tasks are selected.</body></html>");
         combineBtn.addActionListener(e -> combineSelectedTasks());
 
+        splitBtn.setIcon(Icons.FORK_RIGHT);
+        splitBtn.setToolTipText(
+                "<html><body style='width:300px'>Split the selected task into multiple tasks.<br>Enter one task per line in the dialog.</body></html>");
+        splitBtn.addActionListener(e -> splitSelectedTask());
+
         clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
         clearCompletedBtn.setToolTipText(
                 "<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
@@ -348,6 +355,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             playBtn.setMargin(new Insets(0, 0, 0, 0));
             playAllBtn.setMargin(new Insets(0, 0, 0, 0));
             combineBtn.setMargin(new Insets(0, 0, 0, 0));
+            splitBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -357,6 +365,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             buttonBar.add(playBtn);
             buttonBar.add(playAllBtn);
             buttonBar.add(combineBtn);
+            buttonBar.add(splitBtn);
             buttonBar.add(clearCompletedBtn);
 
             gbc.gridx = 1;
@@ -730,6 +739,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Combine enabled only if exactly 2 tasks selected and no running/pending in selection
         combineBtn.setEnabled(selIndices.length == 2 && !blockEdits);
+        // Split enabled only if exactly 1 task selected and no running/pending in selection
+        splitBtn.setEnabled(selIndices.length == 1 && !blockEdits);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
@@ -1276,6 +1287,86 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         saveTasksForCurrentSession();
         updateButtonStates();
+    }
+
+    private void splitSelectedTask() {
+        int[] indices = list.getSelectedIndices();
+        if (indices.length != 1) {
+            JOptionPane.showMessageDialog(
+                    this, "Select exactly one task to split.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        int idx = indices[0];
+
+        if (runningIndex != null && idx == runningIndex.intValue()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split a task that is currently running.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (pendingQueue.contains(idx)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split a task that is queued for running.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        stopInlineEdit(true);
+
+        if (idx < 0 || idx >= model.size()) {
+            return;
+        }
+
+        TaskItem original = model.get(idx);
+        if (original == null) return;
+
+        var textArea = new JTextArea();
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(true);
+        textArea.setText(original.text());
+
+        var scroll = new JScrollPane(
+                textArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setPreferredSize(new java.awt.Dimension(420, 180));
+
+        var panel = new JPanel(new BorderLayout(6, 6));
+        panel.add(new JLabel("Enter one task per line:"), BorderLayout.NORTH);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        int result = JOptionPane.showConfirmDialog(
+                this, panel, "Split Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        var lines = Arrays.stream(textArea.getText().split("\\R+"))
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
+
+        if (lines.isEmpty()) {
+            return;
+        }
+
+        // Replace the original with the first line; insert remaining lines after; mark all as not done
+        model.set(idx, new TaskItem(lines.get(0), false));
+        for (int i = 1; i < lines.size(); i++) {
+            model.add(idx + i, new TaskItem(lines.get(i), false));
+        }
+
+        // Select the new block
+        list.setSelectionInterval(idx, idx + lines.size() - 1);
+
+        saveTasksForCurrentSession();
+        updateButtonStates();
+        list.revalidate();
+        list.repaint();
     }
 
     private void clearCompletedTasks() {
