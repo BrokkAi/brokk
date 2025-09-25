@@ -1453,8 +1453,8 @@ public class WorkspacePanel extends JPanel {
         innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
 
         // Preserve details in tooltip
-        innerLabel.setToolTipText(
-                "Total: %,d LOC is ~%,d tokens with an estimated cost %s per request".formatted(totalLines, approxTokens, costText));
+        innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                .formatted(totalLines, approxTokens, costText));
 
         // Keep the secondary label hidden to avoid changing the row height
         costLabel.setText(" ");
