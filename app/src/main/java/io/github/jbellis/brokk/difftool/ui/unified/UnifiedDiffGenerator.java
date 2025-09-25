@@ -403,6 +403,21 @@ public class UnifiedDiffGenerator {
     }
 
     /**
+     * Normalize a line by removing all types of line ending characters.
+     * This uses the \R pattern to catch all Unicode line breaks.
+     *
+     * @param line The line to normalize
+     * @return The line with all line endings stripped
+     */
+    private static String normalizeLineEndings(String line) {
+        if (line == null) {
+            return "";
+        }
+        // Use \R to match any Unicode line break sequence
+        return line.replaceAll("\\R", "");
+    }
+
+    /**
      * Generate plain text unified diff content from a JMDiffNode (for pure syntax highlighting).
      * This method produces simple text output without complex DiffLine objects.
      *
@@ -437,7 +452,7 @@ public class UnifiedDiffGenerator {
 
                 // Normalize lines to remove any embedded newlines that could cause spacing issues
                 leftLines = rawLeftLines.stream()
-                    .map(line -> line.replaceAll("\\r?\\n", ""))
+                    .map(UnifiedDiffGenerator::normalizeLineEndings)
                     .toList();
                 logger.debug("After normalization, first few: {}",
                     leftLines.stream().limit(3).map(line -> "'" + line + "'").toList());
@@ -466,33 +481,63 @@ public class UnifiedDiffGenerator {
     }
 
     /**
-     * Generate standard context plain text using difflib's UnifiedDiffUtils.
+     * Generate standard context plain text using comprehensive line normalization.
      */
     private static String generateStandardContextPlainText(
-            List<String> leftLines, Patch<String> patch, String leftTitle, String rightTitle) {
-
-        // Use UnifiedDiffUtils to generate standard unified diff from the existing patch
-        var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(leftTitle, rightTitle, leftLines, patch, STANDARD_CONTEXT_LINES);
+            List<String> leftLines,
+            Patch<String> patch,
+            @SuppressWarnings("unused") String leftTitle,
+            @SuppressWarnings("unused") String rightTitle) {
 
         var textBuilder = new StringBuilder();
-        logger.debug("Processing {} unified diff lines", unifiedLines.size());
-        for (int i = 0; i < unifiedLines.size(); i++) {
-            var line = unifiedLines.get(i);
-            // Skip file headers (--- and +++ lines)
-            if (line.startsWith("---") || line.startsWith("+++")) {
-                logger.debug("Skipping file header: {}", line);
-                continue;
-            }
-            // Debug log each line to understand the structure
-            logger.debug("Line {}: '{}' (length={})", i, line.replace("\n", "\\n").replace("\r", "\\r"), line.length());
+        var deltas = patch.getDeltas();
 
-            // Skip empty lines that might cause interlacing issues
-            if (line.trim().isEmpty() && !line.startsWith(" ")) {
-                logger.debug("Skipping unexpected empty line at index {}", i);
-                continue;
+        logger.debug("Generating standard context diff with {} deltas", deltas.size());
+
+        for (var delta : deltas) {
+            // Add hunk header
+            var hunkHeader = String.format(
+                    "@@ -%d,%d +%d,%d @@",
+                    delta.getSource().getPosition() + 1,
+                    delta.getSource().size(),
+                    delta.getTarget().getPosition() + 1,
+                    delta.getTarget().size());
+            textBuilder.append(hunkHeader).append('\n');
+
+            // Add context lines before the change (3 lines)
+            int contextStart = Math.max(0, delta.getSource().getPosition() - STANDARD_CONTEXT_LINES);
+            for (int i = contextStart; i < delta.getSource().getPosition(); i++) {
+                if (i < leftLines.size()) {
+                    // Context lines are already normalized from leftLines processing
+                    textBuilder.append(' ').append(leftLines.get(i)).append('\n');
+                }
             }
-            textBuilder.append(line);
-            textBuilder.append('\n');
+
+            // Add deleted lines - NORMALIZE THESE (they come from patch and may have line endings)
+            for (var deletedLine : delta.getSource().getLines()) {
+                var normalizedDeletedLine = normalizeLineEndings(deletedLine);
+                logger.trace("Normalized deleted line: '{}' -> '{}'",
+                    deletedLine.replace("\n", "\\n"), normalizedDeletedLine);
+                textBuilder.append('-').append(normalizedDeletedLine).append('\n');
+            }
+
+            // Add added lines - NORMALIZE THESE (they come from patch and may have line endings)
+            for (var addedLine : delta.getTarget().getLines()) {
+                var normalizedAddedLine = normalizeLineEndings(addedLine);
+                logger.trace("Normalized added line: '{}' -> '{}'",
+                    addedLine.replace("\n", "\\n"), normalizedAddedLine);
+                textBuilder.append('+').append(normalizedAddedLine).append('\n');
+            }
+
+            // Add context lines after the change (3 lines)
+            int sourceEnd = delta.getSource().getPosition() + delta.getSource().size();
+            int contextEnd = Math.min(leftLines.size(), sourceEnd + STANDARD_CONTEXT_LINES);
+            for (int i = sourceEnd; i < contextEnd; i++) {
+                if (i < leftLines.size()) {
+                    // Context lines are already normalized from leftLines processing
+                    textBuilder.append(' ').append(leftLines.get(i)).append('\n');
+                }
+            }
         }
 
         // Remove trailing newline if present
@@ -500,6 +545,8 @@ public class UnifiedDiffGenerator {
             textBuilder.setLength(textBuilder.length() - 1);
         }
 
+        logger.debug("Generated clean unified diff with {} characters, {} lines",
+            textBuilder.length(), textBuilder.toString().split("\n").length);
         return textBuilder.toString();
     }
 
@@ -509,6 +556,8 @@ public class UnifiedDiffGenerator {
     private static String generateFullContextPlainText(List<String> leftLines, Patch<String> patch) {
         var textBuilder = new StringBuilder();
         var deltas = patch.getDeltas();
+
+        logger.debug("Generating full context diff with {} deltas", deltas.size());
 
         int leftIndex = 0;
 
@@ -535,18 +584,24 @@ public class UnifiedDiffGenerator {
             textBuilder.append(hunkHeader);
             textBuilder.append('\n');
 
-            // Add deleted lines
+            // Add deleted lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var deletedLine : delta.getSource().getLines()) {
+                var normalizedDeletedLine = normalizeLineEndings(deletedLine);
+                logger.trace("Normalized deleted line: '{}' -> '{}'",
+                    deletedLine.replace("\n", "\\n"), normalizedDeletedLine);
                 textBuilder.append("-");
-                textBuilder.append(deletedLine);
+                textBuilder.append(normalizedDeletedLine);
                 textBuilder.append('\n');
                 leftIndex++;
             }
 
-            // Add added lines
+            // Add added lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var addedLine : delta.getTarget().getLines()) {
+                var normalizedAddedLine = normalizeLineEndings(addedLine);
+                logger.trace("Normalized added line: '{}' -> '{}'",
+                    addedLine.replace("\n", "\\n"), normalizedAddedLine);
                 textBuilder.append("+");
-                textBuilder.append(addedLine);
+                textBuilder.append(normalizedAddedLine);
                 textBuilder.append('\n');
             }
         }
@@ -564,6 +619,7 @@ public class UnifiedDiffGenerator {
             textBuilder.setLength(textBuilder.length() - 1);
         }
 
+        logger.debug("Generated full context diff with {} characters", textBuilder.length());
         return textBuilder.toString();
     }
 
