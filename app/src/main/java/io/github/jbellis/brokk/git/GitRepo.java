@@ -2163,9 +2163,11 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public static void initRepo(Path root) throws GitAPIException, IOException {
         logger.info("Initializing new Git repository at {}", root);
-        Git.init().setDirectory(root.toFile()).call();
-        logger.info("Git repository initialized at {}.", root);
-        ensureBrokkIgnored(root);
+        try (var git = Git.init().setDirectory(root.toFile()).call()) {
+            logger.info("Git repository initialized at {}.", root);
+            ensureBrokkIgnored(root);
+            git.commit().setAllowEmpty(true).setMessage("Initial commit").call();
+        }
     }
 
     private static void ensureBrokkIgnored(Path root) throws IOException {
