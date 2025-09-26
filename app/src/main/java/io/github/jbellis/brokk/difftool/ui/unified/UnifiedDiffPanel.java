@@ -9,14 +9,11 @@ import io.github.jbellis.brokk.difftool.ui.CompositeHighlighter;
 import io.github.jbellis.brokk.difftool.ui.JMHighlighter;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
@@ -140,8 +137,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Create custom line number list for unified diff
         customLineNumberList = new UnifiedDiffLineNumberList(textArea);
 
-        // Add the line number component to the left side of the scroll pane
-        add(customLineNumberList, BorderLayout.WEST);
+        // Set the line number component as the row header for scroll synchronization
+        scrollPane.setRowHeaderView(customLineNumberList);
 
         // Apply initial theme (same approach as FilePanel:177)
         GuiTheme.loadRSyntaxTheme(getTheme().isDarkTheme()).ifPresent(theme -> theme.apply(textArea));
@@ -171,9 +168,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Apply diff highlights after content is set
         reDisplay();
 
-        logger.debug(
-                "Generated unified diff from JMDiffNode {} with custom line numbering",
-                diffNode.getName());
+        logger.debug("Generated unified diff from JMDiffNode {} with custom line numbering", diffNode.getName());
     }
 
     /** Generate the unified diff content from BufferSources (legacy approach). */
@@ -250,8 +245,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     }
 
     /**
-     * Chooses a syntax style for the current document based on its filename.
-     * Uses shared logic from AbstractDiffPanel.detectSyntaxStyle().
+     * Chooses a syntax style for the current document based on its filename. Uses shared logic from
+     * AbstractDiffPanel.detectSyntaxStyle().
      */
     private void updateSyntaxStyle() {
         var diffNode = getDiffNode();
@@ -527,11 +522,13 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             try {
                 int line = textArea.getLineOfOffset(offset);
                 // For plain text approach, determine editability by line content
-                String lineContent = textArea.getDocument().getText(
-                    textArea.getLineStartOffset(line),
-                    textArea.getLineEndOffset(line) - textArea.getLineStartOffset(line));
+                String lineContent = textArea.getDocument()
+                        .getText(
+                                textArea.getLineStartOffset(line),
+                                textArea.getLineEndOffset(line) - textArea.getLineStartOffset(line));
 
-                // Allow editing of addition lines (+) and context lines (space), but not deletion lines (-) or headers (@@)
+                // Allow editing of addition lines (+) and context lines (space), but not deletion lines (-) or headers
+                // (@@)
                 return !lineContent.startsWith("-") && !lineContent.startsWith("@@");
             } catch (BadLocationException e) {
                 logger.warn("Failed to check edit permission for offset {}", offset, e);
@@ -588,5 +585,4 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             logger.warn("Error during unified diff reDisplay: {}", e.getMessage(), e);
         }
     }
-
 }

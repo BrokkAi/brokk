@@ -97,8 +97,8 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     // isUndoEnabled(), doUndo(), isRedoEnabled(), doRedo()
 
     /**
-     * Shared syntax detection logic for all diff panels.
-     * Chooses a syntax style for the current document based on its filename with robust cleanup.
+     * Shared syntax detection logic for all diff panels. Chooses a syntax style for the current document based on its
+     * filename with robust cleanup.
      *
      * @param filename The filename to analyze (can be null)
      * @param fallbackEditor Optional editor to inherit syntax style from if filename detection fails
@@ -158,8 +158,8 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     }
 
     /**
-     * Abstract method for refreshing highlights and repainting the diff panel.
-     * Each implementation should handle its own highlight refresh logic.
+     * Abstract method for refreshing highlights and repainting the diff panel. Each implementation should handle its
+     * own highlight refresh logic.
      */
     public abstract void reDisplay();
 }

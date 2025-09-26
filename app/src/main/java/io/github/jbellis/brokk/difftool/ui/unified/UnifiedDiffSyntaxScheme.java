@@ -17,8 +17,8 @@ import org.jetbrains.annotations.Nullable;
 public class UnifiedDiffSyntaxScheme {
 
     /**
-     * Create appropriate diff colors based on the current theme. Uses the same color system as the side-by-side
-     * diff panel for consistency.
+     * Create appropriate diff colors based on the current theme. Uses the same color system as the side-by-side diff
+     * panel for consistency.
      *
      * @param isDark true if dark theme is active
      * @return DiffColors instance with theme-appropriate colors
@@ -64,9 +64,9 @@ public class UnifiedDiffSyntaxScheme {
      */
     private static Color deriveContrastingForeground(Color backgroundColor) {
         // Calculate relative luminance to determine if we need dark or light text
-        double luminance = 0.299 * backgroundColor.getRed() +
-                          0.587 * backgroundColor.getGreen() +
-                          0.114 * backgroundColor.getBlue();
+        double luminance = 0.299 * backgroundColor.getRed()
+                + 0.587 * backgroundColor.getGreen()
+                + 0.114 * backgroundColor.getBlue();
 
         if (luminance > 128) {
             // Light background, use dark text
@@ -209,8 +209,8 @@ public class UnifiedDiffSyntaxScheme {
     }
 
     /**
-     * Create a custom SyntaxScheme for RSyntaxTextArea that includes diff coloring.
-     * This scheme extends the default scheme with diff-specific token colors.
+     * Create a custom SyntaxScheme for RSyntaxTextArea that includes diff coloring. This scheme extends the default
+     * scheme with diff-specific token colors.
      *
      * @param textArea The RSyntaxTextArea to configure
      * @param colors The diff colors to use
@@ -247,5 +247,4 @@ public class UnifiedDiffSyntaxScheme {
 
         return scheme;
     }
-
 }

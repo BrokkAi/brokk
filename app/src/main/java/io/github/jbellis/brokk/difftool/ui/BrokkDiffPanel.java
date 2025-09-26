@@ -11,8 +11,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
-import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
+import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -201,9 +201,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             boolean showAll = showAllLinesCheckBox.isSelected();
             globalShowAllLinesInUnified = showAll;
 
-            var targetMode = showAll ?
-                UnifiedDiffDocument.ContextMode.FULL_CONTEXT :
-                UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
+            var targetMode = showAll
+                    ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
+                    : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
             // Apply to current unified panel if active
             if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
@@ -444,8 +444,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Update toolbar to show appropriate control based on current view mode.
-     * Shows whitespace checkbox for side-by-side view, context checkbox for unified view.
+     * Update toolbar to show appropriate control based on current view mode. Shows whitespace checkbox for side-by-side
+     * view, context checkbox for unified view.
      */
     private void updateToolbarForViewMode() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
@@ -1089,8 +1089,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Check if cached panel type matches current view mode preference
         boolean cachedIsUnified = cachedPanel instanceof UnifiedDiffPanel;
         if (cachedIsUnified != this.isUnifiedView) {
-            logger.debug("Cached panel type (unified={}) doesn't match current preference (unified={}), clearing cache and recreating for file {}",
-                    cachedIsUnified, this.isUnifiedView, fileIndex);
+            logger.debug(
+                    "Cached panel type (unified={}) doesn't match current preference (unified={}), clearing cache and recreating for file {}",
+                    cachedIsUnified,
+                    this.isUnifiedView,
+                    fileIndex);
 
             // Dispose the incompatible panel
             cachedPanel.dispose();

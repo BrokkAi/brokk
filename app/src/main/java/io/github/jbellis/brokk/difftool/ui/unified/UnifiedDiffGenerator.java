@@ -403,8 +403,8 @@ public class UnifiedDiffGenerator {
     }
 
     /**
-     * Normalize a line by removing all types of line ending characters.
-     * This uses the \R pattern to catch all Unicode line breaks.
+     * Normalize a line by removing all types of line ending characters. This uses the \R pattern to catch all Unicode
+     * line breaks.
      *
      * @param line The line to normalize
      * @return The line with all line endings stripped
@@ -418,8 +418,8 @@ public class UnifiedDiffGenerator {
     }
 
     /**
-     * Generate plain text unified diff content from a JMDiffNode (for pure syntax highlighting).
-     * This method produces simple text output without complex DiffLine objects.
+     * Generate plain text unified diff content from a JMDiffNode (for pure syntax highlighting). This method produces
+     * simple text output without complex DiffLine objects.
      *
      * @param diffNode The JMDiffNode containing pre-processed diff information
      * @param contextMode Context mode to use (3-line or full context)
@@ -447,15 +447,24 @@ public class UnifiedDiffGenerator {
             if (leftBufferNode != null) {
                 var rawLeftLines = leftBufferNode.getDocument().getLineList();
                 leftTitle = leftBufferNode.getDocument().getName();
-                logger.debug("Left source has {} lines, first few: {}", rawLeftLines.size(),
-                    rawLeftLines.stream().limit(3).map(line -> "'" + line.replace("\n", "\\n") + "'").toList());
+                logger.debug(
+                        "Left source has {} lines, first few: {}",
+                        rawLeftLines.size(),
+                        rawLeftLines.stream()
+                                .limit(3)
+                                .map(line -> "'" + line.replace("\n", "\\n") + "'")
+                                .toList());
 
                 // Normalize lines to remove any embedded newlines that could cause spacing issues
                 leftLines = rawLeftLines.stream()
-                    .map(UnifiedDiffGenerator::normalizeLineEndings)
-                    .toList();
-                logger.debug("After normalization, first few: {}",
-                    leftLines.stream().limit(3).map(line -> "'" + line + "'").toList());
+                        .map(UnifiedDiffGenerator::normalizeLineEndings)
+                        .toList();
+                logger.debug(
+                        "After normalization, first few: {}",
+                        leftLines.stream()
+                                .limit(3)
+                                .map(line -> "'" + line + "'")
+                                .toList());
             } else {
                 leftLines = new ArrayList<>();
                 leftTitle = "<empty>";
@@ -480,9 +489,7 @@ public class UnifiedDiffGenerator {
         }
     }
 
-    /**
-     * Generate standard context plain text using comprehensive line normalization.
-     */
+    /** Generate standard context plain text using comprehensive line normalization. */
     private static String generateStandardContextPlainText(
             List<String> leftLines,
             Patch<String> patch,
@@ -516,16 +523,18 @@ public class UnifiedDiffGenerator {
             // Add deleted lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var deletedLine : delta.getSource().getLines()) {
                 var normalizedDeletedLine = normalizeLineEndings(deletedLine);
-                logger.trace("Normalized deleted line: '{}' -> '{}'",
-                    deletedLine.replace("\n", "\\n"), normalizedDeletedLine);
+                logger.trace(
+                        "Normalized deleted line: '{}' -> '{}'",
+                        deletedLine.replace("\n", "\\n"),
+                        normalizedDeletedLine);
                 textBuilder.append('-').append(normalizedDeletedLine).append('\n');
             }
 
             // Add added lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var addedLine : delta.getTarget().getLines()) {
                 var normalizedAddedLine = normalizeLineEndings(addedLine);
-                logger.trace("Normalized added line: '{}' -> '{}'",
-                    addedLine.replace("\n", "\\n"), normalizedAddedLine);
+                logger.trace(
+                        "Normalized added line: '{}' -> '{}'", addedLine.replace("\n", "\\n"), normalizedAddedLine);
                 textBuilder.append('+').append(normalizedAddedLine).append('\n');
             }
 
@@ -545,14 +554,14 @@ public class UnifiedDiffGenerator {
             textBuilder.setLength(textBuilder.length() - 1);
         }
 
-        logger.debug("Generated clean unified diff with {} characters, {} lines",
-            textBuilder.length(), textBuilder.toString().split("\n").length);
+        logger.debug(
+                "Generated clean unified diff with {} characters, {} lines",
+                textBuilder.length(),
+                textBuilder.toString().split("\n").length);
         return textBuilder.toString();
     }
 
-    /**
-     * Generate full context plain text showing all lines between changes.
-     */
+    /** Generate full context plain text showing all lines between changes. */
     private static String generateFullContextPlainText(List<String> leftLines, Patch<String> patch) {
         var textBuilder = new StringBuilder();
         var deltas = patch.getDeltas();
@@ -587,8 +596,10 @@ public class UnifiedDiffGenerator {
             // Add deleted lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var deletedLine : delta.getSource().getLines()) {
                 var normalizedDeletedLine = normalizeLineEndings(deletedLine);
-                logger.trace("Normalized deleted line: '{}' -> '{}'",
-                    deletedLine.replace("\n", "\\n"), normalizedDeletedLine);
+                logger.trace(
+                        "Normalized deleted line: '{}' -> '{}'",
+                        deletedLine.replace("\n", "\\n"),
+                        normalizedDeletedLine);
                 textBuilder.append("-");
                 textBuilder.append(normalizedDeletedLine);
                 textBuilder.append('\n');
@@ -598,8 +609,8 @@ public class UnifiedDiffGenerator {
             // Add added lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var addedLine : delta.getTarget().getLines()) {
                 var normalizedAddedLine = normalizeLineEndings(addedLine);
-                logger.trace("Normalized added line: '{}' -> '{}'",
-                    addedLine.replace("\n", "\\n"), normalizedAddedLine);
+                logger.trace(
+                        "Normalized added line: '{}' -> '{}'", addedLine.replace("\n", "\\n"), normalizedAddedLine);
                 textBuilder.append("+");
                 textBuilder.append(normalizedAddedLine);
                 textBuilder.append('\n');
