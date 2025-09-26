@@ -1051,7 +1051,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         try {
             var cm = c.getContextManager();
-
+            StringBuilder orderedTasklistText = new StringBuilder();
+            int posInOrder = -1;
+            int total = 0;
+            if (currentRunOrder != null) {
+                for (int i = 0; i < currentRunOrder.size(); i++) {
+                    int taskIdx = currentRunOrder.get(i);
+                    String ttext = "";
+                    if (taskIdx >= 0 && taskIdx < model.getSize()) {
+                        var t = model.get(taskIdx);
+                        if (t != null) ttext = t.text();
+                    }
+                    orderedTasklistText.append(String.format("%d. %s\n", i + 1, ttext));
+                    if (taskIdx == idx) posInOrder = i;
+                }
+                total = currentRunOrder.size();
+            }
             // Build a context header describing the overall goal and ordered task list.
             StringBuilder header = new StringBuilder();
             if (currentRunOrder != null && !currentRunOrder.isEmpty()) {
@@ -1062,9 +1077,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     var messages = List.<ChatMessage>of(
                             new UserMessage(
                                     """
-                            Can you summarize the overall goal from this task list,
-                            make it concise and clear.  Output only the goal.
-                            """));
+                            You are a summarizer of tasks. Take a list of tasks and find the common goal for them in one
+                            sentence. Only return the goal.
+                            task list below:
+                            %s
+                            
+                            """ .stripIndent().formatted(orderedTasklistText.toString())));
                     var result = llm.sendRequest(messages, false);
 
                     var goalRaw = result.text();
@@ -1074,22 +1092,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     logger.error(e);
                     goal = "Overall goal: Complete the following tasks in order.";
                 }
-
+                logger.error("my goal is: " + goal);
                 header.append(goal);
                 header.append("\n\n");
                 header.append("Ordered task list:\n");
-                int posInOrder = -1;
-                for (int i = 0; i < currentRunOrder.size(); i++) {
-                    int taskIdx = currentRunOrder.get(i);
-                    String ttext = "";
-                    if (taskIdx >= 0 && taskIdx < model.getSize()) {
-                        var t = model.get(taskIdx);
-                        if (t != null) ttext = t.text();
-                    }
-                    header.append(String.format("%d. %s\n", i + 1, ttext));
-                    if (taskIdx == idx) posInOrder = i;
-                }
-                int total = currentRunOrder.size();
+                header.append(orderedTasklistText);
                 int humanPos = posInOrder >= 0 ? posInOrder + 1 : -1;
                 if (humanPos > 0) {
                     header.append("\nYou are executing task " + humanPos + " of " + total + ".\n");
