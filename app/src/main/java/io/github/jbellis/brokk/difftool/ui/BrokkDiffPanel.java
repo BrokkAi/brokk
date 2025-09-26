@@ -1013,6 +1013,20 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private void displayCachedFile(int fileIndex, IDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
+        // Check if cached panel type matches current view mode preference
+        boolean cachedIsUnified = cachedPanel instanceof UnifiedDiffPanel;
+        if (cachedIsUnified != this.isUnifiedView) {
+            logger.debug("Cached panel type (unified={}) doesn't match current preference (unified={}), disposing and recreating for file {}",
+                    cachedIsUnified, this.isUnifiedView, fileIndex);
+
+            // Dispose the incompatible panel - the cache will be updated when the new panel is created
+            cachedPanel.dispose();
+
+            // Reload file with correct view mode (this will replace the cache entry)
+            loadFileOnDemand(fileIndex);
+            return;
+        }
+
         var compInfo = fileComparisons.get(fileIndex);
 
         // Remove loading panel if present (contains the loading label)
