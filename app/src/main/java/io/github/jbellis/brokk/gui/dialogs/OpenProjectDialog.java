@@ -104,15 +104,17 @@ public class OpenProjectDialog extends JDialog {
         tabbedPane.addTab("Open Local", createOpenLocalPanel());
         tabbedPane.addTab("Clone from Git", createClonePanel());
 
-        // Conditionally add GitHub repositories tab based on token presence
+        // Always add GitHub repositories tab, but control its enabled state
         gitHubReposPanel = createGitHubReposPanel();
+        gitHubTabIndex = tabbedPane.getTabCount();
+        tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+
+        // Set initial state based on token presence
         if (GitHubAuth.tokenPresent()) {
-            gitHubTabIndex = tabbedPane.getTabCount();
-            tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+            enableGitHubTab();
             validateTokenAndLoadRepositories();
         } else {
-            gitHubTabIndex = -1;
-            // Tab not added - will show tooltip on hover if user tries to access GitHub features
+            disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
         }
 
         mainPanel.add(leftPanel, BorderLayout.WEST);
@@ -503,10 +505,11 @@ public class OpenProjectDialog extends JDialog {
 
         var refreshButton = new JButton("Refresh");
         refreshButton.addActionListener(e -> {
-            // Re-check token presence and potentially add tab back if token is now available
-            if (GitHubAuth.tokenPresent() && gitHubTabIndex == -1) {
-                gitHubTabIndex = tabbedPane.getTabCount();
-                tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+            // Re-check token presence and update tab state accordingly
+            if (GitHubAuth.tokenPresent()) {
+                enableGitHubTab();
+            } else {
+                disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
             }
             loadRepositoriesAsync(tableModel, true);
         });
