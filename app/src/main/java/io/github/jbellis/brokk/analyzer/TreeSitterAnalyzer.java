@@ -106,6 +106,8 @@ public abstract class TreeSitterAnalyzer
             new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
     // Timestamp of the last successful full-project update (epoch nanos)
     private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
+    // Over-approximation buffer for filesystem mtime comparisons (nanos)
+    private static final long MTIME_EPSILON_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
     private final Map<ProjectFile, TSTree> parsedTreeCache =
             new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
     // Ensures reads see a consistent view while updates mutate internal maps atomically
@@ -2463,8 +2465,8 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
-     * Full-project incremental update: detect created/modified/deleted files using filesystem mtimes (nanos precision),
-     * then delegate to {@link #update(Set)}.
+     * Full-project incremental update: detect created/modified/deleted files using filesystem mtimes (nanos precision,
+     * with a 300ms over-approximation buffer), then delegate to {@link #update(Set)}.
      */
     @Override
     public IAnalyzer update() {
@@ -2493,6 +2495,7 @@ public abstract class TreeSitterAnalyzer
         var nowInstant = Instant.now();
         long nowNanos = nowInstant.getEpochSecond() * 1_000_000_000L + nowInstant.getNano();
         long last = lastUpdateEpochNanos.get();
+        long threshold = (last > MTIME_EPSILON_NANOS) ? (last - MTIME_EPSILON_NANOS) : 0L;
 
         // deleted or no-longer-relevant files
         for (ProjectFile known : knownFiles) {
@@ -2510,7 +2513,7 @@ public abstract class TreeSitterAnalyzer
                     continue;
                 }
                 long mtimeNanos = Files.getLastModifiedTime(pf.absPath()).to(TimeUnit.NANOSECONDS);
-                if (mtimeNanos > last) {
+                if (mtimeNanos > threshold) {
                     changed.add(pf);
                 }
             } catch (IOException e) {
