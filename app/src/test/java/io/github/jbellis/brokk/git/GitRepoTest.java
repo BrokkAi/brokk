@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.lib.ObjectId;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -1329,5 +1330,458 @@ public class GitRepoTest {
         assertTrue(unstagedStatus.getModified().isEmpty(), "No unstaged modifications");
         assertTrue(unstagedStatus.getMissing().isEmpty(), "No missing files");
         assertTrue(unstagedStatus.getUntracked().isEmpty(), "No untracked files");
+    }
+
+    // --- Tests for branchNeedsPush and helper methods ---
+
+    private void simulateRemoteBranch(String branchName, String commitSha) throws Exception {
+        // Simulate existence of a remote branch using JGit's API to ensure it's properly registered
+        var repository = repo.getGit().getRepository();
+        var refUpdate = repository.updateRef("refs/remotes/origin/" + branchName);
+        refUpdate.setNewObjectId(ObjectId.fromString(commitSha));
+        refUpdate.update();
+    }
+
+    @Test
+    void testBranchNeedsPush_NonLocalBranch() throws Exception {
+        // Test with a branch that doesn't exist locally
+        assertFalse(repo.branchNeedsPush("nonexistent-branch"), "Non-local branches should not need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_NoRemoteBranchExists() throws Exception {
+        // Create a local branch with commits but no remote
+        String branchName = "local-only-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("local-file.txt", "local content", "Local commit");
+
+        assertTrue(repo.branchNeedsPush(branchName), "Local branch without remote should need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_RemoteBranchExistsAndUpToDate() throws Exception {
+        configureOriginRemote();
+
+        // Create a local branch with a commit
+        String branchName = "feature-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("test-file.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate that remote branch exists and is up-to-date
+        simulateRemoteBranch(branchName, commitSha);
+
+        assertFalse(repo.branchNeedsPush(branchName), "Branch up-to-date with remote should not need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_LocalAheadOfRemote() throws Exception {
+        configureOriginRemote();
+
+        // Create a local branch with initial commit
+        String branchName = "ahead-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("initial-file.txt", "initial content", "Initial commit");
+        String initialCommitSha = repo.getCurrentCommitId();
+
+        // Simulate remote exists at initial commit
+        simulateRemoteBranch(branchName, initialCommitSha);
+
+        // Add another local commit (making local ahead)
+        createCommit("new-file.txt", "new content", "Ahead commit");
+
+        assertTrue(repo.branchNeedsPush(branchName), "Local branch ahead of remote should need push");
+    }
+
+    @Test
+    void testBranchNeedsPush_ReproduceOriginalIssue() throws Exception {
+        // This reproduces the original issue scenario:
+        // 1. Create branch and commit
+        // 2. Push without upstream tracking (simulate by creating remote ref without config)
+        // 3. Verify branchNeedsPush returns false (not true as in the bug)
+
+        configureOriginRemote();
+
+        String branchName = "test-issue-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("issue-test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate the branch exists remotely (as if pushed without -u)
+        simulateRemoteBranch(branchName, commitSha);
+
+        // The fix should make this return false (no push needed)
+        assertFalse(
+                repo.branchNeedsPush(branchName),
+                "Branch that exists remotely and is up-to-date should not need push, "
+                        + "even without upstream tracking");
+    }
+
+    @Test
+    void testGetTargetRemoteBranchName_WithOriginRemote() throws Exception {
+        String branchName = "existing-remote";
+
+        configureOriginRemote();
+
+        // Use reflection to access private method for testing
+        var method = GitRepo.class.getDeclaredMethod("getTargetRemoteBranchName", String.class);
+        method.setAccessible(true);
+        String targetRemote = (String) method.invoke(repo, branchName);
+
+        assertEquals("origin/" + branchName, targetRemote, "Should find origin remote branch name");
+    }
+
+    @Test
+    void testGetTargetRemoteBranchName_NoRemoteConfigured() throws Exception {
+        // Use reflection to access private method for testing
+        var method = GitRepo.class.getDeclaredMethod("getTargetRemoteBranchName", String.class);
+        method.setAccessible(true);
+        String targetRemote = (String) method.invoke(repo, "test-branch");
+
+        assertNull(targetRemote, "Should return null when no remote is configured");
+    }
+
+    @Test
+    void testGetUnpushedCommitIds_NoRemoteBranch() throws Exception {
+        String branchName = "local-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("local.txt", "content", "Local commit");
+
+        // Test public method - should return empty set when no remote branch exists
+        var unpushedCommits = repo.getUnpushedCommitIds(branchName);
+
+        assertTrue(unpushedCommits.isEmpty(), "Should return empty set when no remote branch exists");
+    }
+
+    @Test
+    void testGetUnpushedCommitIds_LocalAhead() throws Exception {
+        configureOriginRemote();
+
+        String branchName = "ahead-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+
+        // Create initial commit and simulate remote
+        createCommit("base.txt", "base", "Base commit");
+        String baseCommit = repo.getCurrentCommitId();
+        simulateRemoteBranch(branchName, baseCommit);
+
+        // Add local commits ahead of remote
+        createCommit("ahead1.txt", "ahead1", "Ahead commit 1");
+        createCommit("ahead2.txt", "ahead2", "Ahead commit 2");
+
+        // Test public method
+        var unpushedCommits = repo.getUnpushedCommitIds(branchName);
+
+        assertEquals(2, unpushedCommits.size(), "Should find 2 unpushed commits ahead of remote");
+    }
+
+    @Test
+    void testGetUnpushedCommitIds_UpToDate() throws Exception {
+        configureOriginRemote();
+
+        String branchName = "uptodate-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("sync.txt", "synced", "Synced commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate remote is at the same commit
+        simulateRemoteBranch(branchName, commitSha);
+
+        // Test public method
+        var unpushedCommits = repo.getUnpushedCommitIds(branchName);
+
+        assertTrue(unpushedCommits.isEmpty(), "Should return empty set when local and remote are in sync");
+    }
+
+    @Test
+    void testUnifiedBehavior_BranchNeedsPushConsistency() throws Exception {
+        configureOriginRemote();
+
+        // Test that branchNeedsPush and getUnpushedCommitIds now behave consistently
+        String branchName = "consistency-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate the original issue: branch exists remotely but no upstream tracking
+        simulateRemoteBranch(branchName, commitSha);
+
+        // Both should now return false/empty (no push needed)
+        assertFalse(repo.branchNeedsPush(branchName), "branchNeedsPush should return false when up-to-date");
+        assertTrue(
+                repo.getUnpushedCommitIds(branchName).isEmpty(),
+                "getUnpushedCommitIds should return empty when up-to-date");
+
+        // Add a local commit to get ahead of remote
+        createCommit("new.txt", "new content", "New commit");
+
+        // Both should now return true/non-empty (push needed)
+        assertTrue(repo.branchNeedsPush(branchName), "branchNeedsPush should return true when ahead");
+        assertFalse(
+                repo.getUnpushedCommitIds(branchName).isEmpty(),
+                "getUnpushedCommitIds should return commits when ahead");
+    }
+
+    @Test
+    void testUnifiedBehavior_WithUpstreamTracking() throws Exception {
+        configureOriginRemote();
+
+        // Test that behavior is consistent for branches with upstream tracking
+        String branchName = "upstream-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("upstream.txt", "upstream content", "Upstream commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate remote and set up upstream tracking
+        simulateRemoteBranch(branchName, commitSha);
+        configureUpstreamTracking(branchName, "origin", branchName);
+
+        // Should behave the same as before
+        assertFalse(repo.branchNeedsPush(branchName), "branchNeedsPush should work with upstream tracking");
+        assertTrue(
+                repo.getUnpushedCommitIds(branchName).isEmpty(),
+                "getUnpushedCommitIds should work with upstream tracking");
+    }
+
+    @Test
+    void testGetRemoteUrl_WithUpstreamTracking() throws Exception {
+        configureMultipleRemotes("upstream", "https://github.com/test/upstream.git");
+
+        // Create a branch with upstream tracking to "upstream" remote
+        String branchName = "upstream-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+
+        // Set up upstream tracking to "upstream" remote (not origin)
+        configureUpstreamTracking(branchName, "upstream", branchName);
+
+        // getRemoteUrl() should now return the upstream remote URL, not origin
+        String remoteUrl = repo.getRemoteUrl();
+        assertEquals(
+                "https://github.com/test/upstream.git", remoteUrl, "Should use upstream remote URL from branch config");
+    }
+
+    @Test
+    void testGetRemoteUrl_FallbackToOrigin() throws Exception {
+        configureOriginRemoteWithOriginUrl();
+
+        // Create a branch without upstream tracking
+        String branchName = "no-upstream-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+
+        // Should fall back to origin since no upstream is configured
+        String remoteUrl = repo.getRemoteUrl();
+        assertEquals("https://github.com/test/origin.git", remoteUrl, "Should fall back to origin when no upstream");
+    }
+
+    @Test
+    void testGetRemoteUrl_WithPushDefault() throws Exception {
+        configureMultipleRemotes("fork", "https://github.com/test/fork.git");
+        configurePushDefault("fork");
+
+        // Create a branch without upstream tracking
+        String branchName = "push-default-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+
+        // Should use pushDefault remote
+        String remoteUrl = repo.getRemoteUrl();
+        assertEquals("https://github.com/test/fork.git", remoteUrl, "Should use pushDefault remote");
+    }
+
+    @Test
+    void testGetRemoteUrl_SingleRemote() throws Exception {
+        configureSingleRemote("upstream", "https://github.com/test/upstream.git");
+
+        // Create a branch without upstream tracking
+        String branchName = "single-remote-branch";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+
+        // Should use the single available remote
+        String remoteUrl = repo.getRemoteUrl();
+        assertEquals("https://github.com/test/upstream.git", remoteUrl, "Should use single available remote");
+    }
+
+    @Test
+    void testRemoteResolution_PushDefaultWithOriginPresent() throws Exception {
+        configureMultipleRemotes("fork", "https://github.com/test/fork.git");
+        configurePushDefault("fork");
+
+        // Create a branch and simulate remote branches
+        String branchName = "pushdefault-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate both remote branches exist
+        simulateRemoteBranch(branchName, commitSha);
+        simulateRemoteBranch("fork", branchName, commitSha);
+
+        // Should prefer pushDefault over origin
+        assertFalse(repo.branchNeedsPush(branchName), "Should use pushDefault remote over origin");
+        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find pushDefault remote branch");
+        assertEquals("https://github.com/test/fork.git", repo.getRemoteUrl(), "Should use pushDefault for remote URL");
+    }
+
+    @Test
+    void testRemoteResolution_SingleRemoteNotOrigin() throws Exception {
+        configureSingleRemote("upstream", "https://github.com/test/upstream.git");
+
+        // Create a branch and simulate remote branch
+        String branchName = "single-remote-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Simulate remote branch exists on the single remote
+        simulateRemoteBranch("upstream", branchName, commitSha);
+
+        // Should use the single available remote
+        assertFalse(repo.branchNeedsPush(branchName), "Should use single available remote");
+        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find single remote branch");
+        assertEquals("https://github.com/test/upstream.git", repo.getRemoteUrl(), "Should use single remote for URL");
+    }
+
+    @Test
+    void testUpstreamDifferentBranchName() throws Exception {
+        configureMultipleRemotes("upstream", "https://github.com/test/upstream.git");
+
+        // Create a local branch
+        String localBranchName = "feature-branch";
+        String remoteBranchName = "main";
+        repo.getGit().branchCreate().setName(localBranchName).call();
+        repo.getGit().checkout().setName(localBranchName).call();
+        createCommit("test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Set up upstream tracking to a different branch name
+        configureUpstreamTracking(localBranchName, "upstream", remoteBranchName);
+
+        // Simulate the remote branch exists with the different name
+        simulateRemoteBranch("upstream", remoteBranchName, commitSha);
+
+        // Should use upstream tracking even with different branch name
+        assertFalse(repo.branchNeedsPush(localBranchName), "Should use upstream tracking with different branch name");
+        assertTrue(
+                repo.getUnpushedCommitIds(localBranchName).isEmpty(),
+                "Should find upstream branch with different name");
+        assertEquals("https://github.com/test/upstream.git", repo.getRemoteUrl(), "Should use upstream remote for URL");
+    }
+
+    @Test
+    void testUpstreamRemoteExistsButBranchDoesnt() throws Exception {
+        configureMultipleRemotes("upstream", "https://github.com/test/upstream.git");
+
+        // Create a local branch
+        String branchName = "fallback-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Set up upstream tracking to a remote that exists, but branch doesn't exist on that remote
+        configureUpstreamTracking(branchName, "upstream", branchName);
+
+        // Simulate only origin has the branch, upstream remote exists but not the branch
+        simulateRemoteBranch(branchName, commitSha); // This creates origin/branchName
+
+        // Should fall back to origin since upstream remote branch doesn't exist
+        assertFalse(repo.branchNeedsPush(branchName), "Should fall back to origin when upstream branch doesn't exist");
+        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find origin branch as fallback");
+
+        // Note: getRemoteUrl() still uses upstream remote name since remote exists, just not the branch
+        assertEquals(
+                "https://github.com/test/upstream.git",
+                repo.getRemoteUrl(),
+                "Should still use upstream remote for URL");
+    }
+
+    @Test
+    void testUpstreamRemoteDoesntExist() throws Exception {
+        configureOriginRemoteWithOriginUrl();
+
+        // Create a local branch
+        String branchName = "missing-remote-test";
+        repo.getGit().branchCreate().setName(branchName).call();
+        repo.getGit().checkout().setName(branchName).call();
+        createCommit("test.txt", "test content", "Test commit");
+        String commitSha = repo.getCurrentCommitId();
+
+        // Set up upstream tracking to a remote that doesn't exist
+        configureUpstreamTracking(branchName, "nonexistent", branchName);
+
+        // Simulate only origin has the branch
+        simulateRemoteBranch(branchName, commitSha);
+
+        // Should fall back to origin since upstream remote doesn't exist
+        assertFalse(repo.branchNeedsPush(branchName), "Should fall back to origin when upstream remote doesn't exist");
+        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find origin branch as fallback");
+        assertEquals("https://github.com/test/origin.git", repo.getRemoteUrl(), "Should fall back to origin for URL");
+    }
+
+    // Helper method to simulate remote branch on a specific remote
+    private void simulateRemoteBranch(String remoteName, String branchName, String commitSha) throws Exception {
+        var repository = repo.getGit().getRepository();
+        var refUpdate = repository.updateRef("refs/remotes/" + remoteName + "/" + branchName);
+        refUpdate.setNewObjectId(ObjectId.fromString(commitSha));
+        refUpdate.update();
+    }
+
+    // Helper method to configure origin remote
+    private void configureOriginRemote() throws Exception {
+        var config = repo.getGit().getRepository().getConfig();
+        config.setString("remote", "origin", "url", "https://github.com/test/test.git");
+        config.save();
+    }
+
+    // Helper method to configure origin remote with origin.git URL
+    private void configureOriginRemoteWithOriginUrl() throws Exception {
+        var config = repo.getGit().getRepository().getConfig();
+        config.setString("remote", "origin", "url", "https://github.com/test/origin.git");
+        config.save();
+    }
+
+    // Helper method to configure multiple remotes with origin and another remote
+    private void configureMultipleRemotes(String secondRemoteName, String secondRemoteUrl) throws Exception {
+        var config = repo.getGit().getRepository().getConfig();
+        config.setString("remote", "origin", "url", "https://github.com/test/origin.git");
+        config.setString("remote", secondRemoteName, "url", secondRemoteUrl);
+        config.save();
+    }
+
+    // Helper method to configure upstream tracking for a branch
+    private void configureUpstreamTracking(String branchName, String remoteName, String remoteBranchName)
+            throws Exception {
+        var config = repo.getGit().getRepository().getConfig();
+        config.setString("branch", branchName, "remote", remoteName);
+        config.setString("branch", branchName, "merge", "refs/heads/" + remoteBranchName);
+        config.save();
+    }
+
+    // Helper method to configure push default
+    private void configurePushDefault(String pushDefaultRemote) throws Exception {
+        var config = repo.getGit().getRepository().getConfig();
+        config.setString("remote", null, "pushDefault", pushDefaultRemote);
+        config.save();
+    }
+
+    // Helper method to configure a single remote (not origin)
+    private void configureSingleRemote(String remoteName, String remoteUrl) throws Exception {
+        var config = repo.getGit().getRepository().getConfig();
+        config.setString("remote", remoteName, "url", remoteUrl);
+        config.save();
     }
 }
