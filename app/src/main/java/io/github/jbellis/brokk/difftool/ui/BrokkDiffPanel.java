@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -57,7 +58,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JLabel loadingLabel = createLoadingLabel();
     private final GuiTheme theme;
     private final JCheckBox showBlankLineDiffsCheckBox = new JCheckBox("Show blank-lines");
+    private final JCheckBox showAllLinesCheckBox = new JCheckBox("Show all lines");
     private final JToggleButton viewModeToggle = new JToggleButton("Unified View");
+
+    // Global preference for unified view context mode
+    private boolean globalShowAllLinesInUnified = false; // Default to 3-line context
+
+    // Toolbar for UI controls
+    @Nullable
+    private JToolBar toolBar;
 
     // All file comparisons with lazy loading cache
     final List<FileComparisonInfo> fileComparisons;
@@ -184,6 +193,24 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             boolean show = showBlankLineDiffsCheckBox.isSelected();
             JMDiffNode.setIgnoreBlankLineDiffs(!show);
             refreshAllDiffPanels();
+        });
+
+        // Set up context mode toggle for unified view
+        showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
+        showAllLinesCheckBox.addActionListener(e -> {
+            boolean showAll = showAllLinesCheckBox.isSelected();
+            globalShowAllLinesInUnified = showAll;
+
+            var targetMode = showAll ?
+                UnifiedDiffDocument.ContextMode.FULL_CONTEXT :
+                UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
+
+            // Apply to current unified panel if active
+            if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
+                unifiedPanel.setContextMode(targetMode);
+            }
+
+            logger.debug("Context mode changed to: {}", showAll ? "FULL_CONTEXT" : "STANDARD_3_LINES");
         });
 
         // Set up view mode toggle
@@ -417,6 +444,50 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Update toolbar to show appropriate control based on current view mode.
+     * Shows whitespace checkbox for side-by-side view, context checkbox for unified view.
+     */
+    private void updateToolbarForViewMode() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        if (toolBar == null) {
+            logger.warn("Toolbar not initialized, cannot update controls");
+            return;
+        }
+
+        // Remove both controls from toolbar
+        toolBar.remove(showBlankLineDiffsCheckBox);
+        toolBar.remove(showAllLinesCheckBox);
+
+        // Find the position where we want to insert the control
+        // This should be after the separator and horizontal strut, before the viewModeToggle
+        int insertPosition = -1;
+        Component[] components = toolBar.getComponents();
+        for (int i = 0; i < components.length; i++) {
+            if (components[i] == viewModeToggle) {
+                insertPosition = i - 1; // Insert before the horizontal strut that's before viewModeToggle
+                break;
+            }
+        }
+
+        if (insertPosition >= 0) {
+            // Add appropriate control based on current view mode
+            if (isUnifiedView) {
+                toolBar.add(showAllLinesCheckBox, insertPosition);
+                logger.debug("Added context mode control to toolbar for unified view");
+            } else {
+                toolBar.add(showBlankLineDiffsCheckBox, insertPosition);
+                logger.debug("Added whitespace control to toolbar for side-by-side view");
+            }
+
+            toolBar.revalidate();
+            toolBar.repaint();
+        } else {
+            logger.warn("Could not find position to insert toolbar control");
+        }
+    }
+
+    /**
      * Creates a styled loading label for the "Processing... Please wait." message. The label is centered and uses a
      * larger font for better visibility.
      */
@@ -485,7 +556,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     private JToolBar createToolbar() {
         // Create toolbar
-        var toolBar = new JToolBar();
+        toolBar = new JToolBar();
 
         // Buttons are already initialized as fields
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
@@ -599,7 +670,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(Box.createHorizontalStrut(20));
         toolBar.addSeparator();
         toolBar.add(Box.createHorizontalStrut(10));
-        toolBar.add(showBlankLineDiffsCheckBox);
+
+        // Add appropriate control based on view mode (will be updated dynamically)
+        updateToolbarForViewMode();
 
         toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(viewModeToggle);
@@ -1016,13 +1089,23 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Check if cached panel type matches current view mode preference
         boolean cachedIsUnified = cachedPanel instanceof UnifiedDiffPanel;
         if (cachedIsUnified != this.isUnifiedView) {
-            logger.debug("Cached panel type (unified={}) doesn't match current preference (unified={}), disposing and recreating for file {}",
+            logger.debug("Cached panel type (unified={}) doesn't match current preference (unified={}), clearing cache and recreating for file {}",
                     cachedIsUnified, this.isUnifiedView, fileIndex);
 
-            // Dispose the incompatible panel - the cache will be updated when the new panel is created
+            // Dispose the incompatible panel
             cachedPanel.dispose();
 
-            // Reload file with correct view mode (this will replace the cache entry)
+            // Clear current panel reference since it's the wrong type now
+            this.currentDiffPanel = null;
+
+            // Clear entire cache to prevent infinite recursion (same pattern as switchViewMode)
+            logger.debug("Clearing entire cache to force panel recreation with correct view mode");
+            panelCache.clear();
+
+            // Restore window state for adjacent file caching
+            panelCache.updateWindowCenter(currentFileIndex, fileComparisons.size());
+
+            // Reload file with correct view mode (cache is now clear, so will create new panel)
             loadFileOnDemand(fileIndex);
             return;
         }
@@ -1692,6 +1775,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Get the global preference for showing all lines in unified view.
+     *
+     * @return true if unified view should show full context, false for 3-line context
+     */
+    public boolean getGlobalShowAllLinesInUnified() {
+        return globalShowAllLinesInUnified;
+    }
+
+    /**
      * Switch between unified and side-by-side view modes.
      *
      * @param useUnifiedView true for unified view, false for side-by-side view
@@ -1703,6 +1795,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         this.isUnifiedView = useUnifiedView;
         logger.debug("Switching to {} view mode", useUnifiedView ? "unified" : "side-by-side");
+
+        // Update toolbar controls for the new view mode
+        updateToolbarForViewMode();
 
         // Clear the current file from cache since we need a different panel type
         var cachedPanel = panelCache.get(currentFileIndex);

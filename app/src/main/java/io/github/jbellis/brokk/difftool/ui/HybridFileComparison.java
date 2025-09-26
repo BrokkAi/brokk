@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import java.nio.charset.StandardCharsets;
 import javax.swing.*;
@@ -292,6 +293,16 @@ public class HybridFileComparison {
     private static IDiffPanel createUnifiedDiffPanel(JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme) {
         try {
             var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
+
+            // Apply global context mode preference from main panel
+            var targetMode = mainPanel.getGlobalShowAllLinesInUnified() ?
+                UnifiedDiffDocument.ContextMode.FULL_CONTEXT :
+                UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
+            unifiedPanel.setContextMode(targetMode);
+
+            logger.debug("Created unified panel with context mode: {}",
+                mainPanel.getGlobalShowAllLinesInUnified() ? "FULL_CONTEXT" : "STANDARD_3_LINES");
+
             return unifiedPanel;
         } catch (Exception e) {
             logger.error("Failed to create unified diff panel from JMDiffNode {}", diffNode.getName(), e);
