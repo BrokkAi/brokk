@@ -440,19 +440,26 @@ public class SearchAgent {
         if (!response.hasToolExecutionRequests()) {
             return List.of();
         }
-        // Forge getRelatedClasses for duplicates (like SearchAgent)
-        var raw = response.toolExecutionRequests().stream()
-                .map(this::handleDuplicateRequestIfNeeded)
-                .toList();
 
-        // If a final action is present, isolate it
-        var firstFinal = raw.stream()
+        // 1) Isolate terminator tools BEFORE running any dedupe logic.
+        //    Terminal tools like answer/createTaskList/workspaceComplete/abortSearch do not have a list parameter
+        //    and must not be deduplicated; doing so can throw during signature extraction.
+        var firstFinal = response.toolExecutionRequests().stream()
                 .filter(r -> r.name().equals("answer")
                         || r.name().equals("createTaskList")
                         || r.name().equals("workspaceComplete")
                         || r.name().equals("abortSearch"))
                 .findFirst();
-        return firstFinal.map(List::of).orElse(raw);
+        if (firstFinal.isPresent()) {
+            return List.of(firstFinal.get());
+        }
+
+        // 2) Otherwise, dedupe non-terminator tool requests and forge getRelatedClasses for duplicates.
+        var raw = response.toolExecutionRequests().stream()
+                .map(this::handleDuplicateRequestIfNeeded)
+                .toList();
+
+        return raw;
     }
 
     private int priority(String toolName) {
