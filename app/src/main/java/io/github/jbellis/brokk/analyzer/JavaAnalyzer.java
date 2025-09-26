@@ -28,22 +28,39 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
 
     private static final Logger logger = LoggerFactory.getLogger(JavaAnalyzer.class);
     private final CompletableFuture<JdtClient> jdtClientFuture;
+    private volatile @Nullable JdtClient jdtClient;
     private @Nullable IConsoleIO io;
 
     protected JavaAnalyzer(IProject project, CompletableFuture<JdtClient> jdtClientFuture) {
         super(project);
         this.jdtClientFuture = jdtClientFuture;
+        this.jdtClientFuture.whenComplete((client, throwable) -> {
+            if (throwable != null) {
+                logger.error("Failed to initialize JDT Language Server client", throwable);
+                return;
+            }
+            this.jdtClient = client;
+            if (this.io != null) {
+                client.setIo(this.io);
+            }
+        });
     }
 
     @Override
     public void setIo(IConsoleIO io) {
         this.io = io;
-        jdtClientFuture.thenAccept(analyzer -> analyzer.setIo(io));
+        var client = this.jdtClient;
+        if (client != null) {
+            client.setIo(io);
+        } else {
+            jdtClientFuture.thenAccept(analyzer -> analyzer.setIo(io));
+        }
     }
 
     private <T> T safeBlockingLspOperation(Function<LspClient, T> function, T defaultValue, String errMessage) {
         try {
-            return jdtClientFuture.thenApply(function).join();
+            var client = awaitClient();
+            return function.apply(client);
         } catch (RuntimeException e) {
             logger.error(errMessage, e);
             if (io != null) io.systemOutput(errMessage);
@@ -53,10 +70,25 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
 
     private void safeBlockingLspOperation(Consumer<LspClient> clientConsumer, String errMessage) {
         try {
-            jdtClientFuture.thenAccept(clientConsumer).join();
+            var client = awaitClient();
+            clientConsumer.accept(client);
         } catch (RuntimeException e) {
             logger.error(errMessage, e);
             if (io != null) io.systemOutput(errMessage);
+        }
+    }
+
+    private JdtClient awaitClient() {
+        var client = this.jdtClient;
+        if (client != null) {
+            return client;
+        }
+        try {
+            client = jdtClientFuture.join();
+            this.jdtClient = client;
+            return client;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed waiting for JDT Language Server client.", e);
         }
     }
 
@@ -88,7 +120,6 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         safeBlockingLspOperation(
                 client -> client.update(changedFiles), "Unable to update language server due to error!");
-        jdtClientFuture.thenAccept(client -> client.update(changedFiles));
         return super.update(changedFiles);
     }
 
@@ -113,10 +144,10 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
     public static JavaAnalyzer create(IProject project) {
         final var jdtAnalyzerFuture = CompletableFuture.supplyAsync(() -> {
             try {
-                log.debug("Creating JDT LSP Analyzer in the background.");
+                logger.debug("Creating JDT LSP Analyzer in the background.");
                 return new JdtClient(project);
             } catch (IOException e) {
-                log.error("Exception encountered while creating JDT analyzer");
+                logger.error("Exception encountered while creating JDT analyzer");
                 throw new RuntimeException(e);
             }
         });
