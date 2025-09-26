@@ -1446,7 +1446,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     static List<String> normalizeSplitLines(String input) {
-        if (input == null) return java.util.Collections.emptyList();
         return Arrays.stream(input.split("\\R+"))
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
@@ -1517,9 +1516,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (int idx : indices) {
             if (idx >= 0 && idx < model.getSize()) {
                 TaskItem item = model.get(idx);
-                if (item != null && item.text() != null) {
-                    taskTexts.add(item.text());
-                }
+                taskTexts.add(item.text());
             }
         }
 
