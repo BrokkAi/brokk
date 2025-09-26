@@ -86,6 +86,15 @@ public abstract class TreeSitterAnalyzer
 
     /* ---------- instance state ---------- */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
+    private final ThreadLocal<TSParser> threadLocalParser = ThreadLocal.withInitial(() -> {
+        var parser = new TSParser();
+        if (!parser.setLanguage(getTSLanguage())) {
+            log.error(
+                    "Failed to set language on TSParser for {}",
+                    getTSLanguage().getClass().getSimpleName());
+        }
+        return parser;
+    });
     private final ThreadLocal<TSQuery> query;
     private final Map<ProjectFile, List<CodeUnit>> topLevelDeclarations =
             new ConcurrentHashMap<>(); // package-private for testing
@@ -907,6 +916,10 @@ public abstract class TreeSitterAnalyzer
      */
     protected TSLanguage getTSLanguage() {
         return threadLocalLanguage.get();
+    }
+
+    protected TSParser getTSParser() {
+        return threadLocalParser.get();
     }
 
     /**
@@ -2365,16 +2378,8 @@ public abstract class TreeSitterAnalyzer
 
     private FileAnalysisResult analyzeFile(ProjectFile pf, byte[] fileBytes, ConstructionTiming timing) {
         log.trace("Processing file: {}", pf);
-        var localParser = new TSParser();
-        if (!localParser.setLanguage(getTSLanguage())) {
-            log.error(
-                    "Failed to set language on thread-local TSParser for language {} in file {}",
-                    getTSLanguage().getClass().getSimpleName(),
-                    pf);
-            // Return an empty result to skip ingestion
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
-        }
-        return analyzeFileContent(pf, fileBytes, localParser, timing);
+        var parser = getTSParser();
+        return analyzeFileContent(pf, fileBytes, parser, timing);
     }
 
     private void mergeAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult, ConstructionTiming timing) {
@@ -2455,13 +2460,9 @@ public abstract class TreeSitterAnalyzer
                 // -------- re-analyse (if file still exists) ----------
                 if (Files.exists(file.absPath())) {
                     try {
-                        var localParser = new TSParser();
-                        if (!localParser.setLanguage(getTSLanguage())) {
-                            log.error("Cannot set TSLanguage for {}", file);
-                            continue;
-                        }
+                        var parser = getTSParser();
                         byte[] bytes = Files.readAllBytes(file.absPath());
-                        var analysisResult = analyzeFileContent(file, bytes, localParser, null);
+                        var analysisResult = analyzeFileContent(file, bytes, parser, null);
                         ingestAnalysisResult(file, analysisResult);
                     } catch (IOException e) {
                         log.warn("IO error re-analysing {}: {}", file, e.getMessage());
