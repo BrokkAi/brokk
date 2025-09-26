@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.agents;
 
 import static java.lang.Math.min;
-import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -344,7 +343,6 @@ public class ContextAgent {
             rawSummaries = tempSummaries;
         } else {
             // Scan all the files
-            requireNonNull(analyzer);
             rawSummaries = filesToConsider.stream()
                     .parallel()
                     .flatMap(f -> analyzer.as(SkeletonProvider.class)

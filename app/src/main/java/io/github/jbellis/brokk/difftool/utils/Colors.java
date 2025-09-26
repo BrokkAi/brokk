@@ -10,9 +10,9 @@ public class Colors {
     private static final Color LIGHT_DELETED = new Color(255, 160, 180);
 
     // Dark Theme Colors. These are BACKGROUND colors for highlighting
-    private static final Color DARK_ADDED = new Color(117, 193, 35).darker().darker();
-    private static final Color DARK_CHANGED = new Color(0, 0, 102).brighter();
-    private static final Color DARK_DELETED = new Color(77, 46, 8);
+    private static final Color DARK_ADDED = new Color(60, 80, 60);
+    private static final Color DARK_CHANGED = new Color(49, 75, 101);
+    private static final Color DARK_DELETED = new Color(80, 60, 60);
 
     // Search colors (currently theme-independent)
     public static final Color SEARCH = Color.yellow;

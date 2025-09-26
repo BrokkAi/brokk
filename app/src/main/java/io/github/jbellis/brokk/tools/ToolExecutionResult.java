@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.tools;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -21,15 +20,6 @@ public record ToolExecutionResult(
         SUCCESS,
         /** The tool failed to execute due to an error. */
         FAILURE
-    }
-
-    // --- Constructor ---
-
-    /** Primary constructor. Ensures non-null fields. */
-    public ToolExecutionResult {
-        Objects.requireNonNull(request, "request cannot be null");
-        Objects.requireNonNull(status, "status cannot be null");
-        Objects.requireNonNull(resultText, "resultText cannot be null"); // Store error message here on failure
     }
 
     // --- Factory Methods ---

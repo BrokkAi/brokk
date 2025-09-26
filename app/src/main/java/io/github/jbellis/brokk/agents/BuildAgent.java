@@ -384,12 +384,6 @@ public class BuildAgent {
     /** Holds semi-structured information about a project's build process */
     public record BuildDetails(
             String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> excludedDirectories) {
-        public BuildDetails {
-            requireNonNull(buildLintCommand);
-            requireNonNull(testAllCommand);
-            requireNonNull(testSomeCommand);
-            requireNonNull(excludedDirectories);
-        }
 
         public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of());
     }
@@ -423,7 +417,7 @@ public class BuildAgent {
         logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
 
         // Get ProjectFiles from editable and read-only fragments
-        var topContext = requireNonNull(cm.topContext());
+        var topContext = cm.topContext();
         var projectFilesFromEditableOrReadOnly =
                 topContext.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
 

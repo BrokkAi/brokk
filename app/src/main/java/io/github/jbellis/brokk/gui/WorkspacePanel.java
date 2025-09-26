@@ -341,7 +341,7 @@ public class WorkspacePanel extends JPanel {
                             var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
                             panel.showFragmentPreview(fragment);
                         }
-                        case VIEW_HISTORY -> requireNonNull(panel.chrome).addFileHistoryTab(file);
+                        case VIEW_HISTORY -> panel.chrome.addFileHistoryTab(file);
                         default ->
                             throw new UnsupportedOperationException(
                                     "File action not implemented: " + WorkspaceAction.this);

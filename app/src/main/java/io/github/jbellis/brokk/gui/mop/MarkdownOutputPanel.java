@@ -231,6 +231,17 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
+    public void setText(TaskEntry taskEntry) {
+        SwingUtilities.invokeLater(() -> {
+            if (taskEntry.isCompressed()) {
+                setText(List.of(Messages.customSystem(Objects.toString(taskEntry.summary(), "Summary not available"))));
+            } else {
+                var taskFragment = castNonNull(taskEntry.log());
+                setText(taskFragment.messages());
+            }
+        });
+    }
+
     public String getText() {
         return messages.stream().map(Messages::getRepr).collect(java.util.stream.Collectors.joining("\n\n"));
     }

@@ -1077,7 +1077,7 @@ public class GitLogTab extends JPanel {
          * @param io The IConsoleIO instance to output progress messages to. Must not be null.
          */
         public IoProgressMonitor(IConsoleIO io) {
-            this.io = Objects.requireNonNull(io, "IConsoleIO cannot be null");
+            this.io = io;
         }
 
         @Override

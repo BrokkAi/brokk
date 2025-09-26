@@ -161,7 +161,6 @@ public class ToolRegistry {
      * Otherwise, throws IllegalArgumentException to signal unsupported pattern for dedupe.
      */
     public List<SignatureUnit> signatureUnits(Object instance, ToolExecutionRequest request) {
-        Objects.requireNonNull(request, "request cannot be null");
         String toolName = request.name();
 
         ValidatedInvocation vi = validateTool(instance, request);
@@ -359,7 +358,6 @@ public class ToolRegistry {
      * @param toolProviderInstance An instance of a class containing methods annotated with @Tool.
      */
     public void register(Object toolProviderInstance) {
-        Objects.requireNonNull(toolProviderInstance, "toolProviderInstance cannot be null");
         Class<?> clazz = toolProviderInstance.getClass();
 
         for (Method method : clazz.getMethods()) {
@@ -404,7 +402,6 @@ public class ToolRegistry {
      *     match.
      */
     public List<ToolSpecification> getTools(Object instance, Collection<String> toolNames) {
-        Objects.requireNonNull(instance, "toolInstance cannot be null");
         Class<?> cls = instance.getClass();
 
         // Gather all instance methods declared in the class that are annotated with @Tool.

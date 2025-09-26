@@ -156,7 +156,6 @@ public interface Language {
         private final Set<Language> languages;
 
         public MultiLanguage(Set<Language> languages) {
-            Objects.requireNonNull(languages, "languages set is null");
             if (languages.isEmpty()) throw new IllegalArgumentException("languages set must not be empty");
             if (languages.stream().anyMatch(l -> l instanceof MultiLanguage))
                 throw new IllegalArgumentException("cannot nest MultiLanguage inside itself");

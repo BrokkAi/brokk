@@ -4,7 +4,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Prompt helper for explaining a commit range with emphasis on public API changes and for constructing
@@ -61,7 +60,7 @@ public final class MergePrompts {
                 </range>
                 """
                         .stripIndent()
-                        .formatted(Objects.requireNonNull(from), Objects.requireNonNull(to), diff));
+                        .formatted(from, to, diff));
 
         return List.of(system, user);
     }

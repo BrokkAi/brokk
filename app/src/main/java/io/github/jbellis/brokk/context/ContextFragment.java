@@ -308,13 +308,6 @@ public interface ContextFragment {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
-        // Record canonical constructor - ensures `id` is properly set
-        public ProjectPathFragment {
-            Objects.requireNonNull(file);
-            Objects.requireNonNull(id); // id is now always String
-            // contextManager can be null for some test/serialization cases if handled by callers
-        }
-
         @Override
         public FragmentType getType() {
             return FragmentType.PROJECT_PATH;
@@ -326,7 +319,6 @@ public interface ContextFragment {
         }
 
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
-            Objects.requireNonNull(existingId);
             try {
                 int numericId = Integer.parseInt(existingId);
                 setMinimumId(numericId + 1);
@@ -515,12 +507,6 @@ public interface ContextFragment {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
-        // Record canonical constructor
-        public ExternalPathFragment {
-            Objects.requireNonNull(file);
-            Objects.requireNonNull(id);
-        }
-
         @Override
         public FragmentType getType() {
             return FragmentType.EXTERNAL_PATH;
@@ -533,7 +519,6 @@ public interface ContextFragment {
 
         public static ExternalPathFragment withId(
                 ExternalFile file, String existingId, IContextManager contextManager) {
-            Objects.requireNonNull(existingId);
             try {
                 int numericId = Integer.parseInt(existingId);
                 if (numericId >= ContextFragment.nextId.get()) {
@@ -587,8 +572,6 @@ public interface ContextFragment {
 
         // Record canonical constructor
         public ImageFileFragment {
-            Objects.requireNonNull(file);
-            Objects.requireNonNull(id);
             assert !file.isText() : "ImageFileFragment should only be used for non-text files";
         }
 
@@ -603,7 +586,6 @@ public interface ContextFragment {
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
-            Objects.requireNonNull(existingId);
             assert !file.isText() : "ImageFileFragment should only be used for non-text files";
             try {
                 int numericId = Integer.parseInt(existingId);
@@ -748,7 +730,6 @@ public interface ContextFragment {
 
         // Constructor for VirtualFragments with a pre-determined ID (e.g., hash or from DTO)
         protected VirtualFragment(String existingId, IContextManager contextManager) {
-            requireNonNull(existingId);
             this.id = existingId;
             this.contextManager = contextManager;
             // If the existingId is numeric (from a dynamic fragment that was frozen/unfrozen or loaded),

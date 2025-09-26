@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableSet;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
@@ -195,22 +194,7 @@ public abstract class TreeSitterAnalyzer
             String typeParametersFieldName, // For generics on type aliases, classes, functions etc.
             Map<String, SkeletonType> captureConfiguration,
             String asyncKeywordNodeType,
-            Set<String> modifierNodeTypes) {
-        public LanguageSyntaxProfile {
-            Objects.requireNonNull(classLikeNodeTypes);
-            Objects.requireNonNull(functionLikeNodeTypes);
-            Objects.requireNonNull(fieldLikeNodeTypes);
-            Objects.requireNonNull(decoratorNodeTypes);
-            Objects.requireNonNull(identifierFieldName);
-            Objects.requireNonNull(bodyFieldName);
-            Objects.requireNonNull(parametersFieldName);
-            Objects.requireNonNull(returnTypeFieldName); // Can be empty string if not applicable
-            Objects.requireNonNull(typeParametersFieldName); // Can be empty string if not applicable
-            Objects.requireNonNull(captureConfiguration);
-            Objects.requireNonNull(asyncKeywordNodeType); // Can be empty string if not applicable
-            Objects.requireNonNull(modifierNodeTypes);
-        }
-    }
+            Set<String> modifierNodeTypes) {}
 
     public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
 

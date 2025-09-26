@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
-import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.formdev.flatlaf.util.SystemInfo;
@@ -309,7 +308,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
-        var projectIcon = requireNonNull(Icons.FOLDER_CODE);
+        var projectIcon = Icons.FOLDER_CODE;
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
@@ -328,7 +327,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             gitLogTab = new GitLogTab(this, contextManager);
 
             // Changes tab (with badge)
-            var commitIcon = requireNonNull(Icons.COMMIT);
+            var commitIcon = Icons.COMMIT;
             gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
             leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
             var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
@@ -342,7 +341,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
 
             // Worktrees tab
-            var worktreeIcon = requireNonNull(Icons.FLOWCHART);
+            var worktreeIcon = Icons.FLOWCHART;
             leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
             var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
             var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees");
@@ -355,7 +354,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
 
             // Log tab
-            var logIcon = requireNonNull(Icons.FLOWSHEET);
+            var logIcon = Icons.FLOWSHEET;
             leftTabbedPanel.addTab(null, logIcon, gitLogTab);
             var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
             var logTabLabel = createSquareTabLabel(logIcon, "Log");
@@ -379,7 +378,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // --- New top-level Pull-Requests panel ---------------------------------
         if (getProject().isGitHubRepo() && gitLogTab != null) {
             pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitLogTab);
-            var prIcon = requireNonNull(Icons.PULL_REQUEST);
+            var prIcon = Icons.PULL_REQUEST;
             leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
             var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
             var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
@@ -395,7 +394,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // --- New top-level Issues panel ----------------------------------------
         if (getProject().getIssuesProvider().type() != IssueProviderType.NONE) {
             issuesPanel = new GitIssuesTab(this, contextManager);
-            var issIcon = requireNonNull(Icons.ADJUST);
+            var issIcon = Icons.ADJUST;
             leftTabbedPanel.addTab(null, issIcon, issuesPanel);
             var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var issLabel = createSquareTabLabel(issIcon, "Issues");
@@ -835,7 +834,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 if (idx != -1) leftTabbedPanel.remove(idx);
             }
             issuesPanel = new GitIssuesTab(this, contextManager);
-            var icon = requireNonNull(Icons.ASSIGNMENT);
+            var icon = Icons.ASSIGNMENT;
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var label = createSquareTabLabel(icon, "Issues");
@@ -1030,13 +1029,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
     }
 
-    /**
-     * Resets the Output to history + main, and clears internal message buffers. After this, getLlmRawMessages will
-     * return only the messages from `main`. Typically this use called with a single UserMessage in `main` to reset the
-     * output to a fresh state for a new task.
-     *
-     * <p>You should probably call ContextManager::beginTask instead of calling this directly.
-     */
+    @Override
+    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
+    }
+
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }
@@ -2116,7 +2113,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Called by MenuBar after constructing the BlitzForge menu item. */
     public void setBlitzForgeMenuItem(JMenuItem blitzForgeMenuItem) {
-        this.blitzForgeMenuItem = requireNonNull(blitzForgeMenuItem);
+        this.blitzForgeMenuItem = blitzForgeMenuItem;
     }
 
     public void showFileInProjectTree(ProjectFile projectFile) {

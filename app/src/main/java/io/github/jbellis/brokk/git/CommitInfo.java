@@ -29,12 +29,12 @@ public final class CommitInfo implements ICommitInfo {
     /** General purpose constructor. */
     private CommitInfo(
             GitRepo repo, String id, String message, String author, Instant date, Optional<Integer> stashIndex) {
-        this.repo = Objects.requireNonNull(repo);
-        this.id = Objects.requireNonNull(id);
-        this.message = Objects.requireNonNull(message);
-        this.author = Objects.requireNonNull(author);
-        this.date = Objects.requireNonNull(date);
-        this.stashIndex = Objects.requireNonNull(stashIndex);
+        this.repo = repo;
+        this.id = id;
+        this.message = message;
+        this.author = author;
+        this.date = date;
+        this.stashIndex = stashIndex;
     }
 
     /**

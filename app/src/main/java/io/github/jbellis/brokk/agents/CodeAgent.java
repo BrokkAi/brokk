@@ -70,6 +70,7 @@ public class CodeAgent {
     }
 
     public enum Option {
+        PRESERVE_RAW_MESSAGES,
         DEFER_BUILD
     }
 
@@ -78,16 +79,6 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult runTask(String userInput, Set<Option> options) {
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            return runTaskInternal(userInput, options);
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
-        }
-    }
-
-    private @NotNull TaskResult runTaskInternal(String userInput, Set<Option> options) {
-        contextManager.beginTask("Code", userInput);
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
@@ -257,7 +248,9 @@ public class CodeAgent {
                 : userInput + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
-        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
+        var finalMessages = options.contains(Option.PRESERVE_RAW_MESSAGES)
+                ? List.copyOf(io.getLlmRawMessages(false))
+                : prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
         return new TaskResult(
                 "Code: " + finalActionDescription,
                 new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
@@ -280,9 +273,10 @@ public class CodeAgent {
                         .anyMatch(f -> f.read()
                                 .map(s -> s.contains("BRK_CONFLICT_END"))
                                 .orElse(false));
-        return hasMergeMarkers
+        var instructionsFlags = hasMergeMarkers
                 ? EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS)
                 : Set.<CodePrompts.InstructionsFlags>of();
+        return instructionsFlags;
     }
 
     public TaskResult runSingleFileEdit(
@@ -822,7 +816,7 @@ public class CodeAgent {
             if (e.stopDetails.reason() == TaskResult.StopReason.READ_ONLY_EDIT) {
                 // already reported by applyBlocksAndHandleErrors
             } else if (e.stopDetails.reason() == TaskResult.StopReason.IO_ERROR) {
-                io.toolError(requireNonNull(e.stopDetails.explanation()));
+                io.toolError(e.stopDetails.explanation());
             } else if (e.stopDetails.reason() == TaskResult.StopReason.APPLY_ERROR) {
                 reportComplete(e.stopDetails.explanation());
             }

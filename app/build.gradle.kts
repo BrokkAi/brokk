@@ -264,6 +264,7 @@ tasks.named<JavaCompile>("compileJava") {
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
         option("NullAway:HandleTestAssertionLibraries", "true")
         option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+        option("RedundantNullCheck:CheckRequireNonNull", "true")
 
         // RedundantNullCheck
         enable("RedundantNullCheck")

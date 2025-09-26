@@ -103,7 +103,7 @@ public class BlitzForgeDialog extends JDialog {
         private final int diameter;
 
         private ColorDotIcon(Color color, int diameter) {
-            this.color = Objects.requireNonNull(color, "color");
+            this.color = color;
             this.diameter = diameter;
         }
 

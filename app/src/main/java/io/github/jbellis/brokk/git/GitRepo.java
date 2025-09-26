@@ -2202,9 +2202,6 @@ public class GitRepo implements Closeable, IGitRepo {
      * automatically append “.git”.
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
-        requireNonNull(remoteUrl, "remoteUrl");
-        requireNonNull(directory, "directory");
-
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
         // Ensure the target directory is empty (or doesn’t yet exist)
@@ -2246,9 +2243,6 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
-        requireNonNull(remoteUrl, "remoteUrl");
-        requireNonNull(directory, "directory");
-
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
         // Ensure the target directory is empty (or doesn't yet exist)

@@ -519,7 +519,7 @@ public final class MergeOneFile {
                         + "\nYou can also make non-conflict edits if necessary to fix related issues caused by the merge.";
         var agent = new CodeAgent(cm, codeModel, cm.getIo());
         var result = agent.runSingleFileEdit(
-                requireNonNull(file),
+                file,
                 instructions,
                 requireNonNull(currentSessionMessages),
                 EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS));

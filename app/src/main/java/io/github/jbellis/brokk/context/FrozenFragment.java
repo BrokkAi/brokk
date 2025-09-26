@@ -90,7 +90,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             String originalClassName,
             Map<String, String> meta,
             @Nullable String reprContent) {
-        super(requireNonNull(contentHashAsId), contextManager); // ID is the content hash, must not be null
+        super(contentHashAsId, contextManager); // ID is the content hash, must not be null
         this.originalType = originalType;
         this.descriptionContent = description;
         this.shortDescriptionContent = shortDescription;

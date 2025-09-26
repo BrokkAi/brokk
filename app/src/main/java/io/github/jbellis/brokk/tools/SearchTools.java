@@ -32,7 +32,7 @@ public class SearchTools {
     private final IContextManager contextManager; // Needed for file operations
 
     public SearchTools(IContextManager contextManager) {
-        this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null");
+        this.contextManager = contextManager;
     }
 
     // --- Sanitization Helper Methods

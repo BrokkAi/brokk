@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.gui.mop;
 
-import static java.util.Objects.requireNonNull;
-
 import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.swing.*;
@@ -54,7 +52,6 @@ public final class MarkdownOutputPool {
     /** Return a panel to the pool; may dispose if capacity reached. */
     public void giveBack(MarkdownOutputPanel panel) {
         assert SwingUtilities.isEventDispatchThread();
-        requireNonNull(panel);
 
         panel.clear();
         panel.hideSpinner();

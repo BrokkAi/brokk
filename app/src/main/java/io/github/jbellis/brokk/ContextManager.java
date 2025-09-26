@@ -1872,14 +1872,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TaskEntry.fromCompressed(entry.sequence(), summary);
     }
 
-    @Override
-    public void beginTask(String action, String input) {
-        var currentTaskFragment =
-                new ContextFragment.TaskFragment(this, List.of(new UserMessage(action, input)), input);
-        var history = topContext().getTaskHistory();
-        ((Chrome) io).setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
-    }
-
     /**
      * Adds a completed CodeAgent session result to the context history. This is the primary method for adding history
      * after a CodeAgent run.
@@ -1920,6 +1912,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         .collect(Collectors.toSet());
 
                 var fragmentsToAdd = result.changedFiles().stream()
+                        .filter(ProjectFile.class::isInstance)
+                        .map(ProjectFile.class::cast)
                         // avoid duplicates – only add if not already editable
                         .filter(pf -> !existingEditableFiles.contains(pf))
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))

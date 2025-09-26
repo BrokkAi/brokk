@@ -1092,9 +1092,6 @@ public class Service {
     public void sendFeedback(
             String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
             throws IOException {
-        Objects.requireNonNull(category, "category must not be null");
-        Objects.requireNonNull(feedbackText, "feedbackText must not be null");
-
         // Get user ID from Brokk key
         var kp = parseKey(MainProject.getBrokkKey());
 

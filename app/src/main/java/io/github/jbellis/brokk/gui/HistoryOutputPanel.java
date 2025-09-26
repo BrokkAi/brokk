@@ -880,6 +880,14 @@ public class HistoryOutputPanel extends JPanel {
         return llmStreamArea.getRawMessages(includeReasoning);
     }
 
+    public void setLlmOutput(TaskEntry taskEntry) {
+        llmStreamArea.setText(taskEntry);
+    }
+
+    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
+        llmStreamArea.setText(newOutput);
+    }
+
     /**
      * Displays a full conversation, splitting it between the history area (for all but the last task) and the main area
      * (for the last task).
@@ -947,11 +955,11 @@ public class HistoryOutputPanel extends JPanel {
 
     /** Gets the LLM scroll pane */
     public JScrollPane getLlmScrollPane() {
-        return requireNonNull(llmScrollPane, "llmScrollPane should be initialized by constructor");
+        return llmScrollPane;
     }
 
     public MarkdownOutputPanel getLlmStreamArea() {
-        return requireNonNull(llmStreamArea, "llmStreamArea should be initialized by constructor");
+        return llmStreamArea;
     }
 
     public void clearLlmOutput() {

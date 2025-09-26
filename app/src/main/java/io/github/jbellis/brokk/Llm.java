@@ -647,8 +647,7 @@ public class Llm {
                 var registry = contextManager.getToolRegistry();
                 var validationErrors = new ArrayList<String>();
                 Object toolOwner = requireNonNull(
-                        requireNonNull(toolContext).toolOwner(),
-                        "ToolContext.toolOwner() must be provided for tool validation");
+                        toolContext.toolOwner(), "ToolContext.toolOwner() must be provided for tool validation");
                 for (var ter : parseResult.toolRequests()) {
                     try {
                         registry.validateTool(toolOwner, ter);
