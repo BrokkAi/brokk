@@ -1074,15 +1074,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 try {
                     var scanModel = cm.getService().getScanModel();
                     var llm = cm.getLlm(scanModel, "Extract Goal from Task list", false);
-                    var messages = List.<ChatMessage>of(
-                            new UserMessage(
-                                    """
+                    var messages = List.<ChatMessage>of(new UserMessage(
+                            """
                             You are a summarizer of tasks. Take a list of tasks and find the common goal for them in one
                             sentence. Only return the goal.
                             task list below:
                             %s
-                            
-                            """ .stripIndent().formatted(orderedTasklistText.toString())));
+
+                            """
+                                    .stripIndent()
+                                    .formatted(orderedTasklistText.toString())));
                     var result = llm.sendRequest(messages, false);
 
                     var goalRaw = result.text();
