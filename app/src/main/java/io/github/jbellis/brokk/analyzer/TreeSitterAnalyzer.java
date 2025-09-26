@@ -10,8 +10,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayDeque; // Added import
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -104,8 +104,8 @@ public abstract class TreeSitterAnalyzer
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
     private final ConcurrentSkipListMap<String, List<CodeUnit>> symbolIndex =
             new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
-    // SHA-1 hash of each analysed file, used to detect modifications
-    private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
+    // Timestamp of the last successful full-project update (epoch nanos)
+    private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
     private final Map<ProjectFile, TSTree> parsedTreeCache =
             new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
     // Ensures reads see a consistent view while updates mutate internal maps atomically
@@ -414,6 +414,11 @@ public abstract class TreeSitterAnalyzer
                 topLevelDeclarations.size(),
                 childrenByParent.size(),
                 signatures.size());
+
+        // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
+        var initInstant = Instant.now();
+        long initNowNanos = initInstant.getEpochSecond() * 1_000_000_000L + initInstant.getNano();
+        lastUpdateEpochNanos.set(initNowNanos);
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language) {
@@ -1034,9 +1039,6 @@ public abstract class TreeSitterAnalyzer
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
-
-        // record (or refresh) the file content hash
-        fileHashes.put(file, sha1Hex(fileBytes));
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
@@ -2227,24 +2229,6 @@ public abstract class TreeSitterAnalyzer
 
     /* ---------- helpers ---------- */
 
-    /**
-     * Compute SHA-1 of the provided data and return it as lowercase hex. SHA-1 is guaranteed to be available on every
-     * JVM.
-     */
-    private static String sha1Hex(byte[] data) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
-            byte[] digest = md.digest(data);
-            StringBuilder sb = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-1 algorithm unavailable", e);
-        }
-    }
-
     private static String formatSecondsMillis(long nanos) {
         long seconds = nanos / 1_000_000_000L;
         long millis = (nanos % 1_000_000_000L) / 1_000_000L;
@@ -2428,7 +2412,6 @@ public abstract class TreeSitterAnalyzer
                 // -------- cleanup ----------
                 parsedTreeCache.remove(file);
                 topLevelDeclarations.remove(file);
-                fileHashes.remove(file);
 
                 Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
 
@@ -2480,8 +2463,8 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
-     * Full-project incremental update: detect created/modified/deleted files by comparing on-disk SHA-1 hashes to the
-     * cached ones, then delegate to {@link #update(Set)}.
+     * Full-project incremental update: detect created/modified/deleted files using filesystem mtimes (nanos precision),
+     * then delegate to {@link #update(Set)}.
      */
     @Override
     public IAnalyzer update() {
@@ -2498,10 +2481,21 @@ public abstract class TreeSitterAnalyzer
                 })
                 .collect(Collectors.toSet());
 
+        // Snapshot known files (those we've analyzed/cached)
+        Set<ProjectFile> knownFiles = withReadLock(() -> {
+            var s = new HashSet<ProjectFile>();
+            s.addAll(topLevelDeclarations.keySet());
+            s.addAll(parsedTreeCache.keySet());
+            return s;
+        });
+
         Set<ProjectFile> changed = new HashSet<>();
+        var nowInstant = Instant.now();
+        long nowNanos = nowInstant.getEpochSecond() * 1_000_000_000L + nowInstant.getNano();
+        long last = lastUpdateEpochNanos.get();
 
         // deleted or no-longer-relevant files
-        for (ProjectFile known : new HashSet<>(fileHashes.keySet())) {
+        for (ProjectFile known : knownFiles) {
             if (!currentFiles.contains(known) || !Files.exists(known.absPath())) {
                 changed.add(known);
             }
@@ -2510,20 +2504,28 @@ public abstract class TreeSitterAnalyzer
         // new or modified files
         for (ProjectFile pf : currentFiles) {
             try {
-                byte[] bytes = Files.readAllBytes(pf.absPath());
-                String newHash = sha1Hex(bytes);
-                String oldHash = fileHashes.get(pf);
-                if (!newHash.equals(oldHash)) {
+                if (!knownFiles.contains(pf)) {
+                    // New file we have not seen before
+                    changed.add(pf);
+                    continue;
+                }
+                long mtimeNanos = Files.getLastModifiedTime(pf.absPath()).to(TimeUnit.NANOSECONDS);
+                if (mtimeNanos > last) {
                     changed.add(pf);
                 }
             } catch (IOException e) {
-                log.warn("Could not hash {}: {}", pf, e.getMessage());
+                log.warn("Could not stat {}: {}", pf, e.getMessage());
                 changed.add(pf); // treat as changed; will retry next time
             }
         }
 
         // reuse the existing incremental logic
-        return update(changed);
+        var analyzer = update(changed);
+
+        // Advance the last-update watermark to the time this scan began
+        lastUpdateEpochNanos.set(nowNanos);
+
+        return analyzer;
     }
 
     private void ingestAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult) {
