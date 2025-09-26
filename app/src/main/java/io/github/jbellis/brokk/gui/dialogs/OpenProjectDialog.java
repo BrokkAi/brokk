@@ -281,9 +281,13 @@ public class OpenProjectDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(directoryInputPanel, gbc);
 
-        var shallowCloneCheckbox = new JCheckBox("Shallow clone with");
-        var depthSpinner = new JSpinner(new SpinnerNumberModel(1, 1, Integer.MAX_VALUE, 1));
-        depthSpinner.setEnabled(false);
+        // Load persisted shallow clone preferences
+        boolean shallowEnabled = MainProject.getGitHubShallowCloneEnabled();
+        int shallowDepth = MainProject.getGitHubShallowCloneDepth();
+
+        var shallowCloneCheckbox = new JCheckBox("Shallow clone with", shallowEnabled);
+        var depthSpinner = new JSpinner(new SpinnerNumberModel(shallowDepth, 1, Integer.MAX_VALUE, 1));
+        depthSpinner.setEnabled(shallowEnabled);
         ((JSpinner.DefaultEditor) depthSpinner.getEditor()).getTextField().setColumns(3);
         var commitsLabel = new JLabel("commits");
 
@@ -300,7 +304,16 @@ public class OpenProjectDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         panel.add(shallowPanel, gbc);
 
-        shallowCloneCheckbox.addActionListener(e -> depthSpinner.setEnabled(shallowCloneCheckbox.isSelected()));
+        shallowCloneCheckbox.addActionListener(e -> {
+            boolean selected = shallowCloneCheckbox.isSelected();
+            depthSpinner.setEnabled(selected);
+            MainProject.setGitHubShallowCloneEnabled(selected);
+        });
+
+        // Save depth when changed
+        depthSpinner.addChangeListener(e -> {
+            MainProject.setGitHubShallowCloneDepth((Integer) depthSpinner.getValue());
+        });
 
         chooseButton.addActionListener(e -> {
             var chooser = new JFileChooser();
@@ -421,8 +434,12 @@ public class OpenProjectDialog extends JDialog {
         gbc.weightx = 1.0;
         panel.add(dirPanel, gbc);
 
-        var httpsRadio = new JRadioButton("HTTPS", true);
-        var sshRadio = new JRadioButton("SSH", false);
+        // Load persisted protocol preference
+        String preferredProtocol = MainProject.getGitHubCloneProtocol();
+        boolean useHttps = "https".equals(preferredProtocol);
+
+        var httpsRadio = new JRadioButton("HTTPS", useHttps);
+        var sshRadio = new JRadioButton("SSH", !useHttps);
         var protocolGroup = new ButtonGroup();
         protocolGroup.add(httpsRadio);
         protocolGroup.add(sshRadio);
@@ -438,10 +455,13 @@ public class OpenProjectDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(protocolPanel, gbc);
 
-        // Shallow clone controls
-        var shallowCloneCheckbox = new JCheckBox("Shallow clone with");
-        var depthSpinner = new JSpinner(new SpinnerNumberModel(1, 1, Integer.MAX_VALUE, 1));
-        depthSpinner.setEnabled(false);
+        // Shallow clone controls - load persisted preferences
+        boolean shallowEnabled = MainProject.getGitHubShallowCloneEnabled();
+        int shallowDepth = MainProject.getGitHubShallowCloneDepth();
+
+        var shallowCloneCheckbox = new JCheckBox("Shallow clone with", shallowEnabled);
+        var depthSpinner = new JSpinner(new SpinnerNumberModel(shallowDepth, 1, Integer.MAX_VALUE, 1));
+        depthSpinner.setEnabled(shallowEnabled);
         ((JSpinner.DefaultEditor) depthSpinner.getEditor()).getTextField().setColumns(3);
         var commitsLabel = new JLabel("commits");
 
@@ -457,7 +477,29 @@ public class OpenProjectDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         panel.add(shallowPanel, gbc);
 
-        shallowCloneCheckbox.addActionListener(e -> depthSpinner.setEnabled(shallowCloneCheckbox.isSelected()));
+        // Add persistence listeners
+        httpsRadio.addActionListener(e -> {
+            if (httpsRadio.isSelected()) {
+                MainProject.setGitHubCloneProtocol("https");
+            }
+        });
+
+        sshRadio.addActionListener(e -> {
+            if (sshRadio.isSelected()) {
+                MainProject.setGitHubCloneProtocol("ssh");
+            }
+        });
+
+        shallowCloneCheckbox.addActionListener(e -> {
+            boolean selected = shallowCloneCheckbox.isSelected();
+            depthSpinner.setEnabled(selected);
+            MainProject.setGitHubShallowCloneEnabled(selected);
+        });
+
+        // Save depth when changed
+        depthSpinner.addChangeListener(e -> {
+            MainProject.setGitHubShallowCloneDepth((Integer) depthSpinner.getValue());
+        });
 
         var refreshButton = new JButton("Refresh");
         refreshButton.addActionListener(e -> {

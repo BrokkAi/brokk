@@ -63,6 +63,11 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
+    // Keys for GitHub clone preferences (global user settings)
+    private static final String GITHUB_CLONE_PROTOCOL_KEY = "githubCloneProtocol";
+    private static final String GITHUB_SHALLOW_CLONE_ENABLED_KEY = "githubShallowCloneEnabled";
+    private static final String GITHUB_SHALLOW_CLONE_DEPTH_KEY = "githubShallowCloneDepth";
+
     // New key for the IssueProvider record as JSON
     private static final String ISSUES_PROVIDER_JSON_KEY = "issuesProviderJson";
 
@@ -1081,6 +1086,39 @@ public final class MainProject extends AbstractProject {
     public static String getGitHubToken() {
         var props = loadGlobalProperties();
         return props.getProperty(GITHUB_TOKEN_KEY, "");
+    }
+
+    public static String getGitHubCloneProtocol() {
+        var props = loadGlobalProperties();
+        return props.getProperty(GITHUB_CLONE_PROTOCOL_KEY, "https");
+    }
+
+    public static void setGitHubCloneProtocol(String protocol) {
+        var props = loadGlobalProperties();
+        props.setProperty(GITHUB_CLONE_PROTOCOL_KEY, protocol);
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getGitHubShallowCloneEnabled() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(GITHUB_SHALLOW_CLONE_ENABLED_KEY, "false"));
+    }
+
+    public static void setGitHubShallowCloneEnabled(boolean enabled) {
+        var props = loadGlobalProperties();
+        props.setProperty(GITHUB_SHALLOW_CLONE_ENABLED_KEY, String.valueOf(enabled));
+        saveGlobalProperties(props);
+    }
+
+    public static int getGitHubShallowCloneDepth() {
+        var props = loadGlobalProperties();
+        return Integer.parseInt(props.getProperty(GITHUB_SHALLOW_CLONE_DEPTH_KEY, "1"));
+    }
+
+    public static void setGitHubShallowCloneDepth(int depth) {
+        var props = loadGlobalProperties();
+        props.setProperty(GITHUB_SHALLOW_CLONE_DEPTH_KEY, String.valueOf(depth));
+        saveGlobalProperties(props);
     }
 
     public static String getTheme() {
