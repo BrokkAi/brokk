@@ -1446,6 +1446,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     static List<String> normalizeSplitLines(@Nullable String input) {
+        if (input == null) return java.util.Collections.emptyList();
         return Arrays.stream(input.split("\\R+"))
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
