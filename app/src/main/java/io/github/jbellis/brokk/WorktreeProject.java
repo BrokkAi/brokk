@@ -211,4 +211,9 @@ public final class WorktreeProject extends AbstractProject {
     public void sessionsListChanged() {
         parent.sessionsListChanged();
     }
+
+    @Override
+    public String getRemoteProjectName() {
+        return parent.getRemoteProjectName();
+    }
 }

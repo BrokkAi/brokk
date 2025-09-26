@@ -171,7 +171,7 @@ public final class MainProject extends AbstractProject {
         this.styleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(STYLE_GUIDE_FILE);
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
-        this.sessionManager = new SessionManager(sessionsDir);
+        this.sessionManager = new SessionManager(this, sessionsDir);
 
         this.projectProps = new Properties();
 
@@ -1796,5 +1796,17 @@ public final class MainProject extends AbstractProject {
         for (var chrome : allChromes) {
             SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
         }
+    }
+
+    @Override
+    public String getRemoteProjectName() {
+        String result = null;
+        if (hasGit()) {
+            result = getRepo().getRemoteUrl();
+        }
+        if (result == null) {
+            result = getRoot().getFileName().toString();
+        }
+        return result;
     }
 }
