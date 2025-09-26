@@ -195,7 +195,7 @@ public final class MOPBridge {
 
         // compressed summary
         if (entry.isCompressed()) {
-            var event = new BrokkEvent.HistoryTask(e, true, requireNonNull(entry.summary()), null);
+            var event = new BrokkEvent.HistoryTask(e, entry.sequence(), true, requireNonNull(entry.summary()), null);
             eventQueue.add(event);
             scheduleSend();
             return;
@@ -212,7 +212,7 @@ public final class MOPBridge {
                 messages.add(new BrokkEvent.HistoryTask.Message(text, message.type()));
             }
         }
-        var event = new BrokkEvent.HistoryTask(e, false, null, messages);
+        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), false, null, messages);
         eventQueue.add(event);
         scheduleSend();
     }
@@ -527,12 +527,10 @@ public final class MOPBridge {
                         var projectFiles = new ArrayList<ProjectFile>();
 
                         var project = contextManager.getProject();
-                        if (project != null) {
-                            for (var match : matches) {
-                                String relativePath = (String) match.get("relativePath");
-                                if (relativePath != null) {
-                                    projectFiles.add(new ProjectFile(project.getRoot(), relativePath));
-                                }
+                        for (var match : matches) {
+                            String relativePath = (String) match.get("relativePath");
+                            if (relativePath != null) {
+                                projectFiles.add(new ProjectFile(project.getRoot(), relativePath));
                             }
                         }
 
@@ -583,6 +581,15 @@ public final class MOPBridge {
         if (cm != null) {
             cm.addPastedTextFragment(text);
         }
+    }
+
+    public void deleteHistoryTask(int sequence) {
+        var cm = contextManager;
+        if (cm == null) {
+            logger.warn("Cannot delete history entry {} - no context manager", sequence);
+            return;
+        }
+        cm.submitUserTask("Delete history entry " + sequence, () -> cm.dropHistoryEntryBySequence(sequence));
     }
 
     public String getContextCacheId() {
@@ -642,7 +649,7 @@ public final class MOPBridge {
                             .filter(s -> !s.isEmpty())
                             .distinct()
                             .toList();
-                } else if (langs != null && langs.getClass().isArray()) {
+                } else if (langs.getClass().isArray()) {
                     var arr = (Object[]) langs;
                     analyzerLanguages = Arrays.stream(arr)
                             .map(String::valueOf)
@@ -650,7 +657,7 @@ public final class MOPBridge {
                             .filter(s -> !s.isEmpty())
                             .distinct()
                             .toList();
-                } else if (langs != null) {
+                } else {
                     var s = String.valueOf(langs).trim();
                     analyzerLanguages = s.isEmpty() ? List.of() : List.of(s);
                 }

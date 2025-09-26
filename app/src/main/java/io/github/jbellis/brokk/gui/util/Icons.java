@@ -13,7 +13,7 @@ public final class Icons {
     public static final Icon PULL_REQUEST = SwingUtil.uiIcon("Brokk.pull_request");
     public static final Icon ADJUST = SwingUtil.uiIcon("Brokk.adjust");
     public static final Icon ASSIGNMENT = SwingUtil.uiIcon("Brokk.assignment");
-    public static final Icon AI_ROBOT = SwingUtil.uiIcon("Brokk.ai-robot");
+    public static final Icon CHAT_BUBBLE = SwingUtil.uiIcon("Brokk.chat_bubble");
     public static final Icon PERSON = SwingUtil.uiIcon("Brokk.person");
     public static final Icon DOWNLOAD = SwingUtil.uiIcon("Brokk.download");
     public static final Icon PUBLISH = SwingUtil.uiIcon("Brokk.publish");

@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -34,6 +35,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
     /** Record representing session metadata for the sessions management system. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SessionInfo(UUID id, String name, long created, long modified) {
 
         @JsonIgnore

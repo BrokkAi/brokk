@@ -3,7 +3,11 @@ package io.github.jbellis.brokk.gui.terminal;
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -30,12 +34,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -59,6 +65,7 @@ import javax.swing.UIManager;
 import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
@@ -368,6 +375,62 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
+    /**
+     * Automatically commits any modified files with a message that incorporates the provided task description. -
+     * Suggests a commit message via GitWorkflow and combines it with the taskDescription. - Commits all modified files
+     * as a single commit. - Reports success/failure on the EDT and refreshes relevant Git UI.
+     */
+    public static void autoCommitChanges(Chrome chrome, String taskDescription) {
+        var cm = chrome.getContextManager();
+        var repo = cm.getProject().getRepo();
+        java.util.Set<GitRepo.ModifiedFile> modified;
+        try {
+            modified = repo.getModifiedFiles();
+        } catch (GitAPIException e) {
+            SwingUtilities.invokeLater(
+                    () -> chrome.toolError("Unable to determine modified files: " + e.getMessage(), "Commit Error"));
+            return;
+        }
+        if (modified.isEmpty()) {
+            chrome.systemOutput("No changes to commit for task: " + taskDescription);
+            return;
+        }
+
+        cm.submitUserTask("Auto-committing task result", () -> {
+            try {
+                var workflowService = new GitWorkflow(cm);
+                var filesToCommit =
+                        modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+
+                String suggested = workflowService.suggestCommitMessage(filesToCommit);
+                String message;
+                if (suggested.isBlank()) {
+                    message = taskDescription;
+                } else if (!taskDescription.isBlank()
+                        && !suggested.toLowerCase(Locale.ROOT).contains(taskDescription.toLowerCase(Locale.ROOT))) {
+                    message = suggested + " - " + taskDescription;
+                } else {
+                    message = suggested;
+                }
+
+                var commitResult = workflowService.commit(filesToCommit, message);
+
+                SwingUtilities.invokeLater(() -> {
+                    var gitRepo = (GitRepo) repo;
+                    chrome.systemOutput("Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
+                            + commitResult.firstLine());
+                    chrome.updateCommitPanel();
+                    chrome.updateLogTab();
+                    chrome.selectCurrentBranchInLogTab();
+                });
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(
+                        () -> chrome.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error"));
+            }
+            return null;
+        });
+    }
+
     private void addTask() {
         var raw = input.getText();
         if (raw == null) return;
@@ -655,9 +718,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (json != null && !json.isBlank()) {
                     TaskListData data = Json.fromJson(json, TaskListData.class);
                     model.clear();
-                    if (data != null && data.tasks != null) {
+                    if (data != null) {
                         for (TaskEntryDto dto : data.tasks) {
-                            if (dto != null && dto.text != null && !dto.text.isBlank()) {
+                            if (dto != null && !dto.text.isBlank()) {
                                 model.addElement(new TaskItem(dto.text, dto.done));
                             }
                         }
@@ -702,7 +765,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     /** Append a collection of tasks to the end of the current list and persist them for the active session. */
     public void appendTasks(List<String> tasks) {
-        if (tasks == null || tasks.isEmpty()) {
+        if (tasks.isEmpty()) {
             return;
         }
         boolean added = false;
@@ -796,7 +859,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         String prompt = item.text();
-        if (prompt == null || prompt.isBlank()) {
+        if (prompt.isBlank()) {
             startNextIfAny();
             return;
         }
@@ -818,47 +881,44 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         try {
-            var options = c.getProject().getArchitectOptions();
-            c.getInstructionsPanel().runArchitectCommand(prompt, options);
-
             var cm = c.getContextManager();
-            var future = cm.submitBackgroundTask("TaskListPanel: Wait for Architect", (Callable<Boolean>) () -> {
-                boolean sawBusy = false;
+            var future = cm.submitBackgroundTask("Execute Task " + (idx + 1), () -> {
+                boolean skipSearch = idx == 0 && !cm.liveContext().isEmpty();
+
+                if (skipSearch) {
+                    logger.debug("Skipping SearchAgent for first task since workspace is not empty");
+                } else {
+                    var model = cm.getService().getScanModel();
+                    SearchAgent agent = new SearchAgent(prompt, cm, model, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
+                    var searchResult = agent.execute();
+                    if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                        logger.debug("Search failed: {}", searchResult.stopDetails());
+                        return false;
+                    }
+                }
+
+                var archFuture = c.getInstructionsPanel().runArchitectCommand(prompt);
+                TaskResult archResult;
                 try {
-                    // Phase 1: wait until busy (up to ~5 minutes)
-                    int attempts = 0;
-                    while (attempts++ < 1200) {
-                        if (cm.isLlmTaskInProgress()) {
-                            sawBusy = true;
-                            break;
-                        }
-                        Thread.sleep(250);
-                    }
-                    if (!sawBusy) return false; // didn't start
-                    // Phase 2: require ~1s of stable idle
-                    int stableIdleCount = 0;
-                    while (true) {
-                        if (!cm.isLlmTaskInProgress()) {
-                            if (++stableIdleCount >= 4) break;
-                        } else {
-                            stableIdleCount = 0;
-                        }
-                        Thread.sleep(250);
-                    }
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
+                    archResult = archFuture.get();
+                } catch (Exception e) {
+                    logger.error("Architect failed for prompt: {}", prompt, e);
                     return false;
                 }
-                return true;
+
+                if (archResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                    // Only auto-commit if we're processing multiple tasks as part of a queue
+                    if (queueActive) {
+                        autoCommitChanges(c, prompt);
+                    }
+                    return true;
+                }
+                return false;
             });
 
             future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
                 try {
-                    if (Boolean.TRUE.equals(res)
-                            && runningIndex != null
-                            && runningIndex == idx
-                            && idx >= 0
-                            && idx < model.size()) {
+                    if (res && runningIndex != null && runningIndex == idx && idx < model.size()) {
                         var it = model.get(idx);
                         model.set(idx, new TaskItem(it.text(), true));
                         saveTasksForCurrentSession();
@@ -874,9 +934,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }));
         } catch (Exception ex) {
             try {
-                console.toolError("Failed to run Architect: " + ex.getMessage(), "Task Runner Error");
+                console.toolError("Failed to run queued tasks: " + ex.getMessage(), "Task Runner Error");
             } catch (Exception e2) {
-                logger.debug("Error reporting Architect failure", e2);
+                logger.debug("Error reporting queued task failure", e2);
             }
             finishQueueOnError();
         }
@@ -1141,10 +1201,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             registeredContextManager = null;
         }
-        if (llmStateTimer != null) {
-            llmStateTimer.stop();
-        }
-        if (runningFadeTimer != null) runningFadeTimer.stop();
+        llmStateTimer.stop();
+        runningFadeTimer.stop();
         super.removeNotify();
     }
 

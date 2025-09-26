@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.context;
 
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
+import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
@@ -11,6 +12,8 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
+import io.github.jbellis.brokk.gui.ActivityTableRenderers;
+import io.github.jbellis.brokk.util.ContentDiffUtils;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -22,6 +25,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -36,6 +40,9 @@ public class Context {
     private final UUID id;
     public static final Context EMPTY = new Context(new IContextManager() {}, null);
 
+    // Cache diffs per "other" context id; contexts are immutable so diffs won't change
+    private final transient Map<UUID, List<DiffEntry>> diffCache = new ConcurrentHashMap<>();
+
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
@@ -45,9 +52,6 @@ public class Context {
 
     // Unified list for all fragments (paths and virtuals)
     final List<ContextFragment> fragments;
-    // Legacy alias fields for compatibility with modules referencing these directly (e.g., ContextHistory)
-    final List<ContextFragment> editableFiles;
-    final List<ContextFragment> readonlyFiles;
 
     /** Task history list. Each entry represents a user request and the subsequent conversation */
     final List<TaskEntry> taskHistory;
@@ -80,8 +84,6 @@ public class Context {
         this.id = id;
         this.contextManager = contextManager;
         this.fragments = List.copyOf(fragments);
-        this.editableFiles = this.fragments;
-        this.readonlyFiles = List.of();
         this.taskHistory = List.copyOf(taskHistory);
         this.action = action;
         this.parsedOutput = parsedOutput;
@@ -95,6 +97,10 @@ public class Context {
             Future<String> action) {
         this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
     }
+
+    /** Per-fragment diff entry between two contexts. */
+    public record DiffEntry(
+            ContextFragment fragment, String diff, int linesAdded, int linesDeleted, String oldContent) {}
 
     /** Produces a live context whose fragments are un-frozen versions of those in {@code frozen}. */
     public static Context unfreeze(Context frozen) {
@@ -319,7 +325,7 @@ public class Context {
     }
 
     public Context removeAll() {
-        String action = "Dropped all context";
+        String action = ActivityTableRenderers.DROPPED_ALL_CONTEXT;
         return new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture(action));
     }
 
@@ -346,7 +352,7 @@ public class Context {
                 fragments,
                 List.of(),
                 null,
-                CompletableFuture.completedFuture("Cleared task history"));
+                CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY));
     }
 
     /** @return an immutable copy of the task history. */
@@ -433,12 +439,21 @@ public class Context {
                 fragments,
                 newHistory,
                 null,
-                CompletableFuture.completedFuture("Compressed History"));
+                CompletableFuture.completedFuture("Compress History"));
     }
 
     @Nullable
     public ContextFragment.TaskFragment getParsedOutput() {
         return parsedOutput;
+    }
+
+    /** Returns true if the parsedOutput contains AI messages (useful for UI decisions). */
+    public boolean isAiResult() {
+        var parsed = getParsedOutput();
+        if (parsed == null) {
+            return false;
+        }
+        return parsed.messages().stream().anyMatch(m -> m.type() == ChatMessageType.AI);
     }
 
     /** Creates a new (live) Context that copies specific elements from the provided context. */
@@ -539,5 +554,69 @@ public class Context {
 
     public boolean containsDynamicFragments() {
         return allFragments().anyMatch(ContextFragment::isDynamic);
+    }
+
+    /**
+     * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Only considers fragments
+     * present in this context, per requirements. Results are cached per other.id().
+     */
+    public List<DiffEntry> getDiff(Context other) {
+        if (this.containsDynamicFragments()) {
+            throw new IllegalStateException("Cannot compute diff from dynamic fragments; found " + this);
+        }
+        if (other.containsDynamicFragments()) {
+            throw new IllegalStateException("Cannot compute diff against dynamic fragments; found " + other);
+        }
+
+        var cached = diffCache.get(other.id()); // cache should key on "other.id()", not this.id()
+        if (cached != null) {
+            return cached;
+        }
+
+        var diffs = fragments.stream()
+                .flatMap(cf -> cf instanceof FrozenFragment ff ? Stream.of(ff) : Stream.empty())
+                .map(ff -> {
+                    var ff2 = other.fragments.stream()
+                            .filter(ff::hasSameSource)
+                            .findFirst()
+                            .orElse(null);
+                    if (ff2 == null) {
+                        return null;
+                    }
+
+                    var oldContent = ff2.text();
+                    var newContent = ff.text();
+
+                    int oldLineCount =
+                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+                    int newLineCount =
+                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+                    logger.debug(
+                            "getDiff: fragment='{}' id={} oldLines={} newLines={}",
+                            ff.shortDescription(),
+                            id,
+                            oldLineCount,
+                            newLineCount);
+
+                    var result = ContentDiffUtils.computeDiffResult(
+                            oldContent, newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
+
+                    logger.debug(
+                            "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
+                            ff.shortDescription(),
+                            result.added(),
+                            result.deleted(),
+                            result.diff().isEmpty());
+
+                    if (result.diff().isEmpty()) {
+                        return null;
+                    }
+                    return new DiffEntry(ff, result.diff(), result.added(), result.deleted(), oldContent);
+                })
+                .filter(Objects::nonNull)
+                .toList();
+
+        diffCache.put(other.id(), diffs);
+        return diffs;
     }
 }

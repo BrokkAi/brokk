@@ -4,9 +4,11 @@ import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import javax.swing.*;
@@ -111,6 +113,119 @@ public class JdkSelector extends JPanel {
         return sel == null ? null : sel.path;
     }
 
+    /**
+     * Centralized JDK validation that checks for both java and javac executables. Handles Windows (.exe) extensions and
+     * macOS Contents/Home structure gracefully.
+     *
+     * @param jdkPath the path to validate as a JDK installation
+     * @return true if the path contains a valid JDK, false otherwise
+     */
+    public static boolean isValidJdk(@Nullable String jdkPath) {
+        if (jdkPath == null || jdkPath.isBlank()) {
+            return false;
+        }
+
+        try {
+            Path path = Path.of(jdkPath);
+            return isValidJdkPath(path);
+        } catch (Exception e) {
+            logger.debug("Invalid path format for JDK validation: {}", jdkPath, e);
+            return false;
+        }
+    }
+
+    /**
+     * Centralized JDK validation that checks for both java and javac executables. Handles Windows (.exe) extensions and
+     * macOS Contents/Home structure gracefully.
+     *
+     * @param jdkPath the path to validate as a JDK installation
+     * @return true if the path contains a valid JDK, false otherwise
+     */
+    public static boolean isValidJdkPath(@Nullable Path jdkPath) {
+        return validateJdkPath(jdkPath) == null;
+    }
+
+    /**
+     * Detailed JDK validation that returns specific error information. Handles Windows (.exe) extensions and macOS
+     * Contents/Home structure gracefully.
+     *
+     * @param jdkPath the path to validate as a JDK installation
+     * @return null if valid, or a detailed error message if invalid
+     */
+    public static @Nullable String validateJdkPath(@Nullable Path jdkPath) {
+        if (jdkPath == null) {
+            return "JDK path is null";
+        }
+
+        if (!Files.exists(jdkPath)) {
+            return "The directory '" + jdkPath + "' does not exist";
+        }
+
+        if (!Files.isDirectory(jdkPath)) {
+            return "The path '" + jdkPath + "' is not a directory";
+        }
+
+        // Check the provided path first
+        String directValidationError = validateJdkExecutables(jdkPath);
+        if (directValidationError == null) {
+            return null; // Valid JDK found at provided path
+        }
+
+        // On macOS, try Contents/Home subdirectory (common in .app bundles and some JDK distributions)
+        Path contentsHome = jdkPath.resolve("Contents").resolve("Home");
+        if (Files.exists(contentsHome) && Files.isDirectory(contentsHome)) {
+            String contentsHomeValidationError = validateJdkExecutables(contentsHome);
+            if (contentsHomeValidationError == null) {
+                return null; // Valid JDK found at Contents/Home
+            }
+        }
+
+        // Return the original validation error (from the main path)
+        return directValidationError;
+    }
+
+    /**
+     * Validate JDK executables at a specific path and return detailed error information.
+     *
+     * @param jdkPath the path to check for JDK executables
+     * @return null if valid, or a specific error message about what's missing
+     */
+    private static @Nullable String validateJdkExecutables(@Nullable Path jdkPath) {
+        if (jdkPath == null || !Files.exists(jdkPath) || !Files.isDirectory(jdkPath)) {
+            return "Invalid directory path";
+        }
+
+        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        boolean isWindows = os.contains("win");
+
+        Path binDir = jdkPath.resolve("bin");
+        if (!Files.exists(binDir) || !Files.isDirectory(binDir)) {
+            return "The directory does not contain a 'bin' subdirectory. Please ensure you're pointing to the JDK home directory (not the bin directory itself).";
+        }
+
+        // Check for java executable
+        Path javaExe = binDir.resolve(isWindows ? "java.exe" : "java");
+        boolean hasJava = Files.isRegularFile(javaExe) && (isWindows || Files.isExecutable(javaExe));
+
+        // Check for javac executable
+        Path javacExe = binDir.resolve(isWindows ? "javac.exe" : "javac");
+        boolean hasJavac = Files.isRegularFile(javacExe) && (isWindows || Files.isExecutable(javacExe));
+
+        if (!hasJava && !hasJavac) {
+            return "The directory does not contain java or javac executables. This appears to be neither a JRE nor a JDK. Please select a valid JDK installation.";
+        }
+
+        if (!hasJavac) {
+            return "The directory contains java but not javac. This appears to be a JRE (Java Runtime Environment) rather than a JDK (Java Development Kit). Please select a JDK installation that includes development tools.";
+        }
+
+        if (!hasJava) {
+            return "The directory contains javac but not java. This appears to be an incomplete JDK installation. Please select a complete JDK installation.";
+        }
+
+        return null; // Valid JDK
+    }
+
     private static List<JdkItem> discoverInstalledJdks() {
         try {
             var finder = new Finder();
@@ -130,10 +245,16 @@ public class JdkSelector extends JPanel {
                     // Fallback to original path
                 }
 
+                // Only include valid JDKs (not JREs)
+                if (!isValidJdk(path)) {
+                    logger.debug("Skipping JRE installation at: {}", path);
+                    continue;
+                }
+
                 var label = String.format("%s %s (%s)", name, ver, arch);
                 items.add(new JdkItem(label, path));
             }
-            items.sort(Comparator.comparing(it -> it.display));
+            items.sort((a, b) -> a.display.compareTo(b.display));
             return items;
         } catch (Throwable t) {
             logger.warn("Failed to discover installed JDKs", t);

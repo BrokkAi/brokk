@@ -612,6 +612,13 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         }
     }
 
+    public boolean hasSameSource(ContextFragment other) {
+        if (!(other instanceof FrozenFragment ff)) {
+            return false;
+        }
+        return originalClassName.equals(ff.originalClassName) && meta.equals(ff.meta);
+    }
+
     @Override
     public String toString() {
         return "FrozenFragment(%s@%s, '%s')".formatted(originalType, id, description());

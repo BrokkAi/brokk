@@ -34,6 +34,7 @@ public final class GlobalUiSettings {
     private static final String KEY_DEP_PROP = "drawers.dependencies.proportion";
     private static final String KEY_TERM_OPEN = "drawers.terminal.open";
     private static final String KEY_TERM_PROP = "drawers.terminal.proportion";
+    private static final String KEY_TERM_LASTTAB = "drawers.terminal.lastTab";
     private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
 
     private static volatile @Nullable Properties cachedProps;
@@ -179,6 +180,25 @@ public final class GlobalUiSettings {
 
     public static void saveTerminalDrawerProportion(double prop) {
         setDouble(KEY_TERM_PROP, clampProportion(prop));
+    }
+
+    // Drawer: last tab ("terminal" or "tasks")
+    public static @Nullable String getTerminalDrawerLastTab() {
+        var props = loadProps();
+        var raw = props.getProperty(KEY_TERM_LASTTAB);
+        if (raw == null || raw.isBlank()) return null;
+        var norm = raw.trim().toLowerCase(Locale.ROOT);
+        return ("terminal".equals(norm) || "tasks".equals(norm)) ? norm : null;
+    }
+
+    public static void saveTerminalDrawerLastTab(String tab) {
+        var norm = tab.trim().toLowerCase(Locale.ROOT);
+        if (!"terminal".equals(norm) && !"tasks".equals(norm)) {
+            return;
+        }
+        var props = loadProps();
+        props.setProperty(KEY_TERM_LASTTAB, norm);
+        saveProps(props);
     }
 
     // Window bounds persistence preference (default: true = per-project)

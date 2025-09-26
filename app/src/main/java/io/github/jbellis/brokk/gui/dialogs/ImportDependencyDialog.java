@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.FileUtil;
@@ -28,7 +29,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Predicate;
-import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -62,7 +62,7 @@ public class ImportDependencyDialog {
         @Nullable
         private final DependenciesPanel.DependencyLifecycleListener listener;
 
-        private final JButton importButton = new JButton("Import");
+        private final MaterialButton importButton = new MaterialButton("Import");
         private final JTabbedPane tabbedPane = new JTabbedPane();
 
         private final Path dependenciesRoot;
@@ -85,7 +85,7 @@ public class ImportDependencyDialog {
         private JTextField gitUrlField;
 
         @Nullable
-        private JButton validateGitRepoButton;
+        private MaterialButton validateGitRepoButton;
 
         @Nullable
         private JComboBox<String> gitRefComboBox;
@@ -163,7 +163,7 @@ public class ImportDependencyDialog {
                 }
             });
 
-            var cancelButton = new JButton("Cancel");
+            var cancelButton = new MaterialButton("Cancel");
             cancelButton.addActionListener(e -> dialog.dispose());
 
             var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -184,7 +184,7 @@ public class ImportDependencyDialog {
             var panel = new JPanel(new GridBagLayout());
             gitUrlField = new JTextField();
             gitUrlField.setColumns(30);
-            validateGitRepoButton = new JButton("Load Tags & Branches");
+            validateGitRepoButton = new MaterialButton("Load Tags & Branches");
             gitRefComboBox = new JComboBox<>();
             gitRefComboBox.setEnabled(false);
             gitRefComboBox.addActionListener(e -> updateImportButtonState());

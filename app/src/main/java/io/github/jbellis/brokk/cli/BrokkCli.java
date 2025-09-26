@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -24,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -47,7 +49,9 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private Path projectPath;
 
-    @CommandLine.Option(names = "--edit", description = "Add a file to the workspace for editing. Can be repeated.")
+    @CommandLine.Option(
+            names = {"--edit", "--read"},
+            description = "Add a file to the workspace for editing. Can be repeated.")
     private List<String> editFiles = new ArrayList<>();
 
     @CommandLine.Option(
@@ -105,6 +109,12 @@ public final class BrokkCli implements Callable<Integer> {
     @CommandLine.Option(names = "--search", description = "Run Search agent with the given prompt.")
     @Nullable
     private String searchPrompt;
+
+    @CommandLine.Option(
+            names = "--search-terminal",
+            description = "Terminal mode for --search: ${COMPLETION-CANDIDATES} (defaults to ANSWER).",
+            defaultValue = "ANSWER")
+    private Terminal searchTerminal = Terminal.ANSWER;
 
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
@@ -330,8 +340,7 @@ public final class BrokkCli implements Callable<Integer> {
             if (architectPrompt != null) {
                 var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
                 var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                var agent = new ArchitectAgent(
-                        cm, architectModel, codeModel, architectPrompt, ArchitectAgent.ArchitectOptions.DEFAULTS);
+                var agent = new ArchitectAgent(cm, architectModel, codeModel, architectPrompt);
                 result = agent.execute();
             } else if (codePrompt != null) {
                 var effectiveModel = codeModelOverride == null
@@ -362,7 +371,10 @@ public final class BrokkCli implements Callable<Integer> {
                 return 0; // merge is terminal for this CLI command
             } else { // searchPrompt != null
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, 0);
+                var terminalSet = (searchTerminal == Terminal.TASK_LIST)
+                        ? EnumSet.of(Terminal.TASK_LIST)
+                        : EnumSet.of(Terminal.ANSWER);
+                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, terminalSet);
                 result = agent.execute();
             }
         } catch (Throwable th) {
@@ -507,7 +519,7 @@ public final class BrokkCli implements Callable<Integer> {
                 matches.stream().map(s -> "  - " + s).collect(Collectors.joining("\n")));
     }
 
-    /**
+    /*
      * If the prompt begins with '@', treat the remainder as a filename and return the file's contents; otherwise return
      * the original prompt.
      */

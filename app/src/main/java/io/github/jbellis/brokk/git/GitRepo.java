@@ -1419,8 +1419,8 @@ public class GitRepo implements Closeable, IGitRepo {
             } else if (name.startsWith("refs/tags/")) {
                 tags.add(name.substring("refs/tags/".length()));
             } else if (name.equals("HEAD")) {
-                @Nullable var target = ref.getTarget();
-                if (target != null && target.isSymbolic() && target.getName().startsWith("refs/heads/")) {
+                var target = ref.getTarget();
+                if (target.isSymbolic() && target.getName().startsWith("refs/heads/")) {
                     defaultBranch = target.getName().substring("refs/heads/".length());
                 }
             }

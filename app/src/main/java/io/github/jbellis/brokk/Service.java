@@ -47,6 +47,8 @@ public class Service {
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
 
+    public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
+
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
         public ModelConfig(String name, ReasoningLevel reasoning) {
@@ -842,6 +844,13 @@ public class Service {
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
+        // Dev-mode override via Settings: respect checkbox only when -Dbrokk.devmode=true
+        if (Boolean.getBoolean("brokk.devmode")) {
+            boolean force = MainProject.getForceToolEmulation();
+            logger.debug("Dev mode enabled; requiresEmulatedTools overridden by setting: {}", force);
+            return force;
+        }
+
         var location = model.defaultRequestParameters().modelName();
 
         var info = getModelInfo(location);
@@ -850,7 +859,7 @@ public class Service {
             return true;
         }
 
-        if (true) {
+        if (GLOBAL_FORCE_TOOL_EMULATION) {
             // something is broken in litellm world
             return true;
         }

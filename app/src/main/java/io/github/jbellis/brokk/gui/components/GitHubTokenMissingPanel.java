@@ -14,7 +14,7 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
         var tokenMissingLabel = new JLabel("GitHub access token not configured.");
         tokenMissingLabel.setFont(tokenMissingLabel.getFont().deriveFont(Font.ITALIC));
         add(tokenMissingLabel);
-        JButton settingsButton = new JButton("Settings");
+        MaterialButton settingsButton = new MaterialButton("Settings");
         settingsButton.addActionListener(
                 e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME));
         add(settingsButton);

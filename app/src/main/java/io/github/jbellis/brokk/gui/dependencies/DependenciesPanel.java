@@ -337,28 +337,26 @@ public final class DependenciesPanel extends JPanel {
 
         // Update spacer when the Workspace layout changes
         var workspacePanel = chrome.getContextPanel();
-        if (workspacePanel != null) {
-            workspacePanel.addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    updateBottomSpacer();
-                }
+        workspacePanel.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                updateBottomSpacer();
+            }
 
-                @Override
-                public void componentShown(ComponentEvent e) {
-                    updateBottomSpacer();
-                }
-            });
+            @Override
+            public void componentShown(ComponentEvent e) {
+                updateBottomSpacer();
+            }
+        });
 
-            // Listen for explicit bottom-controls height changes from WorkspacePanel
-            workspacePanel.addBottomControlsListener(
-                    new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
-                        @Override
-                        public void bottomControlsHeightChanged(int newHeight) {
-                            updateBottomSpacer();
-                        }
-                    });
-        }
+        // Listen for explicit bottom-controls height changes from WorkspacePanel
+        workspacePanel.addBottomControlsListener(
+                new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
+                    @Override
+                    public void bottomControlsHeightChanged(int newHeight) {
+                        updateBottomSpacer();
+                    }
+                });
     }
 
     private void addPendingDependencyRow(String name) {
@@ -499,17 +497,13 @@ public final class DependenciesPanel extends JPanel {
     private void updateBottomSpacer() {
         try {
             var wp = chrome.getContextPanel();
-            int target = (wp != null) ? wp.getBottomControlsPreferredHeight() : 0;
-            int controls = (addRemovePanel != null) ? addRemovePanel.getPreferredSize().height : 0;
+            int target = wp.getBottomControlsPreferredHeight();
+            int controls = addRemovePanel.getPreferredSize().height;
             int filler = Math.max(0, target - controls);
-            if (bottomSpacer != null) {
-                bottomSpacer.setPreferredSize(new Dimension(0, filler));
-                bottomSpacer.setMinimumSize(new Dimension(0, filler));
-            }
-            if (southContainerPanel != null) {
-                southContainerPanel.revalidate();
-                southContainerPanel.repaint();
-            }
+            bottomSpacer.setPreferredSize(new Dimension(0, filler));
+            bottomSpacer.setMinimumSize(new Dimension(0, filler));
+            southContainerPanel.revalidate();
+            southContainerPanel.repaint();
         } catch (Exception e) {
             logger.debug("Error updating dependencies bottom spacer", e);
         }

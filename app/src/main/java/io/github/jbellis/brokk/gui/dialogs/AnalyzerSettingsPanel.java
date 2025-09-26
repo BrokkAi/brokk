@@ -10,6 +10,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.prefs.Preferences;
 import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 public abstract class AnalyzerSettingsPanel extends JPanel {
@@ -186,7 +187,20 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
         @Override
         public void saveSettings() {
-            final String value = jdkSelector.getSelectedJdkPath();
+            final @Nullable String value;
+            try {
+                value = jdkSelector.getSelectedJdkPath();
+            } catch (Exception ex) {
+                String message = ex.getMessage();
+                io.systemNotify(
+                        "Unable to get selected JDK path: "
+                                + (message != null ? message : ex.getClass().getSimpleName()),
+                        "JDK Selection Error",
+                        JOptionPane.ERROR_MESSAGE);
+                logger.warn("Error getting selected JDK path", ex);
+                return;
+            }
+
             if (value == null || value.isBlank()) {
                 io.systemNotify(
                         "Please specify a valid JDK home directory.", "Invalid JDK Path", JOptionPane.WARNING_MESSAGE);
@@ -213,16 +227,9 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
                 return;
             }
 
-            final boolean hasJavac = Files.isRegularFile(jdkPath.resolve("bin/javac"))
-                    || Files.isRegularFile(jdkPath.resolve("bin/javac.exe"));
-            final boolean hasJava = Files.isRegularFile(jdkPath.resolve("bin/java"))
-                    || Files.isRegularFile(jdkPath.resolve("bin/java.exe"));
-
-            if (!hasJavac || !hasJava) {
-                io.systemNotify(
-                        "The directory \"" + jdkPath + "\" does not appear to be a valid JDK home.",
-                        "Invalid JDK Path",
-                        JOptionPane.ERROR_MESSAGE);
+            String validationError = JdkSelector.validateJdkPath(jdkPath);
+            if (validationError != null) {
+                io.systemNotify(validationError, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 

@@ -96,6 +96,7 @@ allprojects {
     repositories {
         mavenCentral()
         maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies/")
+        maven("https://repo.eclipse.org/content/groups/releases/")
     }
 }
 
@@ -142,6 +143,9 @@ subprojects {
         }
         maven {
             url = uri("https://www.jetbrains.com/intellij-repository/releases")
+        }
+        maven {
+            url = uri("https://repo.eclipse.org/content/groups/releases/")
         }
     }
 

@@ -1444,19 +1444,21 @@ public class WorkspacePanel extends JPanel {
         Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
         """;
 
-        // Always set the standard summary text on innerLabel
+        // Always set the standard summary text on innerLabel (single line to avoid layout jumps)
         innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
         String costEstimate = calculateCostEstimate(approxTokens, service);
-        innerLabel.setText("Total: %,d LOC, or about %,dk tokens.".formatted(totalLines, approxTokens / 1000));
-        innerLabel.setToolTipText(null); // Clear tooltip
+        String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
 
-        if (costEstimate.isBlank()) {
-            costLabel.setText(" ");
-            costLabel.setVisible(false);
-        } else {
-            costLabel.setText("Estimated cost/request is " + costEstimate);
-            costLabel.setVisible(true);
-        }
+        // Single-line summary to keep the paperclip aligned
+        innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
+
+        // Preserve details in tooltip
+        innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                .formatted(totalLines, approxTokens, costText));
+
+        // Keep the secondary label hidden to avoid changing the row height
+        costLabel.setText(" ");
+        costLabel.setVisible(false);
 
         // Remove any existing warning labels from the warningPanel
         warningPanel.removeAll();
@@ -1975,7 +1977,6 @@ public class WorkspacePanel extends JPanel {
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) {
-                chrome.systemOutput("No context to drop");
                 return;
             }
             contextManager.dropAll();
@@ -1984,7 +1985,6 @@ public class WorkspacePanel extends JPanel {
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
                     contextManager.clearHistory();
-                    chrome.systemOutput("Cleared task history");
                     break;
                 }
             }

@@ -89,21 +89,6 @@ public class MenuBar {
                 KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
 
         if (isMac) {
-            try {
-                if (Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().setPreferencesHandler(new PreferencesHandler() {
-                        @Override
-                        public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
-                            SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
-                        }
-                    });
-                }
-            } catch (Throwable t) {
-                // Best-effort; if registering the Preferences handler fails, fall back to putting the menu
-                // entry into the File menu so Settings remains reachable.
-                fileMenu.add(settingsItem);
-            }
-
             // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
             var rootPane = chrome.getFrame().getRootPane();
             var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -546,6 +531,35 @@ public class MenuBar {
     static void openSettingsDialog(Chrome chrome) {
         var dialog = new SettingsDialog(chrome.frame, chrome);
         dialog.setVisible(true);
+    }
+
+    /**
+     * Sets up the global macOS preferences handler that works across all Chrome windows. This should be called once
+     * during application startup.
+     */
+    public static void setupGlobalMacOSPreferencesHandler() {
+        if (!Environment.instance.isMacOs()) {
+            return;
+        }
+
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().setPreferencesHandler(new PreferencesHandler() {
+                    @Override
+                    public void handlePreferences(java.awt.desktop.PreferencesEvent e) {
+                        SwingUtilities.invokeLater(() -> {
+                            // Find the focused Chrome window, or fallback to any active window
+                            var targetChrome = Brokk.getActiveWindow();
+                            if (targetChrome != null) {
+                                openSettingsDialog(targetChrome);
+                            }
+                        });
+                    }
+                });
+            }
+        } catch (Throwable t) {
+            // If global handler setup fails, individual windows will fall back to their own handlers
+        }
     }
 
     /**

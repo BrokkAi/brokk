@@ -7,9 +7,12 @@
     import HastRenderer from './HastRenderer.svelte';
     import { rendererPlugins } from '../lib/renderer-plugins';
     import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
+    import { deleteHistoryTaskByThreadId } from '../stores/historyStore';
 
     export let threadId: number;
     export let bubbles: BubbleState[];
+    // Optional, present for history threads
+    export let taskSequence: number | undefined;
 
     $: collapsed = $threadStore[threadId] ?? false;
 
@@ -44,6 +47,12 @@
     function toggle() {
         threadStore.toggleThread(threadId);
     }
+
+    function handleDelete(e: MouseEvent) {
+        e.stopPropagation();
+        e.preventDefault();
+        deleteHistoryTaskByThreadId(threadId);
+    }
 </script>
 
 <div class="thread-block" data-thread-id={threadId} data-collapsed={collapsed}>
@@ -75,6 +84,17 @@
             {/if}
             {msgLabel} • {totalLinesAll} lines
         </span>
+        {#if taskSequence !== undefined}
+            <button
+                type="button"
+                class="delete-btn"
+                on:click|stopPropagation|preventDefault={handleDelete}
+                aria-label="Delete history task"
+                title="Delete history task"
+            >
+                <Icon icon="mdi:delete-outline" style="color: var(--diff-del);" />
+            </button>
+        {/if}
     </header>
 
     <!-- Thread body (always rendered; visually collapsed via CSS when data-collapsed="true") -->
@@ -134,7 +154,7 @@
     /* --- Collapsed Header Preview --- */
     .header-preview {
         display: grid;
-        grid-template-columns: auto auto 1fr auto auto;
+        grid-template-columns: auto auto 1fr auto auto auto;
         align-items: center;
         gap: 0.8em;
         cursor: pointer;
@@ -190,6 +210,26 @@
     .thread-meta .sep {
         color: var(--badge-foreground);
         margin-right: 0.45em;
+    }
+
+    /* Delete button */
+    .delete-btn {
+        background: transparent;
+        border: none;
+        padding: 0.25em;
+        color: var(--chat-text);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.35em;
+    }
+    .delete-btn:hover {
+        background: color-mix(in srgb, var(--chat-background) 70%, var(--message-background));
+    }
+    .delete-btn:focus-visible {
+        outline: 2px solid var(--focus-ring, #5b9dd9);
+        outline-offset: 2px;
     }
 
     /* --- Expanded View --- */

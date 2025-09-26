@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
@@ -22,8 +23,8 @@ import org.jetbrains.annotations.Nullable;
 public class FileSelectionDialog extends JDialog {
 
     private final FileSelectionPanel fileSelectionPanel;
-    private final JButton okButton;
-    private final JButton cancelButton;
+    private final MaterialButton okButton;
+    private final MaterialButton cancelButton;
 
     private @Nullable BrokkFile selectedFile = null;
     private boolean confirmed = false;
@@ -64,9 +65,9 @@ public class FileSelectionDialog extends JDialog {
         mainPanel.add(fileSelectionPanel, BorderLayout.CENTER);
 
         // Buttons at the bottom
-        okButton = new JButton("OK");
+        okButton = new MaterialButton("OK");
         okButton.addActionListener(e -> doOk());
-        cancelButton = new JButton("Cancel");
+        cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> {
             confirmed = false;
             selectedFile = null;
