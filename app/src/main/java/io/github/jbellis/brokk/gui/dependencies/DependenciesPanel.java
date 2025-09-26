@@ -63,11 +63,17 @@ public final class DependenciesPanel extends JPanel {
     private final Set<ProjectFile> initialFiles;
     private boolean isProgrammaticChange = false;
     private static final String LOADING = "Loading...";
+    private static final String UNLOADING = "Unloading...";
 
     // UI pieces used to align the bottom area with WorkspacePanel
     private JPanel southContainerPanel;
     private JPanel addRemovePanel;
     private JPanel bottomSpacer;
+
+    private MaterialButton addButton;
+    private MaterialButton removeButton;
+    private boolean controlsLocked = false;
+    private @Nullable CompletableFuture<Void> inFlightToggleSave = null;
 
     private static class NumberRenderer extends DefaultTableCellRenderer {
         public NumberRenderer() {
@@ -88,7 +94,7 @@ public final class DependenciesPanel extends JPanel {
         return v instanceof Boolean b ? b : (v instanceof String s && LOADING.equals(s));
     }
 
-    private static class LiveCellRenderer extends DefaultTableCellRenderer {
+    private class LiveCellRenderer extends DefaultTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -97,6 +103,7 @@ public final class DependenciesPanel extends JPanel {
                 cb.setSelected(b);
                 cb.setHorizontalAlignment(CENTER);
                 cb.setOpaque(true);
+                cb.setEnabled(!controlsLocked);
                 if (isSelected) {
                     cb.setBackground(table.getSelectionBackground());
                     cb.setForeground(table.getSelectionForeground());
@@ -106,7 +113,8 @@ public final class DependenciesPanel extends JPanel {
                 }
                 return cb;
             } else {
-                var lbl = new JLabel(LOADING);
+                var text = java.util.Objects.toString(value, "");
+                var lbl = new JLabel(text);
                 lbl.setHorizontalAlignment(CENTER);
                 lbl.setOpaque(isSelected);
                 if (isSelected) {
@@ -144,6 +152,7 @@ public final class DependenciesPanel extends JPanel {
             @Override
             public boolean isCellEditable(int row, int column) {
                 if (column != 0) return false;
+                if (controlsLocked) return false;
                 Object v = getValueAt(row, 0);
                 return v instanceof Boolean;
             }
@@ -162,7 +171,7 @@ public final class DependenciesPanel extends JPanel {
 
                 // Return the same content as shown in the table cell (the Name column)
                 Object v = getValueAt(row, col);
-                return v != null ? v.toString() : null;
+                return java.util.Objects.toString(v, null);
             }
         };
         var sorter = new TableRowSorter<>(tableModel) {
@@ -220,9 +229,9 @@ public final class DependenciesPanel extends JPanel {
 
         // Add/Remove on the right
         addRemovePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
-        var addButton = new MaterialButton();
+        addButton = new MaterialButton();
         addButton.setIcon(Icons.ADD);
-        var removeButton = new MaterialButton();
+        removeButton = new MaterialButton();
         removeButton.setIcon(Icons.REMOVE);
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
@@ -246,6 +255,7 @@ public final class DependenciesPanel extends JPanel {
             var listener = new DependencyLifecycleListener() {
                 @Override
                 public void dependencyImportStarted(String name) {
+                    setControlsLocked(true);
                     addPendingDependencyRow(name);
                 }
 
@@ -254,6 +264,7 @@ public final class DependenciesPanel extends JPanel {
                     loadDependenciesAsync();
                     // Persist changes after a dependency import completes.
                     saveChangesAsync();
+                    setControlsLocked(false);
                 }
             };
             ImportDependencyDialog.show(chrome, listener);
@@ -264,7 +275,7 @@ public final class DependenciesPanel extends JPanel {
 
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                removeButton.setEnabled(table.getSelectedRow() != -1);
+                removeButton.setEnabled(!controlsLocked && table.getSelectedRow() != -1);
             }
         });
 
@@ -296,17 +307,28 @@ public final class DependenciesPanel extends JPanel {
                         String depName = (String) tableModel.getValueAt(row, 1);
                         boolean prev = !bool;
 
-                        // Show "Loading..." while saving the change only when enabling (checking).
-                        if (bool) {
+                        // If an operation is already in-flight or any row is Loading, revert this toggle.
+                        if (controlsLocked
+                                || (inFlightToggleSave != null && !inFlightToggleSave.isDone())
+                                || anyRowLoading()) {
                             isProgrammaticChange = true;
-                            tableModel.setValueAt(LOADING, row, 0);
+                            tableModel.setValueAt(prev, row, 0);
                             isProgrammaticChange = false;
+                            return;
                         }
+
+                        // Lock UI early and stop editing to ensure renderer updates.
+                        setControlsLocked(true);
+
+                        // Show progress text while saving: "Loading..." when enabling, "Unloading..." when disabling.
+                        isProgrammaticChange = true;
+                        tableModel.setValueAt(bool ? LOADING : UNLOADING, row, 0);
+                        isProgrammaticChange = false;
 
                         final int rowIndex = row;
                         final boolean newVal = bool;
                         final boolean prevVal = prev;
-                        saveChangesAsync(Map.of(depName, Boolean.valueOf(bool)))
+                        inFlightToggleSave = saveChangesAsync(Map.of(depName, Boolean.valueOf(bool)))
                                 .whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> {
                                     isProgrammaticChange = true;
                                     if (ex != null) {
@@ -320,11 +342,35 @@ public final class DependenciesPanel extends JPanel {
                                         tableModel.setValueAt(newVal, rowIndex, 0);
                                     }
                                     isProgrammaticChange = false;
+                                    inFlightToggleSave = null;
+                                    // Unlock UI after save completes (success or failure).
+                                    setControlsLocked(false);
                                 }));
                     }
                 }
             }
         });
+    }
+
+    private void setControlsLocked(boolean locked) {
+        controlsLocked = locked;
+        addButton.setEnabled(!locked);
+        removeButton.setEnabled(!locked && table.getSelectedRow() != -1);
+        if (table.isEditing()) {
+            var editor = table.getCellEditor();
+            if (editor != null) editor.stopCellEditing();
+        }
+        table.repaint();
+    }
+
+    private boolean anyRowLoading() {
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            Object v = tableModel.getValueAt(i, 0);
+            if (LOADING.equals(v) || UNLOADING.equals(v)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
