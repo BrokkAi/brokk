@@ -1571,19 +1571,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void executeCodeCommand(StreamingChatModel model, String input) {
         var contextManager = chrome.getContextManager();
 
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            CodeAgent agent = new CodeAgent(contextManager, model);
-            var result = agent.runTask(input, Set.of());
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            // code agent has displayed status in llmoutput
-            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                maybeAddInterruptedResult(input, result);
-            } else {
-                contextManager.addToHistory(result, false);
-            }
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
+        CodeAgent agent = new CodeAgent(contextManager, model);
+        var result = agent.runTask(input, Set.of());
+        chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+        // code agent has displayed status in llmoutput
+        if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+            maybeAddInterruptedResult(input, result);
+        } else {
+            contextManager.addToHistory(result, false);
         }
     }
 
@@ -1674,8 +1669,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal);
             var result = agent.execute();
-            chrome.systemOutput("Agent complete!");
-            contextManager.addToHistory(result, false);
+            // Only add to history on failure, since if we were successful we don't have anything
+            // to add after the result that Code Agent already added
+            if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                contextManager.addToHistory(result, false);
+            }
             return result;
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
@@ -1964,15 +1962,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var contextManager = chrome.getContextManager();
+        contextManager.beginTask("Ask", input);
 
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
         var future = submitAction(ACTION_ASK, input, () -> {
             var result = executeAskCommand(contextManager, modelToUse, input);
-
-            // Display result in the LLM output panel
-            chrome.setLlmOutput(result.output());
 
             // Persist to history regardless of success/failure
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
@@ -2184,11 +2180,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             displayAction = action;
         }
-
-        var currentTaskFragment =
-                new ContextFragment.TaskFragment(cm, List.of(new UserMessage(finalAction, input)), input);
-        var history = cm.topContext().getTaskHistory();
-        chrome.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 
         // Adapt Runnable submission with LLM flag to return a Future<TaskResult>
         final TaskResult[] holder = new TaskResult[1];
@@ -2481,6 +2472,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private void executeScanProjectCommand(StreamingChatModel model, String goal) {
         var cm = chrome.getContextManager();
+        cm.beginTask("Scan Project", goal);
         try {
             var contextAgent = new ContextAgent(cm, model, goal, true);
             var recommendation = contextAgent.getRecommendations(true);

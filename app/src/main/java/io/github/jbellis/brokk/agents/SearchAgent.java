@@ -29,7 +29,6 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.ToolRegistry.SignatureUnit;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -103,7 +102,7 @@ public class SearchAgent {
 
     /** Entry point. Runs until answer/abort or interruption. */
     public TaskResult execute() throws InterruptedException {
-        io.systemOutput("Search Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(goal)));
+        cm.beginTask("Search", goal);
 
         // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
         addInitialContextToWorkspace();
@@ -558,7 +557,9 @@ public class SearchAgent {
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
                 .collect(Collectors.joining("\n"));
-        return "# Task List\n" + lines + "\n";
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+        io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        return formattedTaskList;
     }
 
     @Tool(

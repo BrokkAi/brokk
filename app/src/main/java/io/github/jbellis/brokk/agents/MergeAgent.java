@@ -8,6 +8,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
@@ -358,7 +359,9 @@ public class MergeAgent {
 
         var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions);
         var result = agent.execute();
-        contextManager.addToHistory(result, true);
+        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            contextManager.addToHistory(result, true);
+        }
     }
 
     private static boolean containsConflictMarkers(String text) {

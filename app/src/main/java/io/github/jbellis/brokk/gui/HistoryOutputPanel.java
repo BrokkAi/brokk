@@ -880,14 +880,6 @@ public class HistoryOutputPanel extends JPanel {
         return llmStreamArea.getRawMessages(includeReasoning);
     }
 
-    public void setLlmOutput(TaskEntry taskEntry) {
-        llmStreamArea.setText(taskEntry);
-    }
-
-    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
-        llmStreamArea.setText(newOutput);
-    }
-
     /**
      * Displays a full conversation, splitting it between the history area (for all but the last task) and the main area
      * (for the last task).

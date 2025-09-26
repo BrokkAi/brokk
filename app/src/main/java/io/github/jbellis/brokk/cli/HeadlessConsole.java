@@ -9,7 +9,6 @@ import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,12 +64,6 @@ public final class HeadlessConsole implements IConsoleIO {
         // Prefix the message with the title to make it clear in the console
         // which error type we encountered.
         System.err.println("[" + title + "] " + msg);
-    }
-
-    @Override
-    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
-        messages.clear();
-        messages.addAll(newOutput.messages());
     }
 
     @Override

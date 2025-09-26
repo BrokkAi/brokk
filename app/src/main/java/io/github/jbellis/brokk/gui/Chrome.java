@@ -1029,11 +1029,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
     }
 
-    @Override
-    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
-    }
-
+    /**
+     * Resets the Output to history + main, and clears internal message buffers. After this, getLlmRawMessages will
+     * return only the messages from `main`. Typically this use called with a single UserMessage in `main` to reset the
+     * output to a fresh state for a new task.
+     *
+     * <p>You should probably call ContextManager::beginTask instead of calling this directly.
+     */
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }

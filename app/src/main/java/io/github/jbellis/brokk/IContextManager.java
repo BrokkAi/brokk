@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -15,6 +16,10 @@ import java.util.concurrent.*;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
+
+    default void beginTask(String code, String userInput) {
+        getIo().llmOutput("Begin task " + code + ": " + userInput, ChatMessageType.CUSTOM);
+    }
 
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
