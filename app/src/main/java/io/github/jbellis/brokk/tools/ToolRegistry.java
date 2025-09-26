@@ -108,8 +108,7 @@ public class ToolRegistry {
             Map.entry("addCallGraphOutToWorkspace", "Adding callees to workspace"),
             Map.entry("dropWorkspaceFragments", "Removing from workspace"),
             Map.entry("recommendContext", "Recommending context"),
-            Map.entry("createTaskList", "Creating task list")
-    );
+            Map.entry("createTaskList", "Creating task list"));
 
     /** Returns a human-readable headline for the given tool. Falls back to the tool name if there is no mapping. */
     private static String headlineFor(String toolName) {

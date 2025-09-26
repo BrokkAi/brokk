@@ -1035,7 +1035,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * return only the messages from `main`. Typically this use called with a single UserMessage in `main` to reset the
      * output to a fresh state for a new task.
      *
-     * You should probably call ContextManager::beginTask instead of calling this directly.
+     * <p>You should probably call ContextManager::beginTask instead of calling this directly.
      */
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
