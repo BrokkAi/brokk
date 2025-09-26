@@ -50,6 +50,12 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Nullable
     private UnifiedDiffNavigator navigator;
 
+    @Nullable
+    private UnifiedDiffDocument unifiedDocument;
+
+    @Nullable
+    private UnifiedDiffLineNumberList customLineNumberList;
+
     private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
     private boolean autoScrollFlag = true;
@@ -127,9 +133,15 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Custom document filter not needed for plain text approach
         this.documentFilter = new UnifiedDiffDocumentFilter();
 
-        // Add scroll pane configuration
-        scrollPane.setLineNumbersEnabled(true);
+        // Add scroll pane configuration with custom line numbering
+        scrollPane.setLineNumbersEnabled(false); // Disable built-in line numbering
         scrollPane.setFoldIndicatorEnabled(false);
+
+        // Create custom line number list for unified diff
+        customLineNumberList = new UnifiedDiffLineNumberList(textArea);
+
+        // Add the line number component to the left side of the scroll pane
+        add(customLineNumberList, BorderLayout.WEST);
 
         // Apply initial theme (same approach as FilePanel:177)
         GuiTheme.loadRSyntaxTheme(getTheme().isDarkTheme()).ifPresent(theme -> theme.apply(textArea));
@@ -139,9 +151,17 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
     private void generateDiffFromDiffNode(JMDiffNode diffNode) {
-        // Generate plain text directly from the diff node
+        // Generate both the UnifiedDiffDocument (for line number metadata) and plain text (for display)
+        this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
         String plainTextContent = UnifiedDiffGenerator.generatePlainTextFromDiffNode(diffNode, contextMode);
+
         textArea.setText(plainTextContent);
+
+        // Link the UnifiedDiffDocument to the custom line number list
+        if (customLineNumberList != null) {
+            customLineNumberList.setUnifiedDocument(unifiedDocument);
+            customLineNumberList.setDarkTheme(getTheme().isDarkTheme());
+        }
 
         this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
 
@@ -152,7 +172,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         reDisplay();
 
         logger.debug(
-                "Generated unified diff from JMDiffNode {} (plain text mode)",
+                "Generated unified diff from JMDiffNode {} with custom line numbering",
                 diffNode.getName());
     }
 
@@ -164,8 +184,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             throw new IllegalStateException("Cannot generate diff - BufferSources are null");
         }
 
-        // For now, use the old approach since we need to add plain text support for BufferSources too
-        var unifiedDocument = UnifiedDiffGenerator.generateUnifiedDiff(leftSource, rightSource, contextMode);
+        // Generate the UnifiedDiffDocument for line number metadata
+        this.unifiedDocument = UnifiedDiffGenerator.generateUnifiedDiff(leftSource, rightSource, contextMode);
 
         // Extract plain text manually for legacy approach - fix interlaced line issue
         var textBuilder = new StringBuilder();
@@ -184,6 +204,12 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         String plainTextContent = textBuilder.toString();
         textArea.setText(plainTextContent);
 
+        // Link the UnifiedDiffDocument to the custom line number list
+        if (customLineNumberList != null) {
+            customLineNumberList.setUnifiedDocument(unifiedDocument);
+            customLineNumberList.setDarkTheme(getTheme().isDarkTheme());
+        }
+
         this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
 
         // Apply syntax highlighting only (diff coloring disabled)
@@ -192,7 +218,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Apply diff highlights after content is set
         reDisplay();
 
-        logger.debug("Generated unified diff from BufferSources (plain text mode)");
+        logger.debug("Generated unified diff from BufferSources with custom line numbering");
     }
 
     @Override
@@ -204,7 +230,14 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             logger.warn("setDiffNode called with null - clearing unified diff content");
             // Clear the content when no diff node is provided
             textArea.setText("");
+            this.unifiedDocument = null;
             this.navigator = new UnifiedDiffNavigator("", textArea);
+
+            // Clear the line number list reference
+            if (customLineNumberList != null) {
+                customLineNumberList.clearUnifiedDocument();
+            }
+
             // Clear highlights when no content
             removeHighlights();
         }
@@ -245,6 +278,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
                 generateDiffFromDiffNode(diffNode);
             } else if (leftSource != null && rightSource != null) {
                 generateDiffFromBufferSources();
+            }
+
+            // Update the line number list with new context
+            if (customLineNumberList != null && unifiedDocument != null) {
+                customLineNumberList.setUnifiedDocument(unifiedDocument);
             }
 
             textArea.revalidate();
@@ -438,6 +476,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
             // Apply RSyntax theme
             theme.apply(textArea);
+
+            // Update line number list theme
+            if (customLineNumberList != null) {
+                customLineNumberList.setDarkTheme(guiTheme.isDarkTheme());
+            }
 
             // Refresh highlights with new theme colors
             reDisplay();
