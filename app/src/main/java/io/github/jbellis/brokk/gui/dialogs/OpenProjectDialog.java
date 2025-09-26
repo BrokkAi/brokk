@@ -54,6 +54,11 @@ public class OpenProjectDialog extends JDialog {
     private @Nullable Path selectedProjectPath = null;
     private List<GitHubRepoInfo> loadedRepositories = List.of();
 
+    // Tab state management
+    private JTabbedPane tabbedPane;
+    private int gitHubTabIndex = -1;
+    private JPanel gitHubReposPanel;
+
     public OpenProjectDialog(@Nullable Frame parent) {
         super(parent, "Open Project", true);
         this.parentFrame = parent;
@@ -91,7 +96,7 @@ public class OpenProjectDialog extends JDialog {
             leftPanel.add(versionLabel);
         }
 
-        var tabbedPane = new JTabbedPane();
+        tabbedPane = new JTabbedPane();
         var knownProjectsPanel = createKnownProjectsPanel();
         if (knownProjectsPanel != null) {
             tabbedPane.addTab("Known Projects", knownProjectsPanel);
@@ -99,8 +104,16 @@ public class OpenProjectDialog extends JDialog {
         tabbedPane.addTab("Open Local", createOpenLocalPanel());
         tabbedPane.addTab("Clone from Git", createClonePanel());
 
-        // Always add GitHub repositories tab - validate token asynchronously
-        tabbedPane.addTab("GitHub Repositories", createGitHubReposPanel());
+        // Conditionally add GitHub repositories tab based on token presence
+        gitHubReposPanel = createGitHubReposPanel();
+        if (GitHubAuth.tokenPresent()) {
+            gitHubTabIndex = tabbedPane.getTabCount();
+            tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+            validateTokenAndLoadRepositories();
+        } else {
+            gitHubTabIndex = -1;
+            // Tab not added - will show tooltip on hover if user tries to access GitHub features
+        }
 
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
@@ -353,8 +366,6 @@ public class OpenProjectDialog extends JDialog {
         var controlsPanel = createGitHubControlsPanel(table, tableModel);
         panel.add(controlsPanel, BorderLayout.SOUTH);
 
-        validateTokenAndLoadRepositories(tableModel);
-
         return panel;
     }
 
@@ -449,7 +460,14 @@ public class OpenProjectDialog extends JDialog {
         shallowCloneCheckbox.addActionListener(e -> depthSpinner.setEnabled(shallowCloneCheckbox.isSelected()));
 
         var refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(e -> loadRepositoriesAsync(tableModel, true));
+        refreshButton.addActionListener(e -> {
+            // Re-check token presence and potentially add tab back if token is now available
+            if (GitHubAuth.tokenPresent() && gitHubTabIndex == -1) {
+                gitHubTabIndex = tabbedPane.getTabCount();
+                tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+            }
+            loadRepositoriesAsync(tableModel, true);
+        });
 
         var cloneButton = new JButton("Clone and Open");
         cloneButton.addActionListener(e -> cloneSelectedRepository(
@@ -498,6 +516,25 @@ public class OpenProjectDialog extends JDialog {
         }
         label.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
         return label;
+    }
+
+    private void enableGitHubTab() {
+        if (gitHubTabIndex == -1) {
+            // Tab needs to be added
+            gitHubTabIndex = tabbedPane.getTabCount();
+            tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+        }
+        tabbedPane.setEnabledAt(gitHubTabIndex, true);
+        tabbedPane.setToolTipTextAt(gitHubTabIndex, "Browse your GitHub repositories");
+        logger.debug("Enabled GitHub repositories tab");
+    }
+
+    private void disableGitHubTab(String reason) {
+        if (gitHubTabIndex != -1) {
+            tabbedPane.setEnabledAt(gitHubTabIndex, false);
+            tabbedPane.setToolTipTextAt(gitHubTabIndex, reason);
+            logger.debug("Disabled GitHub repositories tab: {}", reason);
+        }
     }
 
     private void cloneAndOpen(String url, String dir, boolean shallow, int depth) {
@@ -567,13 +604,18 @@ public class OpenProjectDialog extends JDialog {
         return url;
     }
 
-    private void validateTokenAndLoadRepositories(DefaultTableModel tableModel) {
+    private void validateTokenAndLoadRepositories() {
         if (!GitHubAuth.tokenPresent()) {
-            showTokenMissingMessage(tableModel);
+            disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
             return;
         }
 
         logger.info("Validating GitHub token and loading repositories");
+        var tableModel = (DefaultTableModel) ((JTable) ((JScrollPane) gitHubReposPanel.getComponent(0))
+                        .getViewport()
+                        .getView())
+                .getModel();
+
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
@@ -596,20 +638,25 @@ public class OpenProjectDialog extends JDialog {
                     logger.info("Successfully loaded {} GitHub repositories", repositories.size());
                     loadedRepositories = repositories;
                     populateTable(tableModel, repositories);
+                    enableGitHubTab();
                 } catch (ExecutionException e) {
                     var cause = e.getCause();
                     if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
                         logger.warn("GitHub token is invalid, clearing stored token");
                         GitHubAuth.invalidateInstance();
-                        showTokenInvalidMessage(tableModel);
+                        disableGitHubTab(
+                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+                        clearTable(tableModel);
                     } else {
                         var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
                         logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                        showErrorMessage("Failed to load GitHub repositories: " + errorMessage);
+                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
+                        clearTable(tableModel);
                     }
                 } catch (Exception e) {
                     logger.error("Unexpected error loading GitHub repositories", e);
-                    showErrorMessage("Failed to load GitHub repositories: " + e.getMessage());
+                    disableGitHubTab("Failed to load GitHub repositories: " + e.getMessage());
+                    clearTable(tableModel);
                 }
             }
         };
@@ -622,11 +669,13 @@ public class OpenProjectDialog extends JDialog {
         if (!forceRefresh && !loadedRepositories.isEmpty()) {
             logger.debug("Using cached repositories ({} repos)", loadedRepositories.size());
             populateTable(tableModel, loadedRepositories);
+            enableGitHubTab();
             return;
         }
 
         if (!GitHubAuth.tokenPresent()) {
-            showTokenMissingMessage(tableModel);
+            disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
+            clearTable(tableModel);
             return;
         }
 
@@ -634,6 +683,11 @@ public class OpenProjectDialog extends JDialog {
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
+                // Validate token first
+                var token = GitHubAuth.getStoredToken();
+                var github = new GitHubBuilder().withOAuthToken(token).build();
+                github.getMyself(); // This will throw if token is invalid
+
                 return getUserRepositories();
             }
 
@@ -647,14 +701,24 @@ public class OpenProjectDialog extends JDialog {
                     logger.info("Successfully loaded {} GitHub repositories", repositories.size());
                     loadedRepositories = repositories;
                     populateTable(tableModel, repositories);
+                    enableGitHubTab();
                 } catch (ExecutionException e) {
                     var cause = e.getCause();
-                    var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
-                    logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                    showErrorMessage("Failed to load GitHub repositories: " + errorMessage);
+                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
+                        logger.warn("GitHub token is invalid, clearing stored token");
+                        GitHubAuth.invalidateInstance();
+                        disableGitHubTab(
+                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+                    } else {
+                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
+                        logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
+                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
+                    }
+                    clearTable(tableModel);
                 } catch (Exception e) {
                     logger.error("Unexpected error loading GitHub repositories", e);
-                    showErrorMessage("Failed to load GitHub repositories: " + e.getMessage());
+                    disableGitHubTab("Failed to load GitHub repositories: " + e.getMessage());
+                    clearTable(tableModel);
                 }
             }
         };
@@ -681,22 +745,8 @@ public class OpenProjectDialog extends JDialog {
         tableModel.addRow(new Object[] {"Loading repositories...", "", "", Instant.now()});
     }
 
-    private void showErrorMessage(String message) {
-        JOptionPane.showMessageDialog(this, message, "GitHub Error", JOptionPane.ERROR_MESSAGE);
-    }
-
-    private void showTokenMissingMessage(DefaultTableModel tableModel) {
+    private void clearTable(DefaultTableModel tableModel) {
         tableModel.setRowCount(0);
-        tableModel.addRow(new Object[] {
-            "No GitHub token configured", "Go to Settings → GitHub to configure your token", "", Instant.now()
-        });
-    }
-
-    private void showTokenInvalidMessage(DefaultTableModel tableModel) {
-        tableModel.setRowCount(0);
-        tableModel.addRow(new Object[] {
-            "GitHub token is invalid or expired", "Go to Settings → GitHub to update your token", "", Instant.now()
-        });
     }
 
     private String truncateDescription(String description) {
