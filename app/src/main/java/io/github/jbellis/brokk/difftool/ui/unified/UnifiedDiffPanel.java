@@ -278,6 +278,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             // Update the line number list with new context
             if (customLineNumberList != null && unifiedDocument != null) {
                 customLineNumberList.setUnifiedDocument(unifiedDocument);
+                // Force repaint of the line number component
+                customLineNumberList.revalidate();
+                customLineNumberList.repaint();
             }
 
             textArea.revalidate();
