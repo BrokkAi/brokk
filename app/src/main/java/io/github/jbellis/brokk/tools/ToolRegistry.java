@@ -31,8 +31,6 @@ public class ToolRegistry {
 
     /** Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting. */
     public String getExplanationForToolRequest(Object toolOwner, ToolExecutionRequest request) {
-        var displayMeta = ToolDisplayMeta.fromToolName(request.name());
-
         // Skip empty explanations for answer/abort
         if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
             return "";
@@ -41,13 +39,14 @@ public class ToolRegistry {
         // Resolve target and perform typed conversion via validateTool; let ToolValidationException propagate.
         var vi = validateTool(toolOwner, request);
         var argsYaml = toYaml(vi);
+        var headline = headlineFor(request.name());
 
         return """
-               ### %s %s
+               ### %s
                ```yaml
                %s```
                """
-                .formatted(displayMeta.getIcon(), displayMeta.getHeadline(), argsYaml);
+                .formatted(headline, argsYaml);
     }
 
     // Helper to render a simple YAML block from a map of arguments
@@ -80,90 +79,40 @@ public class ToolRegistry {
         return sb.toString();
     }
 
-    /** Enum that defines display metadata for each tool */
-    private enum ToolDisplayMeta {
-        SEARCH_SYMBOLS("🔍", "Searching for symbols"),
-        SEARCH_SUBSTRINGS("🔍", "Searching for substrings"),
-        SEARCH_FILENAMES("🔍", "Searching for filenames"),
-        GET_FILE_CONTENTS("🔍", "Getting file contents"),
-        GET_FILE_SUMMARIES("🔍", "Getting file summaries"),
-        GET_USAGES("🔍", "Finding usages"),
-        GET_CLASS_SKELETONS("🔍", "Getting class overview"),
-        GET_CLASS_SOURCES("🔍", "Fetching class source"),
-        GET_METHOD_SOURCES("🔍", "Fetching method source"),
-        GET_RELATED_CLASSES("🔍", "Finding related code"),
-        CALL_GRAPH_TO("🔍", "Getting call graph TO"),
-        CALL_GRAPH_FROM("🔍", "Getting call graph FROM"),
-        SEARCH_GIT_COMMIT_MESSAGES("🔍", "Searching git commits"),
-        LIST_FILES("🔍", "Listing files"),
-        GET_FILES("🔍", "Finding files for classes"),
-        ADD_FILES_TO_WORKSPACE("📝", "Adding files to workspace"),
-        ADD_CLASSES_TO_WORKSPACE("📝", "Adding classes to workspace"),
-        ADD_URL_CONTENTS_TO_WORKSPACE("📝", "Adding URL contents to workspace"),
-        ADD_TEXT_TO_WORKSPACE("📝", "Adding text to workspace"),
-        ADD_SYMBOL_USAGES_TO_WORKSPACE("📝", "Adding symbol usages to workspace"),
-        ADD_CLASS_SUMMARIES_TO_WORKSPACE("📝", "Adding class summaries to workspace"),
-        ADD_FILE_SUMMARIES_TO_WORKSPACE("📝", "Adding file summaries to workspace"),
-        ADD_METHODS_TO_WORKSPACE("📝", "Adding method sources to workspace"),
-        ADD_CALL_GRAPH_IN_TO_WORKSPACE("📝", "Adding callers to workspace"),
-        ADD_CALL_GRAPH_OUT_TO_WORKSPACE("📝", "Adding callees to workspace"),
-        DROP_WORKSPACE_FRAGMENTS("🗑️", "Removing from workspace"),
-        ANSWER_SEARCH("", ""),
-        ABORT_SEARCH("", ""),
-        UNKNOWN("❓", "");
+    /** Mapping of tool names to display headlines (icons removed). */
+    private static final Map<String, String> HEADLINES = Map.ofEntries(
+            Map.entry("searchSymbols", "Searching for symbols"),
+            Map.entry("searchSubstrings", "Searching for substrings"),
+            Map.entry("searchFilenames", "Searching for filenames"),
+            Map.entry("getFileContents", "Getting file contents"),
+            Map.entry("getFileSummaries", "Getting file summaries"),
+            Map.entry("getUsages", "Finding usages"),
+            Map.entry("getRelatedClasses", "Finding related code"),
+            Map.entry("getClassSkeletons", "Getting class overview"),
+            Map.entry("getClassSources", "Fetching class source"),
+            Map.entry("getMethodSources", "Fetching method source"),
+            Map.entry("getCallGraphTo", "Getting call graph TO"),
+            Map.entry("getCallGraphFrom", "Getting call graph FROM"),
+            Map.entry("searchGitCommitMessages", "Searching git commits"),
+            Map.entry("listFiles", "Listing files"),
+            Map.entry("getFiles", "Finding files for classes"),
+            Map.entry("addFilesToWorkspace", "Adding files to workspace"),
+            Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
+            Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
+            Map.entry("addTextToWorkspace", "Adding text to workspace"),
+            Map.entry("addSymbolUsagesToWorkspace", "Adding symbol usages to workspace"),
+            Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
+            Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
+            Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
+            Map.entry("addCallGraphInToWorkspace", "Adding callers to workspace"),
+            Map.entry("addCallGraphOutToWorkspace", "Adding callees to workspace"),
+            Map.entry("dropWorkspaceFragments", "Removing from workspace"),
+            Map.entry("recommendContext", "Recommending context"),
+            Map.entry("createTaskList", "Creating task list"));
 
-        private final String icon;
-        private final String headline;
-
-        ToolDisplayMeta(String icon, String headline) {
-            this.icon = icon;
-            this.headline = headline;
-        }
-
-        public String getIcon() {
-            return icon;
-        }
-
-        public String getHeadline() {
-            return headline;
-        }
-
-        public static ToolDisplayMeta fromToolName(String toolName) {
-            return switch (toolName) {
-                case "searchSymbols" -> SEARCH_SYMBOLS;
-                case "searchSubstrings" -> SEARCH_SUBSTRINGS;
-                case "searchFilenames" -> SEARCH_FILENAMES;
-                case "getFileContents" -> GET_FILE_CONTENTS;
-                case "getFileSummaries" -> GET_FILE_SUMMARIES;
-                case "getUsages" -> GET_USAGES;
-                case "getRelatedClasses" -> GET_RELATED_CLASSES;
-                case "getClassSkeletons" -> GET_CLASS_SKELETONS;
-                case "getClassSources" -> GET_CLASS_SOURCES;
-                case "getMethodSources" -> GET_METHOD_SOURCES;
-                case "getCallGraphTo" -> CALL_GRAPH_TO;
-                case "getCallGraphFrom" -> CALL_GRAPH_FROM;
-                case "searchGitCommitMessages" -> SEARCH_GIT_COMMIT_MESSAGES;
-                case "listFiles" -> LIST_FILES;
-                case "getFiles" -> GET_FILES;
-                case "addFilesToWorkspace" -> ADD_FILES_TO_WORKSPACE;
-                case "addClassesToWorkspace" -> ADD_CLASSES_TO_WORKSPACE;
-                case "addUrlContentsToWorkspace" -> ADD_URL_CONTENTS_TO_WORKSPACE;
-                case "addTextToWorkspace" -> ADD_TEXT_TO_WORKSPACE;
-                case "addSymbolUsagesToWorkspace" -> ADD_SYMBOL_USAGES_TO_WORKSPACE;
-                case "addClassSummariesToWorkspace" -> ADD_CLASS_SUMMARIES_TO_WORKSPACE;
-                case "addFileSummariesToWorkspace" -> ADD_FILE_SUMMARIES_TO_WORKSPACE;
-                case "addMethodsToWorkspace" -> ADD_METHODS_TO_WORKSPACE;
-                case "addCallGraphInToWorkspace" -> ADD_CALL_GRAPH_IN_TO_WORKSPACE;
-                case "addCallGraphOutToWorkspace" -> ADD_CALL_GRAPH_OUT_TO_WORKSPACE;
-                case "dropWorkspaceFragments" -> DROP_WORKSPACE_FRAGMENTS;
-                case "answerSearch" -> ANSWER_SEARCH;
-                case "abortSearch" -> ABORT_SEARCH;
-                default -> {
-                    logger.warn("Unknown tool name for display metadata: {}", toolName);
-                    yield UNKNOWN;
-                }
-            };
-        }
+    /** Returns a human-readable headline for the given tool. Falls back to the tool name if there is no mapping. */
+    private static String headlineFor(String toolName) {
+        return HEADLINES.getOrDefault(toolName, toolName);
     }
 
     // Internal record to hold method and the instance it belongs to

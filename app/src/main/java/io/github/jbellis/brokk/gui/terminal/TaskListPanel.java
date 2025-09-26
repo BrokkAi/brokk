@@ -81,7 +81,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable UUID sessionIdAtLoad = null;
     private @Nullable IContextManager registeredContextManager = null;
 
-    private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
+    private final DefaultListModel<@Nullable TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
     private final JTextField input = new JTextField();
     private final MaterialButton removeBtn = new MaterialButton();
@@ -1445,7 +1445,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.repaint();
     }
 
-    static List<String> normalizeSplitLines(String input) {
+    static List<String> normalizeSplitLines(@Nullable String input) {
         return Arrays.stream(input.split("\\R+"))
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
@@ -1515,8 +1515,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var taskTexts = new java.util.ArrayList<String>(indices.length);
         for (int idx : indices) {
             if (idx >= 0 && idx < model.getSize()) {
-                TaskItem item = model.get(idx);
-                taskTexts.add(item.text());
+                var item = model.get(idx);
+                if (item != null) {
+                    taskTexts.add(item.text());
+                }
             }
         }
 
