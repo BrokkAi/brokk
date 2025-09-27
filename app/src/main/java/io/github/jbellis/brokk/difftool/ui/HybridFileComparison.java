@@ -135,7 +135,10 @@ public class HybridFileComparison {
 
                 // Create appropriate panel type based on view mode
                 IDiffPanel panel;
-                if (mainPanel.isUnifiedView()) {
+                boolean isUnified = mainPanel.isUnifiedView();
+                System.err.println("HYBRID_SYNC: Creating panel - isUnifiedView=" + isUnified +
+                                 " -> " + (isUnified ? "UnifiedDiffPanel" : "BufferDiffPanel"));
+                if (isUnified) {
                     panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
                 } else {
                     var bufferPanel = new BufferDiffPanel(mainPanel, theme);
@@ -201,7 +204,10 @@ public class HybridFileComparison {
                     try {
                         // Create appropriate panel type based on view mode
                         IDiffPanel panel;
-                        if (mainPanel.isUnifiedView()) {
+                        boolean isUnified = mainPanel.isUnifiedView();
+                        System.err.println("HYBRID_ASYNC: Creating panel - isUnifiedView=" + isUnified +
+                                         " -> " + (isUnified ? "UnifiedDiffPanel" : "BufferDiffPanel"));
+                        if (isUnified) {
                             panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
                         } else {
                             var bufferPanel = new BufferDiffPanel(mainPanel, theme);

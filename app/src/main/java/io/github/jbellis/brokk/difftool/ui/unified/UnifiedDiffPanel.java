@@ -281,29 +281,41 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Set the context mode for the unified diff. */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
         if (this.contextMode != contextMode) {
-            logger.debug("Switching context mode from {} to {}", this.contextMode, contextMode);
-            System.err.println("CONTEXT_SWITCH_DEBUG: Switching from " + this.contextMode + " to " + contextMode);
+            logger.info("Switching context mode from {} to {} on panel {}", this.contextMode, contextMode, System.identityHashCode(this));
 
             this.contextMode = contextMode;
 
             // For FULL_CONTEXT mode, we need to regenerate to get all file lines
             // For STANDARD_3_LINES mode, we can use efficient filtering
             if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
-                logger.debug("Switching to FULL_CONTEXT - regenerating document to include all file lines");
-                System.err.println("CONTEXT_SWITCH_DEBUG: Regenerating for FULL_CONTEXT mode");
+                logger.info("Switching to FULL_CONTEXT - regenerating document to include all file lines");
 
                 // Regenerate the document with FULL_CONTEXT to get all file lines
                 var diffNode = getDiffNode();
                 if (diffNode != null) {
+                    logger.info("Regenerating from diffNode");
                     generateDiffFromDiffNode(diffNode);
                 } else if (leftSource != null && rightSource != null) {
+                    logger.info("Regenerating from buffer sources");
                     generateDiffFromBufferSources();
                 } else {
                     logger.warn("No source available for regenerating diff in FULL_CONTEXT mode");
                 }
+
+                // Update text area display after regeneration
+                logger.info("Updating text area from document after FULL_CONTEXT regeneration");
+                updateTextAreaFromDocument();
+
+                // Force repaint to ensure immediate visual update
+                textArea.repaint();
+                textArea.revalidate();
+
+                // Update navigator with new content
+                if (navigator != null) {
+                    navigator.refreshHunkPositions();
+                }
             } else if (unifiedDocument != null) {
                 logger.debug("Using efficient context mode switching for STANDARD_3_LINES");
-                System.err.println("CONTEXT_SWITCH_DEBUG: Using efficient filtering for STANDARD_3_LINES");
 
                 // Switch context mode on existing document (efficient filtering)
                 unifiedDocument.switchContextMode(contextMode);

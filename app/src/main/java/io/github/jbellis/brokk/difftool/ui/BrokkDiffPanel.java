@@ -198,16 +198,36 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Set up context mode toggle for unified view
         showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
         showAllLinesCheckBox.addActionListener(e -> {
+            // Get the current checkbox state immediately and synchronize global state
             boolean showAll = showAllLinesCheckBox.isSelected();
+
+            System.err.println("CHECKBOX_ACTION: Clicked! showAll = " + showAll);
+
+            // Ensure global state is immediately synchronized with UI state
             globalShowAllLinesInUnified = showAll;
 
             var targetMode = showAll
                     ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
                     : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
-            // Apply to current unified panel if active
+            System.err.println("CHECKBOX_ACTION: Target mode = " + targetMode);
+
+            // Apply to the current panel if it's a unified panel
+            // (The checkbox should only be visible in unified view mode)
+            boolean appliedToAny = false;
             if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
+                var currentMode = unifiedPanel.getContextMode();
+                System.err.println("CHECKBOX_ACTION: Applying to current unified panel" +
+                                 " (current mode: " + currentMode + ", target mode: " + targetMode + ")");
                 unifiedPanel.setContextMode(targetMode);
+                appliedToAny = true;
+            } else {
+                System.err.println("CHECKBOX_ACTION: Current panel is not a UnifiedDiffPanel: " +
+                                 (currentDiffPanel != null ? currentDiffPanel.getClass().getSimpleName() : "null"));
+            }
+
+            if (!appliedToAny) {
+                System.err.println("CHECKBOX_ACTION: No unified panels found to apply context mode to");
             }
 
             logger.debug("Context mode changed to: {}", showAll ? "FULL_CONTEXT" : "STANDARD_3_LINES");
@@ -216,7 +236,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Set up view mode toggle
         viewModeToggle.setSelected(false); // Default to side-by-side view
         viewModeToggle.addActionListener(e -> {
-            switchViewMode(viewModeToggle.isSelected());
+            boolean unifiedSelected = viewModeToggle.isSelected();
+            System.err.println("VIEW_MODE_TOGGLE: Switching to " + (unifiedSelected ? "unified" : "side-by-side") + " view");
+            switchViewMode(unifiedSelected);
         });
 
         revalidate();
@@ -357,6 +379,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private IDiffPanel currentDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
+        System.err.println("OVERRIDE_DETECTED: setBufferDiffPanel() called - overwriting currentDiffPanel with " +
+                         (bufferDiffPanel != null ? "BufferDiffPanel" : "null") +
+                         " (current view mode: " + (isUnifiedView ? "unified" : "side-by-side") + ")");
+
+        // Don't allow BufferDiffPanel to override currentDiffPanel when in unified view mode
+        if (bufferDiffPanel != null && isUnifiedView) {
+            System.err.println("OVERRIDE_REJECTED: Rejecting BufferDiffPanel override because current view mode is unified");
+            return;
+        }
+
         this.currentDiffPanel = bufferDiffPanel;
     }
 
@@ -473,6 +505,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (insertPosition >= 0) {
             // Add appropriate control based on current view mode
             if (isUnifiedView) {
+                // Ensure checkbox state matches global preference before adding
+                showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
                 toolBar.add(showAllLinesCheckBox, insertPosition);
                 logger.debug("Added context mode control to toolbar for unified view");
             } else {
@@ -1130,6 +1164,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         tabbedPane.removeAll();
         tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel.getComponent());
         this.currentDiffPanel = cachedPanel;
+        System.err.println("PANEL_SET: currentDiffPanel set to " + cachedPanel.getClass().getSimpleName() +
+                         " (isUnifiedView=" + isUnifiedView + ")");
 
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
@@ -1482,6 +1518,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * the slot was reserved, otherwise regular put.
      */
     public void cachePanel(int fileIndex, IDiffPanel panel) {
+        // Validate that panel type matches current view mode
+        boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
+        if (isPanelUnified != isUnifiedView) {
+            System.err.println("CACHE_REJECT: Rejecting " + panel.getClass().getSimpleName() +
+                             " because current view mode is " + (isUnifiedView ? "unified" : "side-by-side"));
+            // Don't cache panels that don't match current view mode (prevents async race conditions)
+            return;
+        }
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
@@ -1501,9 +1545,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (cachedPanel == null) {
                 // This was a reserved slot, replace with actual panel
                 panelCache.putReserved(fileIndex, panel);
+                System.err.println("CACHE_SUCCESS: Cached " + panel.getClass().getSimpleName() +
+                                 " for file " + fileIndex + " (reserved slot)");
             } else {
                 // Direct cache (shouldn't happen in normal flow but handle gracefully)
                 panelCache.put(fileIndex, panel);
+                System.err.println("CACHE_SUCCESS: Cached " + panel.getClass().getSimpleName() +
+                                 " for file " + fileIndex + " (direct)");
             }
         } else {
             // Still display but don't cache
@@ -1550,14 +1598,37 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 // Double-check still needed and in window
                 if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
                     if (loadingResult.isSuccess()) {
-                        var panel = new BufferDiffPanel(this, theme);
-                        panel.markCreationContext("preload");
-                        panel.setDiffNode(loadingResult.getDiffNode());
+                        // Create appropriate panel type based on current view mode
+                        IDiffPanel panel;
+                        if (isUnifiedView) {
+                            // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires non-null
+                            var diffNode = loadingResult.getDiffNode();
+                            if (diffNode != null) {
+                                var unifiedPanel = new UnifiedDiffPanel(this, theme, diffNode);
+                                panel = unifiedPanel;
+                                System.err.println("PRELOAD: Created UnifiedDiffPanel for file " + fileIndex);
+                            } else {
+                                // Fallback to BufferDiffPanel if diffNode is null
+                                logger.warn("Cannot create UnifiedDiffPanel with null diffNode for file {}, using BufferDiffPanel", fileIndex);
+                                var bufferPanel = new BufferDiffPanel(this, theme);
+                                bufferPanel.markCreationContext("preload-fallback");
+                                panel = bufferPanel;
+                                System.err.println("PRELOAD: Created BufferDiffPanel (fallback) for file " + fileIndex);
+                            }
+                        } else {
+                            var bufferPanel = new BufferDiffPanel(this, theme);
+                            bufferPanel.markCreationContext("preload");
+                            bufferPanel.setDiffNode(loadingResult.getDiffNode());
+                            panel = bufferPanel;
+                            System.err.println("PRELOAD: Created BufferDiffPanel for file " + fileIndex);
+                        }
 
                         // Apply theme to ensure consistent state and avoid false dirty flags
                         panel.applyTheme(theme);
-                        // Clear any transient dirty state caused by mirroring during preload
-                        resetDocumentDirtyStateAfterTheme(panel);
+                        // Clear any transient dirty state caused by mirroring during preload (only for BufferDiffPanel)
+                        if (panel instanceof BufferDiffPanel bufferPanel) {
+                            resetDocumentDirtyStateAfterTheme(bufferPanel);
+                        }
 
                         // Cache will automatically check window constraints
                         panelCache.put(fileIndex, panel);
@@ -1774,6 +1845,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     /** Returns true if currently in unified view mode, false for side-by-side. */
     public boolean isUnifiedView() {
+        System.err.println("VIEW_MODE_CHECK: isUnifiedView() called, returning " + isUnifiedView +
+                         " (from thread: " + Thread.currentThread().getName() + ")");
         return isUnifiedView;
     }
 

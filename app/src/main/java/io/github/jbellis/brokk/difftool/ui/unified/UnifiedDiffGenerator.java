@@ -447,10 +447,10 @@ public class UnifiedDiffGenerator {
     private static List<UnifiedDiffDocument.DiffLine> generateFullContextFromPatch(
             List<String> leftLines, List<String> rightLines, Patch<String> patch) {
 
-        System.err.println("FULL_CONTEXT_DEBUG: generateFullContextFromPatch called with " + leftLines.size() + " left lines, " + rightLines.size() + " right lines");
-
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         var deltas = patch.getDeltas();
+
+        System.err.println("FULL_CONTEXT_DEBUG: generateFullContextFromPatch called - " + leftLines.size() + " left lines, " + deltas.size() + " deltas");
 
         // If no changes, just show all lines as context
         if (deltas.isEmpty()) {
@@ -536,8 +536,6 @@ public class UnifiedDiffGenerator {
     /** Generate full context diff showing all lines between changes. */
     private static List<UnifiedDiffDocument.DiffLine> generateFullContextDiff(
             List<String> leftLines, List<String> rightLines, Patch<String> patch) {
-
-        System.err.println("FULL_CONTEXT_DEBUG: generateFullContextDiff called with " + leftLines.size() + " left lines, " + rightLines.size() + " right lines");
 
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         var deltas = patch.getDeltas();
