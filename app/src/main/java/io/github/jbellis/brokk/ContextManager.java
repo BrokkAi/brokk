@@ -1059,39 +1059,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             var parsedOutput = selectedFrozenCtx.getParsedOutput();
             if (parsedOutput == null) {
-                io.systemOutput("No content to capture");
+                io.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
-            String action = selectedFrozenCtx.getAction();
-            if (action.startsWith(InstructionsPanel.ACTION_RUN_TESTS)) {
-                // Update the dynamic BuildFragment instead of adding a new virtual fragment to history.
-                // This keeps build/test captures visible in the workspace without polluting the history.
-                try {
-                    assert parsedOutput.messages().size() == 2 : parsedOutput.messages();
-                    var cmd = Messages.getText(parsedOutput.messages().getFirst());
-                    var result = Messages.getText(parsedOutput.messages().getLast());
-                    var text =
-                            """
-                            Command: `%s`
-
-                            Result:
-                            ```
-                            %s
-                            ```
-                            """
-                                    .formatted(cmd, result);
-                    updateBuildFragment(text);
-                    io.systemOutput("Capture build/test output to Build Fragment");
-                } catch (Exception e) {
-                    logger.error("Failed to update BuildFragment from captured test output", e);
-                    io.systemOutput("Failed to capture build/test output: " + e.getMessage());
-                }
-            } else {
-                // Non-build capture: preserve existing behavior of adding the parsed output into the live context.
-                addVirtualFragment(parsedOutput);
-                io.systemOutput("Capture content from output");
-            }
+            addVirtualFragment(parsedOutput);
         });
     }
 

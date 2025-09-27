@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager;
@@ -348,7 +349,7 @@ public class MergeAgent {
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
         }
 
-        // We tried auto-editing files that are mentioned i nthe build failure, the trouble is that you
+        // We tried auto-editing files that are mentioned in the build failure, the trouble is that you
         // can cause errors in lots of files by screwing up the API in one, and adding all of them
         // obscures rather than clarifies the actual problem. So don't do that.
 
@@ -434,12 +435,12 @@ public class MergeAgent {
             cm.getIo()
                     .llmOutput(
                             "\nRunning verification command: " + cmd,
-                            dev.langchain4j.data.message.ChatMessageType.CUSTOM);
-            cm.getIo().llmOutput("\n```bash\n", dev.langchain4j.data.message.ChatMessageType.CUSTOM);
+                            ChatMessageType.CUSTOM);
+            cm.getIo().llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
             Environment.instance.runShellCommand(
                     cmd,
                     ((ContextManager) cm).getProject().getRoot(),
-                    line -> cm.getIo().llmOutput(line + "\n", dev.langchain4j.data.message.ChatMessageType.CUSTOM),
+                    line -> cm.getIo().llmOutput(line + "\n", ChatMessageType.CUSTOM),
                     Environment.UNLIMITED_TIMEOUT);
             return ""; // success
         } catch (Environment.SubprocessException e) {
