@@ -35,6 +35,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -44,6 +45,7 @@ import java.util.stream.IntStream;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -1087,8 +1089,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param text The text to capture.
      */
     public void addPastedTextFragment(String text) {
-        Future<String> descriptionFuture = submitSummarizePastedText(text);
-        var fragment = new ContextFragment.PasteTextFragment(this, text, descriptionFuture);
+        var pasteInfoFuture = new DescribePasteWorker(this, text);
+        pasteInfoFuture.execute();
+
+        var descriptionFuture = CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        return pasteInfoFuture.get().description();
+                    } catch (InterruptedException | ExecutionException e) {
+                        logger.warn("Could not get description for pasted text", e);
+                        return "pasted text";
+                    }
+                },
+                contextActionExecutor);
+        var syntaxStyleFuture = CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        return pasteInfoFuture.get().syntaxStyle();
+                    } catch (InterruptedException | ExecutionException e) {
+                        logger.warn("Could not get syntax style for pasted text", e);
+                        return SyntaxConstants.SYNTAX_STYLE_NONE;
+                    }
+                },
+                contextActionExecutor);
+
+        var fragment = new ContextFragment.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
         addVirtualFragment(fragment);
     }
 
@@ -1489,18 +1514,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();
-
-    public SummarizeWorker submitSummarizePastedText(String pastedContent) {
-        var worker = new SummarizeWorker(this, pastedContent, 12) {
-            @Override
-            protected void done() {
-                io.postSummarize();
-            }
-        };
-
-        worker.execute();
-        return worker;
-    }
 
     public SummarizeWorker submitSummarizeTaskForConversation(String input) {
         var worker = new SummarizeWorker(this, input, 5) {
