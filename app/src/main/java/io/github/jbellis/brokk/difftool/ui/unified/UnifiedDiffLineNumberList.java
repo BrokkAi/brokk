@@ -24,6 +24,7 @@ public class UnifiedDiffLineNumberList extends JComponent {
 
     private final RSyntaxTextArea textArea;
     private boolean isDarkTheme = false;
+    private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
     private static int paintSequence = 0;
 
     /**
@@ -55,6 +56,19 @@ public class UnifiedDiffLineNumberList extends JComponent {
         setBackground(UnifiedDiffColorResolver.getDefaultGutterBackground(isDark));
         setForeground(UnifiedDiffColorResolver.getDefaultGutterForeground(isDark));
         repaint();
+    }
+
+    /**
+     * Set the context mode for coordinate calculation optimization.
+     *
+     * @param contextMode The context mode (STANDARD_3_LINES or FULL_CONTEXT)
+     */
+    public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
+        if (this.contextMode != contextMode) {
+            logger.debug("Context mode changed from {} to {} in line number component", this.contextMode, contextMode);
+            this.contextMode = contextMode;
+            repaint(); // Repaint since coordinate calculations may change
+        }
     }
 
     /**
@@ -184,8 +198,11 @@ public class UnifiedDiffLineNumberList extends JComponent {
                 int textAreaStartY = clipBounds.y;
                 int textAreaEndY = clipBounds.y + clipBounds.height;
 
-                logger.debug("Paint #{}: Direct mapping - clipBounds.y={} -> textAreaStartY={} (no viewPosition offset)",
-                    currentPaint, clipBounds.y, textAreaStartY);
+                logger.debug(
+                        "Paint #{}: Direct mapping - clipBounds.y={} -> textAreaStartY={} (no viewPosition offset)",
+                        currentPaint,
+                        clipBounds.y,
+                        textAreaStartY);
 
                 int startOffset = textArea.viewToModel2D(new java.awt.Point(0, textAreaStartY));
                 int endOffset = textArea.viewToModel2D(new java.awt.Point(0, textAreaEndY));
@@ -201,26 +218,43 @@ public class UnifiedDiffLineNumberList extends JComponent {
                 if (unifiedDocument != null && unifiedDocument.getFilteredLines() != null) {
                     int diffDocumentLines = unifiedDocument.getFilteredLines().size();
                     endLine = Math.min(endLine, diffDocumentLines - 1);
-                    logger.debug("Paint #{}: Limited endLine to {} based on diff document size ({})",
-                        currentPaint, endLine, diffDocumentLines);
+                    logger.debug(
+                            "Paint #{}: Limited endLine to {} based on diff document size ({})",
+                            currentPaint,
+                            endLine,
+                            diffDocumentLines);
                 }
 
-                logger.debug("Paint #{}: Visible lines: {} to {} (offsets: {} to {}), clipBounds={}x{} at ({},{})",
-                    currentPaint, startLine, endLine, startOffset, endOffset, clipBounds.width, clipBounds.height, clipBounds.x, clipBounds.y);
+                logger.debug(
+                        "Paint #{}: Visible lines: {} to {} (offsets: {} to {}), clipBounds={}x{} at ({},{})",
+                        currentPaint,
+                        startLine,
+                        endLine,
+                        startOffset,
+                        endOffset,
+                        clipBounds.width,
+                        clipBounds.height,
+                        clipBounds.x,
+                        clipBounds.y);
 
                 // Paint line numbers for visible lines with color-coded backgrounds
+                // We need to map text area lines to DiffLine objects correctly
+                // since OMITTED_LINES entries can cause text lines to not match DiffLine indices 1:1
                 for (int documentLine = startLine; documentLine <= endLine; documentLine++) {
                     if (unifiedDocument != null) {
-                        var diffLine = unifiedDocument.getDiffLine(documentLine);
+                        var diffLine = getDiffLineForTextLine(documentLine);
 
                         // Special logging around line 439 to debug the "1 439" issue
                         if (documentLine >= 435 && documentLine <= 445) {
-                            logger.info("Paint #{} - CRITICAL LINE {}: diffLine={}, type={}, left={}, right={}",
-                                currentPaint, documentLine,
-                                diffLine != null ? "exists" : "NULL",
-                                diffLine != null ? diffLine.getType() : "N/A",
-                                diffLine != null ? diffLine.getLeftLineNumber() : "N/A",
-                                diffLine != null ? diffLine.getRightLineNumber() : "N/A");
+                            logger.info(
+                                    "Paint #{} - CRITICAL LINE {}: diffLine={}, type={}, left={}, right={}, contextMode={}",
+                                    currentPaint,
+                                    documentLine,
+                                    diffLine != null ? "exists" : "NULL",
+                                    diffLine != null ? diffLine.getType() : "N/A",
+                                    diffLine != null ? diffLine.getLeftLineNumber() : "N/A",
+                                    diffLine != null ? diffLine.getRightLineNumber() : "N/A",
+                                    contextMode);
                         }
 
                         if (diffLine != null) {
@@ -235,33 +269,59 @@ public class UnifiedDiffLineNumberList extends JComponent {
                                 int lineY = textAreaLineY; // No viewport offset needed for row header
                                 int lineHeight = (int) lineRect.getHeight();
 
+                                // Special handling for OMITTED_LINES in STANDARD_3_LINES mode
+                                // These represent gaps in the source and may need coordinate adjustments
+                                if (contextMode == UnifiedDiffDocument.ContextMode.STANDARD_3_LINES
+                                        && diffLine.getType() == UnifiedDiffDocument.LineType.OMITTED_LINES) {
+                                    logger.trace(
+                                            "Line {}: OMITTED_LINES detected in STANDARD_3_LINES mode, applying gap handling",
+                                            documentLine);
+                                    // OMITTED_LINES represent visual gaps but need to maintain synchronization
+                                    // The coordinate calculation should remain the same, but we log this for awareness
+                                }
+
                                 logger.trace(
-                                        "Line {}: type={}, textAreaY={}, rowHeaderY={}, height={}, clipBounds={}-{}",
+                                        "Line {}: type={}, textAreaY={}, rowHeaderY={}, height={}, clipBounds={}-{}, contextMode={}",
                                         documentLine,
                                         diffLine.getType(),
                                         textAreaLineY,
                                         lineY,
                                         lineHeight,
                                         clipBounds.y,
-                                        clipBounds.y + clipBounds.height);
+                                        clipBounds.y + clipBounds.height,
+                                        contextMode);
 
                                 // Remove strict visibility check to avoid coordinate drift issues
-                                // Since we already use broad range (500px buffers), let graphics clipping handle visibility
+                                // Since we already use broad range (500px buffers), let graphics clipping handle
+                                // visibility
                                 // Add coordinate drift detection logging for high line numbers
                                 if (documentLine > 1000 && (lineY < -100 || lineY > getHeight() + 100)) {
-                                    logger.warn("Potential coordinate drift detected: line {} has rowHeaderY={} (componentHeight={})",
-                                        documentLine, lineY, getHeight());
+                                    logger.warn(
+                                            "Potential coordinate drift detected: line {} has rowHeaderY={} (componentHeight={})",
+                                            documentLine,
+                                            lineY,
+                                            getHeight());
                                 }
 
-                                logger.trace("Line {} painting (lineY={}, height={}, clipBounds={}-{}) - no strict visibility check",
-                                    documentLine, lineY, lineHeight, clipBounds.y, clipBounds.y + clipBounds.height);
+                                logger.trace(
+                                        "Line {} painting (lineY={}, height={}, clipBounds={}-{}) - no strict visibility check",
+                                        documentLine,
+                                        lineY,
+                                        lineHeight,
+                                        clipBounds.y,
+                                        clipBounds.y + clipBounds.height);
 
                                 // Use more forgiving coordinate validation to prevent drift issues
                                 // Only skip lines that are extremely far outside reasonable bounds
-                                boolean coordsReasonable = (lineY > -1000 && lineY < getHeight() + 1000 && lineHeight > 0);
+                                boolean coordsReasonable =
+                                        (lineY > -1000 && lineY < getHeight() + 1000 && lineHeight > 0);
                                 if (!coordsReasonable) {
-                                    logger.info("Line {} EXTREME COORDINATES, skipping (lineY={}, height={}, componentHeight={})",
-                                        documentLine, lineY, lineHeight, getHeight());
+                                    logger.info(
+                                            "Line {} EXTREME COORDINATES, skipping (lineY={}, height={}, componentHeight={})",
+                                            documentLine,
+                                            lineY,
+                                            lineHeight,
+                                            getHeight());
                                     continue;
                                 }
 
@@ -281,7 +341,10 @@ public class UnifiedDiffLineNumberList extends JComponent {
                             }
                         } else {
                             // If we still get null after bounds checking, this indicates a real end of document
-                            logger.debug("Paint #{} - Line {}: getDiffLine returned NULL (beyond diff document)", currentPaint, documentLine);
+                            logger.debug(
+                                    "Paint #{} - Line {}: getDiffLine returned NULL (beyond diff document)",
+                                    currentPaint,
+                                    documentLine);
                             // Break out of the loop since we've reached the end of the diff document
                             break;
                         }
@@ -336,8 +399,9 @@ public class UnifiedDiffLineNumberList extends JComponent {
                 yield new String[] {"    ", "    "};
             }
             case OMITTED_LINES -> {
-                // Omitted lines indicator: show dots or similar
-                yield new String[] {" ...", " ..."};
+                // Omitted lines indicator: show empty line numbers since this represents a gap
+                // The actual line numbers will resume properly on the next real content line
+                yield new String[] {"    ", "    "};
             }
         };
     }
@@ -425,6 +489,49 @@ public class UnifiedDiffLineNumberList extends JComponent {
             int rightTextX = rightColumnX + columnWidth - fm.stringWidth(rightText); // Right-align in column
             g.drawString(rightText, Math.max(0, rightTextX), textY);
         }
+    }
+
+    /**
+     * Map a text area line to the corresponding DiffLine object, accounting for OMITTED_LINES
+     * that may have been inserted as actual text content.
+     *
+     * @param textAreaLine The 0-based line number in the text area
+     * @return The corresponding DiffLine, or null if not found
+     */
+    @Nullable
+    private UnifiedDiffDocument.DiffLine getDiffLineForTextLine(int textAreaLine) {
+        if (unifiedDocument == null || textAreaLine < 0) {
+            return null;
+        }
+
+        var filteredLines = unifiedDocument.getFilteredLines();
+        if (filteredLines == null || filteredLines.isEmpty()) {
+            return null;
+        }
+
+        // Debug logging to understand the mapping issue
+        if (textAreaLine < 10 || textAreaLine > filteredLines.size() - 10) {
+            logger.info("MAPPING DEBUG: textAreaLine={}, filteredLines.size()={}, textArea.getLineCount()={}",
+                textAreaLine, filteredLines.size(), textArea != null ? textArea.getLineCount() : "null");
+        }
+
+        // The mapping should be 1:1 since we build text from filteredLines
+        if (textAreaLine < filteredLines.size()) {
+            var diffLine = filteredLines.get(textAreaLine);
+
+            // Log OMITTED_LINES specifically to understand the issue
+            if (diffLine.getType() == UnifiedDiffDocument.LineType.OMITTED_LINES) {
+                logger.info("OMITTED_LINES found at textAreaLine {}: content='{}'",
+                    textAreaLine, diffLine.getContent());
+            }
+
+            return diffLine;
+        }
+
+        // Handle case where text area has more lines than diff document
+        logger.warn("Text area line {} exceeds diff document size {} - this indicates a mapping problem",
+            textAreaLine, filteredLines.size());
+        return null;
     }
 
     /**

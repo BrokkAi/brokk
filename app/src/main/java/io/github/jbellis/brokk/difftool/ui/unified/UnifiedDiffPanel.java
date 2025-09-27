@@ -148,16 +148,33 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
     private void generateDiffFromDiffNode(JMDiffNode diffNode) {
-        // Generate both the UnifiedDiffDocument (for line number metadata) and plain text (for display)
+        // Generate the UnifiedDiffDocument (for line number metadata and display content)
         this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
-        String plainTextContent = UnifiedDiffGenerator.generatePlainTextFromDiffNode(diffNode, contextMode);
 
+        // Extract plain text content from the UnifiedDiffDocument to include OMITTED_LINES
+        var textBuilder = new StringBuilder();
+        for (var diffLine : unifiedDocument.getFilteredLines()) {
+            String content = diffLine.getContent();
+            textBuilder.append(content);
+            // Only add newline if content doesn't already end with one
+            if (!content.endsWith("\n")) {
+                textBuilder.append('\n');
+            }
+        }
+
+        // Remove trailing newline if present
+        if (textBuilder.length() > 0 && textBuilder.charAt(textBuilder.length() - 1) == '\n') {
+            textBuilder.setLength(textBuilder.length() - 1);
+        }
+
+        String plainTextContent = textBuilder.toString();
         textArea.setText(plainTextContent);
 
         // Link the UnifiedDiffDocument to the custom line number list
         if (customLineNumberList != null) {
             customLineNumberList.setUnifiedDocument(unifiedDocument);
             customLineNumberList.setDarkTheme(getTheme().isDarkTheme());
+            customLineNumberList.setContextMode(contextMode);
         }
 
         this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
@@ -203,6 +220,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         if (customLineNumberList != null) {
             customLineNumberList.setUnifiedDocument(unifiedDocument);
             customLineNumberList.setDarkTheme(getTheme().isDarkTheme());
+            customLineNumberList.setContextMode(contextMode);
         }
 
         this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
@@ -278,6 +296,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             // Update the line number list with new context
             if (customLineNumberList != null && unifiedDocument != null) {
                 customLineNumberList.setUnifiedDocument(unifiedDocument);
+                customLineNumberList.setContextMode(contextMode);
                 // Force repaint of the line number component
                 customLineNumberList.revalidate();
                 customLineNumberList.repaint();
