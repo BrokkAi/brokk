@@ -2200,8 +2200,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> deleteSessionAsync(UUID sessionIdToDelete) {
         return submitUserTask("Deleting session " + sessionIdToDelete, () -> {
-                    project.getSessionManager().deleteSession(sessionIdToDelete);
-                    logger.info("Deleted session {}", sessionIdToDelete);
+                    try {
+                        project.getSessionManager().deleteSession(sessionIdToDelete);
+                        logger.info("Deleted session {}", sessionIdToDelete);
+                    } catch (Exception e) {
+                        logger.error("Failed to delete session {}", sessionIdToDelete, e);
+                        throw new RuntimeException("Failed to delete session " + sessionIdToDelete, e);
+                    }
                     if (sessionIdToDelete.equals(currentSessionId)) {
                         var sessionToSwitchTo = project.getSessionManager().listSessions().stream()
                                 .max(Comparator.comparingLong(SessionInfo::created))

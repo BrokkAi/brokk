@@ -326,8 +326,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 () -> isActionRunning(), this.secondaryActionButtonBg, this.defaultActionButtonBg);
 
         KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "instructions.submit", 
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                "instructions.submit",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
@@ -1131,9 +1132,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Repaint when focus changes so focus border is visible
         actionButton.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override
-            public void focusGained(java.awt.event.FocusEvent e) { actionButton.repaint(); }
+            public void focusGained(java.awt.event.FocusEvent e) {
+                actionButton.repaint();
+            }
+
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) { actionButton.repaint(); }
+            public void focusLost(java.awt.event.FocusEvent e) {
+                actionButton.repaint();
+            }
         });
 
         // Size the wand button to match height of action button
@@ -2330,8 +2336,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Action button reflects current running state
         KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "instructions.submit", 
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                "instructions.submit",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         if (isActionRunning()) {
             actionButton.setIcon(Icons.STOP);
             actionButton.setText(null);
@@ -2439,8 +2446,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         currentActionFuture = null;
                         SwingUtilities.invokeLater(() -> {
                             KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                                    "instructions.submit", 
-                                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                                    "instructions.submit",
+                                    KeyStroke.getKeyStroke(
+                                            KeyEvent.VK_ENTER,
+                                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
                             actionButton.setIcon(Icons.ARROW_WARM_UP);
                             actionButton.setText(null);
                             actionButton.setToolTipText(

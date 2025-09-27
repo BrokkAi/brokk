@@ -87,7 +87,8 @@ public class MenuBar {
         boolean isMac = Environment.instance.isMacOs();
         // Accelerator uses current binding; action also available via Chrome root pane binding
         settingsItem.setAccelerator(io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.openSettings", KeyStroke.getKeyStroke(
+                "global.openSettings",
+                KeyStroke.getKeyStroke(
                         KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx())));
 
         if (isMac) {

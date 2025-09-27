@@ -147,6 +147,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         add(globalSubTabbedPane, BorderLayout.CENTER);
     }
+
     private JPanel createKeybindingsPanel() {
         var panel = new JPanel(new GridBagLayout());
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -161,7 +162,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 var gbcLabel = new GridBagConstraints();
                 gbcLabel.insets = new Insets(4, 6, 4, 6);
                 gbcLabel.anchor = GridBagConstraints.WEST;
-                gbcLabel.gridx = 0; gbcLabel.gridy = r; gbcLabel.weightx = 0.0;
+                gbcLabel.gridx = 0;
+                gbcLabel.gridy = r;
+                gbcLabel.weightx = 0.0;
                 panel.add(new JLabel(label + ":"), gbcLabel);
 
                 var field = new JTextField(formatKeyStroke(cur));
@@ -169,30 +172,41 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 var gbcField = new GridBagConstraints();
                 gbcField.insets = new Insets(4, 6, 4, 6);
                 gbcField.fill = GridBagConstraints.HORIZONTAL;
-                gbcField.gridx = 1; gbcField.gridy = r; gbcField.weightx = 1.0;
+                gbcField.gridx = 1;
+                gbcField.gridy = r;
+                gbcField.weightx = 1.0;
                 panel.add(field, gbcField);
 
                 var setBtn = new MaterialButton("Set");
                 var gbcSet = new GridBagConstraints();
                 gbcSet.insets = new Insets(4, 6, 4, 6);
-                gbcSet.gridx = 2; gbcSet.gridy = r; gbcSet.weightx = 0.0;
+                gbcSet.gridx = 2;
+                gbcSet.gridy = r;
+                gbcSet.weightx = 0.0;
                 panel.add(setBtn, gbcSet);
 
                 var clearBtn = new MaterialButton("Clear");
                 var gbcClear = new GridBagConstraints();
                 gbcClear.insets = new Insets(4, 6, 4, 6);
-                gbcClear.gridx = 3; gbcClear.gridy = r; gbcClear.weightx = 0.0;
+                gbcClear.gridx = 3;
+                gbcClear.gridy = r;
+                gbcClear.weightx = 0.0;
                 panel.add(clearBtn, gbcClear);
 
                 setBtn.addActionListener(ev -> {
                     javax.swing.KeyStroke captured = captureKeyStroke(panel);
-                        if ("global.closeWindow".equals(id) && captured.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE
-                                && captured.getModifiers() == 0) {
-                            JOptionPane.showMessageDialog(panel, "ESC alone cannot be used for Close Window.", "Invalid Shortcut", JOptionPane.WARNING_MESSAGE);
-                            return;
-                        }
-                        io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, captured);
-                        field.setText(formatKeyStroke(captured));
+                    if ("global.closeWindow".equals(id)
+                            && captured.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE
+                            && captured.getModifiers() == 0) {
+                        JOptionPane.showMessageDialog(
+                                panel,
+                                "ESC alone cannot be used for Close Window.",
+                                "Invalid Shortcut",
+                                JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+                    io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, captured);
+                    field.setText(formatKeyStroke(captured));
                     // Immediately refresh global keybindings so changes take effect
                     try {
                         chrome.refreshKeybindings();
@@ -235,7 +249,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.closeWindow", "Close Window");
 
         var gbcSpacer = new GridBagConstraints();
-        gbcSpacer.gridx = 0; gbcSpacer.gridy = row.get(); gbcSpacer.weightx = 1.0; gbcSpacer.weighty = 1.0;
+        gbcSpacer.gridx = 0;
+        gbcSpacer.gridy = row.get();
+        gbcSpacer.weightx = 1.0;
+        gbcSpacer.weighty = 1.0;
         gbcSpacer.fill = GridBagConstraints.BOTH;
         panel.add(Box.createGlue(), gbcSpacer);
 
@@ -2491,7 +2508,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 java.awt.event.KeyEvent.VK_M);
     }
 
-
     // Global text editing defaults
     private static javax.swing.KeyStroke defaultUndo() {
         return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
@@ -2574,8 +2590,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 java.awt.event.KeyEvent.VK_W);
     }
 
-    
-
     @SuppressWarnings("UnusedMethod")
     private static javax.swing.KeyStroke defaultFor(String id) {
         return switch (id) {
@@ -2605,7 +2619,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
             // General navigation
             case "global.closeWindow" -> defaultCloseWindow();
-            
 
             default ->
                 javax.swing.KeyStroke.getKeyStroke(

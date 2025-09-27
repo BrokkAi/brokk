@@ -854,18 +854,23 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Cmd/Ctrl+Z => undo (configurable)
         KeyStroke undoKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.undo", KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                "global.undo",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         bindKey(rootPane, undoKeyStroke, "globalUndo");
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
         // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
         KeyStroke redoKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "global.redo",
-                KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Z,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         // For Windows/Linux, Ctrl+Y is also common for redo
         KeyStroke redoYKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "global.redoY",
-                KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
 
         bindKey(rootPane, redoKeyStroke, "globalRedo");
         bindKey(rootPane, redoYKeyStroke, "globalRedo");
@@ -873,13 +878,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Cmd/Ctrl+C => global copy
         KeyStroke copyKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.copy", KeyStroke.getKeyStroke(KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                "global.copy",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         bindKey(rootPane, copyKeyStroke, "globalCopy");
         rootPane.getActionMap().put("globalCopy", globalCopyAction);
 
         // Cmd/Ctrl+V => global paste
         KeyStroke pasteKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.paste", KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                "global.paste",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         bindKey(rootPane, pasteKeyStroke, "globalPaste");
         rootPane.getActionMap().put("globalPaste", globalPasteAction);
 
@@ -893,7 +902,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Submit action (configurable; default Cmd/Ctrl+Enter)
         KeyStroke submitKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "instructions.submit",
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         bindKey(rootPane, submitKeyStroke, "globalSubmit");
         rootPane.getActionMap().put("globalSubmit", new AbstractAction() {
             @Override
@@ -901,9 +911,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 SwingUtilities.invokeLater(() -> {
                     try {
                         // If focus is in instructions area or the submit button is the default, trigger it
-                        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-                        if (focusOwner == instructionsPanel.getInstructionsArea() || 
-                            (rootPane.getDefaultButton() != null && rootPane.getDefaultButton().isEnabled())) {
+                        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                                .getFocusOwner();
+                        if (focusOwner == instructionsPanel.getInstructionsArea()
+                                || (rootPane.getDefaultButton() != null
+                                        && rootPane.getDefaultButton().isEnabled())) {
                             if (rootPane.getDefaultButton() != null) {
                                 rootPane.getDefaultButton().doClick();
                             }
@@ -945,7 +957,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 SwingUtilities.invokeLater(() -> MenuBar.openSettingsDialog(Chrome.this));
             }
         });
-
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
         KeyStroke closeWindowKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
@@ -1054,16 +1065,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Zoom shortcuts: read from global settings (defaults preserved)
         KeyStroke zoomInKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "view.zoomIn",
-                KeyStroke.getKeyStroke(KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         KeyStroke zoomInEqualsKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "view.zoomInAlt",
-                KeyStroke.getKeyStroke(KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         KeyStroke zoomOutKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "view.zoomOut",
-                KeyStroke.getKeyStroke(KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         KeyStroke resetZoomKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "view.resetZoom",
-                KeyStroke.getKeyStroke(KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
 
         bindKey(rootPane, zoomInKeyStroke, "zoomIn");
         bindKey(rootPane, zoomInEqualsKeyStroke, "zoomIn");
