@@ -19,6 +19,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.ContentDiffUtils;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
@@ -824,11 +825,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // Per-file diffs
             for (var entry : mergedByFilenameSuccessful.values()) {
                 var filename = entry.filename();
-                var originalLines = entry.originalContent().lines().collect(Collectors.toList());
-                var currentLines = entry.currentContent().lines().collect(Collectors.toList());
-                var patch = DiffUtils.diff(originalLines, currentLines, (DiffAlgorithmListener) null);
-                var unified = UnifiedDiffUtils.generateUnifiedDiff(filename, filename, originalLines, patch, 3);
-                var diffText = String.join("\n", unified);
+                var diffResult = ContentDiffUtils.computeDiffResult(
+                        entry.originalContent(), entry.currentContent(), filename, filename, 3);
+                var diffText = diffResult.diff();
 
                 var pf = entry.projectFile();
                 var header = "### " + (pf != null ? pf.toString() : filename);

@@ -47,6 +47,21 @@ public class ContentDiffUtils {
      */
     public static DiffComputationResult computeDiffResult(
             String oldContent, String newContent, String oldName, String newName) {
+        return computeDiffResult(oldContent, newContent, oldName, newName, 0);
+    }
+
+    /**
+     * Compute a unified diff and change counts (added/deleted) between two strings using java-diff-utils.
+     *
+     * @param oldContent baseline content
+     * @param newContent revised content
+     * @param oldName filename label for "from"
+     * @param newName filename label for "to"
+     * @param contextLines number of context lines to include in the unified diff hunks
+     * @return DiffComputationResult containing unified diff text and counts
+     */
+    public static DiffComputationResult computeDiffResult(
+            String oldContent, String newContent, String oldName, String newName, int contextLines) {
         var oldLines = oldContent.lines().toList();
         var newLines = newContent.lines().toList();
 
@@ -78,17 +93,18 @@ public class ContentDiffUtils {
 
         if (logger.isDebugEnabled()) {
             logger.debug(
-                    "computeDiffResult: {} -> {} | deltas={} added={} deleted={} (oldLines={}, newLines={})",
+                    "computeDiffResult: {} -> {} | deltas={} added={} deleted={} (oldLines={}, newLines={}, context={})",
                     oldName,
                     newName,
                     patch.getDeltas().size(),
                     added,
                     deleted,
                     oldLines.size(),
-                    newLines.size());
+                    newLines.size(),
+                    contextLines);
         }
 
-        var diffLines = UnifiedDiffUtils.generateUnifiedDiff(oldName, newName, oldLines, patch, 0);
+        var diffLines = UnifiedDiffUtils.generateUnifiedDiff(oldName, newName, oldLines, patch, contextLines);
         var diffText = String.join("\n", diffLines);
         return new DiffComputationResult(diffText, added, deleted);
     }
