@@ -76,3 +76,5 @@ cpg.bin
 node_modules/
 jdeploy-bundle/
 jdeploy/
+
+.*

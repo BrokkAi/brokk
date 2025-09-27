@@ -166,6 +166,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
+        // Set up custom focus traversal policy for tab navigation
+        setFocusTraversalPolicy(new InstructionsPanelFocusTraversalPolicy());
+        setFocusCycleRoot(true);
+        setFocusTraversalPolicyProvider(true);
+
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
         micButton = new VoiceInputButton(
@@ -176,6 +181,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     chrome.systemOutput("Recording");
                 },
                 msg -> chrome.toolError(msg, "Error"));
+        micButton.setFocusable(true);
 
         // Initialize Action Selection UI
         modeSwitch = new JCheckBox();
@@ -200,8 +206,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var switchIcon = new SwitchIcon();
         modeSwitch.setIcon(switchIcon);
         modeSwitch.setSelectedIcon(switchIcon);
-        modeSwitch.setFocusPainted(false);
-        modeSwitch.setFocusable(false);
+        modeSwitch.setFocusPainted(true);
+        modeSwitch.setFocusable(true);
         modeSwitch.setBorderPainted(false);
         modeSwitch.setBorder(BorderFactory.createEmptyBorder());
         modeSwitch.setContentAreaFilled(false);
@@ -212,6 +218,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setText("");
 
         codeCheckBox = new JCheckBox("Plan First");
+        codeCheckBox.setFocusable(true);
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
         KeyStroke toggleSearchKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
@@ -222,6 +229,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 + "</ul>  (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
         searchProjectCheckBox = new JCheckBox("Search");
+        searchProjectCheckBox.setFocusable(true);
 
         // Append the shortcut to the tooltip for discoverability
         searchProjectCheckBox.setToolTipText("<html><b>Search:</b><br><ul>"
@@ -322,7 +330,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
-        actionButton.setFocusPainted(false);
+        actionButton.setFocusPainted(true);
+        actionButton.setFocusable(true);
         actionButton.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
         actionButton.setRolloverEnabled(true);
         actionButton.addActionListener(e -> onActionButtonPressed());
@@ -331,6 +340,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
         modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
+        // Ensure model selector component is focusable
+        modelSelector.getComponent().setFocusable(true);
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -543,6 +554,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
+        // Override Tab key to shift focus instead of inserting tab character
+        var tabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
+        area.getInputMap().put(tabKeyStroke, "transferFocus");
+        area.getActionMap().put("transferFocus", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                area.transferFocus();
+            }
+        });
+
+        // Override Shift+Tab key to shift focus backward
+        var shiftTabKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        area.getInputMap().put(shiftTabKeyStroke, "transferFocusBackward");
+        area.getActionMap().put("transferFocusBackward", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                area.transferFocusBackward();
+            }
+        });
+
         return area;
     }
 
@@ -582,6 +613,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var project = chrome.getProject();
         var branchSplitButton = new SplitButton("No Git");
         branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
+        branchSplitButton.setFocusable(true);
 
         int branchWidth = 210;
         var branchDim = new Dimension(branchWidth, controlHeight);
@@ -1050,6 +1082,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.actionGroupPanel = new ActionGroupPanel(codeModeLabel, modeSwitch, answerModeLabel);
         this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
+        // Visually highlight Code/Ask group when the switch gains focus
+        modeSwitch.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) {
+                actionGroupPanel.setAccentColor(new Color(0x1F6FEB));
+            }
+
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                // Restore mode accent
+                refreshModeIndicator();
+            }
+        });
+
         bottomPanel.add(this.actionGroupPanel);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
@@ -1103,6 +1149,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
         wandButton.setToolTipText("Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        wandButton.setFocusable(true);
         wandButton.addActionListener(e -> onWandPressed());
         // Size set after fixedHeight is computed below
         bottomPanel.add(wandButton);
@@ -1117,6 +1164,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMinimumSize(prefSize);
         actionButton.setMaximumSize(prefSize);
         actionButton.setMargin(new Insets(4, 10, 4, 10));
+
+        // Repaint when focus changes so focus border is visible
+        actionButton.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) { actionButton.repaint(); }
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) { actionButton.repaint(); }
+        });
 
         // Size the wand button to match height of action button
         var wandSize = new Dimension(fixedHeight, fixedHeight);
@@ -1138,6 +1193,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var dropdown = new SplitButton(placeholder);
         dropdown.setToolTipText("Select a previous instruction from history");
+        dropdown.setFocusable(true);
 
         // Build popup menu on demand, same pattern as branch button
         Supplier<JPopupMenu> historyMenuSupplier = () -> {
@@ -2604,8 +2660,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 int arc = 12;
-                Color borderColor = UIManager.getColor("Component.borderColor");
-                if (borderColor == null) borderColor = Color.GRAY;
+                Color borderColor;
+                if (isFocusOwner()) {
+                    // Use a blue focus color for visibility when focused
+                    borderColor = new Color(0x1F6FEB);
+                } else {
+                    borderColor = UIManager.getColor("Component.borderColor");
+                    if (borderColor == null) borderColor = Color.GRAY;
+                }
                 g2.setColor(borderColor);
                 g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
             } finally {
@@ -2822,6 +2884,119 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             completionCache.put(text, completions);
 
             return completions;
+        }
+    }
+
+    /**
+     * Custom focus traversal policy for InstructionsPanel that defines the tab order: instructionsArea → actionButton →
+     * modeSwitch → codeCheckBox/searchProjectCheckBox → micButton → modelSelector → historyDropdown → branchSplitButton
+     */
+    private class InstructionsPanelFocusTraversalPolicy extends FocusTraversalPolicy {
+        @Override
+        public Component getComponentAfter(Container aContainer, Component aComponent) {
+            if (aComponent == instructionsArea) {
+                return actionButton;
+            } else if (aComponent == actionButton) {
+                return modeSwitch;
+            } else if (aComponent == modeSwitch) {
+                // Return the appropriate checkbox based on current mode
+                return modeSwitch.isSelected() ? searchProjectCheckBox : codeCheckBox;
+            } else if (aComponent == codeCheckBox || aComponent == searchProjectCheckBox) {
+                return micButton;
+            } else if (aComponent == micButton) {
+                return modelSelector.getComponent();
+            } else if (aComponent == modelSelector.getComponent()) {
+                // Find history dropdown in the top bar
+                return findHistoryDropdown();
+            } else if (aComponent == findHistoryDropdown()) {
+                // Find branch split button in the top bar
+                return findBranchSplitButton();
+            } else if (aComponent == findBranchSplitButton()) {
+                // Return to main window or next focusable component
+                return getNextFocusableComponent();
+            }
+            return actionButton; // Fallback to action button
+        }
+
+        @Override
+        public Component getComponentBefore(Container aContainer, Component aComponent) {
+            if (aComponent == actionButton) {
+                return instructionsArea;
+            } else if (aComponent == modeSwitch) {
+                return actionButton;
+            } else if (aComponent == codeCheckBox || aComponent == searchProjectCheckBox) {
+                return modeSwitch;
+            } else if (aComponent == micButton) {
+                return modeSwitch.isSelected() ? searchProjectCheckBox : codeCheckBox;
+            } else if (aComponent == modelSelector.getComponent()) {
+                return micButton;
+            } else if (aComponent == findHistoryDropdown()) {
+                return modelSelector.getComponent();
+            } else if (aComponent == findBranchSplitButton()) {
+                return findHistoryDropdown();
+            } else if (aComponent == getNextFocusableComponent()) {
+                return findBranchSplitButton();
+            }
+            return actionButton; // Fallback to action button
+        }
+
+        @Override
+        public Component getFirstComponent(Container aContainer) {
+            return instructionsArea;
+        }
+
+        @Override
+        public Component getLastComponent(Container aContainer) {
+            return findBranchSplitButton();
+        }
+
+        @Override
+        public Component getDefaultComponent(Container aContainer) {
+            return instructionsArea;
+        }
+
+        private Component findHistoryDropdown() {
+            // Search for history dropdown in the top bar
+            return findComponentInHierarchy(
+                    InstructionsPanel.this,
+                    comp -> comp instanceof SplitButton splitButton && "History".equals(splitButton.getText()),
+                    actionButton);
+        }
+
+        private Component findBranchSplitButton() {
+            // Search for branch split button in the top bar
+            return findComponentInHierarchy(
+                    InstructionsPanel.this,
+                    comp -> comp instanceof SplitButton splitButton && !"History".equals(splitButton.getText()),
+                    actionButton);
+        }
+
+        private Component getNextFocusableComponent() {
+            // Return the next focusable component in the main window
+            Container parent = InstructionsPanel.this.getParent();
+            while (parent != null && !(parent instanceof Window)) {
+                parent = parent.getParent();
+            }
+            if (parent instanceof Window) {
+                return parent.getFocusTraversalPolicy().getComponentAfter(parent, InstructionsPanel.this);
+            }
+            return actionButton; // Fallback to action button
+        }
+
+        private Component findComponentInHierarchy(
+                Container container, java.util.function.Predicate<Component> predicate, Component fallback) {
+            for (Component comp : container.getComponents()) {
+                if (predicate.test(comp)) {
+                    return comp;
+                }
+                if (comp instanceof Container containerComp) {
+                    Component found = findComponentInHierarchy(containerComp, predicate, fallback);
+                    if (found != fallback) {
+                        return found;
+                    }
+                }
+            }
+            return fallback;
         }
     }
 }
