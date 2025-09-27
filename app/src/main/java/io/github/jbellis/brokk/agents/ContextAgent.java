@@ -847,6 +847,23 @@ public class ContextAgent {
         List<CodeUnit> recommendedClasses = List.of();
         List<String> responseLines;
 
+        // Short-circuit: if there are fewer than QUICK_TOPK items to choose from, don't call out to the LLM.
+        if (!summaries.isEmpty() && summaries.size() < QUICK_TOPK) {
+            recommendedClasses = new ArrayList<>(summaries.keySet());
+            debug("Fewer than QUICK_TOPK summaries ({}); skipping LLM.", summaries.size());
+            return new LlmRecommendation(recommendedFiles, recommendedClasses, "Fewer than QUICK_TOPK; selected all");
+        }
+        if (!contentsMap.isEmpty() && contentsMap.size() < QUICK_TOPK) {
+            recommendedFiles = new ArrayList<>(contentsMap.keySet());
+            debug("Fewer than QUICK_TOPK files with content ({}); skipping LLM.", contentsMap.size());
+            return new LlmRecommendation(recommendedFiles, recommendedClasses, "Fewer than QUICK_TOPK; selected all");
+        }
+        if (!filenames.isEmpty() && filenames.size() < QUICK_TOPK) {
+            recommendedFiles = new ArrayList<>(toProjectFiles(filenames));
+            debug("Fewer than QUICK_TOPK filenames ({}); skipping LLM.", filenames.size());
+            return new LlmRecommendation(recommendedFiles, recommendedClasses, "Fewer than QUICK_TOPK; selected all");
+        }
+
         if (!summaries.isEmpty()) {
             var summariesText = summaries.entrySet().stream()
                     .map(entry -> "<class fqcn='%s'>\n%s\n</class>"
