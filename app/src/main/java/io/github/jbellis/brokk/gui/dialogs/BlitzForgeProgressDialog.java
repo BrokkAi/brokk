@@ -28,7 +28,6 @@ import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
 import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.TokenAware;
 import java.awt.*;
@@ -526,33 +525,17 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                 CompletableFuture<String> buildFailureFuture;
                 if (buildFirst) {
-                    buildFailureFuture = BuildAgent.determineVerificationCommandAsync(contextManager)
-                            .thenApplyAsync((@Nullable String verificationCommand) -> {
-                                if (verificationCommand == null || verificationCommand.isBlank()) {
-                                    return "";
-                                }
-                                try {
-                                    mainIo.llmOutput(
-                                            "\nRunning verification command: " + verificationCommand,
-                                            ChatMessageType.CUSTOM);
-                                    String shellLang =
-                                            ExecutorConfig.getShellLanguageFromProject(contextManager.getProject());
-                                    mainIo.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
-                                    Environment.instance.runShellCommand(
-                                            verificationCommand,
-                                            contextManager.getProject().getRoot(),
-                                            line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                                            Environment.UNLIMITED_TIMEOUT);
-                                    return "The build succeeded.";
-                                } catch (Environment.SubprocessException e) {
-                                    String buildOutput = e.getMessage() + "\n\n" + e.getOutput();
-                                    // Process build output through standardized pipeline before passing to Architect
-                                    return BuildOutputPreprocessor.processForLlm(buildOutput, contextManager);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                    return "Build command was interrupted.";
-                                }
-                            });
+                    buildFailureFuture = contextManager.submitBackgroundTask("Run verification build", () -> {
+                        try {
+                            String raw = BuildAgent.runVerification(contextManager);
+                            return raw.isBlank()
+                                    ? "The build succeeded."
+                                    : BuildOutputPreprocessor.processForLlm(raw, contextManager);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return "Build command was interrupted.";
+                        }
+                    });
                 } else {
                     buildFailureFuture = CompletableFuture.completedFuture("");
                 }

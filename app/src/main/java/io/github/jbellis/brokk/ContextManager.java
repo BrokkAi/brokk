@@ -171,9 +171,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
 
-    // Special fragment that holds the latest build results (created lazily on first update)
-    private volatile @Nullable ContextFragment.BuildFragment buildFragment;
-
     // Model reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
 
@@ -973,28 +970,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Lazily creates and updates the special BuildFragment with the latest build results text. Does not push a history
-     * entry for updates after creation. Triggers a workspace UI refresh.
+     * Replaces any existing Build Results fragments with a fresh one containing the provided text.
+     * Attempts to drop all BUILD_LOG fragments first (including those in the current live context).
+     * If cleanup fails, a new BuildFragment will still be added with a failure note.
      */
     public void updateBuildFragment(String text) {
-        var existing = this.buildFragment;
-        boolean needsCreate = existing == null
-                              || liveContext()
-                                      .virtualFragments()
-                                      .noneMatch(f -> f instanceof ContextFragment.BuildFragment bf && bf.equals(existing));
-
-        if (needsCreate) {
-            var bf = new ContextFragment.BuildFragment(this);
-            bf.setContent(text);
-            this.buildFragment = bf;
-            // Adding the fragment pushes a new frozen snapshot once.
-            addVirtualFragment(bf);
-        } else {
-            // Update the dynamic fragment in place (no history entry).
-            requireNonNull(existing).setContent(text);
-            // Request UI refresh so frozen view mirrors dynamic content.
-            SwingUtilities.invokeLater(io::updateWorkspace);
+        // Collect IDs of existing BUILD_LOG fragments in the current live context
+        var idsToDrop = liveContext()
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
+                .map(ContextFragment::id)
+                .toList();
+        if (!idsToDrop.isEmpty()) {
+            pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(idsToDrop));
         }
+
+        var bf = new ContextFragment.BuildFragment(this);
+        bf.setContent(text);
+        addVirtualFragment(bf);
     }
 
     /**

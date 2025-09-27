@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager;
@@ -14,7 +13,6 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
-import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.TokenAware;
 import java.io.IOException;
@@ -429,22 +427,7 @@ public class MergeAgent {
     /** Run verification build if configured; returns empty string on success, otherwise failure text. */
     private String runVerificationIfConfigured() {
         try {
-            var cmd = BuildAgent.determineVerificationCommandAsync((ContextManager) cm)
-                    .join();
-            if (cmd == null || cmd.isBlank()) return "";
-            cm.getIo()
-                    .llmOutput(
-                            "\nRunning verification command: " + cmd,
-                            ChatMessageType.CUSTOM);
-            cm.getIo().llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
-            Environment.instance.runShellCommand(
-                    cmd,
-                    ((ContextManager) cm).getProject().getRoot(),
-                    line -> cm.getIo().llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    Environment.UNLIMITED_TIMEOUT);
-            return ""; // success
-        } catch (Environment.SubprocessException e) {
-            return e.getMessage() + "\n\n" + e.getOutput();
+            return BuildAgent.runVerification((ContextManager) cm);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "Verification command was interrupted.";

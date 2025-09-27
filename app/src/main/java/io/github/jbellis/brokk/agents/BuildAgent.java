@@ -29,6 +29,9 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.BuildToolConventions;
 import io.github.jbellis.brokk.util.BuildToolConventions.BuildSystem;
+import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
+import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -572,5 +575,127 @@ public class BuildAgent {
         mustache.execute(writer, context);
 
         return writer.toString();
+    }
+
+    /**
+     * Run the verification build for the current project, stream output to the console,
+     * and update the session's Build Results fragment.
+     *
+     * Returns empty string on success (or when no command is configured), otherwise the raw combined error/output text.
+     */
+    public static String runVerification(ContextManager cm) throws InterruptedException {
+        var io = cm.getIo();
+
+        var verificationCommand = determineVerificationCommand(cm);
+        if (verificationCommand == null || verificationCommand.isBlank()) {
+            io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
+            cm.updateBuildFragment("No verification command configured.");
+            return "";
+        }
+
+        // Enforce single-build execution when requested
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (noConcurrentBuilds) {
+            var lock = acquireBuildLock(cm);
+            if (lock == null) {
+                logger.warn("Failed to acquire build lock; proceeding without it");
+                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+            }
+            // The lock is implemented using a FileChannel/FileLock; keep the channel/lock inside the record and close it after execution.
+            try (var ignored = lock) {
+                logger.debug("Acquired build lock {}", lock.lockFile());
+                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+            } catch (Exception e) {
+                logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
+                return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+            }
+        } else {
+            return runBuildAndUpdateFragmentInternal(cm, verificationCommand);
+        }
+    }
+
+    /** Holder for lock resources, AutoCloseable so try-with-resources releases it. */
+    private record BuildLock(java.nio.channels.FileChannel channel,
+                             java.nio.channels.FileLock lock,
+                             java.nio.file.Path lockFile) implements AutoCloseable {
+        @Override
+        public void close() {
+            try {
+                if (lock.isValid()) lock.release();
+            } catch (Exception e) {
+                logger.debug("Error releasing build lock {}: {}", lockFile, e.toString());
+            }
+            try {
+                if (channel.isOpen()) channel.close();
+            } catch (Exception e) {
+                logger.debug("Error closing lock channel {}: {}", lockFile, e.toString());
+            }
+        }
+    }
+
+    /** Attempts to acquire an inter-process build lock. Returns a non-null BuildLock on success, or null on failure. */
+    private static @Nullable BuildLock acquireBuildLock(ContextManager cm) {
+        java.nio.file.Path lockDir = java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
+        try {
+            java.nio.file.Files.createDirectories(lockDir);
+        } catch (java.io.IOException e) {
+            logger.warn("Unable to create lock directory {}; proceeding without build lock", lockDir, e);
+            return null;
+        }
+
+        var repoNameForLock = getOriginRepositoryName(cm);
+        java.nio.file.Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
+
+        try {
+            var channel = java.nio.channels.FileChannel.open(
+                    lockFile, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+            var lock = channel.lock();
+            logger.debug("Acquired build lock {}", lockFile);
+            return new BuildLock(channel, lock, lockFile);
+        } catch (java.io.IOException ioe) {
+            logger.warn("Failed to acquire file lock {}; proceeding without it", lockFile, ioe);
+            return null;
+        }
+    }
+
+    private static String getOriginRepositoryName(ContextManager cm) {
+        var url = cm.getRepo().getRemoteUrl();
+        if (url == null || url.isBlank()) {
+            return cm.getRepo().getGitTopLevel().getFileName().toString();
+        }
+        if (url.endsWith(".git")) url = url.substring(0, url.length() - 4);
+        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
+        if (idx >= 0 && idx < url.length() - 1) {
+            return url.substring(idx + 1);
+        }
+        throw new IllegalArgumentException("Unable to parse git repo url " + url);
+    }
+
+    private static String runBuildAndUpdateFragmentInternal(ContextManager cm, String verificationCommand)
+            throws InterruptedException {
+        var io = cm.getIo();
+
+        io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
+        String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
+        try {
+            var output = Environment.instance.runShellCommand(
+                    verificationCommand,
+                    cm.getProject().getRoot(),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                    Environment.UNLIMITED_TIMEOUT);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM);
+
+            cm.updateBuildFragment("Build succeeded.");
+            logger.debug("Verification command successful. Output: {}", output);
+            return "";
+        } catch (Environment.SubprocessException e) {
+            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
+
+            String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
+            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            cm.updateBuildFragment("Build output:\n" + processed);
+            return rawBuild;
+        }
     }
 }

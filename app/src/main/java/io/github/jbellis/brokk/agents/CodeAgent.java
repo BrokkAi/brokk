@@ -18,17 +18,9 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.BuildOutputPreprocessor;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -834,83 +826,10 @@ public class CodeAgent {
     }
 
     private String performBuildVerification() throws InterruptedException {
-        var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
-        if (verificationCommand == null || verificationCommand.isBlank()) {
-            report("No verification command specified, skipping build/check.");
-            return "";
-        }
-
-        // Enforce single-build execution when requested
-        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
-        if (!noConcurrentBuilds) {
-            return runVerificationCommand(verificationCommand);
-        }
-
-        Path lockDir = Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
-        try {
-            Files.createDirectories(lockDir);
-        } catch (IOException e) {
-            logger.warn("Unable to create lock directory {}; proceeding without build lock", lockDir, e);
-            return runVerificationCommand(verificationCommand);
-        }
-
-        var repoNameForLock = getOriginRepositoryName();
-        Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
-
-        try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-                FileLock lock = channel.lock()) {
-            logger.debug("Acquired build lock {}", lockFile);
-            return runVerificationCommand(verificationCommand);
-        } catch (IOException ioe) {
-            logger.warn("Failed to acquire file lock {}; proceeding without it", lockFile, ioe);
-            return runVerificationCommand(verificationCommand);
-        }
+        return BuildAgent.runVerification((ContextManager) contextManager);
     }
 
-    public String getOriginRepositoryName() {
-        var url = contextManager.getRepo().getRemoteUrl();
-        if (url == null || url.isBlank()) {
-            // Fallback: use directory name of repo root
-            return contextManager.getRepo().getGitTopLevel().getFileName().toString();
-        }
 
-        // Strip trailing ".git", if any
-        if (url.endsWith(".git")) {
-            url = url.substring(0, url.length() - 4);
-        }
-
-        // SSH URLs use ':', HTTPS uses '/'
-        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
-        if (idx >= 0 && idx < url.length() - 1) {
-            return url.substring(idx + 1);
-        }
-
-        throw new IllegalArgumentException("Unable to parse git repo url " + url);
-    }
-
-    /**
-     * Executes the given verification command, streaming output back to the console. Returns an empty string on
-     * success, or the combined error/output when the command exits non-zero.
-     */
-    private String runVerificationCommand(String verificationCommand) throws InterruptedException {
-        io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-        String shellLang = ExecutorConfig.getShellLanguageFromProject(contextManager.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
-        try {
-            var output = Environment.instance.runShellCommand(
-                    verificationCommand,
-                    contextManager.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    Environment.UNLIMITED_TIMEOUT);
-            logger.debug("Verification command successful. Output: {}", output);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM);
-            return "";
-        } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
-            // Add the combined error and output to the history for the next request
-            return e.getMessage() + "\n\n" + e.getOutput();
-        }
-    }
 
     /** next FSM state */
     sealed interface Step permits Step.Continue, Step.Retry, Step.Fatal {
