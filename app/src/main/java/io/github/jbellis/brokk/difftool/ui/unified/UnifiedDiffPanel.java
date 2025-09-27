@@ -282,15 +282,49 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
         if (this.contextMode != contextMode) {
             logger.debug("Switching context mode from {} to {}", this.contextMode, contextMode);
+            System.err.println("CONTEXT_SWITCH_DEBUG: Switching from " + this.contextMode + " to " + contextMode);
 
             this.contextMode = contextMode;
 
-            // Regenerate the diff content with new context mode
-            var diffNode = getDiffNode();
-            if (diffNode != null) {
-                generateDiffFromDiffNode(diffNode);
-            } else if (leftSource != null && rightSource != null) {
-                generateDiffFromBufferSources();
+            // For FULL_CONTEXT mode, we need to regenerate to get all file lines
+            // For STANDARD_3_LINES mode, we can use efficient filtering
+            if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
+                logger.debug("Switching to FULL_CONTEXT - regenerating document to include all file lines");
+                System.err.println("CONTEXT_SWITCH_DEBUG: Regenerating for FULL_CONTEXT mode");
+
+                // Regenerate the document with FULL_CONTEXT to get all file lines
+                var diffNode = getDiffNode();
+                if (diffNode != null) {
+                    generateDiffFromDiffNode(diffNode);
+                } else if (leftSource != null && rightSource != null) {
+                    generateDiffFromBufferSources();
+                } else {
+                    logger.warn("No source available for regenerating diff in FULL_CONTEXT mode");
+                }
+            } else if (unifiedDocument != null) {
+                logger.debug("Using efficient context mode switching for STANDARD_3_LINES");
+                System.err.println("CONTEXT_SWITCH_DEBUG: Using efficient filtering for STANDARD_3_LINES");
+
+                // Switch context mode on existing document (efficient filtering)
+                unifiedDocument.switchContextMode(contextMode);
+
+                // Update text area content from the switched document
+                updateTextAreaFromDocument();
+
+                // Update navigator with new content
+                if (navigator != null) {
+                    navigator.refreshHunkPositions();
+                }
+            } else {
+                logger.debug("No existing document - regenerating from source");
+
+                // Fallback: regenerate if no document exists
+                var diffNode = getDiffNode();
+                if (diffNode != null) {
+                    generateDiffFromDiffNode(diffNode);
+                } else if (leftSource != null && rightSource != null) {
+                    generateDiffFromBufferSources();
+                }
             }
 
             // Update the line number list with new context
@@ -305,6 +339,38 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             textArea.revalidate();
             textArea.repaint();
         }
+    }
+
+    /** Update text area content from the current UnifiedDiffDocument. */
+    private void updateTextAreaFromDocument() {
+        if (unifiedDocument == null) {
+            textArea.setText("");
+            return;
+        }
+
+        // Extract plain text content from the UnifiedDiffDocument to include OMITTED_LINES
+        var textBuilder = new StringBuilder();
+        for (var diffLine : unifiedDocument.getFilteredLines()) {
+            String content = diffLine.getContent();
+            textBuilder.append(content);
+            // Only add newline if content doesn't already end with one
+            if (!content.endsWith("\n")) {
+                textBuilder.append('\n');
+            }
+        }
+
+        // Remove trailing newline if present
+        if (textBuilder.length() > 0 && textBuilder.charAt(textBuilder.length() - 1) == '\n') {
+            textBuilder.setLength(textBuilder.length() - 1);
+        }
+
+        String plainTextContent = textBuilder.toString();
+        textArea.setText(plainTextContent);
+
+        logger.debug(
+                "Updated text area content from document - {} characters, {} lines",
+                plainTextContent.length(),
+                textArea.getLineCount());
     }
 
     /** Get the current context mode. */

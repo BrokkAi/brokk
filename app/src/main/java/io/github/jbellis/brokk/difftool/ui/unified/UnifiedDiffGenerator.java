@@ -447,28 +447,47 @@ public class UnifiedDiffGenerator {
     private static List<UnifiedDiffDocument.DiffLine> generateFullContextFromPatch(
             List<String> leftLines, List<String> rightLines, Patch<String> patch) {
 
+        System.err.println("FULL_CONTEXT_DEBUG: generateFullContextFromPatch called with " + leftLines.size() + " left lines, " + rightLines.size() + " right lines");
+
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         var deltas = patch.getDeltas();
+
+        // If no changes, just show all lines as context
+        if (deltas.isEmpty()) {
+            for (int i = 0; i < leftLines.size(); i++) {
+                var line = " " + leftLines.get(i);
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.CONTEXT, line, i + 1, i + 1, true));
+            }
+            return diffLines;
+        }
 
         int leftIndex = 0;
         int rightIndex = 0;
 
         for (var delta : deltas) {
-            // Add context lines before this delta
-            while (leftIndex < delta.getSource().getPosition()
-                    || rightIndex < delta.getTarget().getPosition()) {
-
-                if (leftIndex < leftLines.size()
-                        && rightIndex < rightLines.size()
+            // Add ALL context lines before this delta (from current position to delta start)
+            while (leftIndex < delta.getSource().getPosition()) {
+                if (leftIndex < leftLines.size()) {
+                    // Handle case where left and right files might have different content
+                    if (rightIndex < rightLines.size()
                         && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
-                    // Context line - same in both files
-                    var line = " " + leftLines.get(leftIndex);
-                    diffLines.add(new UnifiedDiffDocument.DiffLine(
-                            UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                        // Same line in both files - show as context
+                        var line = " " + leftLines.get(leftIndex);
+                        diffLines.add(new UnifiedDiffDocument.DiffLine(
+                                UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                        rightIndex++;
+                    } else {
+                        // Different or missing in right - show as context from left
+                        var line = " " + leftLines.get(leftIndex);
+                        diffLines.add(new UnifiedDiffDocument.DiffLine(
+                                UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                        if (rightIndex < rightLines.size()) {
+                            rightIndex++;
+                        }
+                    }
                     leftIndex++;
-                    rightIndex++;
                 } else {
-                    // This shouldn't happen in a proper diff, but handle gracefully
                     break;
                 }
             }
@@ -498,15 +517,17 @@ public class UnifiedDiffGenerator {
             }
         }
 
-        // Add remaining context lines after all deltas
-        while (leftIndex < leftLines.size()
-                && rightIndex < rightLines.size()
-                && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+        // Add ALL remaining lines after all deltas (show the rest of the file)
+        while (leftIndex < leftLines.size()) {
             var line = " " + leftLines.get(leftIndex);
+            // After deltas are processed, remaining lines should be same in both files
+            int rightLineNumber = rightIndex < rightLines.size() ? rightIndex + 1 : -1;
             diffLines.add(new UnifiedDiffDocument.DiffLine(
-                    UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                    UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightLineNumber, true));
             leftIndex++;
-            rightIndex++;
+            if (rightIndex < rightLines.size()) {
+                rightIndex++;
+            }
         }
 
         return diffLines;
@@ -516,28 +537,47 @@ public class UnifiedDiffGenerator {
     private static List<UnifiedDiffDocument.DiffLine> generateFullContextDiff(
             List<String> leftLines, List<String> rightLines, Patch<String> patch) {
 
+        System.err.println("FULL_CONTEXT_DEBUG: generateFullContextDiff called with " + leftLines.size() + " left lines, " + rightLines.size() + " right lines");
+
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         var deltas = patch.getDeltas();
+
+        // If no changes, just show all lines as context
+        if (deltas.isEmpty()) {
+            for (int i = 0; i < leftLines.size(); i++) {
+                var line = " " + leftLines.get(i);
+                diffLines.add(new UnifiedDiffDocument.DiffLine(
+                        UnifiedDiffDocument.LineType.CONTEXT, line, i + 1, i + 1, true));
+            }
+            return diffLines;
+        }
 
         int leftIndex = 0;
         int rightIndex = 0;
 
         for (var delta : deltas) {
-            // Add context lines before this delta
-            while (leftIndex < delta.getSource().getPosition()
-                    || rightIndex < delta.getTarget().getPosition()) {
-
-                if (leftIndex < leftLines.size()
-                        && rightIndex < rightLines.size()
+            // Add ALL context lines before this delta (from current position to delta start)
+            while (leftIndex < delta.getSource().getPosition()) {
+                if (leftIndex < leftLines.size()) {
+                    // Handle case where left and right files might have different content
+                    if (rightIndex < rightLines.size()
                         && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
-                    // Context line - same in both files
-                    var line = " " + leftLines.get(leftIndex);
-                    diffLines.add(new UnifiedDiffDocument.DiffLine(
-                            UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                        // Same line in both files - show as context
+                        var line = " " + leftLines.get(leftIndex);
+                        diffLines.add(new UnifiedDiffDocument.DiffLine(
+                                UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                        rightIndex++;
+                    } else {
+                        // Different or missing in right - show as context from left
+                        var line = " " + leftLines.get(leftIndex);
+                        diffLines.add(new UnifiedDiffDocument.DiffLine(
+                                UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                        if (rightIndex < rightLines.size()) {
+                            rightIndex++;
+                        }
+                    }
                     leftIndex++;
-                    rightIndex++;
                 } else {
-                    // This shouldn't happen in a proper diff, but handle gracefully
                     break;
                 }
             }
@@ -567,15 +607,17 @@ public class UnifiedDiffGenerator {
             }
         }
 
-        // Add remaining context lines after all deltas
-        while (leftIndex < leftLines.size()
-                && rightIndex < rightLines.size()
-                && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+        // Add ALL remaining lines after all deltas (show the rest of the file)
+        while (leftIndex < leftLines.size()) {
             var line = " " + leftLines.get(leftIndex);
+            // After deltas are processed, remaining lines should be same in both files
+            int rightLineNumber = rightIndex < rightLines.size() ? rightIndex + 1 : -1;
             diffLines.add(new UnifiedDiffDocument.DiffLine(
-                    UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightIndex + 1, true));
+                    UnifiedDiffDocument.LineType.CONTEXT, line, leftIndex + 1, rightLineNumber, true));
             leftIndex++;
-            rightIndex++;
+            if (rightIndex < rightLines.size()) {
+                rightIndex++;
+            }
         }
 
         return diffLines;

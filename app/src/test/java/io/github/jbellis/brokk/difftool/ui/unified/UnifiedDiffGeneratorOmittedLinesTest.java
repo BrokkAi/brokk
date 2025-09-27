@@ -206,4 +206,71 @@ class UnifiedDiffGeneratorOmittedLinesTest {
             expectedRightLine++;
         }
     }
+
+    @Test
+    @DisplayName("Test context mode switching actually changes displayed content")
+    void testContextModeSwitching() {
+        // Create content with gaps that will generate OMITTED_LINES
+        var leftLines = createLinesWithGaps();
+        var rightLines = createModifiedLinesWithGaps();
+
+        var leftSource = new BufferSource.StringSource(String.join("\n", leftLines), "test.txt");
+        var rightSource = new BufferSource.StringSource(String.join("\n", rightLines), "test.txt");
+
+        // Generate unified diff document with STANDARD_3_LINES mode
+        var document = UnifiedDiffGenerator.generateUnifiedDiff(
+                leftSource, rightSource, UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
+
+        // Verify initial state - should have OMITTED_LINES
+        var initialFilteredLines = document.getFilteredLines();
+        boolean hasOmittedLinesInitially = initialFilteredLines.stream()
+                .anyMatch(line -> line.getType() == UnifiedDiffDocument.LineType.OMITTED_LINES);
+        assertTrue(hasOmittedLinesInitially, "STANDARD_3_LINES mode should have OMITTED_LINES");
+
+        int initialLineCount = initialFilteredLines.size();
+        System.out.println("Initial filtered lines count (STANDARD_3_LINES): " + initialLineCount);
+
+        // Switch to FULL_CONTEXT mode
+        document.switchContextMode(UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
+
+        // Verify context mode changed
+        assertEquals(
+                UnifiedDiffDocument.ContextMode.FULL_CONTEXT,
+                document.getContextMode(),
+                "Document context mode should be FULL_CONTEXT");
+
+        // Verify filtered content changed - should NOT have OMITTED_LINES
+        var fullContextFilteredLines = document.getFilteredLines();
+        boolean hasOmittedLinesAfter = fullContextFilteredLines.stream()
+                .anyMatch(line -> line.getType() == UnifiedDiffDocument.LineType.OMITTED_LINES);
+        assertFalse(hasOmittedLinesAfter, "FULL_CONTEXT mode should not have OMITTED_LINES");
+
+        int fullContextLineCount = fullContextFilteredLines.size();
+        System.out.println("Full context filtered lines count (FULL_CONTEXT): " + fullContextLineCount);
+
+        // Full context should have different line count (likely more lines since gaps are filled)
+        assertNotEquals(
+                initialLineCount,
+                fullContextLineCount,
+                "Context mode switch should change the number of displayed lines");
+
+        // Switch back to STANDARD_3_LINES mode
+        document.switchContextMode(UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
+
+        // Verify we're back to original state
+        assertEquals(
+                UnifiedDiffDocument.ContextMode.STANDARD_3_LINES,
+                document.getContextMode(),
+                "Document context mode should be back to STANDARD_3_LINES");
+
+        var finalFilteredLines = document.getFilteredLines();
+        boolean hasOmittedLinesFinal = finalFilteredLines.stream()
+                .anyMatch(line -> line.getType() == UnifiedDiffDocument.LineType.OMITTED_LINES);
+        assertTrue(hasOmittedLinesFinal, "Switched back STANDARD_3_LINES mode should have OMITTED_LINES again");
+
+        int finalLineCount = finalFilteredLines.size();
+        assertEquals(initialLineCount, finalLineCount, "Switching back should restore original line count");
+
+        System.out.println("Context mode switching test completed successfully");
+    }
 }
