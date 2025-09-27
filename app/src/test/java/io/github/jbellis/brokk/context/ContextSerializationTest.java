@@ -1000,7 +1000,10 @@ public class ContextSerializationTest {
     @Test
     void testRoundTripPasteTextFragment() throws Exception {
         var fragment = new ContextFragment.PasteTextFragment(
-                mockContextManager, "Pasted text content", CompletableFuture.completedFuture("Pasted text summary"));
+                mockContextManager,
+                "Pasted text content",
+                CompletableFuture.completedFuture("Pasted text summary"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
 
         var context = new Context(mockContextManager, "Test PasteTextFragment").addVirtualFragment(fragment);
         ContextHistory originalHistory = new ContextHistory(context);

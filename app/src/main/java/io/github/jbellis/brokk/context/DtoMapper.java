@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.context;
 
+import static java.util.Objects.requireNonNullElse;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.ChatMessage;
@@ -24,6 +25,7 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /** Mapper to convert between Context domain objects and DTO representations. */
@@ -214,7 +216,9 @@ public class DtoMapper {
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
-                        CompletableFuture.completedFuture(pasteTextDto.description()));
+                        CompletableFuture.completedFuture(pasteTextDto.description()),
+                        CompletableFuture.completedFuture(
+                                requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
                     if (imageBytesMap == null) {
@@ -387,9 +391,10 @@ public class DtoMapper {
             case ContextFragment.UsageFragment uf ->
                 new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
             case ContextFragment.PasteTextFragment ptf -> {
-                String description = getFutureDescription(ptf.descriptionFuture, "Paste of ");
+                String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
                 String contentId = writer.writeContent(ptf.text(), null);
-                yield new PasteTextFragmentDto(ptf.id(), contentId, description);
+                String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
+                yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
             case ContextFragment.AnonymousImageFragment aif -> {
                 String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
@@ -428,6 +433,14 @@ public class DtoMapper {
             description = "(Error getting paste description: " + e.getMessage() + ")";
         }
         return description;
+    }
+
+    private static String getFutureSyntaxStyle(Future<String> future) {
+        try {
+            return future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN; // Fallback
+        }
     }
 
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {

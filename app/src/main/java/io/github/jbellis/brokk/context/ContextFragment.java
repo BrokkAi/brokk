@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -954,8 +955,13 @@ public interface ContextFragment {
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final String text;
+        protected transient Future<String> syntaxStyleFuture;
 
-        public PasteTextFragment(IContextManager contextManager, String text, Future<String> descriptionFuture) {
+        public PasteTextFragment(
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
             super(
                     FragmentUtils.calculateContentHash(
                             FragmentType.PASTE_TEXT,
@@ -966,13 +972,29 @@ public interface ContextFragment {
                     contextManager,
                     descriptionFuture);
             this.text = text;
+            this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public PasteTextFragment(
                 String existingHashId, IContextManager contextManager, String text, Future<String> descriptionFuture) {
+            this(
+                    existingHashId,
+                    contextManager,
+                    text,
+                    descriptionFuture,
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+        }
+
+        public PasteTextFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
             this.text = text;
+            this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
         @Override
@@ -982,13 +1004,28 @@ public interface ContextFragment {
 
         @Override
         public String syntaxStyle() {
-            // TODO infer from contents
+            if (syntaxStyleFuture.isDone()) {
+                try {
+                    return syntaxStyleFuture.get();
+                } catch (Exception e) {
+                    return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+                }
+            }
             return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
         }
 
         @Override
         public String text() {
             return text;
+        }
+
+        public Future<String> getSyntaxStyleFuture() {
+            return syntaxStyleFuture;
+        }
+
+        @Override
+        public String shortDescription() {
+            return "pasted text";
         }
     }
 
@@ -1087,6 +1124,11 @@ public interface ContextFragment {
                 }
             }
             return "(Summarizing. This does not block LLM requests)";
+        }
+
+        @Override
+        public String shortDescription() {
+            return "pasted image";
         }
     }
 

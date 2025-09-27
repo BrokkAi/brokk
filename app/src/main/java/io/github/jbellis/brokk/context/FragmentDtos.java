@@ -169,7 +169,7 @@ public class FragmentDtos {
     }
 
     /** DTO for PasteTextFragment - contains pasted text with resolved description. */
-    public record PasteTextFragmentDto(String id, String contentId, String description)
+    public record PasteTextFragmentDto(String id, String contentId, String description, @Nullable String syntaxStyle)
             implements VirtualFragmentDto { // id changed to String
     }
 

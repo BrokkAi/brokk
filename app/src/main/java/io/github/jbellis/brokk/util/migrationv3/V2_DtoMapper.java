@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /** Mapper to convert between Context domain objects and DTO representations. */
@@ -240,7 +241,8 @@ public class V2_DtoMapper {
                         pasteTextDto.id(),
                         mgr,
                         pasteTextDto.text(),
-                        CompletableFuture.completedFuture(pasteTextDto.description()));
+                        CompletableFuture.completedFuture(pasteTextDto.description()),
+                        CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
             case PasteImageFragmentDto pasteImageDto -> {
                 Image image = base64ToImage(pasteImageDto.base64ImageData());
                 yield new ContextFragment.AnonymousImageFragment(
