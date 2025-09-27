@@ -141,7 +141,162 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var startupPanel = createStartupPanel();
         globalSubTabbedPane.addTab("Startup", null, startupPanel, "Startup behavior");
 
+        // Keybindings Tab
+        var keybindingsPanel = createKeybindingsPanel();
+        globalSubTabbedPane.addTab("Keybindings", null, keybindingsPanel, "Configure keyboard shortcuts");
+
         add(globalSubTabbedPane, BorderLayout.CENTER);
+    }
+    private JPanel createKeybindingsPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        final java.util.concurrent.atomic.AtomicInteger row = new java.util.concurrent.atomic.AtomicInteger(0);
+
+        class RowAdder {
+            void add(String id, String label) {
+                javax.swing.KeyStroke def = defaultFor(id);
+                javax.swing.KeyStroke cur = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(id, def);
+
+                int r = row.getAndIncrement();
+                var gbcLabel = new GridBagConstraints();
+                gbcLabel.insets = new Insets(4, 6, 4, 6);
+                gbcLabel.anchor = GridBagConstraints.WEST;
+                gbcLabel.gridx = 0; gbcLabel.gridy = r; gbcLabel.weightx = 0.0;
+                panel.add(new JLabel(label + ":"), gbcLabel);
+
+                var field = new JTextField(formatKeyStroke(cur));
+                field.setEditable(false);
+                var gbcField = new GridBagConstraints();
+                gbcField.insets = new Insets(4, 6, 4, 6);
+                gbcField.fill = GridBagConstraints.HORIZONTAL;
+                gbcField.gridx = 1; gbcField.gridy = r; gbcField.weightx = 1.0;
+                panel.add(field, gbcField);
+
+                var setBtn = new MaterialButton("Set");
+                var gbcSet = new GridBagConstraints();
+                gbcSet.insets = new Insets(4, 6, 4, 6);
+                gbcSet.gridx = 2; gbcSet.gridy = r; gbcSet.weightx = 0.0;
+                panel.add(setBtn, gbcSet);
+
+                var clearBtn = new MaterialButton("Clear");
+                var gbcClear = new GridBagConstraints();
+                gbcClear.insets = new Insets(4, 6, 4, 6);
+                gbcClear.gridx = 3; gbcClear.gridy = r; gbcClear.weightx = 0.0;
+                panel.add(clearBtn, gbcClear);
+
+                setBtn.addActionListener(ev -> {
+                    javax.swing.KeyStroke captured = captureKeyStroke(panel);
+                        if ("global.closeWindow".equals(id) && captured.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE
+                                && captured.getModifiers() == 0) {
+                            JOptionPane.showMessageDialog(panel, "ESC alone cannot be used for Close Window.", "Invalid Shortcut", JOptionPane.WARNING_MESSAGE);
+                            return;
+                        }
+                        io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, captured);
+                        field.setText(formatKeyStroke(captured));
+                    // Immediately refresh global keybindings so changes take effect
+                    try {
+                        chrome.refreshKeybindings();
+                    } catch (Exception ex) {
+                        logger.debug("refreshKeybindings failed (non-fatal)", ex);
+                    }
+                    JOptionPane.showMessageDialog(panel, "Saved and applied.");
+                });
+
+                clearBtn.addActionListener(ev -> {
+                    io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, def);
+                    field.setText(formatKeyStroke(def));
+                });
+            }
+        }
+
+        RowAdder adder = new RowAdder();
+        // Instructions panel
+        adder.add("instructions.submit", "Submit (Ctrl/Cmd+Enter)");
+        adder.add("instructions.toggleMode", "Toggle Code/Ask");
+
+        // Global text editing
+        adder.add("global.undo", "Undo");
+        adder.add("global.redo", "Redo");
+        adder.add("global.copy", "Copy");
+        adder.add("global.paste", "Paste");
+
+        // Voice and interface
+        adder.add("global.toggleMicrophone", "Toggle Microphone");
+
+        // Panel navigation
+        adder.add("panel.switchToProjectFiles", "Switch to Project Files");
+        adder.add("panel.switchToChanges", "Switch to Changes");
+        adder.add("panel.switchToWorktrees", "Switch to Worktrees");
+        adder.add("panel.switchToLog", "Switch to Log");
+        adder.add("panel.switchToPullRequests", "Switch to Pull Requests");
+        adder.add("panel.switchToIssues", "Switch to Issues");
+
+        // General navigation
+        adder.add("global.closeWindow", "Close Window");
+
+        var gbcSpacer = new GridBagConstraints();
+        gbcSpacer.gridx = 0; gbcSpacer.gridy = row.get(); gbcSpacer.weightx = 1.0; gbcSpacer.weighty = 1.0;
+        gbcSpacer.fill = GridBagConstraints.BOTH;
+        panel.add(Box.createGlue(), gbcSpacer);
+
+        return panel;
+    }
+
+    private static String formatKeyStroke(javax.swing.KeyStroke ks) {
+        try {
+            int modifiers = ks.getModifiers();
+            int keyCode = ks.getKeyCode();
+            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String keyText = java.awt.event.KeyEvent.getKeyText(keyCode);
+            if (modText == null || modText.isBlank()) return keyText;
+            return modText + "+" + keyText;
+        } catch (Exception e) {
+            return ks.toString();
+        }
+    }
+
+    private static javax.swing.KeyStroke captureKeyStroke(java.awt.Component parent) {
+        final javax.swing.KeyStroke[] result = new javax.swing.KeyStroke[1];
+        final java.awt.KeyboardFocusManager kfm = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager();
+        java.awt.KeyEventDispatcher[] ref = new java.awt.KeyEventDispatcher[1];
+
+        var dialog = new JDialog((Frame) null, "Press new shortcut", true);
+        var label = new JLabel("Press the desired key combination now (ESC to cancel)...");
+        label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        dialog.add(label);
+        dialog.setSize(420, 140);
+        dialog.setLocationRelativeTo(parent);
+
+        java.awt.KeyEventDispatcher dispatcher = e -> {
+            if (e.getID() != java.awt.event.KeyEvent.KEY_PRESSED) return false;
+            int code = e.getKeyCode();
+            // Ignore pure modifier presses; wait for a real key
+            if (code == java.awt.event.KeyEvent.VK_SHIFT
+                    || code == java.awt.event.KeyEvent.VK_CONTROL
+                    || code == java.awt.event.KeyEvent.VK_ALT
+                    || code == java.awt.event.KeyEvent.VK_META) {
+                return true;
+            }
+            if (code == java.awt.event.KeyEvent.VK_ESCAPE && e.getModifiersEx() == 0) {
+                result[0] = null; // cancel
+            } else {
+                result[0] = javax.swing.KeyStroke.getKeyStroke(code, e.getModifiersEx());
+            }
+            dialog.dispose();
+            return true;
+        };
+        ref[0] = dispatcher;
+        kfm.addKeyEventDispatcher(ref[0]);
+
+        try {
+            dialog.setFocusable(true);
+            dialog.setFocusableWindowState(true);
+            dialog.setAlwaysOnTop(true);
+            dialog.setVisible(true);
+        } finally {
+            if (ref[0] != null) kfm.removeKeyEventDispatcher(ref[0]);
+        }
+        return result[0] == null ? javax.swing.KeyStroke.getKeyStroke(0, 0) : result[0];
     }
 
     public JTabbedPane getGlobalSubTabbedPane() {
@@ -2328,5 +2483,134 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     public void removeNotify() {
         super.removeNotify();
         MainProject.removeSettingsChangeListener(this);
+    }
+
+    // --- Default keybinding definitions ---
+    private static javax.swing.KeyStroke defaultToggleMode() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_M);
+    }
+
+
+    // Global text editing defaults
+    private static javax.swing.KeyStroke defaultUndo() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_Z);
+    }
+
+    private static javax.swing.KeyStroke defaultRedo() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(
+                java.awt.event.KeyEvent.VK_Z);
+    }
+
+    private static javax.swing.KeyStroke defaultCopy() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_C);
+    }
+
+    private static javax.swing.KeyStroke defaultPaste() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_V);
+    }
+
+    // Voice and interface defaults
+    private static javax.swing.KeyStroke defaultToggleMicrophone() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_L);
+    }
+
+    // Panel navigation defaults (Alt/Cmd+Number)
+    private static javax.swing.KeyStroke defaultSwitchToProjectFiles() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_1, modifier);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToChanges() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_2, modifier);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToWorktrees() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_3, modifier);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToLog() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_4, modifier);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToPullRequests() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_5, modifier);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToIssues() {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? java.awt.event.KeyEvent.META_DOWN_MASK
+                        : java.awt.event.KeyEvent.ALT_DOWN_MASK;
+        return javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_6, modifier);
+    }
+
+    // General navigation defaults
+    private static javax.swing.KeyStroke defaultCloseWindow() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_W);
+    }
+
+    
+
+    @SuppressWarnings("UnusedMethod")
+    private static javax.swing.KeyStroke defaultFor(String id) {
+        return switch (id) {
+            // Instructions panel
+            case "instructions.submit" ->
+                javax.swing.KeyStroke.getKeyStroke(
+                        java.awt.event.KeyEvent.VK_ENTER,
+                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+            case "instructions.toggleMode" -> defaultToggleMode();
+
+            // Global text editing
+            case "global.undo" -> defaultUndo();
+            case "global.redo" -> defaultRedo();
+            case "global.copy" -> defaultCopy();
+            case "global.paste" -> defaultPaste();
+
+            // Voice and interface
+            case "global.toggleMicrophone" -> defaultToggleMicrophone();
+
+            // Panel navigation
+            case "panel.switchToProjectFiles" -> defaultSwitchToProjectFiles();
+            case "panel.switchToChanges" -> defaultSwitchToChanges();
+            case "panel.switchToWorktrees" -> defaultSwitchToWorktrees();
+            case "panel.switchToLog" -> defaultSwitchToLog();
+            case "panel.switchToPullRequests" -> defaultSwitchToPullRequests();
+            case "panel.switchToIssues" -> defaultSwitchToIssues();
+
+            // General navigation
+            case "global.closeWindow" -> defaultCloseWindow();
+            
+
+            default ->
+                javax.swing.KeyStroke.getKeyStroke(
+                        java.awt.event.KeyEvent.VK_ENTER,
+                        java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        };
     }
 }

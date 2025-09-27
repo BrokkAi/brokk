@@ -325,8 +325,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton = new ThemeAwareRoundedButton(
                 () -> isActionRunning(), this.secondaryActionButtonBg, this.defaultActionButtonBg);
 
-        KeyStroke submitKs = KeyStroke.getKeyStroke(
-                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "instructions.submit", 
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
@@ -464,47 +465,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
         ((AbstractDocument) area.getDocument()).setDocumentFilter(new AtTriggerFilter());
 
-        // Add Ctrl+Enter shortcut to trigger the default button
-        var ctrlEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, java.awt.event.InputEvent.CTRL_DOWN_MASK);
-        area.getInputMap().put(ctrlEnter, "submitDefault");
-        area.getActionMap().put("submitDefault", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // If there's a default button, "click" it
-                var rootPane = SwingUtilities.getRootPane(area);
-                if (rootPane != null && rootPane.getDefaultButton() != null) {
-                    rootPane.getDefaultButton().doClick();
-                }
-            }
-        });
+        // Submit shortcut is handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
-        // Add Undo (Ctrl+Z) and Redo (Ctrl+Y or Ctrl+Shift+Z) actions
-        int shortcutMask = java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
-        var undoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Z, shortcutMask);
-        var redoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Y, shortcutMask);
-        var redoAlternativeKeyStroke =
-                KeyStroke.getKeyStroke(KeyEvent.VK_Z, shortcutMask | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
-
-        area.getInputMap().put(undoKeyStroke, "undo");
-        area.getActionMap().put("undo", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (commandInputUndoManager.canUndo()) {
-                    commandInputUndoManager.undo();
-                }
-            }
-        });
-
-        area.getInputMap().put(redoKeyStroke, "redo");
-        area.getInputMap().put(redoAlternativeKeyStroke, "redo"); // Alternative for redo
-        area.getActionMap().put("redo", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (commandInputUndoManager.canRedo()) {
-                    commandInputUndoManager.redo();
-                }
-            }
-        });
+        // Undo/Redo shortcuts are handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
         // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
         // otherwise, use the default JTextArea paste behaviour.
@@ -1182,6 +1145,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(actionButton);
 
         return bottomPanel;
+    }
+
+    /** Opens the Plan Options: ensures the correct card is visible and focuses the primary control. */
+    public void openPlanOptions() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                boolean askMode = modeSwitch.isSelected();
+                if (askMode) {
+                    if (optionsPanel != null) {
+                        ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+                    }
+                    searchProjectCheckBox.requestFocusInWindow();
+                } else {
+                    if (optionsPanel != null) {
+                        ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+                    }
+                    codeCheckBox.requestFocusInWindow();
+                }
+                refreshModeIndicator();
+            } catch (Exception ex) {
+                logger.debug("openPlanOptions failed (non-fatal)", ex);
+            }
+        });
     }
 
     @SuppressWarnings("unused")
@@ -2343,8 +2329,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Action button reflects current running state
-        KeyStroke submitKs = KeyStroke.getKeyStroke(
-                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "instructions.submit", 
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         if (isActionRunning()) {
             actionButton.setIcon(Icons.STOP);
             actionButton.setText(null);
@@ -2451,9 +2438,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } finally {
                         currentActionFuture = null;
                         SwingUtilities.invokeLater(() -> {
-                            KeyStroke submitKs = KeyStroke.getKeyStroke(
-                                    KeyEvent.VK_ENTER,
-                                    Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                            KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                                    "instructions.submit", 
+                                    KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
                             actionButton.setIcon(Icons.ARROW_WARM_UP);
                             actionButton.setText(null);
                             actionButton.setToolTipText(
