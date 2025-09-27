@@ -378,6 +378,7 @@ public class UnifiedDiffLineNumberList extends JComponent {
         return switch (diffLine.getType()) {
             case CONTEXT -> {
                 // Context lines (unchanged): show both line numbers
+                // For new files, left side should be empty (leftLine will be 0)
                 String leftText = leftLine > 0 ? String.format("%4d", leftLine) : "    ";
                 String rightText = rightLine > 0 ? String.format("%4d", rightLine) : "    ";
                 yield new String[] {leftText, rightText};
@@ -390,6 +391,7 @@ public class UnifiedDiffLineNumberList extends JComponent {
             }
             case DELETION -> {
                 // Deletion lines: show only left line number
+                // For new files, leftLine will be 0, so left column should be empty
                 String leftText = leftLine > 0 ? String.format("%4d", leftLine) : "    ";
                 String rightText = "    "; // Empty right column
                 yield new String[] {leftText, rightText};
@@ -492,8 +494,8 @@ public class UnifiedDiffLineNumberList extends JComponent {
     }
 
     /**
-     * Map a text area line to the corresponding DiffLine object, accounting for OMITTED_LINES
-     * that may have been inserted as actual text content.
+     * Map a text area line to the corresponding DiffLine object, accounting for OMITTED_LINES that may have been
+     * inserted as actual text content.
      *
      * @param textAreaLine The 0-based line number in the text area
      * @return The corresponding DiffLine, or null if not found
@@ -511,8 +513,11 @@ public class UnifiedDiffLineNumberList extends JComponent {
 
         // Debug logging to understand the mapping issue
         if (textAreaLine < 10 || textAreaLine > filteredLines.size() - 10) {
-            logger.info("MAPPING DEBUG: textAreaLine={}, filteredLines.size()={}, textArea.getLineCount()={}",
-                textAreaLine, filteredLines.size(), textArea != null ? textArea.getLineCount() : "null");
+            logger.info(
+                    "MAPPING DEBUG: textAreaLine={}, filteredLines.size()={}, textArea.getLineCount()={}",
+                    textAreaLine,
+                    filteredLines.size(),
+                    textArea != null ? textArea.getLineCount() : "null");
         }
 
         // The mapping should be 1:1 since we build text from filteredLines
@@ -521,16 +526,18 @@ public class UnifiedDiffLineNumberList extends JComponent {
 
             // Log OMITTED_LINES specifically to understand the issue
             if (diffLine.getType() == UnifiedDiffDocument.LineType.OMITTED_LINES) {
-                logger.info("OMITTED_LINES found at textAreaLine {}: content='{}'",
-                    textAreaLine, diffLine.getContent());
+                logger.info(
+                        "OMITTED_LINES found at textAreaLine {}: content='{}'", textAreaLine, diffLine.getContent());
             }
 
             return diffLine;
         }
 
         // Handle case where text area has more lines than diff document
-        logger.warn("Text area line {} exceeds diff document size {} - this indicates a mapping problem",
-            textAreaLine, filteredLines.size());
+        logger.warn(
+                "Text area line {} exceeds diff document size {} - this indicates a mapping problem",
+                textAreaLine,
+                filteredLines.size());
         return null;
     }
 
