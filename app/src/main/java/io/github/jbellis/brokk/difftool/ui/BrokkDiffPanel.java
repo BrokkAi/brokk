@@ -198,38 +198,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Set up context mode toggle for unified view
         showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
         showAllLinesCheckBox.addActionListener(e -> {
-            // Get the current checkbox state immediately and synchronize global state
             boolean showAll = showAllLinesCheckBox.isSelected();
-
-            System.err.println("CHECKBOX_ACTION: Clicked! showAll = " + showAll);
-
-            // Ensure global state is immediately synchronized with UI state
             globalShowAllLinesInUnified = showAll;
-
             var targetMode = showAll
                     ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
                     : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
-            System.err.println("CHECKBOX_ACTION: Target mode = " + targetMode);
-
             // Apply to the current panel if it's a unified panel
             // (The checkbox should only be visible in unified view mode)
-            boolean appliedToAny = false;
             if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
-                var currentMode = unifiedPanel.getContextMode();
-                System.err.println("CHECKBOX_ACTION: Applying to current unified panel" +
-                                 " (current mode: " + currentMode + ", target mode: " + targetMode + ")");
-                System.err.println("CHECKBOX_ACTION: About to call unifiedPanel.setContextMode(" + targetMode + ") on panel " + System.identityHashCode(unifiedPanel));
                 unifiedPanel.setContextMode(targetMode);
-                System.err.println("CHECKBOX_ACTION: setContextMode call completed");
-                appliedToAny = true;
-            } else {
-                System.err.println("CHECKBOX_ACTION: Current panel is not a UnifiedDiffPanel: " +
-                                 (currentDiffPanel != null ? currentDiffPanel.getClass().getSimpleName() : "null"));
-            }
-
-            if (!appliedToAny) {
-                System.err.println("CHECKBOX_ACTION: No unified panels found to apply context mode to");
             }
 
             logger.debug("Context mode changed to: {}", showAll ? "FULL_CONTEXT" : "STANDARD_3_LINES");
@@ -238,9 +216,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Set up view mode toggle
         viewModeToggle.setSelected(false); // Default to side-by-side view
         viewModeToggle.addActionListener(e -> {
-            boolean unifiedSelected = viewModeToggle.isSelected();
-            System.err.println("VIEW_MODE_TOGGLE: Switching to " + (unifiedSelected ? "unified" : "side-by-side") + " view");
-            switchViewMode(unifiedSelected);
+            switchViewMode(viewModeToggle.isSelected());
         });
 
         revalidate();
@@ -381,13 +357,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private IDiffPanel currentDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
-        System.err.println("OVERRIDE_DETECTED: setBufferDiffPanel() called - overwriting currentDiffPanel with " +
-                         (bufferDiffPanel != null ? "BufferDiffPanel" : "null") +
-                         " (current view mode: " + (isUnifiedView ? "unified" : "side-by-side") + ")");
-
         // Don't allow BufferDiffPanel to override currentDiffPanel when in unified view mode
         if (bufferDiffPanel != null && isUnifiedView) {
-            System.err.println("OVERRIDE_REJECTED: Rejecting BufferDiffPanel override because current view mode is unified");
+            logger.debug("Rejecting BufferDiffPanel override because current view mode is unified");
             return;
         }
 
@@ -1166,8 +1138,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         tabbedPane.removeAll();
         tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel.getComponent());
         this.currentDiffPanel = cachedPanel;
-        System.err.println("PANEL_SET: currentDiffPanel set to " + cachedPanel.getClass().getSimpleName() +
-                         " (isUnifiedView=" + isUnifiedView + ")");
 
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
@@ -1523,8 +1493,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Validate that panel type matches current view mode
         boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
         if (isPanelUnified != isUnifiedView) {
-            System.err.println("CACHE_REJECT: Rejecting " + panel.getClass().getSimpleName() +
-                             " because current view mode is " + (isUnifiedView ? "unified" : "side-by-side"));
+            logger.debug("Rejecting {} panel because current view mode is {}",
+                        panel.getClass().getSimpleName(),
+                        isUnifiedView ? "unified" : "side-by-side");
             // Don't cache panels that don't match current view mode (prevents async race conditions)
             return;
         }
@@ -1547,13 +1518,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (cachedPanel == null) {
                 // This was a reserved slot, replace with actual panel
                 panelCache.putReserved(fileIndex, panel);
-                System.err.println("CACHE_SUCCESS: Cached " + panel.getClass().getSimpleName() +
-                                 " for file " + fileIndex + " (reserved slot)");
             } else {
                 // Direct cache (shouldn't happen in normal flow but handle gracefully)
                 panelCache.put(fileIndex, panel);
-                System.err.println("CACHE_SUCCESS: Cached " + panel.getClass().getSimpleName() +
-                                 " for file " + fileIndex + " (direct)");
             }
         } else {
             // Still display but don't cache
@@ -1606,23 +1573,19 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                             // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires non-null
                             var diffNode = loadingResult.getDiffNode();
                             if (diffNode != null) {
-                                var unifiedPanel = new UnifiedDiffPanel(this, theme, diffNode);
-                                panel = unifiedPanel;
-                                System.err.println("PRELOAD: Created UnifiedDiffPanel for file " + fileIndex);
+                                panel = new UnifiedDiffPanel(this, theme, diffNode);
                             } else {
                                 // Fallback to BufferDiffPanel if diffNode is null
                                 logger.warn("Cannot create UnifiedDiffPanel with null diffNode for file {}, using BufferDiffPanel", fileIndex);
                                 var bufferPanel = new BufferDiffPanel(this, theme);
                                 bufferPanel.markCreationContext("preload-fallback");
                                 panel = bufferPanel;
-                                System.err.println("PRELOAD: Created BufferDiffPanel (fallback) for file " + fileIndex);
                             }
                         } else {
                             var bufferPanel = new BufferDiffPanel(this, theme);
                             bufferPanel.markCreationContext("preload");
                             bufferPanel.setDiffNode(loadingResult.getDiffNode());
                             panel = bufferPanel;
-                            System.err.println("PRELOAD: Created BufferDiffPanel for file " + fileIndex);
                         }
 
                         // Apply theme to ensure consistent state and avoid false dirty flags
@@ -1847,8 +1810,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     /** Returns true if currently in unified view mode, false for side-by-side. */
     public boolean isUnifiedView() {
-        System.err.println("VIEW_MODE_CHECK: isUnifiedView() called, returning " + isUnifiedView +
-                         " (from thread: " + Thread.currentThread().getName() + ")");
         return isUnifiedView;
     }
 

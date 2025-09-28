@@ -280,42 +280,29 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     /** Set the context mode for the unified diff. */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
-        System.err.println("SETCONTEXTMODE_DEBUG: Method called with target=" + contextMode + " current=" + this.contextMode + " on panel " + System.identityHashCode(this) + " thread=" + Thread.currentThread().getName());
-
-        try {
-            logger.info("setContextMode called: current={}, target={}, equal={}", this.contextMode, contextMode, this.contextMode == contextMode);
-        } catch (Exception e) {
-            System.err.println("EXCEPTION in logger.info: " + e.getMessage());
-            e.printStackTrace();
-        }
-
         // Always execute context mode changes - the previous condition was incorrectly preventing execution
         // This happens because document generation can modify this.contextMode internally
-        logger.info("Switching context mode from {} to {} on panel {}", this.contextMode, contextMode, System.identityHashCode(this));
+        logger.debug("Switching context mode from {} to {}", this.contextMode, contextMode);
 
         this.contextMode = contextMode;
 
         // Always regenerate document to ensure context switching works reliably in both directions
         // Previous asymmetric approach (regenerate for FULL_CONTEXT, filter for STANDARD_3_LINES)
         // caused issues when switching from FULL_CONTEXT back to STANDARD_3_LINES
-        System.err.println("SETCONTEXTMODE_DEBUG: Always regenerating document for reliable context switching");
         {
-                logger.info("Regenerating document for context mode: {}", contextMode);
+            logger.debug("Regenerating document for context mode: {}", contextMode);
 
                 // Regenerate the document with the target context mode
                 var diffNode = getDiffNode();
                 if (diffNode != null) {
-                    logger.info("Regenerating from diffNode");
                     generateDiffFromDiffNode(diffNode);
                 } else if (leftSource != null && rightSource != null) {
-                    logger.info("Regenerating from buffer sources");
                     generateDiffFromBufferSources();
                 } else {
-                    logger.warn("No source available for regenerating diff in FULL_CONTEXT mode");
+                    logger.warn("No source available for regenerating diff");
                 }
 
                 // Update text area display after regeneration
-                logger.info("Updating text area from document after FULL_CONTEXT regeneration");
                 updateTextAreaFromDocument();
 
                 // Force repaint to ensure immediate visual update
