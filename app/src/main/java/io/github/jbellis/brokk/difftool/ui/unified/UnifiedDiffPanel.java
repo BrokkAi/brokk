@@ -280,17 +280,29 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     /** Set the context mode for the unified diff. */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
-        if (this.contextMode != contextMode) {
-            logger.info("Switching context mode from {} to {} on panel {}", this.contextMode, contextMode, System.identityHashCode(this));
+        System.err.println("SETCONTEXTMODE_DEBUG: Method called with target=" + contextMode + " current=" + this.contextMode + " on panel " + System.identityHashCode(this) + " thread=" + Thread.currentThread().getName());
 
-            this.contextMode = contextMode;
+        try {
+            logger.info("setContextMode called: current={}, target={}, equal={}", this.contextMode, contextMode, this.contextMode == contextMode);
+        } catch (Exception e) {
+            System.err.println("EXCEPTION in logger.info: " + e.getMessage());
+            e.printStackTrace();
+        }
 
-            // For FULL_CONTEXT mode, we need to regenerate to get all file lines
-            // For STANDARD_3_LINES mode, we can use efficient filtering
-            if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
-                logger.info("Switching to FULL_CONTEXT - regenerating document to include all file lines");
+        // Always execute context mode changes - the previous condition was incorrectly preventing execution
+        // This happens because document generation can modify this.contextMode internally
+        logger.info("Switching context mode from {} to {} on panel {}", this.contextMode, contextMode, System.identityHashCode(this));
 
-                // Regenerate the document with FULL_CONTEXT to get all file lines
+        this.contextMode = contextMode;
+
+        // Always regenerate document to ensure context switching works reliably in both directions
+        // Previous asymmetric approach (regenerate for FULL_CONTEXT, filter for STANDARD_3_LINES)
+        // caused issues when switching from FULL_CONTEXT back to STANDARD_3_LINES
+        System.err.println("SETCONTEXTMODE_DEBUG: Always regenerating document for reliable context switching");
+        {
+                logger.info("Regenerating document for context mode: {}", contextMode);
+
+                // Regenerate the document with the target context mode
                 var diffNode = getDiffNode();
                 if (diffNode != null) {
                     logger.info("Regenerating from diffNode");
@@ -314,43 +326,19 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
                 if (navigator != null) {
                     navigator.refreshHunkPositions();
                 }
-            } else if (unifiedDocument != null) {
-                logger.debug("Using efficient context mode switching for STANDARD_3_LINES");
-
-                // Switch context mode on existing document (efficient filtering)
-                unifiedDocument.switchContextMode(contextMode);
-
-                // Update text area content from the switched document
-                updateTextAreaFromDocument();
-
-                // Update navigator with new content
-                if (navigator != null) {
-                    navigator.refreshHunkPositions();
-                }
-            } else {
-                logger.debug("No existing document - regenerating from source");
-
-                // Fallback: regenerate if no document exists
-                var diffNode = getDiffNode();
-                if (diffNode != null) {
-                    generateDiffFromDiffNode(diffNode);
-                } else if (leftSource != null && rightSource != null) {
-                    generateDiffFromBufferSources();
-                }
-            }
-
-            // Update the line number list with new context
-            if (customLineNumberList != null && unifiedDocument != null) {
-                customLineNumberList.setUnifiedDocument(unifiedDocument);
-                customLineNumberList.setContextMode(contextMode);
-                // Force repaint of the line number component
-                customLineNumberList.revalidate();
-                customLineNumberList.repaint();
-            }
-
-            textArea.revalidate();
-            textArea.repaint();
         }
+
+        // Update the line number list with new context
+        if (customLineNumberList != null && unifiedDocument != null) {
+            customLineNumberList.setUnifiedDocument(unifiedDocument);
+            customLineNumberList.setContextMode(contextMode);
+            // Force repaint of the line number component
+            customLineNumberList.revalidate();
+            customLineNumberList.repaint();
+        }
+
+        textArea.revalidate();
+        textArea.repaint();
     }
 
     /** Update text area content from the current UnifiedDiffDocument. */

@@ -219,7 +219,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 var currentMode = unifiedPanel.getContextMode();
                 System.err.println("CHECKBOX_ACTION: Applying to current unified panel" +
                                  " (current mode: " + currentMode + ", target mode: " + targetMode + ")");
+                System.err.println("CHECKBOX_ACTION: About to call unifiedPanel.setContextMode(" + targetMode + ") on panel " + System.identityHashCode(unifiedPanel));
                 unifiedPanel.setContextMode(targetMode);
+                System.err.println("CHECKBOX_ACTION: setContextMode call completed");
                 appliedToAny = true;
             } else {
                 System.err.println("CHECKBOX_ACTION: Current panel is not a UnifiedDiffPanel: " +
