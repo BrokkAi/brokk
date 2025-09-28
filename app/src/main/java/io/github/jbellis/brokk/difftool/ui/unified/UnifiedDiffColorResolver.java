@@ -105,4 +105,14 @@ public final class UnifiedDiffColorResolver {
     public static Color getDefaultGutterForeground(boolean isDarkTheme) {
         return isDarkTheme ? new Color(200, 200, 200) : new Color(60, 60, 60);
     }
+
+    /**
+     * Get the gutter border color for visual separation between gutter and content.
+     *
+     * @param isDarkTheme Whether using dark theme
+     * @return Border color for the gutter edge
+     */
+    public static Color getGutterBorderColor(boolean isDarkTheme) {
+        return isDarkTheme ? new Color(70, 70, 70) : new Color(200, 200, 200);
+    }
 }

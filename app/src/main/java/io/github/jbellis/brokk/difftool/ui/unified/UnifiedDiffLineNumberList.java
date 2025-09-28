@@ -360,6 +360,10 @@ public class UnifiedDiffLineNumberList extends JComponent {
             logger.warn("Paint #{} - Error painting unified diff line numbers: {}", currentPaint, e.getMessage());
         }
 
+        // Always paint the full-height border on the right edge for visual separation
+        g.setColor(UnifiedDiffColorResolver.getGutterBorderColor(isDarkTheme));
+        g.drawLine(getWidth() - 1, clipBounds.y, getWidth() - 1, clipBounds.y + clipBounds.height - 1);
+
         logger.debug("paintUnifiedDiffLineNumbers #{} completed", currentPaint);
     }
 
