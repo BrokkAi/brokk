@@ -15,8 +15,16 @@ if ! ls "$LIB_DIR"/app-*.jar &>/dev/null; then
   exit 1
 fi
 
-# Use the most recently modified app-*.jar as the classpath
-CLASSPATH="$(ls -t "$LIB_DIR"/app-*.jar | head -n 1)"
+# Use the most recently modified brokk-*.jar (shadow jar) as the executable
+SHADOW_JAR="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
+
+# If no shadow jar exists, fall back to building one
+if [[ ! -f "$SHADOW_JAR" ]]; then
+  echo "No shadow JAR found. Building one..."
+  cd "$SCRIPT_DIR"
+  ./gradlew shadowJar
+  SHADOW_JAR="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
+fi
 
 # Launch BrokkCli.
 # We use PGC because it's more space-efficient than the default G1,
@@ -48,9 +56,9 @@ fi
 # Append any user-supplied JVM args (which may include their own -Xmx)
 EFFECTIVE_JVM_ARGS+=(${JVM_ARGS[@]+"${JVM_ARGS[@]}"})
 
-# Launch BrokkCli with the JVM flags first, then classpath, then app args
+# Launch BrokkCli using the shadow JAR but override the main class
 exec java \
      "${EFFECTIVE_JVM_ARGS[@]}" \
-     -cp "$CLASSPATH" \
+     -cp "$SHADOW_JAR" \
      io.github.jbellis.brokk.cli.BrokkCli \
      "${APP_ARGS[@]-}"

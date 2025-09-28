@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# General-purpose Brokk CLI convenience script
+# Usage: ./brokk [ask|search|code] "your query here"
+#        ./brokk [ask|search|code] --project /path/to/project "your query here"
+
+if [ $# -lt 2 ]; then
+    echo "Usage: $0 [ask|search|code] \"your query here\""
+    echo "       $0 [ask|search|code] --project /path/to/project \"your query here\""
+    echo ""
+    echo "Examples:"
+    echo "  $0 ask \"What is this project about?\""
+    echo "  $0 search \"How does authentication work?\""
+    echo "  $0 code \"Add error handling to the login method\""
+    echo "  $0 ask --project /path/to/other/project \"What is this project about?\""
+    exit 1
+fi
+
+COMMAND=$1
+shift
+
+# Check if --project is specified
+PROJECT_PATH=""
+if [ "$1" = "--project" ] && [ $# -ge 3 ]; then
+    PROJECT_PATH="$2"
+    shift 2
+fi
+
+# If no project path specified, use current directory
+if [ -z "$PROJECT_PATH" ]; then
+    PROJECT_PATH="$(pwd)"
+fi
+
+QUERY="$*"
+
+cd "$(dirname "$0")"
+
+case $COMMAND in
+    ask)
+        ./cli --project "$PROJECT_PATH" --ask "$QUERY"
+        ;;
+    search)
+        ./cli --project "$PROJECT_PATH" --search "$QUERY"
+        ;;
+    code)
+        ./cli --project "$PROJECT_PATH" --code "$QUERY"
+        ;;
+    *)
+        echo "Error: Unknown command '$COMMAND'"
+        echo "Valid commands: ask, search, code"
+        exit 1
+        ;;
+esac

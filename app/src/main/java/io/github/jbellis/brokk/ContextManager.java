@@ -1877,7 +1877,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var currentTaskFragment =
                 new ContextFragment.TaskFragment(this, List.of(new UserMessage(action, input)), input);
         var history = topContext().getTaskHistory();
-        ((Chrome) io).setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
+
+        // Handle both GUI (Chrome) and headless (HeadlessConsole) modes
+        if (io instanceof Chrome chrome) {
+            chrome.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
+        } else {
+            // In headless mode, just output the task start message
+            io.systemOutput("# " + action);
+            io.systemOutput(input);
+        }
     }
 
     /**

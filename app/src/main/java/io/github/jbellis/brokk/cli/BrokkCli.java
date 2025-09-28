@@ -331,6 +331,9 @@ public final class BrokkCli implements Callable<Integer> {
             }
         }
 
+        // --- Auto-discover files mentioned in prompts ---
+        autoDiscoverFilesFromPrompts();
+
         // --- Run Action ---
         io.systemOutput("# Workspace (pre-task)");
         io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
@@ -538,5 +541,59 @@ public final class BrokkCli implements Callable<Integer> {
             sb.append("\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * Automatically discovers and adds files mentioned in the prompts to the workspace. This helps avoid the "file not
+     * found" issue when the CodeAgent needs to edit files.
+     */
+    private void autoDiscoverFilesFromPrompts() {
+        // Collect all prompts that might mention files
+        var prompts = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
+                .filter(p -> p != null && !p.isBlank())
+                .toList();
+
+        if (prompts.isEmpty()) {
+            return;
+        }
+
+        // Find all files in the project
+        var allFiles = project.getAllFiles();
+
+        // Look for file patterns in the prompts
+        var discoveredFiles = new ArrayList<ProjectFile>();
+
+        for (var prompt : prompts) {
+            // Look for common file patterns: .java, .kt, .py, .js, .ts, .go, .rs, .cpp, .c, .h
+            var filePattern = java.util.regex.Pattern.compile(
+                    "\\b(\\w+(?:/\\w+)*\\.(?:java|kt|py|js|ts|go|rs|cpp|c|h|hpp|cc|cxx|cs|php|rb|swift|scala|clj|hs|ml|fs|vb|sql|xml|json|yaml|yml|md|txt|sh|bat|ps1))\\b",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+            var matcher = filePattern.matcher(prompt);
+            while (matcher.find()) {
+                var fileName = matcher.group(1);
+
+                // Try to find the file in the project
+                var matchingFile = allFiles.stream()
+                        .filter(f -> f.toString().endsWith(fileName)
+                                || f.toString().contains("/" + fileName)
+                                || f.toString().contains("\\" + fileName))
+                        .findFirst();
+
+                if (matchingFile.isPresent()) {
+                    var file = matchingFile.get();
+                    if (!discoveredFiles.contains(file)) {
+                        discoveredFiles.add(file);
+                        System.out.println("Auto-discovered file: " + file);
+                    }
+                }
+            }
+        }
+
+        // Add discovered files to the workspace
+        if (!discoveredFiles.isEmpty()) {
+            cm.addFiles(discoveredFiles);
+            System.out.println("Added " + discoveredFiles.size() + " auto-discovered files to workspace");
+        }
     }
 }
