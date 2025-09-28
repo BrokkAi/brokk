@@ -547,7 +547,7 @@ public final class BrokkCli implements Callable<Integer> {
      * Automatically discovers and adds files mentioned in the prompts to the workspace. This helps avoid the "file not
      * found" issue when the CodeAgent needs to edit files.
      */
-    private void autoDiscoverFilesFromPrompts() {
+    private void d() {
         // Collect all prompts that might mention files
         var prompts = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
                 .filter(p -> p != null && !p.isBlank())

@@ -150,7 +150,7 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
             cwd=repo_path,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=600
         )
         end_time = time.time()
         
@@ -365,6 +365,9 @@ Examples:
   # Evaluate all dev instances
   python evaluate_brokk.py --split dev --repos_dir swe_bench_repos
   
+  # Evaluate specific instance
+  python evaluate_brokk.py --instance_id matplotlib__matplotlib-18869 --repos_dir swe_bench_repos
+  
   # Custom model name
   python evaluate_brokk.py --split test --max_instances 3 --model_name "brokk-cli-v1.0"
         """
@@ -393,6 +396,11 @@ Examples:
         "--max_instances",
         type=int,
         help="Maximum number of instances to evaluate"
+    )
+    
+    parser.add_argument(
+        "--instance_id",
+        help="Specific instance ID to evaluate (e.g., matplotlib__matplotlib-18869)"
     )
     
     parser.add_argument(
@@ -452,6 +460,22 @@ Examples:
     if not available_instances:
         log_error("No instances with available repositories found")
         sys.exit(1)
+    
+    # Filter to specific instance if requested
+    if args.instance_id:
+        specific_instance = None
+        for instance in available_instances:
+            if instance["instance_id"] == args.instance_id:
+                specific_instance = instance
+                break
+        
+        if specific_instance:
+            available_instances = [specific_instance]
+            log_info(f"Filtering to specific instance: {args.instance_id}")
+        else:
+            log_error(f"Instance {args.instance_id} not found in available instances")
+            log_info(f"Available instances: {[i['instance_id'] for i in available_instances]}")
+            sys.exit(1)
     
     # Run evaluation
     results = evaluate_instances(
