@@ -371,6 +371,26 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return currentDiffPanel instanceof BufferDiffPanel ? (BufferDiffPanel) currentDiffPanel : null;
     }
 
+    @Nullable
+    private UnifiedDiffPanel getUnifiedDiffPanel() {
+        return currentDiffPanel instanceof UnifiedDiffPanel ? (UnifiedDiffPanel) currentDiffPanel : null;
+    }
+
+    /** Get content string from BufferSource, handling both FileSource and StringSource. */
+    private static String getContentFromSource(BufferSource source) throws Exception {
+        if (source instanceof BufferSource.StringSource stringSource) {
+            return stringSource.content();
+        } else if (source instanceof BufferSource.FileSource fileSource) {
+            var file = fileSource.file();
+            if (!file.exists() || !file.isFile()) {
+                return "";
+            }
+            return java.nio.file.Files.readString(file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+        } else {
+            throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
+        }
+    }
+
     public void nextFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
@@ -580,26 +600,50 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnNextFile.addActionListener(e -> nextFile());
 
         captureDiffButton.addActionListener(e -> {
+            String leftContent;
+            String rightContent;
+            BufferSource currentLeftSource;
+            BufferSource currentRightSource;
+
+            // Handle both unified and side-by-side modes
             var bufferPanel = getBufferDiffPanel();
-            if (bufferPanel == null) {
-                logger.warn("Capture diff called but bufferPanel is null");
+            var unifiedPanel = getUnifiedDiffPanel();
+
+            if (bufferPanel != null) {
+                // Side-by-side mode
+                var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                if (leftPanel == null || rightPanel == null) {
+                    logger.warn("Capture diff called but left or right panel is null");
+                    return;
+                }
+                leftContent = leftPanel.getEditor().getText();
+                rightContent = rightPanel.getEditor().getText();
+
+                // Get the current file comparison sources
+                var currentComparison = fileComparisons.get(currentFileIndex);
+                currentLeftSource = currentComparison.leftSource;
+                currentRightSource = currentComparison.rightSource;
+            } else if (unifiedPanel != null) {
+                // Unified mode - get content from BufferSources
+                var currentComparison = fileComparisons.get(currentFileIndex);
+                currentLeftSource = currentComparison.leftSource;
+                currentRightSource = currentComparison.rightSource;
+
+                try {
+                    leftContent = getContentFromSource(currentLeftSource);
+                    rightContent = getContentFromSource(currentRightSource);
+                } catch (Exception ex) {
+                    logger.warn("Failed to get content from sources for diff capture", ex);
+                    return;
+                }
+            } else {
+                logger.warn("Capture diff called but both bufferPanel and unifiedPanel are null");
                 return;
             }
-            var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-            var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (leftPanel == null || rightPanel == null) {
-                logger.warn("Capture diff called but left or right panel is null");
-                return;
-            }
-            var leftContent = leftPanel.getEditor().getText();
-            var rightContent = rightPanel.getEditor().getText();
+
             var leftLines = Arrays.asList(leftContent.split("\\R"));
             var rightLines = Arrays.asList(rightContent.split("\\R"));
-
-            // Get the current file comparison sources
-            var currentComparison = fileComparisons.get(currentFileIndex);
-            var currentLeftSource = currentComparison.leftSource;
-            var currentRightSource = currentComparison.rightSource;
 
             // Build a friendlier description that shows a shortened hash plus
             // the first-line commit title (trimmed with ... when overly long)
