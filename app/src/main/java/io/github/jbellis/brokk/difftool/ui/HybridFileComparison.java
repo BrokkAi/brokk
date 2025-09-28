@@ -193,7 +193,6 @@ public class HybridFileComparison {
                 var diffNode = FileComparisonHelper.createDiffNode(
                         leftSource, rightSource, contextManager, isMultipleCommitsContext);
 
-                logger.debug("Computing diff for large file in background thread");
                 diffNode.diff(); // This is the potentially slow operation for large files
 
                 // Create panel on EDT after diff computation is complete
@@ -294,23 +293,25 @@ public class HybridFileComparison {
         try {
             var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
 
+            if (unifiedPanel == null) {
+                throw new RuntimeException("UnifiedDiffPanel constructor returned null");
+            }
+
             // Apply global context mode preference from main panel
             var targetMode = mainPanel.getGlobalShowAllLinesInUnified()
                     ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
                     : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
             unifiedPanel.setContextMode(targetMode);
 
-            logger.debug(
-                    "Created unified panel with context mode: {}",
-                    mainPanel.getGlobalShowAllLinesInUnified() ? "FULL_CONTEXT" : "STANDARD_3_LINES");
-
             return unifiedPanel;
         } catch (Exception e) {
-            logger.error("Failed to create unified diff panel from JMDiffNode {}", diffNode.getName(), e);
+            logger.error("Exception in createUnifiedDiffPanel for JMDiffNode {} - {}: {}",
+                        diffNode.getName(), e.getClass().getSimpleName(), e.getMessage(), e);
             // Fallback to empty panel that shows the error
             throw new RuntimeException("Failed to create unified diff panel: " + e.getMessage(), e);
         }
     }
+
 
     /** Format file size in human-readable format with appropriate units. */
     private static String formatFileSize(long bytes) {

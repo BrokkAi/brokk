@@ -1073,6 +1073,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void loadFileOnDemand(int fileIndex) {
+
         if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
             logger.warn("loadFileOnDemand called with invalid index: {}", fileIndex);
             return;
@@ -1138,10 +1139,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private void displayCachedFile(int fileIndex, IDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
+        logger.debug("displayCachedFile() called for file index {} with panel type: {}",
+                    fileIndex, cachedPanel.getClass().getSimpleName());
+
         // Check if cached panel type matches current view mode preference
         boolean cachedIsUnified = cachedPanel instanceof UnifiedDiffPanel;
+        logger.debug("Panel type check: cachedIsUnified={}, currentViewIsUnified={}",
+                    cachedIsUnified, this.isUnifiedView);
+
         if (cachedIsUnified != this.isUnifiedView) {
-            logger.debug(
+            logger.info(
                     "Cached panel type (unified={}) doesn't match current preference (unified={}), clearing cache and recreating for file {}",
                     cachedIsUnified,
                     this.isUnifiedView,
@@ -1154,7 +1161,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             this.currentDiffPanel = null;
 
             // Clear entire cache to prevent infinite recursion (same pattern as switchViewMode)
-            logger.debug("Clearing entire cache to force panel recreation with correct view mode");
             panelCache.clear();
 
             // Restore window state for adjacent file caching
@@ -1162,6 +1168,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
             // Reload file with correct view mode (cache is now clear, so will create new panel)
             loadFileOnDemand(fileIndex);
+
+            // Verify that panel was actually created after loading
+
             return;
         }
 
@@ -1605,6 +1614,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // Create file loading result (includes size validation and error handling)
             var loadingResult = FileComparisonHelper.createFileLoadingResult(
                     compInfo.leftSource, compInfo.rightSource, contextManager, isMultipleCommitsContext);
+
+            // CRITICAL FIX: Compute diff for preloaded JMDiffNode to avoid empty view
+            if (loadingResult.isSuccess() && loadingResult.getDiffNode() != null) {
+                loadingResult.getDiffNode().diff();
+            }
 
             // Create and cache panel on EDT
             SwingUtilities.invokeLater(() -> {

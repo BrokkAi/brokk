@@ -70,6 +70,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
      */
     public UnifiedDiffPanel(BrokkDiffPanel parent, GuiTheme theme, JMDiffNode diffNode) {
         super(parent, theme);
+
         this.leftSource = null;
         this.rightSource = null;
 
@@ -147,12 +148,22 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
     private void generateDiffFromDiffNode(JMDiffNode diffNode) {
+
+
         // Generate the UnifiedDiffDocument (for line number metadata and display content)
         this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
 
+        if (unifiedDocument == null) {
+            textArea.setText("ERROR: Failed to generate diff content for " + diffNode.getName());
+            this.navigator = new UnifiedDiffNavigator("", textArea);
+            return;
+        }
+
         // Extract plain text content from the UnifiedDiffDocument to include OMITTED_LINES
         var textBuilder = new StringBuilder();
-        for (var diffLine : unifiedDocument.getFilteredLines()) {
+        var filteredLines = unifiedDocument.getFilteredLines();
+
+        for (var diffLine : filteredLines) {
             String content = diffLine.getContent();
             textBuilder.append(content);
             // Only add newline if content doesn't already end with one
@@ -167,6 +178,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         String plainTextContent = textBuilder.toString();
+
         textArea.setText(plainTextContent);
 
         // Link the UnifiedDiffDocument to the custom line number list
@@ -180,12 +192,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         if (plainTextContent != null && textArea != null) {
             this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
         } else {
-            logger.warn("Cannot create navigator: plainTextContent={}, textArea={}",
-                       plainTextContent != null ? "valid" : "null",
-                       textArea != null ? "valid" : "null");
             this.navigator = null;
         }
-
 
         // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
@@ -251,11 +259,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     public void setDiffNode(@Nullable JMDiffNode diffNode) {
+
         super.setDiffNode(diffNode);
         if (diffNode != null) {
             generateDiffFromDiffNode(diffNode);
         } else {
-            logger.warn("setDiffNode called with null - clearing unified diff content");
             // Clear the content when no diff node is provided
             textArea.setText("");
             this.unifiedDocument = null;
