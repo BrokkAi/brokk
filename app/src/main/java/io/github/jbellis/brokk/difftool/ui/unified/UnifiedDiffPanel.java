@@ -143,7 +143,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Apply initial theme (same approach as FilePanel:177)
         GuiTheme.loadRSyntaxTheme(getTheme().isDarkTheme()).ifPresent(theme -> theme.apply(textArea));
 
-        logger.debug("UnifiedDiffPanel UI setup complete");
     }
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
@@ -177,7 +176,16 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             customLineNumberList.setContextMode(contextMode);
         }
 
-        this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
+        // Create navigator with defensive checks
+        if (plainTextContent != null && textArea != null) {
+            this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
+        } else {
+            logger.warn("Cannot create navigator: plainTextContent={}, textArea={}",
+                       plainTextContent != null ? "valid" : "null",
+                       textArea != null ? "valid" : "null");
+            this.navigator = null;
+        }
+
 
         // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
@@ -185,7 +193,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Apply diff highlights after content is set
         reDisplay();
 
-        logger.debug("Generated unified diff from JMDiffNode {} with custom line numbering", diffNode.getName());
     }
 
     /** Generate the unified diff content from BufferSources (legacy approach). */
@@ -223,7 +230,16 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             customLineNumberList.setContextMode(contextMode);
         }
 
-        this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
+        // Create navigator with defensive checks
+        if (plainTextContent != null && textArea != null) {
+            this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
+        } else {
+            logger.warn("Cannot create navigator: plainTextContent={}, textArea={}",
+                       plainTextContent != null ? "valid" : "null",
+                       textArea != null ? "valid" : "null");
+            this.navigator = null;
+        }
+
 
         // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
@@ -231,7 +247,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Apply diff highlights after content is set
         reDisplay();
 
-        logger.debug("Generated unified diff from BufferSources with custom line numbering");
     }
 
     @Override
@@ -259,7 +274,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Apply syntax highlighting based on detected file type using FilePanel's approach. */
     private void applySyntaxHighlighting() {
         updateSyntaxStyle(); // Use shared logic from AbstractDiffPanel - pure syntax highlighting only
-        logger.debug("Applied pure syntax highlighting using shared AbstractDiffPanel logic");
     }
 
     /**
@@ -275,14 +289,12 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         var style = AbstractDiffPanel.detectSyntaxStyle(filename, null);
 
         textArea.setSyntaxEditingStyle(style);
-        logger.debug("Set syntax style to: {} for unified diff", style);
     }
 
     /** Set the context mode for the unified diff. */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
         // Always execute context mode changes - the previous condition was incorrectly preventing execution
         // This happens because document generation can modify this.contextMode internally
-        logger.debug("Switching context mode from {} to {}", this.contextMode, contextMode);
 
         this.contextMode = contextMode;
 
@@ -290,7 +302,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Previous asymmetric approach (regenerate for FULL_CONTEXT, filter for STANDARD_3_LINES)
         // caused issues when switching from FULL_CONTEXT back to STANDARD_3_LINES
         {
-            logger.debug("Regenerating document for context mode: {}", contextMode);
 
                 // Regenerate the document with the target context mode
                 var diffNode = getDiffNode();
@@ -354,10 +365,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         String plainTextContent = textBuilder.toString();
         textArea.setText(plainTextContent);
 
-        logger.debug(
-                "Updated text area content from document - {} characters, {} lines",
-                plainTextContent.length(),
-                textArea.getLineCount());
     }
 
     /** Get the current context mode. */
@@ -401,6 +408,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     public void doUp() {
         if (navigator != null) {
             navigator.navigateToPreviousHunk();
+        } else {
+            logger.warn("doUp() called but navigator is null - navigation not available");
         }
     }
 
@@ -408,6 +417,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     public void doDown() {
         if (navigator != null) {
             navigator.navigateToNextHunk();
+        } else {
+            logger.warn("doDown() called but navigator is null - navigation not available");
         }
     }
 
@@ -478,19 +489,16 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void doUndo() {
         // TODO: Implement
-        logger.debug("Undo requested (not implemented)");
     }
 
     @Override
     public void doRedo() {
         // TODO: Implement
-        logger.debug("Redo requested (not implemented)");
     }
 
     @Override
     public void recalcDirty() {
         // TODO: Implement change tracking
-        logger.trace("Recalc dirty requested (not implemented)");
     }
 
     @Override
@@ -508,7 +516,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void finalizeAfterSaveAggregation(Set<String> successfulFiles) {
         // TODO: Implement
-        logger.debug("Finalize after save aggregation requested (not implemented)");
     }
 
     @Override
@@ -551,14 +558,12 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void clearCaches() {
         // Clear any internal caches
-        logger.debug("Clear caches requested");
     }
 
     @Override
     public void dispose() {
         // Clean up resources
         super.dispose();
-        logger.debug("UnifiedDiffPanel disposed");
     }
 
     @Override
@@ -584,7 +589,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             // Refresh highlights with new theme colors
             reDisplay();
 
-            logger.debug("Applied theme and refreshed highlights in UnifiedDiffPanel");
         });
     }
 
@@ -599,7 +603,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             if (isEditAllowed(offset)) {
                 super.insertString(fb, offset, string, attr);
             } else {
-                logger.debug("Insert blocked at offset {} (non-editable line)", offset);
             }
         }
 
@@ -609,7 +612,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             if (isEditAllowed(offset)) {
                 super.replace(fb, offset, length, text, attrs);
             } else {
-                logger.debug("Replace blocked at offset {} (non-editable line)", offset);
             }
         }
 
@@ -618,7 +620,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             if (isEditAllowed(offset)) {
                 super.remove(fb, offset, length);
             } else {
-                logger.debug("Remove blocked at offset {} (non-editable line)", offset);
             }
         }
 
@@ -654,7 +655,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Remove all diff highlights from the highlighter. */
     private void removeHighlights() {
         UnifiedDiffHighlighter.removeHighlights(jmHighlighter);
-        logger.debug("Removed all diff highlights from unified diff panel");
     }
 
     /** Apply diff highlights to the current unified diff content. */
@@ -662,7 +662,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         try {
             boolean isDarkTheme = getTheme().isDarkTheme();
             UnifiedDiffHighlighter.applyHighlights(textArea, jmHighlighter, isDarkTheme);
-            logger.debug("Applied diff highlights to unified diff content");
         } catch (Exception e) {
             logger.warn("Failed to apply highlights: {}", e.getMessage(), e);
         }
@@ -684,7 +683,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             jmHighlighter.repaint();
             textArea.repaint();
 
-            logger.debug("UnifiedDiffPanel reDisplay completed");
         } catch (Exception e) {
             logger.warn("Error during unified diff reDisplay: {}", e.getMessage(), e);
         }

@@ -35,6 +35,7 @@ public class UnifiedDiffNavigator {
             var document = textArea.getDocument();
             int lineCount = textArea.getLineCount();
 
+
             for (int i = 0; i < lineCount; i++) {
                 int lineStart = textArea.getLineStartOffset(i);
                 int lineEnd = textArea.getLineEndOffset(i);
@@ -44,6 +45,7 @@ public class UnifiedDiffNavigator {
                     hunkLines.add(i);
                 }
             }
+
         } catch (BadLocationException e) {
             logger.warn("Failed to refresh hunk positions", e);
         }
@@ -55,28 +57,32 @@ public class UnifiedDiffNavigator {
             currentHunkIndex = Math.max(0, hunkStartLines.size() - 1);
         }
 
-        logger.debug("Refreshed hunk positions: {} hunks found", hunkStartLines.size());
     }
 
     /** Navigate to the next hunk. */
     public void navigateToNextHunk() {
+        if (hunkStartLines.isEmpty()) {
+            return;
+        }
+
         if (canNavigateToNextHunk()) {
             currentHunkIndex++;
             navigateToCurrentHunk();
-            logger.debug("Navigated to next hunk: {}/{}", currentHunkIndex + 1, hunkStartLines.size());
         } else {
-            logger.debug("Cannot navigate to next hunk: at last hunk");
         }
     }
 
     /** Navigate to the previous hunk. */
     public void navigateToPreviousHunk() {
+
+        if (hunkStartLines.isEmpty()) {
+            return;
+        }
+
         if (canNavigateToPreviousHunk()) {
             currentHunkIndex--;
             navigateToCurrentHunk();
-            logger.debug("Navigated to previous hunk: {}/{}", currentHunkIndex + 1, hunkStartLines.size());
         } else {
-            logger.debug("Cannot navigate to previous hunk: at first hunk");
         }
     }
 
@@ -85,7 +91,6 @@ public class UnifiedDiffNavigator {
         if (!hunkStartLines.isEmpty()) {
             currentHunkIndex = 0;
             navigateToCurrentHunk();
-            logger.debug("Navigated to first hunk");
         }
     }
 
@@ -94,7 +99,6 @@ public class UnifiedDiffNavigator {
         if (!hunkStartLines.isEmpty()) {
             currentHunkIndex = hunkStartLines.size() - 1;
             navigateToCurrentHunk();
-            logger.debug("Navigated to last hunk");
         }
     }
 
@@ -107,9 +111,7 @@ public class UnifiedDiffNavigator {
         if (hunkIndex >= 0 && hunkIndex < hunkStartLines.size()) {
             currentHunkIndex = hunkIndex;
             navigateToCurrentHunk();
-            logger.debug("Navigated to hunk {}/{}", hunkIndex + 1, hunkStartLines.size());
         } else {
-            logger.warn("Invalid hunk index: {} (valid range: 0-{})", hunkIndex, hunkStartLines.size() - 1);
         }
     }
 
@@ -178,7 +180,6 @@ public class UnifiedDiffNavigator {
             int hunkIndex = findHunkForLine(lineNumber);
             if (hunkIndex >= 0) {
                 currentHunkIndex = hunkIndex;
-                logger.debug("Updated current hunk to {} based on caret position", currentHunkIndex);
             }
         } catch (BadLocationException e) {
             logger.warn("Failed to update current hunk from caret position", e);
@@ -188,7 +189,6 @@ public class UnifiedDiffNavigator {
     /** Navigate to the current hunk by positioning the caret and scrolling. */
     private void navigateToCurrentHunk() {
         if (currentHunkIndex < 0 || currentHunkIndex >= hunkStartLines.size()) {
-            logger.warn("Invalid current hunk index: {}", currentHunkIndex);
             return;
         }
 
@@ -209,7 +209,6 @@ public class UnifiedDiffNavigator {
                     textArea.scrollRectToVisible(expandedRect);
                 }
 
-                logger.trace("Positioned caret at hunk {} (line {}, offset {})", currentHunkIndex, lineNumber, offset);
 
             } catch (BadLocationException e) {
                 logger.error(
