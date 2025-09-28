@@ -320,9 +320,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 // Only perform layout reset if needed after navigation
                 if (needsLayoutReset) {
                     needsLayoutReset = false; // Clear flag
-                    var currentPanel = getBufferDiffPanel();
-                    if (currentPanel != null) {
-                        resetLayoutHierarchy(currentPanel);
+                    // Use currentDiffPanel directly instead of getBufferDiffPanel() to support unified panels
+                    if (currentDiffPanel != null) {
+                        resetLayoutHierarchy(currentDiffPanel);
                     }
                 }
             }
@@ -1650,7 +1650,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * Reset layout hierarchy to fix broken container relationships after file navigation. This rebuilds the
      * BorderLayout relationships to restore proper resize behavior.
      */
-    private void resetLayoutHierarchy(BufferDiffPanel currentPanel) {
+    private void resetLayoutHierarchy(IDiffPanel currentPanel) {
         // Remove and re-add mainSplitPane to reset BorderLayout relationships
         remove(mainSplitPane);
         invalidate();
@@ -1660,12 +1660,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Ensure child components are properly updated
         SwingUtilities.invokeLater(() -> {
             getTabbedPane().revalidate();
-            currentPanel.revalidate();
+            currentPanel.getComponent().revalidate();
 
-            // Refresh scroll synchronizer to maintain diff alignment
-            var synchronizer = currentPanel.getScrollSynchronizer();
-            if (synchronizer != null) {
-                synchronizer.invalidateViewportCacheForBothPanels();
+            // Refresh scroll synchronizer for BufferDiffPanel (side-by-side view)
+            if (currentPanel instanceof BufferDiffPanel bufferPanel) {
+                var synchronizer = bufferPanel.getScrollSynchronizer();
+                if (synchronizer != null) {
+                    synchronizer.invalidateViewportCacheForBothPanels();
+                }
+            }
+            // For UnifiedDiffPanel, trigger refreshComponentListeners to ensure proper layout
+            else if (currentPanel instanceof UnifiedDiffPanel) {
+                currentPanel.refreshComponentListeners();
             }
         });
     }

@@ -513,6 +513,35 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     public void refreshComponentListeners() {
+        // Remove existing listeners to avoid duplicates
+        var listeners = getComponentListeners();
+        for (var listener : listeners) {
+            removeComponentListener(listener);
+        }
+
+        // Add resize listener for proper text area and scroll pane layout updates
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    // Force revalidation of scroll pane and text area
+                    if (scrollPane != null) {
+                        scrollPane.revalidate();
+                        scrollPane.repaint();
+                    }
+                    if (textArea != null) {
+                        textArea.revalidate();
+                        textArea.repaint();
+                    }
+                    // Force revalidation of custom line number list
+                    if (customLineNumberList != null) {
+                        customLineNumberList.revalidate();
+                        customLineNumberList.repaint();
+                    }
+                });
+            }
+        });
+
         // Update navigator if caret position changed
         if (navigator != null) {
             navigator.updateCurrentHunkFromCaret();
