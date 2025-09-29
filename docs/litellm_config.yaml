@@ -92,6 +92,25 @@ model_list:
       max_output_tokens: 32768
       max_concurrent_requests: 1
 
+  - model_name: claude-4.5-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250929
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+    model_info:
+      free_tier_eligible: false
+      is_private: true
+      max_tokens: 200000
+      max_input_tokens: 200000
+      max_output_tokens: 64000
+      input_cost_per_token: 1e-06
+      output_cost_per_token: 5e-06
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      tokens_per_minute: 8000000
+
   - model_name: deepseek-R1
     litellm_params:
       model: deepseek/deepseek-reasoner
