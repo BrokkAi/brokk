@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceDat
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.WandButton;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -103,8 +104,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Ask");
     private final MaterialButton actionButton;
-    private final MaterialButton wandButton = new MaterialButton();
-    private String wandBaseTooltip = "Refine Prompt: rewrites your prompt for clarity and specificity.";
+    private final WandButton wandButton;
     private final ModelSelector modelSelector;
     private String storedAction;
     private final ContextManager contextManager;
@@ -164,6 +164,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
+        wandButton = new WandButton(contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,
@@ -1094,12 +1095,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(Box.createHorizontalGlue());
 
         // Wand button (Magic Ask) on the right
-        SwingUtilities.invokeLater(() -> {
-            wandButton.setIcon(Icons.WAND);
-        });
-        wandButton.setToolTipText(wandBaseTooltip);
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        wandButton.addActionListener(e -> onWandPressed());
         // Size set after fixedHeight is computed below
         bottomPanel.add(wandButton);
         bottomPanel.add(Box.createHorizontalStrut(4));
@@ -1859,12 +1855,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
-    }
-
-    /** Handler for the Wand button: silently refine the prompt in the background and replace the input. */
-    private void onWandPressed() {
-        var wandAction = new WandAction(contextManager);
-        wandAction.execute(this::getInstructions, this::populateInstructionsArea, chrome, instructionsArea);
     }
 
     public @Nullable Future<TaskResult> runSearchCommand() {

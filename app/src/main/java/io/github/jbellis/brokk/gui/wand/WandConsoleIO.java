@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.wand;
 
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.IConsoleIO;
