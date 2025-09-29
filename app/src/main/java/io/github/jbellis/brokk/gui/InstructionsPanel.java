@@ -13,7 +13,6 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
-import io.github.jbellis.brokk.agents.WandAction;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -23,7 +22,6 @@ import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceDat
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
-import io.github.jbellis.brokk.gui.WandButton;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -164,7 +162,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
-        wandButton = new WandButton(contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
+        wandButton = new WandButton(
+                contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,

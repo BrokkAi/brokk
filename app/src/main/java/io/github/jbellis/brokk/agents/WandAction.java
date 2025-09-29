@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.wand.WandConsoleIO;
-
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
