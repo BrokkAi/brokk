@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
+import java.io.File;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
@@ -142,5 +143,34 @@ public final class TestContextManager implements IContextManager {
 
     public EditBlockParser getParserForWorkspace() {
         return EditBlockParser.instance;
+    }
+
+    /**
+     * Set a custom model to be returned by getLlm when requesting the quickest model. Used for testing preprocessing
+     * behavior.
+     */
+    public void setQuickestModel(dev.langchain4j.model.chat.StreamingChatModel model) {
+        stubService.setQuickestModel(model);
+    }
+
+    public ProjectFile toFile(String relativePath) {
+        var trimmed = relativePath.trim();
+
+        // If an absolute-like path is provided (leading '/' or '\'), attempt to interpret it as a
+        // project-relative path by stripping the leading slash. If that file exists, return it.
+        if (trimmed.startsWith(File.separator)) {
+            var candidateRel = trimmed.substring(File.separator.length()).trim();
+            var candidate = new ProjectFile(project.getRoot(), candidateRel);
+            if (candidate.exists()) {
+                return candidate;
+            }
+            // The path looked absolute (or root-anchored) but does not exist relative to the project.
+            // Treat this as invalid to avoid resolving to a location outside the project root.
+            throw new IllegalArgumentException(
+                    "Filename '%s' is absolute-like and does not exist relative to the project root"
+                            .formatted(relativePath));
+        }
+
+        return new ProjectFile(project.getRoot(), trimmed);
     }
 }
