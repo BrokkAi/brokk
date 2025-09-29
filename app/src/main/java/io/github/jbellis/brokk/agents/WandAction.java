@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.context.ContextFragment;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 public class WandAction {
@@ -19,8 +18,7 @@ public class WandAction {
         this.contextManager = contextManager;
     }
 
-    public @Nullable String refinePrompt(String originalPrompt, IConsoleIO consoleIO)
-            throws InterruptedException {
+    public @Nullable String refinePrompt(String originalPrompt, IConsoleIO consoleIO) throws InterruptedException {
         var service = contextManager.getService();
         var model = service.getWandModel();
 
@@ -45,14 +43,14 @@ public class WandAction {
                 </goal>
                 """
                         .formatted(
-                                ContextFragment.getSummary(contextManager.topContext().allFragments()),
+                                ContextFragment.getSummary(
+                                        contextManager.topContext().allFragments()),
                                 originalPrompt);
 
         Llm llm = contextManager.getLlm(model, "Refine Prompt", false);
         llm.setOutput(consoleIO);
         List<ChatMessage> req = List.of(
-                new SystemMessage("You are a Prompt Refiner for coding instructions."),
-                new UserMessage(instruction));
+                new SystemMessage("You are a Prompt Refiner for coding instructions."), new UserMessage(instruction));
         Llm.StreamingResult res = llm.sendRequest(req, true);
 
         if (res.error() != null) {

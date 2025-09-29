@@ -7,8 +7,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.functions.Generator;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
