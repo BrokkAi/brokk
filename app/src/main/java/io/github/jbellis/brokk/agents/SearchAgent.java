@@ -528,7 +528,7 @@ public class SearchAgent {
             @P(
                             "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
                     String explanation) {
-        logger.debug("answer selected with explanation length {}", explanation.length());
+        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI);
         return explanation;
     }
 
