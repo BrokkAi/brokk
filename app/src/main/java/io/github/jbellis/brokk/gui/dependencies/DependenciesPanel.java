@@ -487,7 +487,10 @@ public final class DependenciesPanel extends JPanel {
         var cm = chrome.getContextManager();
         return cm.submitBackgroundTask("Save dependency configuration", () -> {
             var project = chrome.getProject();
+
+            long t0 = System.currentTimeMillis();
             project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
+            long t1 = System.currentTimeMillis();
 
             var newFiles = project.getAllFiles();
 
@@ -499,9 +502,21 @@ public final class DependenciesPanel extends JPanel {
 
             var changedFiles = new HashSet<>(addedFiles);
             changedFiles.addAll(removedFiles);
+            long t2 = System.currentTimeMillis();
+
+            logger.info(
+                    "Dependencies save timing: saveLiveDependencies={} ms, diff={} ms, changedFiles={}",
+                    (t1 - t0),
+                    (t2 - t1),
+                    changedFiles.size());
 
             if (!changedFiles.isEmpty()) {
+                long t3 = System.currentTimeMillis();
                 cm.getAnalyzerWrapper().updateFiles(changedFiles);
+                long t4 = System.currentTimeMillis();
+                logger.info("Dependencies save timing: updateFiles={} ms for {} files", (t4 - t3), changedFiles.size());
+            } else {
+                logger.info("Dependencies save timing: no changed files detected");
             }
         });
     }
