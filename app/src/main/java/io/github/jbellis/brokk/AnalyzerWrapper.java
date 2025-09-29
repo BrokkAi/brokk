@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -48,6 +49,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
     private volatile boolean wasReady = false;
+    private final AtomicLong idlePollTriggeredRebuilds = new AtomicLong(0);
 
     public AnalyzerWrapper(
             IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener, IConsoleIO io) {
@@ -189,7 +191,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     @Override
     public void onNoFilesChangedDuringPollInterval() {
         if (externalRebuildRequested && !rebuildInProgress) {
-            logger.debug("External rebuild requested");
+            long count = idlePollTriggeredRebuilds.incrementAndGet();
+            logger.debug("Idle-poll triggered external rebuild #{}", count);
             refresh(() -> getLanguageHandle().createAnalyzer(project));
         }
     }
