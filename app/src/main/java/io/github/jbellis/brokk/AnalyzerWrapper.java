@@ -89,16 +89,15 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         logger.trace("Events batch: {}", batch);
 
         // Instrumentation: log reason for callback and whether it includes .git metadata changes
-        boolean dueToGitMeta = false;
-        if (gitRepoRoot != null) {
-            var relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            dueToGitMeta = batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-        }
+        Path gitMetaRel = (gitRepoRoot != null) ? root.relativize(gitRepoRoot.resolve(".git")) : null;
+        boolean dueToGitMeta = gitMetaRel != null
+                && batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaRel));
         logger.debug(
-                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}",
+                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}, gitMetaDir={}",
                 batch.files.size(),
                 batch.isOverflowed,
-                dueToGitMeta);
+                dueToGitMeta,
+                (gitMetaRel != null ? gitMetaRel : "(none)"));
 
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
