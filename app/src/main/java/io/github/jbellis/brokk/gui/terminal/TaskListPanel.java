@@ -3,8 +3,6 @@ package io.github.jbellis.brokk.gui.terminal;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
@@ -993,79 +991,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var cm = chrome.getContextManager();
 
-        // Snapshot ordered task texts and position to avoid accessing Swing model from background threads.
-        final List<String> orderedTexts = new ArrayList<>();
-        int posInOrder = -1;
-        if (currentRunOrder != null) {
-            for (int i = 0; i < currentRunOrder.size(); i++) {
-                int taskIdx = currentRunOrder.get(i);
-                String ttext = "";
-                if (taskIdx >= 0 && taskIdx < model.getSize()) {
-                    var t = model.get(taskIdx);
-                    if (t != null) ttext = t.text();
-                }
-                orderedTexts.add(ttext);
-                if (taskIdx == idx) posInOrder = i;
-            }
-        } else {
-            orderedTexts.add(originalPrompt);
-            posInOrder = 0;
-        }
-        final int finalPosInOrder = posInOrder;
-        final int finalTotal = orderedTexts.size();
-
         // Submit an LLM action that will perform optional search + architect work off the EDT.
         var future = cm.submitLlmAction("Execute Task " + (idx + 1), () -> {
             chrome.showOutputSpinner("Executing Task command...");
             try (var scope = cm.beginTask("LUTZ MODE", originalPrompt, false)) {
-                // Build a brief header using a small LLM call (goal extraction) in the background thread.
-                StringBuilder header = new StringBuilder();
-                if (!orderedTexts.isEmpty()) {
-                    String goal;
-                    try {
-                        var scanModel = cm.getService().getScanModel();
-                        var llm = cm.getLlm(scanModel, "Extract Goal from Task list", false);
-                        // Build a numbered task list text for the LLM
-                        StringBuilder orderedTasklistText = new StringBuilder();
-                        for (int i = 0; i < orderedTexts.size(); i++) {
-                            orderedTasklistText.append(String.format("%d. %s\n", i + 1, orderedTexts.get(i)));
-                        }
-                        var messages = List.<ChatMessage>of(new UserMessage(
-                                """
-                                You are a summarizer of tasks. Take a list of tasks and find the common goal for them in one
-                                sentence. Only return the goal.
-                                task list below:
-                                %s
-
-                                """
-                                        .stripIndent()
-                                        .formatted(orderedTasklistText.toString())));
-                        var result = llm.sendRequest(messages, false);
-                        var goalRaw = result.text();
-                        goal = goalRaw.trim();
-                    } catch (Exception e) {
-                        logger.error(e);
-                        goal = "Overall goal: Complete the following tasks in order.";
-                    }
-
-                    header.append(goal);
-                    header.append("\n\n");
-                    header.append("Ordered task list:\n");
-                    for (int i = 0; i < orderedTexts.size(); i++) {
-                        header.append(String.format("%d. %s\n", i + 1, orderedTexts.get(i)));
-                    }
-                    int humanPos = finalPosInOrder >= 0 ? finalPosInOrder + 1 : -1;
-                    if (humanPos > 0) {
-                        header.append("\nYou are executing task " + humanPos + " of " + finalTotal + ".\n");
-                    } else {
-                        header.append("\nYou are executing one of " + finalTotal + " tasks in this run.\n");
-                    }
-                } else {
-                    header.append("Overall goal: Complete the following task.\n\n");
-                }
-
-                String augmentedPrompt = header.toString() + "\n" + originalPrompt;
-
                 // Optionally run SearchAgent (this is also background work)
                 boolean skipSearch = idx == 0 && !cm.liveContext().isEmpty();
                 if (skipSearch) {
@@ -1086,7 +1015,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 var codeModel = requireNonNull(
                         cm.getService().getModel(chrome.getInstructionsPanel().getSelectedModel()));
 
-                var architectAgent = new ArchitectAgent(cm, planningModel, codeModel, augmentedPrompt, scope);
+                var architectAgent = new ArchitectAgent(cm, planningModel, codeModel, originalPrompt, scope);
                 var archResult = architectAgent.execute();
                 scope.append(archResult);
 
@@ -1731,8 +1660,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private static final class TaskEntryDto {
         public String text = "";
         public boolean done;
-
-        public TaskEntryDto() {}
 
         public TaskEntryDto(String text, boolean done) {
             this.text = text;
