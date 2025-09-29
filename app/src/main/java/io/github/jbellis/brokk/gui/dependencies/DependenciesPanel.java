@@ -256,14 +256,27 @@ public final class DependenciesPanel extends JPanel {
                 @Override
                 public void dependencyImportStarted(String name) {
                     setControlsLocked(true);
+                    // Pause watcher to avoid churn during import I/O
+                    try {
+                        chrome.getContextManager().getAnalyzerWrapper().pause();
+                    } catch (Exception ex) {
+                        logger.debug("Error pausing watcher before dependency import", ex);
+                    }
                     addPendingDependencyRow(name);
                 }
 
                 @Override
                 public void dependencyImportFinished(String name) {
                     loadDependenciesAsync();
-                    // Persist changes after a dependency import completes.
-                    saveChangesAsync();
+                    // Persist changes after a dependency import completes and then resume watcher.
+                    var future = saveChangesAsync();
+                    future.whenComplete((r, ex) -> {
+                        try {
+                            chrome.getContextManager().getAnalyzerWrapper().resume();
+                        } catch (Exception e2) {
+                            logger.debug("Error resuming watcher after dependency import", e2);
+                        }
+                    });
                     setControlsLocked(false);
                 }
             };
@@ -487,36 +500,45 @@ public final class DependenciesPanel extends JPanel {
         var cm = chrome.getContextManager();
         return cm.submitBackgroundTask("Save dependency configuration", () -> {
             var project = chrome.getProject();
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
 
-            long t0 = System.currentTimeMillis();
-            project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
-            long t1 = System.currentTimeMillis();
+                long t0 = System.currentTimeMillis();
+                project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
+                long t1 = System.currentTimeMillis();
 
-            var newFiles = project.getAllFiles();
+                var newFiles = project.getAllFiles();
 
-            var addedFiles = new HashSet<>(newFiles);
-            addedFiles.removeAll(initialFiles);
+                var addedFiles = new HashSet<>(newFiles);
+                addedFiles.removeAll(initialFiles);
 
-            var removedFiles = new HashSet<>(initialFiles);
-            removedFiles.removeAll(newFiles);
+                var removedFiles = new HashSet<>(initialFiles);
+                removedFiles.removeAll(newFiles);
 
-            var changedFiles = new HashSet<>(addedFiles);
-            changedFiles.addAll(removedFiles);
-            long t2 = System.currentTimeMillis();
+                var changedFiles = new HashSet<>(addedFiles);
+                changedFiles.addAll(removedFiles);
+                long t2 = System.currentTimeMillis();
 
-            logger.info(
-                    "Dependencies save timing: saveLiveDependencies={} ms, diff={} ms, changedFiles={}",
-                    (t1 - t0),
-                    (t2 - t1),
-                    changedFiles.size());
+                logger.info(
+                        "Dependencies save timing: saveLiveDependencies={} ms, diff={} ms, changedFiles={}",
+                        (t1 - t0),
+                        (t2 - t1),
+                        changedFiles.size());
 
-            if (!changedFiles.isEmpty()) {
-                long t3 = System.currentTimeMillis();
-                cm.getAnalyzerWrapper().updateFiles(changedFiles);
-                long t4 = System.currentTimeMillis();
-                logger.info("Dependencies save timing: updateFiles={} ms for {} files", (t4 - t3), changedFiles.size());
-            } else {
-                logger.info("Dependencies save timing: no changed files detected");
+                if (!changedFiles.isEmpty()) {
+                    long t3 = System.currentTimeMillis();
+                    cm.getAnalyzerWrapper().updateFiles(changedFiles);
+                    long t4 = System.currentTimeMillis();
+                    logger.info(
+                            "Dependencies save timing: updateFiles={} ms for {} files",
+                            (t4 - t3),
+                            changedFiles.size());
+                } else {
+                    logger.info("Dependencies save timing: no changed files detected");
+                }
+            } finally {
+                analyzer.resume();
             }
         });
     }
@@ -643,6 +665,8 @@ public final class DependenciesPanel extends JPanel {
         if (choice == JOptionPane.YES_OPTION) {
             var pf = dependencyProjectFileMap.get(depName);
             if (pf != null) {
+                var cm = chrome.getContextManager();
+                cm.getAnalyzerWrapper().pause();
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependenciesAsync();
@@ -654,6 +678,8 @@ public final class DependenciesPanel extends JPanel {
                             "Error deleting dependency '" + depName + "':\n" + ex.getMessage(),
                             "Deletion Error",
                             JOptionPane.ERROR_MESSAGE);
+                } finally {
+                    cm.getAnalyzerWrapper().resume();
                 }
             }
         }
