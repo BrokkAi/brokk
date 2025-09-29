@@ -503,14 +503,21 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
                     .map(incAnalyzer -> {
                         long startTime = System.currentTimeMillis();
-                        IAnalyzer result = incAnalyzer.update(changedFiles);
-                        long duration = System.currentTimeMillis() - startTime;
-                        logger.info(
-                                "Library ingestion: {} analyzer processed {} files in {}ms",
-                                getLanguageDescription(),
-                                changedFiles.size(),
-                                duration);
-                        return result;
+                        int changedCount = changedFiles.size();
+                        logger.debug(
+                                "Starting incremental update: {} files for {}",
+                                changedCount,
+                                getLanguageDescription());
+                        try {
+                            return incAnalyzer.update(changedFiles);
+                        } finally {
+                            long duration = System.currentTimeMillis() - startTime;
+                            logger.info(
+                                    "Library ingestion: {} analyzer processed {} files in {}ms",
+                                    getLanguageDescription(),
+                                    changedCount,
+                                    duration);
+                        }
                     })
                     .orElse(analyzer);
         } catch (InterruptedException | ExecutionException e) {
