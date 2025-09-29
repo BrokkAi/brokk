@@ -7,8 +7,12 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.WandConsoleIO;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 public class WandAction {
@@ -16,6 +20,41 @@ public class WandAction {
 
     public WandAction(ContextManager contextManager) {
         this.contextManager = contextManager;
+    }
+
+    public void execute(
+            Supplier<String> promptSupplier,
+            Consumer<String> promptConsumer,
+            IConsoleIO chromeIO,
+            JTextArea instructionsArea) {
+        var original = promptSupplier.get();
+        if (original.isBlank()) {
+            chromeIO.toolError("Please enter a prompt to refine");
+            return;
+        }
+
+        contextManager.submitLlmAction(() -> {
+            try {
+                var wandIo = new WandConsoleIO(instructionsArea, chromeIO);
+                @Nullable String refined = refinePrompt(original, wandIo);
+
+                if (refined == null) { // error case
+                    SwingUtilities.invokeLater(() -> promptConsumer.accept(original));
+                    return;
+                }
+
+                if (!refined.isBlank()) {
+                    SwingUtilities.invokeLater(() -> promptConsumer.accept(refined));
+                } else {
+                    SwingUtilities.invokeLater(() -> {
+                        instructionsArea.setEnabled(true);
+                        instructionsArea.requestFocusInWindow();
+                    });
+                }
+            } catch (InterruptedException e) {
+                SwingUtilities.invokeLater(() -> promptConsumer.accept(original));
+            }
+        });
     }
 
     public @Nullable String refinePrompt(String originalPrompt, IConsoleIO consoleIO) throws InterruptedException {

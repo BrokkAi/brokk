@@ -1863,39 +1863,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /** Handler for the Wand button: silently refine the prompt in the background and replace the input. */
     private void onWandPressed() {
-        var original = getInstructions();
-        if (original.isBlank()) {
-            chrome.toolError("Please enter a prompt to refine");
-            return;
-        }
-
-        var cm = chrome.getContextManager();
-        // Run wand as a cancelable user action; Stop button cancels it. No history, no spinner.
-        cm.submitLlmAction(() -> {
-            try {
-                var wandAction = new WandAction(cm);
-                var wandIo = new WandConsoleIO();
-                @Nullable String refined = wandAction.refinePrompt(original, wandIo);
-
-                if (refined == null) { // error case
-                    SwingUtilities.invokeLater(() -> populateInstructionsArea(original));
-                    return;
-                }
-
-                if (!refined.isBlank()) {
-                    SwingUtilities.invokeLater(() -> populateInstructionsArea(refined));
-                } else {
-                    // No final refined text returned; keep streamed content but re-enable editing.
-                    SwingUtilities.invokeLater(() -> {
-                        instructionsArea.setEnabled(true);
-                        instructionsArea.requestFocusInWindow();
-                    });
-                }
-            } catch (InterruptedException e) {
-                logger.debug("Prompt enhancement interrupted", e);
-                populateInstructionsArea(original);
-            }
-        });
+        var wandAction = new WandAction(contextManager);
+        wandAction.execute(this::getInstructions, this::populateInstructionsArea, chrome, instructionsArea);
     }
 
     public @Nullable Future<TaskResult> runSearchCommand() {
@@ -2361,53 +2330,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         public void applyTheme(GuiTheme guiTheme) {
             // Delegate to the two-argument variant with a sensible default for wordWrap.
             applyTheme(guiTheme, false);
-        }
-    }
-
-    private class WandConsoleIO implements IConsoleIO {
-        private boolean hasStartedContent = false;
-        private boolean lastWasReasoning = true;
-
-        public WandConsoleIO() {
-            SwingUtilities.invokeLater(() -> {
-                instructionsArea.setEnabled(false);
-                instructionsArea.setText("Improving your prompt...\n\n");
-                instructionsArea.setCaretPosition(instructionsArea.getText().length());
-            });
-        }
-
-        @Override
-        public void llmOutput(
-                String token,
-                dev.langchain4j.data.message.ChatMessageType type,
-                boolean isNewMessage,
-                boolean isReasoning) {
-            if (!isReasoning && lastWasReasoning && !hasStartedContent) {
-                // Transition from reasoning to content: clear the area first
-                SwingUtilities.invokeLater(() -> instructionsArea.setText(""));
-                hasStartedContent = true;
-            } else if (isReasoning && !lastWasReasoning) {
-                // Illegal transition back to reasoning
-                throw new IllegalStateException("Wand stream switched from non-reasoning to reasoning");
-            }
-
-            if (!token.isEmpty()) {
-                SwingUtilities.invokeLater(() -> {
-                    instructionsArea.append(token);
-                    instructionsArea.setCaretPosition(instructionsArea.getText().length());
-                });
-            }
-            lastWasReasoning = isReasoning;
-        }
-
-        @Override
-        public void toolError(String message, String title) {
-            chrome.toolError(message, title);
-        }
-
-        @Override
-        public java.util.List<ChatMessage> getLlmRawMessages() {
-            return List.of();
         }
     }
 
