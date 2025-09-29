@@ -40,6 +40,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private JScrollPane scrollPane;
     private RSyntaxTextArea editor;
     private JMHighlighter jmHighlighter;
+    private DiffGutterComponent gutterComponent;
 
     @Nullable
     private BufferDocumentIF bufferDocument;
@@ -125,9 +126,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         editor.addFocusListener(getFocusListener());
         // Undo listener will be added in setBufferDocument when editor is active
 
+        // Create gutter component for side-by-side mode
+        gutterComponent = new DiffGutterComponent(editor, DiffGutterComponent.DisplayMode.SIDE_BY_SIDE_SINGLE);
+        gutterComponent.setDarkTheme(diffPanel.isDarkTheme());
+
         // Wrap editor inside a scroll pane with optimized scrolling
         scrollPane = new JScrollPane(editor);
         scrollPane.getViewport().setScrollMode(JViewport.BLIT_SCROLL_MODE);
+
+        // Set the gutter component as the row header
+        scrollPane.setRowHeaderView(gutterComponent);
 
         // If the document is "ORIGINAL", reposition the scrollbar to the left
         if (BufferDocumentIF.ORIGINAL.equals(name)) {
@@ -710,6 +718,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             if (editor.getHighlighter() instanceof ThemeAware high) {
                 high.applyTheme(guiTheme);
             }
+
+            // Apply theme to the gutter component
+            gutterComponent.setDarkTheme(guiTheme.isDarkTheme());
+
             theme.apply(editor);
             reDisplay();
         });
@@ -723,6 +735,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     /** Provide access to the parent diff panel for DeltaHighlighter. */
     public BufferDiffPanel getDiffPanel() {
         return diffPanel;
+    }
+
+    /** Provide access to the gutter component for setting diff highlights. */
+    public DiffGutterComponent getGutterComponent() {
+        return gutterComponent;
     }
 
     private void removeHighlights() {
@@ -858,7 +875,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     private void initConfiguration() {
         Font font = new Font("Arial", Font.PLAIN, 14);
-        editor.setBorder(new LineNumberBorder(this));
+        // LineNumberBorder is no longer used - gutter component handles line numbers
         FontMetrics fm = editor.getFontMetrics(font);
         scrollPane.getHorizontalScrollBar().setUnitIncrement(fm.getHeight());
 
@@ -1149,14 +1166,50 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     public static class LeftScrollPaneLayout extends ScrollPaneLayout {
         @Override
         public void layoutContainer(Container parent) {
-            ComponentOrientation originalOrientation;
-
-            // Dirty trick to get the vertical scrollbar to the left side of
-            //  a scroll-pane.
-            originalOrientation = parent.getComponentOrientation();
-            parent.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
+            // First, do default layout (gutter left, scrollbar right)
             super.layoutContainer(parent);
-            parent.setComponentOrientation(originalOrientation);
+
+            if (!(parent instanceof JScrollPane scrollPane)) {
+                return;
+            }
+
+            // Get components
+            var vsb = scrollPane.getVerticalScrollBar();
+            var viewport = scrollPane.getViewport();
+            var rowHeader = scrollPane.getRowHeader();
+
+            if (vsb == null || viewport == null) {
+                return;
+            }
+
+            // Get current bounds from default layout
+            var vsbBounds = vsb.getBounds();
+            var viewportBounds = viewport.getBounds();
+
+            // Only proceed if scrollbar is visible
+            if (vsbBounds.width == 0) {
+                return;
+            }
+
+            // Move scrollbar to left edge (x=0)
+            vsb.setBounds(0, vsbBounds.y, vsbBounds.width, vsbBounds.height);
+
+            // Shift row header right by scrollbar width (if present)
+            if (rowHeader != null) {
+                var rowHeaderBounds = rowHeader.getBounds();
+                rowHeader.setBounds(
+                        rowHeaderBounds.x + vsbBounds.width,
+                        rowHeaderBounds.y,
+                        rowHeaderBounds.width,
+                        rowHeaderBounds.height);
+            }
+
+            // Shift viewport right by scrollbar width and reduce its width
+            viewport.setBounds(
+                    viewportBounds.x + vsbBounds.width,
+                    viewportBounds.y,
+                    viewportBounds.width - vsbBounds.width,
+                    viewportBounds.height);
         }
     }
 

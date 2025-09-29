@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.ui.CompositeHighlighter;
+import io.github.jbellis.brokk.difftool.ui.DiffGutterComponent;
 import io.github.jbellis.brokk.difftool.ui.JMHighlighter;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -51,7 +52,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     private UnifiedDiffDocument unifiedDocument;
 
     @Nullable
-    private UnifiedDiffLineNumberList customLineNumberList;
+    private DiffGutterComponent customLineNumberList;
 
     private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
@@ -136,7 +137,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         scrollPane.setFoldIndicatorEnabled(false);
 
         // Create custom line number list for unified diff
-        customLineNumberList = new UnifiedDiffLineNumberList(textArea);
+        customLineNumberList = new DiffGutterComponent(textArea, DiffGutterComponent.DisplayMode.UNIFIED_DUAL_COLUMN);
 
         // Set the line number component as the row header for scroll synchronization
         scrollPane.setRowHeaderView(customLineNumberList);
