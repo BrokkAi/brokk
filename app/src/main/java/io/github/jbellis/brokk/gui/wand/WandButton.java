@@ -1,8 +1,7 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.wand;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.agents.WandAction;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.util.function.Consumer;

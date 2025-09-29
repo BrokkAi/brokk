@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.agents;
+package io.github.jbellis.brokk.gui.wand;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -7,7 +7,6 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.gui.wand.WandConsoleIO;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
