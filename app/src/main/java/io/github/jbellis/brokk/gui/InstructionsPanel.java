@@ -1877,6 +1877,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 onWanPressedInternal(cm, original);
             } catch (InterruptedException e) {
                 logger.debug("Prompt enhancement interrupted", e);
+                populateInstructionsArea(original);
             }
         });
     }
