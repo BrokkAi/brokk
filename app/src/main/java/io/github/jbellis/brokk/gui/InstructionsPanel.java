@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.agents.WandAction;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -1874,83 +1875,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Run wand as a cancelable user action; Stop button cancels it. No history, no spinner.
         cm.submitLlmAction(() -> {
             try {
-                onWanPressedInternal(cm, original);
+                var wandAction = new WandAction(cm);
+                var wandIo = new WandConsoleIO();
+                @Nullable String refined = wandAction.refinePrompt(original, wandIo);
+
+                if (refined == null) { // error case
+                    SwingUtilities.invokeLater(() -> populateInstructionsArea(original));
+                    return;
+                }
+
+                if (!refined.isBlank()) {
+                    SwingUtilities.invokeLater(() -> populateInstructionsArea(refined));
+                } else {
+                    // No final refined text returned; keep streamed content but re-enable editing.
+                    SwingUtilities.invokeLater(() -> {
+                        instructionsArea.setEnabled(true);
+                        instructionsArea.requestFocusInWindow();
+                    });
+                }
             } catch (InterruptedException e) {
                 logger.debug("Prompt enhancement interrupted", e);
                 populateInstructionsArea(original);
             }
         });
-    }
-
-    private void onWanPressedInternal(ContextManager cm, String original) throws InterruptedException {
-        var service = cm.getService();
-        var model = service.getWandModel(); // pick best-available low-latency model
-
-        String instruction =
-                """
-                <workspace_summary>
-                %s
-                </workspace_summary>
-
-                <draft_prompt>>
-                %s
-                </draft_prompt>
-
-                <goal>
-                Take the draft prompt and rewrite it so it is:
-                - Clear
-                - Concise
-                - Structured
-                - Leverages information from the Workspace but without speculating beyond what you know for sure
-
-                Output only the improved prompt.
-                </goal>
-                """
-                        .formatted(ContextFragment.getSummary(cm.topContext().allFragments()), original);
-
-        // Stream to custom tooltip-updating IConsoleIO
-        Llm llm = cm.getLlm(model, "Refine Prompt", false);
-        var wandIo = new WandConsoleIO();
-        llm.setOutput(wandIo);
-        List<ChatMessage> req = List.of(
-                new SystemMessage("You are a Prompt Refiner for coding instructions."), new UserMessage(instruction));
-        Llm.StreamingResult res = llm.sendRequest(req, true);
-
-        // On error, restore original and re-enable input
-        if (res.error() != null) {
-            SwingUtilities.invokeLater(() -> populateInstructionsArea(original));
-            return;
-        }
-
-        // Sanitize refined text
-        String refined = res.text().trim();
-        if (refined.startsWith("```")) {
-            int start = refined.indexOf('\n');
-            int endFence = refined.lastIndexOf("```");
-            if (start >= 0 && endFence > start) {
-                refined = refined.substring(start + 1, endFence).trim();
-            } else {
-                refined = refined.replace("```", "").trim();
-            }
-        }
-        var lowered = refined.toLowerCase(Locale.ROOT);
-        if (lowered.startsWith("improved prompt:")) {
-            int idx = refined.indexOf(':');
-            if (idx >= 0 && idx + 1 < refined.length()) {
-                refined = refined.substring(idx + 1).trim();
-            }
-        }
-
-        if (!refined.isBlank()) {
-            String finalRefined = refined;
-            SwingUtilities.invokeLater(() -> populateInstructionsArea(finalRefined));
-        } else {
-            // No final refined text returned; keep streamed content but re-enable editing.
-            SwingUtilities.invokeLater(() -> {
-                instructionsArea.setEnabled(true);
-                instructionsArea.requestFocusInWindow();
-            });
-        }
     }
 
     public @Nullable Future<TaskResult> runSearchCommand() {
