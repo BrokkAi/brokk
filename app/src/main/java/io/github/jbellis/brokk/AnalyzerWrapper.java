@@ -21,6 +21,10 @@ import org.jetbrains.annotations.Nullable;
 
 public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
+    // Incremental update bounding: tune these as needed
+    private static final int INC_UPDATE_BATCH_SIZE = 500;            // files per chunk
+    private static final int INC_UPDATE_CHUNK_THRESHOLD = 1000;      // start chunking above this many files
+    private static final int INC_UPDATE_SHORTCIRCUIT_THRESHOLD = 5000; // short-circuit to full rescan above this many files
 
     public static final String ANALYZER_BUSY_MESSAGE =
             "Code Intelligence is still being built. Please wait until completion.";
@@ -513,21 +517,82 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             final var analyzer = future.get();
             currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
                     .map(incAnalyzer -> {
-                        long startTime = System.currentTimeMillis();
-                        int changedCount = changedFiles.size();
-                        logger.debug(
-                                "Starting incremental update: {} files for {}",
-                                changedCount,
-                                getLanguageDescription());
+                        final int changedCount = changedFiles.size();
+                        final String langDesc = getLanguageDescription();
+                        logger.debug("Starting incremental update: {} files for {}", changedCount, langDesc);
+                        final long overallStart = System.currentTimeMillis();
                         try {
-                            return incAnalyzer.update(changedFiles);
-                        } finally {
-                            long duration = System.currentTimeMillis() - startTime;
+                            // Extremely large set: short-circuit to analyzer-driven full incremental rescan
+                            if (changedCount >= INC_UPDATE_SHORTCIRCUIT_THRESHOLD) {
+                                logger.warn(
+                                        "Incremental update short-circuited: {} files >= {}, running full incremental rescan",
+                                        changedCount,
+                                        INC_UPDATE_SHORTCIRCUIT_THRESHOLD);
+                                final long start = System.currentTimeMillis();
+                                IAnalyzer result = incAnalyzer.update();
+                                final long dur = System.currentTimeMillis() - start;
+                                logger.info(
+                                        "Library ingestion: {} analyzer full incremental rescan for {} files took {}ms",
+                                        langDesc,
+                                        changedCount,
+                                        dur);
+                                return result;
+                            }
+
+                            // Large set: process in batches to avoid long stalls
+                            if (changedCount >= INC_UPDATE_CHUNK_THRESHOLD) {
+                                logger.debug(
+                                        "Chunking incremental update: {} files in batches of {}",
+                                        changedCount,
+                                        INC_UPDATE_BATCH_SIZE);
+                                IAnalyzer result = null;
+                                long total = 0L;
+                                int idx = 0;
+
+                                // Establish a deterministic iteration order for chunking
+                                var ordered = (changedFiles instanceof java.util.List)
+                                        ? (java.util.List<ProjectFile>) changedFiles
+                                        : new java.util.ArrayList<>(changedFiles);
+
+                                final int totalFiles = ordered.size();
+                                while (idx < totalFiles) {
+                                    int end = Math.min(idx + INC_UPDATE_BATCH_SIZE, totalFiles);
+                                    var batch = new java.util.HashSet<ProjectFile>(ordered.subList(idx, end));
+                                    final long start = System.currentTimeMillis();
+                                    result = incAnalyzer.update(batch);
+                                    final long dur = System.currentTimeMillis() - start;
+                                    total += dur;
+                                    logger.info(
+                                            "Library ingestion: {} analyzer processed chunk {}-{} of {} ({} files) in {}ms",
+                                            langDesc,
+                                            idx,
+                                            end,
+                                            totalFiles,
+                                            batch.size(),
+                                            dur);
+                                    idx = end;
+                                }
+                                logger.info(
+                                        "Library ingestion: {} analyzer processed {} files in {}ms across chunks",
+                                        langDesc,
+                                        changedCount,
+                                        total);
+                                return (result != null) ? result : analyzer;
+                            }
+
+                            // Small/medium set: single-shot incremental update
+                            final long start = System.currentTimeMillis();
+                            IAnalyzer result = incAnalyzer.update(changedFiles);
+                            final long dur = System.currentTimeMillis() - start;
                             logger.info(
                                     "Library ingestion: {} analyzer processed {} files in {}ms",
-                                    getLanguageDescription(),
+                                    langDesc,
                                     changedCount,
-                                    duration);
+                                    dur);
+                            return result;
+                        } finally {
+                            final long overall = System.currentTimeMillis() - overallStart;
+                            logger.debug("Incremental update complete in {}ms ({})", overall, langDesc);
                         }
                     })
                     .orElse(analyzer);
