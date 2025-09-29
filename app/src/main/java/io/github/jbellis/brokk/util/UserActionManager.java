@@ -96,8 +96,6 @@ public class UserActionManager {
             cancelableThread.set(Thread.currentThread());
             io.disableActionButtons();
 
-            io.blockLlmOutput(true);
-
             try {
                 task.run();
             } catch (InterruptedException ie) {
@@ -112,7 +110,6 @@ public class UserActionManager {
                 Thread.interrupted();
                 io.actionComplete();
                 io.enableActionButtons();
-                io.blockLlmOutput(false);
             }
         });
     }
@@ -125,8 +122,6 @@ public class UserActionManager {
         return userExecutor.submit(() -> {
             cancelableThread.set(Thread.currentThread());
             io.disableActionButtons();
-
-            io.blockLlmOutput(true);
 
             try {
                 var result = task.call();
@@ -143,7 +138,6 @@ public class UserActionManager {
                 Thread.interrupted();
                 io.actionComplete();
                 io.enableActionButtons();
-                io.blockLlmOutput(false);
             }
         });
     }

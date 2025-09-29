@@ -1820,12 +1820,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Begin a new aggregating scope with explicit compress-at-commit semantics. */
     public TaskScope beginTask(String action, String input, boolean compressAtCommit) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
-        var modeMarker = (action + " MODE").toUpperCase(java.util.Locale.ROOT);
-        var messages = List.<ChatMessage>of(new UserMessage(modeMarker));
+        var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
         var history = topContext().getTaskHistory();
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
-        io.llmOutput(input, ChatMessageType.USER);
 
         return new TaskScope(compressAtCommit);
     }
@@ -1837,6 +1835,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private boolean closed = false;
 
         private TaskScope(boolean compressAtCommit) {
+            io.blockLlmOutput(true);
             this.compressAtCommit = compressAtCommit;
             this.results = new ArrayList<>();
         }
@@ -1854,51 +1853,53 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void close() {
             if (closed) return;
             closed = true;
+            try {
+                if (results.isEmpty()) {
+                    return;
+                }
 
-            if (results.isEmpty()) {
-                return;
+                if (results.size() == 1) {
+                    // Use the exact unchanged TaskResult if only one was appended
+                    pushFinalHistory(results.get(0), compressAtCommit);
+                    return;
+                }
+
+                // Aggregate if there are multiple TaskResults
+                var aggregatedFiles =
+                        results.stream().flatMap(r -> r.changedFiles().stream()).collect(Collectors.toSet());
+
+                var lastStop = results.getLast().stopDetails();
+
+                // Aggregate all messages across results (input are expected to be the first message)
+                var aggregatedMessages = results.stream()
+                        .flatMap(r -> r.output().messages().stream())
+                        .toList();
+
+                // Build action description from first UserMessage and the last AiMessage
+                var firstTwoUsers = aggregatedMessages.stream()
+                        .filter(m -> m instanceof UserMessage)
+                        .limit(1)
+                        .toList();
+
+                var lastAiOpt = IntStream.iterate(aggregatedMessages.size() - 1, i -> i - 1)
+                        .limit(aggregatedMessages.size())
+                        .mapToObj(aggregatedMessages::get)
+                        .filter(m -> m instanceof AiMessage)
+                        .findFirst();
+
+                var selected = new ArrayList<>(firstTwoUsers);
+                lastAiOpt.ifPresent(selected::add);
+
+                var decoratedAction = selected.isEmpty()
+                        ? "Aggregated task"
+                        : selected.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
+
+                var finalResult =
+                        new TaskResult(ContextManager.this, decoratedAction, aggregatedMessages, aggregatedFiles, lastStop);
+                pushFinalHistory(finalResult, compressAtCommit);
+            } finally {
+                io.blockLlmOutput(false);
             }
-
-            if (results.size() == 1) {
-                // Use the exact unchanged TaskResult if only one was appended
-                pushFinalHistory(results.get(0), compressAtCommit);
-                return;
-            }
-
-            // Aggregate if there are multiple TaskResults
-            var aggregatedFiles =
-                    results.stream().flatMap(r -> r.changedFiles().stream()).collect(Collectors.toSet());
-
-            var lastStop = results.getLast().stopDetails();
-
-            // Aggregate all messages across results (mode marker and input are expected to be the first two user
-            // messages)
-            var aggregatedMessages = results.stream()
-                    .flatMap(r -> r.output().messages().stream())
-                    .toList();
-
-            // Build action description from first two UserMessages and the last AiMessage
-            var firstTwoUsers = aggregatedMessages.stream()
-                    .filter(m -> m instanceof UserMessage)
-                    .limit(2)
-                    .toList();
-
-            var lastAiOpt = IntStream.iterate(aggregatedMessages.size() - 1, i -> i - 1)
-                    .limit(aggregatedMessages.size())
-                    .mapToObj(aggregatedMessages::get)
-                    .filter(m -> m instanceof AiMessage)
-                    .findFirst();
-
-            var selected = new ArrayList<>(firstTwoUsers);
-            lastAiOpt.ifPresent(selected::add);
-
-            var decoratedAction = selected.isEmpty()
-                    ? "Aggregated task"
-                    : selected.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
-
-            var finalResult =
-                    new TaskResult(ContextManager.this, decoratedAction, aggregatedMessages, aggregatedFiles, lastStop);
-            pushFinalHistory(finalResult, compressAtCommit);
         }
     }
 
