@@ -77,6 +77,9 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
         addMouseMotionListener(getMouseMotionListener());
         addMouseWheelListener(getMouseWheelListener());
 
+        // Enable tooltips for this component
+        ToolTipManager.sharedInstance().registerComponent(this);
+
         initSettings();
     }
 
@@ -617,6 +620,24 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
         };
     }
 
+    /**
+     * Provides dynamic tooltips for chevrons based on mouse position.
+     *
+     * @param event MouseEvent containing the current mouse position
+     * @return Tooltip text describing the action, or null if not over a chevron
+     */
+    @Nullable
+    @Override
+    public String getToolTipText(MouseEvent event) {
+        // Check which command (if any) the mouse is over (reversed for topmost first)
+        return commands.reversed().stream()
+                .filter(cmd -> cmd.contains(event.getX(), event.getY()))
+                .filter(cmd -> cmd instanceof DiffChangeCommand)
+                .findFirst()
+                .map(cmd -> "Apply chunk")
+                .orElse(null);
+    }
+
     // --- Command Classes ---
 
     /** Base class for clickable shapes. Holds the shape and the associated delta. */
@@ -641,8 +662,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
 
     /** A click command that merges changes between panels. */
     class DiffChangeCommand extends Command {
-        private final int sourcePanelIndex;
-        private final int targetPanelIndex;
+        final int sourcePanelIndex;
+        final int targetPanelIndex;
 
         /**
          * @param shape Shape to click
