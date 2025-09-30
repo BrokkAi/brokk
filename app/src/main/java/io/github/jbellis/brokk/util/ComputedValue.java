@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -35,6 +36,7 @@ public final class ComputedValue<T> {
 
     private final String name;
     private final Supplier<T> supplier;
+    private final @Nullable Executor executor;
 
     // Guarded by 'this' during transitions
     private volatile boolean started = false;
@@ -47,7 +49,7 @@ public final class ComputedValue<T> {
      * @param eagerStart if true, start immediately
      */
     public ComputedValue(Supplier<T> supplier, boolean eagerStart) {
-        this("value", supplier, eagerStart);
+        this("value", supplier, eagerStart, null);
     }
 
     /**
@@ -58,8 +60,21 @@ public final class ComputedValue<T> {
      * @param eagerStart if true, start immediately
      */
     public ComputedValue(String name, Supplier<T> supplier, boolean eagerStart) {
+        this(name, supplier, eagerStart, null);
+    }
+
+    /**
+     * Create and optionally eager-start the computation with a predictable name for the thread.
+     *
+     * @param name       used in the worker thread name; not null/blank
+     * @param supplier   computation to run
+     * @param eagerStart if true, start immediately
+     * @param executor   optional executor on which to run the supplier; if null, a dedicated daemon thread is used
+     */
+    public ComputedValue(String name, Supplier<T> supplier, boolean eagerStart, @Nullable Executor executor) {
         this.name = name.isBlank() ? "value" : name;
         this.supplier = supplier;
+        this.executor = executor;
         if (eagerStart) {
             ensureStarted();
         }
@@ -150,7 +165,7 @@ public final class ComputedValue<T> {
             var f = new CompletableFuture<T>();
             futureRef = f;
             String threadName = "cv-" + name + "-" + SEQ.incrementAndGet();
-            var t = new Thread(() -> {
+            Runnable task = () -> {
                 try {
                     var value = supplier.get();
                     f.complete(value);
@@ -162,9 +177,21 @@ public final class ComputedValue<T> {
                     }
                     logger.debug("ComputedValue supplier for {} failed: {}", name, ex.toString());
                 }
-            }, threadName);
-            t.setDaemon(true);
-            t.start();
+            };
+            if (executor != null) {
+                try {
+                    executor.execute(task);
+                } catch (Throwable ex) {
+                    // Fallback to dedicated thread if executor rejects
+                    var t = new Thread(task, threadName);
+                    t.setDaemon(true);
+                    t.start();
+                }
+            } else {
+                var t = new Thread(task, threadName);
+                t.setDaemon(true);
+                t.start();
+            }
         }
     }
 }

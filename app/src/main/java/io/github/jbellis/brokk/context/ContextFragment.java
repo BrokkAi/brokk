@@ -932,46 +932,57 @@ public interface ContextFragment {
 
     abstract class PasteFragment extends ContextFragment.VirtualFragment {
         protected transient Future<String> descriptionFuture;
+        private final ComputedValue<String> descriptionCv;
 
         // PasteFragments are non-dynamic (content-hashed)
         // The hash will be based on the initial text/image data, not the future description.
         public PasteFragment(String id, IContextManager contextManager, Future<String> descriptionFuture) {
             super(id, contextManager);
             this.descriptionFuture = descriptionFuture;
+            // eagerly compute description using background executor
+            this.descriptionCv = new ComputedValue<>(
+                    "paste-desc-" + id,
+                    () -> {
+                        try {
+                            return "Paste of " + descriptionFuture.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    true,
+                    contextManager.getBackgroundTasks());
         }
 
         @Override
         public boolean isDynamic() {
             // technically is dynamic b/c of Future but it is simpler to treat as non-dynamic, we can live with the
-            // corner case
-            // of the Future timing out in rare error scenarios
+            // corner case of the Future timing out in rare error scenarios
             return false;
         }
 
         @Override
         public String description() {
-            if (descriptionFuture.isDone()) {
-                try {
-                    return "Paste of " + descriptionFuture.get();
-                } catch (Exception e) {
-                    return "(Error summarizing paste)";
-                }
-            }
-            return "(Summarizing. This does not block LLM requests)";
+            return DynamicSupport.renderNowOr("(Loading...)", computedDescription());
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            return descriptionCv;
+        }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
         }
 
         @Override
         public String toString() {
             return "PasteFragment('%s')".formatted(description());
         }
-
-        public Future<String> getDescriptionFuture() {
-            return descriptionFuture;
-        }
     }
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
-        private final String text;
+        private final ComputedValue<String> textCv;
+        private final ComputedValue<String> syntaxCv;
         protected transient Future<String> syntaxStyleFuture;
 
         public PasteTextFragment(
@@ -988,8 +999,19 @@ public interface ContextFragment {
                             PasteTextFragment.class.getName()),
                     contextManager,
                     descriptionFuture);
-            this.text = text;
             this.syntaxStyleFuture = syntaxStyleFuture;
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.syntaxCv = new ComputedValue<>(
+                    "paste-syntax-" + id(),
+                    () -> {
+                        try {
+                            return syntaxStyleFuture.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    true,
+                    contextManager.getBackgroundTasks());
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1010,8 +1032,19 @@ public interface ContextFragment {
                 Future<String> descriptionFuture,
                 Future<String> syntaxStyleFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
-            this.text = text;
             this.syntaxStyleFuture = syntaxStyleFuture;
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.syntaxCv = new ComputedValue<>(
+                    "paste-syntax-" + id(),
+                    () -> {
+                        try {
+                            return syntaxStyleFuture.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    true,
+                    contextManager.getBackgroundTasks());
         }
 
         @Override
@@ -1021,19 +1054,22 @@ public interface ContextFragment {
 
         @Override
         public String syntaxStyle() {
-            if (syntaxStyleFuture.isDone()) {
-                try {
-                    return syntaxStyleFuture.get();
-                } catch (Exception e) {
-                    return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
-                }
-            }
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+            return DynamicSupport.renderNowOr(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, computedSyntaxStyle());
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return syntaxCv;
         }
 
         @Override
         public String text() {
-            return text;
+            return DynamicSupport.renderNowOr("(Loading...)", computedText());
+        }
+
+        @Override
+        public ComputedValue<String> computedText() {
+            return textCv;
         }
 
         public Future<String> getSyntaxStyleFuture() {
@@ -1048,6 +1084,7 @@ public interface ContextFragment {
 
     class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final Image image;
+        private final ComputedValue<byte[]> imageBytesCv;
 
         // Helper to get image bytes, might throw UncheckedIOException
         @Nullable
@@ -1075,6 +1112,11 @@ public interface ContextFragment {
                     contextManager,
                     descriptionFuture);
             this.image = image;
+            this.imageBytesCv = new ComputedValue<>(
+                    "paste-image-bytes-" + id(),
+                    () -> imageToBytes(image),
+                    true,
+                    contextManager.getBackgroundTasks());
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1082,6 +1124,11 @@ public interface ContextFragment {
                 String existingHashId, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
             this.image = image;
+            this.imageBytesCv = new ComputedValue<>(
+                    "paste-image-bytes-" + id(),
+                    () -> imageToBytes(image),
+                    true,
+                    contextManager.getBackgroundTasks());
         }
 
         @Override
@@ -1105,9 +1152,13 @@ public interface ContextFragment {
             return image;
         }
 
-        @Nullable
-        public byte[] imageBytes() {
-            return imageToBytes(image);
+        public @Nullable byte[] imageBytes() {
+            return imageBytesCv.tryGet().orElse(null);
+        }
+
+        @Override
+        public ComputedValue<byte[]> computedImageBytes() {
+            return imageBytesCv;
         }
 
         @Override
@@ -1129,18 +1180,6 @@ public interface ContextFragment {
         @Override
         public Set<ProjectFile> files() {
             return Set.of();
-        }
-
-        @Override
-        public String description() {
-            if (descriptionFuture.isDone()) {
-                try {
-                    return descriptionFuture.get();
-                } catch (Exception e) {
-                    return "(Error summarizing paste)";
-                }
-            }
-            return "(Summarizing. This does not block LLM requests)";
         }
 
         @Override
