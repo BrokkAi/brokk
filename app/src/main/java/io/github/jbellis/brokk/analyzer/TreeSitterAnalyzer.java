@@ -2519,23 +2519,40 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        // new or modified files
-        for (ProjectFile pf : currentFiles) {
-            try {
+        // new or modified files (parallelized)
+        int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
+        var concurrentChanged = ConcurrentHashMap.<ProjectFile>newKeySet();
+
+        try (var detectExecutor =
+                ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-detect-")) {
+            List<CompletableFuture<?>> futures = new ArrayList<>();
+            for (ProjectFile pf : currentFiles) {
                 if (!knownFiles.contains(pf)) {
                     // New file we have not seen before
-                    changed.add(pf);
+                    concurrentChanged.add(pf);
                     continue;
                 }
-                long mtimeNanos = Files.getLastModifiedTime(pf.absPath()).to(TimeUnit.NANOSECONDS);
-                if (mtimeNanos > threshold) {
-                    changed.add(pf);
-                }
-            } catch (IOException e) {
-                log.warn("Could not stat {}: {}", pf, e.getMessage());
-                changed.add(pf); // treat as changed; will retry next time
+
+                futures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        long mtimeNanos =
+                                Files.getLastModifiedTime(pf.absPath()).to(TimeUnit.NANOSECONDS);
+                        if (mtimeNanos > threshold) {
+                            concurrentChanged.add(pf);
+                        }
+                    } catch (IOException e) {
+                        log.warn("Could not stat {}: {}", pf, e.getMessage());
+                        concurrentChanged.add(pf); // treat as changed; will retry next time
+                    }
+                }, detectExecutor));
+            }
+
+            if (!futures.isEmpty()) {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }
         }
+
+        changed.addAll(concurrentChanged);
 
         long detectMs = System.currentTimeMillis() - detectStartMs;
 
