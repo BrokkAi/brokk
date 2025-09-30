@@ -23,9 +23,10 @@ import org.jetbrains.annotations.Nullable;
 public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
     // Incremental update bounding: tune these as needed
-    private static final int INC_UPDATE_BATCH_SIZE = 500;            // files per chunk
-    private static final int INC_UPDATE_CHUNK_THRESHOLD = 1000;      // start chunking above this many files
-    private static final int INC_UPDATE_SHORTCIRCUIT_THRESHOLD = 5000; // short-circuit to full rescan above this many files
+    private static final int INC_UPDATE_BATCH_SIZE = 500; // files per chunk
+    private static final int INC_UPDATE_CHUNK_THRESHOLD = 1000; // start chunking above this many files
+    private static final int INC_UPDATE_SHORTCIRCUIT_THRESHOLD =
+            5000; // short-circuit to full rescan above this many files
 
     public static final String ANALYZER_BUSY_MESSAGE =
             "Code Intelligence is still being built. Please wait until completion.";

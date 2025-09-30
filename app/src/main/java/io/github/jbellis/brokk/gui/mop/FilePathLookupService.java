@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui.mop;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.mop.FilePathResult.*;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -281,10 +280,7 @@ public class FilePathLookupService {
 
     /** Find all files with matching filename in the project (via cached index, no disk walk). */
     private static List<ProjectFileMatch> findFilesByName(
-            String filename,
-            @Nullable Integer lineNumber,
-            @Nullable LineRange lineRange,
-            CachedIndex index) {
+            String filename, @Nullable Integer lineNumber, @Nullable LineRange lineRange, CachedIndex index) {
         var matches = new ArrayList<ProjectFileMatch>();
         var candidates = index.byName.get(filename);
         if (candidates == null || candidates.isEmpty()) {

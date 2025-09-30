@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
