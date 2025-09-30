@@ -1426,6 +1426,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * Compute vertical padding to center content within a cell of a given minimum height.
      * If contentHeight >= minHeight, returns zero padding.
      * Otherwise splits the extra space between top and bottom, with top = floor(extra/2).
+     *
+     * Rationale: we center by applying a dynamic EmptyBorder to the JTextArea rather than
+     * changing layout managers or using HTML labels. This preserves the JTextArea's word-wrap
+     * behavior and keeps rendering lightweight, which is important for large lists.
      */
     static Insets verticalPaddingForCell(int contentHeight, int minHeight) {
         int extra = minHeight - contentHeight;
@@ -1624,12 +1628,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             int available = Math.max(1, width - checkboxRegionWidth - 8);
             textArea.setSize(available, Short.MAX_VALUE);
             int prefH = textArea.getPreferredSize().height;
-            // Ensure minimum height to show full checkbox icon (guard to preserve wrapping behavior)
+            // Ensure minimum height to show full checkbox icon and preserve wrapping behavior.
+            // Guard against regressions: do not change this formula; minHeight must remain Math.max(prefH, 48).
             int minHeight = Math.max(prefH, 48);
-            assert minHeight >= 48 && minHeight >= prefH : "minHeight must be max(prefH, 48)";
+            assert minHeight == Math.max(prefH, 48) : "minHeight must remain Math.max(prefH, 48) to keep wrapping stable";
             this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, minHeight));
 
-            // Vertically center the text within the row by applying top/bottom padding
+            // Vertically center the text within the row by applying top/bottom padding.
+            // We intentionally use a dynamic EmptyBorder instead of changing layouts or using HTML,
+            // to preserve JTextArea word-wrap and keep rendering fast and stable.
             Insets pad = verticalPaddingForCell(prefH, minHeight);
             // Avoid overlay side-effects when inline editor is active
             if (isEditingRow) {
