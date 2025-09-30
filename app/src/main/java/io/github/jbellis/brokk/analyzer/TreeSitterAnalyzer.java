@@ -2568,42 +2568,124 @@ public abstract class TreeSitterAnalyzer
 
         topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
 
+        // Merge codeUnitsBySymbol with no-op checks to avoid allocations
         analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
             symbolIndex.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
                 if (existing == null) {
                     return List.copyOf(cus);
                 }
-                var merged = new ArrayList<>(existing);
-                cus.stream().filter(c -> !merged.contains(c)).forEach(merged::add);
+                if (cus.isEmpty()) {
+                    return existing; // nothing to add
+                }
+                boolean changed = false;
+                for (CodeUnit cu : cus) {
+                    if (!existing.contains(cu)) {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (!changed) {
+                    return existing;
+                }
+                var merged = new ArrayList<CodeUnit>(existing.size() + cus.size());
+                merged.addAll(existing);
+                for (CodeUnit cu : cus) {
+                    if (!merged.contains(cu)) {
+                        merged.add(cu);
+                    }
+                }
                 return List.copyOf(merged);
             });
         });
 
+        // Merge childrenByParent with no-op checks
         analysisResult
                 .children()
                 .forEach((parent, newKids) ->
                         childrenByParent.compute(parent, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                            if (existing == null) return newKids;
-                            var merged = new ArrayList<>(existing);
-                            newKids.stream().filter(k -> !merged.contains(k)).forEach(merged::add);
+                            if (existing == null) {
+                                return newKids;
+                            }
+                            if (newKids.isEmpty()) {
+                                return existing;
+                            }
+                            boolean changed = false;
+                            for (CodeUnit kid : newKids) {
+                                if (!existing.contains(kid)) {
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                            if (!changed) {
+                                return existing;
+                            }
+                            var merged = new ArrayList<CodeUnit>(existing.size() + newKids.size());
+                            merged.addAll(existing);
+                            for (CodeUnit kid : newKids) {
+                                if (!merged.contains(kid)) {
+                                    merged.add(kid);
+                                }
+                            }
                             return List.copyOf(merged);
                         }));
 
+        // Merge signatures with no-op checks
         analysisResult
                 .signatures()
                 .forEach((cu, newSigs) -> signatures.compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
-                    if (existing == null) return List.copyOf(newSigs);
-                    var merged = new ArrayList<>(existing);
-                    newSigs.stream().filter(s -> !merged.contains(s)).forEach(merged::add);
+                    if (existing == null) {
+                        return List.copyOf(newSigs);
+                    }
+                    if (newSigs.isEmpty()) {
+                        return existing;
+                    }
+                    boolean changed = false;
+                    for (String s : newSigs) {
+                        if (!existing.contains(s)) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                    if (!changed) {
+                        return existing;
+                    }
+                    var merged = new ArrayList<String>(existing.size() + newSigs.size());
+                    merged.addAll(existing);
+                    for (String s : newSigs) {
+                        if (!merged.contains(s)) {
+                            merged.add(s);
+                        }
+                    }
                     return List.copyOf(merged);
                 }));
 
+        // Merge sourceRanges with no-op checks
         analysisResult
                 .sourceRanges()
                 .forEach((cu, newRanges) -> sourceRanges.compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
-                    if (existing == null) return List.copyOf(newRanges);
-                    var merged = new ArrayList<>(existing);
-                    merged.addAll(newRanges);
+                    if (existing == null) {
+                        return List.copyOf(newRanges);
+                    }
+                    if (newRanges.isEmpty()) {
+                        return existing;
+                    }
+                    boolean changed = false;
+                    for (Range r : newRanges) {
+                        if (!existing.contains(r)) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                    if (!changed) {
+                        return existing;
+                    }
+                    var merged = new ArrayList<Range>(existing.size() + newRanges.size());
+                    merged.addAll(existing);
+                    for (Range r : newRanges) {
+                        if (!merged.contains(r)) {
+                            merged.add(r);
+                        }
+                    }
                     return List.copyOf(merged);
                 }));
     }
