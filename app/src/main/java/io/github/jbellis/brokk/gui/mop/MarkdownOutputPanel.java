@@ -124,8 +124,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     private void setMainIfChanged(List<? extends ChatMessage> newMessages) {
-        if (isBlocking()) {
-            logger.debug("Ignoring setMainIfChanged() while blocking is enabled.");
+        if (isBlocking() && !messages.isEmpty()) {
+            logger.debug("Ignoring setMainIfChanged() while blocking is enabled and content already exists.");
             return;
         }
         if (getRawMessages().equals(newMessages)) {
@@ -152,8 +152,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
      */
     public java.util.concurrent.CompletableFuture<Void> setMainThenHistoryAsync(
             List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
-        if (isBlocking()) {
-            logger.debug("Ignoring setMainThenHistoryAsync() while blocking is enabled.");
+        if (isBlocking() && !messages.isEmpty()) {
+            logger.debug("Ignoring setMainThenHistoryAsync() while blocking is enabled and content already exists.");
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         }
         setMainIfChanged(mainMessages);
