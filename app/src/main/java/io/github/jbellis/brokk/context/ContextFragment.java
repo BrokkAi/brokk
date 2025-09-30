@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
+import io.github.jbellis.brokk.util.ComputedValue;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.io.IOException;
@@ -714,7 +715,7 @@ public interface ContextFragment {
                 "Unsupported BrokkFile subtype: " + bf.getClass().getName());
     }
 
-    abstract class VirtualFragment implements ContextFragment {
+    abstract class VirtualFragment implements ContextFragment, DynamicFragment {
         protected final String id; // Changed from int to String
         protected final transient IContextManager contextManager;
 
@@ -786,6 +787,22 @@ public interface ContextFragment {
 
         @Override
         public abstract String text();
+
+        // DynamicFragment default adapters: completed views of current state
+        @Override
+        public ComputedValue<String> computedText() {
+            return ComputedValue.completed("fragment-text-" + id(), text());
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            return ComputedValue.completed("fragment-desc-" + id(), description());
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return ComputedValue.completed("fragment-syntax-" + id(), syntaxStyle());
+        }
 
         // Override equals and hashCode for proper comparison, especially for EMPTY
         @Override

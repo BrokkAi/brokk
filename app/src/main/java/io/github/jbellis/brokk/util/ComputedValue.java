@@ -66,6 +66,25 @@ public final class ComputedValue<T> {
     }
 
     /**
+     * Create an already-completed ComputedValue with a custom name. No worker thread is started.
+     */
+    public static <T> ComputedValue<T> completed(String name, @Nullable T value) {
+        var cv = new ComputedValue<T>(name, () -> value, false);
+        synchronized (cv) {
+            cv.started = true;
+            cv.futureRef = CompletableFuture.completedFuture(value);
+        }
+        return cv;
+    }
+
+    /**
+     * Create an already-completed ComputedValue with the default name. No worker thread is started.
+     */
+    public static <T> ComputedValue<T> completed(@Nullable T value) {
+        return completed("value", value);
+    }
+
+    /**
      * Non-blocking probe. Empty if not completed, or if completed exceptionally.
      */
     public Optional<T> tryGet() {
