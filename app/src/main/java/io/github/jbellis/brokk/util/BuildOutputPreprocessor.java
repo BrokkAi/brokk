@@ -235,11 +235,14 @@ public class BuildOutputPreprocessor {
             return originalOutput;
         }
 
-        var lines = Splitter.on('\n').splitToList(originalOutput);
+        var originalLines = Splitter.on('\n').splitToList(originalOutput);
+        var extractedLines = Splitter.on('\n').splitToList(extractedErrors);
         logger.info(
                 "Successfully extracted relevant errors from build output. "
-                        + "Reduced from {} lines to {} characters.",
-                lines.size(),
+                        + "Reduced from {} lines ({} chars) to {} lines ({} chars).",
+                originalLines.size(),
+                originalOutput.length(),
+                extractedLines.size(),
                 extractedErrors.length());
 
         return extractedErrors;
