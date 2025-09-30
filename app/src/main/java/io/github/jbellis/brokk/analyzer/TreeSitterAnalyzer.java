@@ -2466,7 +2466,7 @@ public abstract class TreeSitterAnalyzer
                                     }
                                 }
                                 symbolsTouchedCount.addAndGet(symbolsToPurge.size() + symbolsToUpdate.size());
-                                symbolsToUpdate.forEach(symbolIndex::put);
+                                symbolIndex.putAll(symbolsToUpdate);
                                 symbolsToPurge.forEach(symbolIndex::remove);
 
                                 childrenByParent.keySet().removeIf(fromFile);
