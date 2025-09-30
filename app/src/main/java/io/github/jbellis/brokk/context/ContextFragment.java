@@ -953,6 +953,13 @@ public interface ContextFragment {
                     contextManager.getBackgroundTasks());
         }
 
+        // Pre-seeded constructor to avoid recomputation when loading from history
+        public PasteFragment(String id, IContextManager contextManager, String precomputedDescription) {
+            super(id, contextManager);
+            this.descriptionFuture = CompletableFuture.completedFuture(precomputedDescription);
+            this.descriptionCv = ComputedValue.completed("paste-desc-" + id, "Paste of " + precomputedDescription);
+        }
+
         @Override
         public boolean isDynamic() {
             // technically is dynamic b/c of Future but it is simpler to treat as non-dynamic, we can live with the
@@ -1045,6 +1052,19 @@ public interface ContextFragment {
                     },
                     true,
                     contextManager.getBackgroundTasks());
+        }
+
+        // Pre-seeded constructor to avoid recomputation when loading from history
+        public PasteTextFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                String text,
+                String precomputedDescription,
+                String precomputedSyntaxStyle) {
+            super(existingHashId, contextManager, precomputedDescription);
+            this.syntaxStyleFuture = CompletableFuture.completedFuture(precomputedSyntaxStyle);
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.syntaxCv = ComputedValue.completed("paste-syntax-" + id(), precomputedSyntaxStyle);
         }
 
         @Override
@@ -1140,6 +1160,18 @@ public interface ContextFragment {
                     () -> imageToBytes(image),
                     true,
                     contextManager.getBackgroundTasks());
+        }
+
+        // Pre-seeded constructor to avoid recomputation when loading from history
+        public AnonymousImageFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                Image image,
+                String precomputedDescription,
+                @Nullable byte[] precomputedImageBytes) {
+            super(existingHashId, contextManager, precomputedDescription);
+            this.image = image;
+            this.imageBytesCv = ComputedValue.completed("paste-image-bytes-" + id(), precomputedImageBytes);
         }
 
         @Override

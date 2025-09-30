@@ -226,14 +226,16 @@ public class DtoMapper {
             case UsageFragmentDto usageDto ->
                 new ContextFragment.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
-            case PasteTextFragmentDto pasteTextDto ->
-                new ContextFragment.PasteTextFragment(
+            case PasteTextFragmentDto pasteTextDto -> {
+                String text = reader.readContent(pasteTextDto.contentId());
+                String syntax = requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                yield new ContextFragment.PasteTextFragment(
                         pasteTextDto.id(),
                         mgr,
-                        reader.readContent(pasteTextDto.contentId()),
-                        CompletableFuture.completedFuture(pasteTextDto.description()),
-                        CompletableFuture.completedFuture(
-                                requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
+                        text,
+                        pasteTextDto.description(),
+                        syntax);
+            }
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
                     if (imageBytesMap == null) {
@@ -250,7 +252,8 @@ public class DtoMapper {
                             pasteImageDto.id(),
                             mgr,
                             image,
-                            CompletableFuture.completedFuture(pasteImageDto.description()));
+                            pasteImageDto.description(),
+                            imageBytes);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
