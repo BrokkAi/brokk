@@ -60,7 +60,6 @@ public final class DependenciesPanel extends JPanel {
     private final DefaultTableModel tableModel;
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
-    private final Set<ProjectFile> initialFiles;
     private boolean isProgrammaticChange = false;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
@@ -136,7 +135,6 @@ public final class DependenciesPanel extends JPanel {
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
         this.chrome = chrome;
-        this.initialFiles = chrome.getProject().getAllFiles();
 
         var contentPanel = new JPanel(new BorderLayout());
 
@@ -504,20 +502,31 @@ public final class DependenciesPanel extends JPanel {
             analyzer.pause();
             try {
 
+                // Snapshot union of files from currently live dependencies before saving
+                var prevLiveDeps = project.getLiveDependencies();
+                var prevFiles = new HashSet<ProjectFile>();
+                for (var d : prevLiveDeps) {
+                    prevFiles.addAll(d.files());
+                }
+
                 long t0 = System.currentTimeMillis();
                 project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
                 long t1 = System.currentTimeMillis();
 
-                var newFiles = project.getAllFiles();
+                // Compute union of files from live dependencies after saving
+                var nextLiveDeps = project.getLiveDependencies();
+                var nextFiles = new HashSet<ProjectFile>();
+                for (var d : nextLiveDeps) {
+                    nextFiles.addAll(d.files());
+                }
 
-                var addedFiles = new HashSet<>(newFiles);
-                addedFiles.removeAll(initialFiles);
-
-                var removedFiles = new HashSet<>(initialFiles);
-                removedFiles.removeAll(newFiles);
-
-                var changedFiles = new HashSet<>(addedFiles);
+                // Symmetric difference between before/after dependency files
+                var changedFiles = new HashSet<>(nextFiles);
+                changedFiles.removeAll(prevFiles);
+                var removedFiles = new HashSet<>(prevFiles);
+                removedFiles.removeAll(nextFiles);
                 changedFiles.addAll(removedFiles);
+
                 long t2 = System.currentTimeMillis();
 
                 logger.info(
