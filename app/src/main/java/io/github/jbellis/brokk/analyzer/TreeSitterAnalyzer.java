@@ -2484,6 +2484,8 @@ public abstract class TreeSitterAnalyzer
                                     }
                                     return kids;
                                 });
+                            } catch (Throwable t) {
+                                log.error("Exception encountered while performing update for file {}", file, t);
                             } finally {
                                 cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
                                 writeLockHoldNanos.addAndGet(System.nanoTime() - lockStartNanos);
