@@ -1027,6 +1027,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }));
     }
 
+    static boolean shouldSkipSearchForTask(int taskIndex, boolean workspaceHasEditableFragments) {
+        return taskIndex == 0 && workspaceHasEditableFragments;
+    }
+
     @NotNull
     CompletableFuture<TaskResult> runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
         // Submit an LLM action that will perform optional search + architect work off the EDT.
@@ -1037,10 +1041,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 // we are assuming we can skip search agent if there are items in the context to edit
                 // we are not using liveContext.isEmpty() here as we want to make
                 // sure to run search if there is nothing editable
-                boolean skipSearch = idx == 0
-                        && cm.liveContext().getEditableFragments().findAny().isPresent();
+                boolean skipSearch = shouldSkipSearchForTask(
+                        idx, cm.liveContext().getEditableFragments().findAny().isPresent());
                 if (skipSearch) {
-                    logger.debug("Skipping SearchAgent for first task since workspace has no editable fragments");
+                    logger.debug("Skipping SearchAgent for first task since workspace has editable fragments");
                 } else {
                     var scanModel = cm.getService().getScanModel();
                     SearchAgent agent =
