@@ -465,7 +465,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        final String methodTarget = nearestMethodName(fqName);
+        final String methodTarget = normalizeFullName(fqName);
 
         List<CodeUnit> matches = uniqueCodeUnitList().stream()
                 .filter(cu -> cu.isFunction()
@@ -730,13 +730,14 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
-     * Assuming the fqName is an entity nested within a method, or is a method itself, will return the fqName of the
-     * method. This is mostly useful with escaping lambdas to their parent method.
+     * Assuming the fqName is an entity nested within a method, a type, or is a method itself, will return the fqName of
+     * the nearest method or type/class. This is useful with escaping lambdas to their parent method, or normalizing
+     * full names with generic type arguments.
      *
-     * @param fqName the fqName of a method.
-     * @return the surrounding method, or the given fqName otherwise.
+     * @param fqName the fqName of a code unit.
+     * @return the surrounding method or type, or the given fqName otherwise.
      */
-    protected String nearestMethodName(String fqName) {
+    protected String normalizeFullName(String fqName) {
         // Should be overridden by the subclasses
         return fqName;
     }
