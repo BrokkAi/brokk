@@ -992,6 +992,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
         addVirtualFragment(bf);
     }
 
+    @Override
+    public String getProcessedBuildOutput() {
+        return liveContext()
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
+                .findFirst()
+                .map(f -> {
+                    var bf = (ContextFragment.BuildFragment) f;
+                    // Extract content without the "# CURRENT BUILD STATUS\n\n" header
+                    String fullText = bf.text();
+                    String header = "# CURRENT BUILD STATUS\n\n";
+                    if (fullText.startsWith(header)) {
+                        return fullText.substring(header.length());
+                    }
+                    return fullText;
+                })
+                .orElse("");
+    }
+
     /**
      * Handles pasting an image from the clipboard. Submits a task to summarize the image and adds a PasteImageFragment
      * to the context.

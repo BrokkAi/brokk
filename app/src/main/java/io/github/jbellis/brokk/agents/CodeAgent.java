@@ -675,11 +675,13 @@ public class CodeAgent {
 
         String rawBuildError;
         String sanitizedBuildError;
+        String processedBuildError;
         try {
             rawBuildError = performBuildVerification();
             // Sanitize for user-facing error storage (lightweight path cleanup)
             sanitizedBuildError = BuildOutputPreprocessor.sanitizeOnly(rawBuildError, contextManager);
-            // Note: BuildAgent already preprocessed the output and stored it in BuildFragment
+            // Get preprocessed output that BuildAgent already created and stored in BuildFragment
+            processedBuildError = contextManager.getProcessedBuildOutput();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
@@ -693,11 +695,12 @@ public class CodeAgent {
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {
-            // Build failed - use raw error for decisions, sanitized for storage and LLM context
+            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM prompt
             logger.debug(
-                    "Build verification failed. Raw error: {} chars, sanitized: {} chars",
+                    "Build verification failed. Raw error: {} chars, sanitized: {} chars, processed: {} chars",
                     rawBuildError.length(),
-                    sanitizedBuildError.length());
+                    sanitizedBuildError.length(),
+                    processedBuildError.length());
             if (metrics != null) {
                 metrics.buildFailures++;
             }
@@ -709,8 +712,10 @@ public class CodeAgent {
                         TaskResult.StopReason.BUILD_ERROR,
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, sanitizedBuildError)));
             }
-            // BuildAgent already preprocessed the output; use sanitized version for LLM prompt
-            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(sanitizedBuildError));
+            // Use processed output from BuildFragment for LLM prompt (already preprocessed by BuildAgent)
+            // Fallback to sanitized if BuildFragment doesn't exist or processing was skipped
+            String errorForLlm = !processedBuildError.isEmpty() ? processedBuildError : sanitizedBuildError;
+            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(errorForLlm));
             var newCs = new ConversationState(
                     cs.taskMessages(),
                     nextRequestForBuildFailure,

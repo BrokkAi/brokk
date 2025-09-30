@@ -44,6 +44,16 @@ public interface IContextManager {
     /** Replaces any existing Build Results fragments with a fresh one containing the provided text. */
     default void updateBuildFragment(boolean success, String buildOutput) {}
 
+    /**
+     * Retrieves the processed build output from the current BuildFragment, if one exists. This returns the content that
+     * was passed to updateBuildFragment(), which has been preprocessed by BuildOutputPreprocessor.processForLlm().
+     *
+     * @return the processed build output, or empty string if no BuildFragment exists
+     */
+    default String getProcessedBuildOutput() {
+        return "";
+    }
+
     default Collection<? extends ChatMessage> getHistoryMessages() {
         return List.of();
     }

@@ -796,12 +796,71 @@ class CodeAgentTest {
         // Assert: Should be a retry with build error
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
 
-        // Assert: processForLlm should be called exactly once, not twice
-        // (Currently fails because BuildAgent and CodeAgent both call it)
+        // Assert: processForLlm should be called exactly once by BuildAgent
+        // CodeAgent retrieves the processed output from BuildFragment instead of reprocessing
         assertEquals(
                 1,
                 countingModel.getPreprocessingCallCount(),
-                "BuildOutputPreprocessor.processForLlm should only be called once per build failure, "
-                        + "but it's being called twice: once in BuildAgent and once in CodeAgent");
+                "BuildOutputPreprocessor.processForLlm should only be called once per build failure "
+                        + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
+    }
+
+    // verifyPhase should use the processed output from BuildAgent in the retry prompt
+    @Test
+    void testVerifyPhase_usesProcessedOutputInRetryPrompt() {
+        // Setup: Mock LLM that returns distinctive processed output
+        var distinctiveProcessedOutput = "PROCESSED: Error in file.java:10: syntax error";
+        var countingModel = new CountingPreprocessorModel(distinctiveProcessedOutput);
+        contextManager.setQuickestModel(countingModel);
+
+        // Configure build to fail with >200 lines to trigger preprocessing
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Generate long build output with distinctive raw error markers
+        StringBuilder longOutput = new StringBuilder();
+        for (int i = 1; i <= 210; i++) {
+            longOutput.append("RAW ERROR LINE ").append(i).append("\n");
+        }
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", longOutput.toString());
+        };
+
+        var cs = createConversationState(List.of(), new UserMessage("initial request"));
+        var es = createEditState(List.of(), 1); // 1 block applied to trigger verification
+
+        // Act: Run verifyPhase
+        var result = codeAgent.verifyPhase(cs, es, null);
+
+        // Assert: Result is a Retry with a retry prompt
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retry = (CodeAgent.Step.Retry) result;
+
+        // Assert: The retry prompt exists and contains processed output
+        var retryMessage = retry.cs().nextRequest();
+        assertNotNull(retryMessage, "Retry should have a next request UserMessage");
+
+        String promptText = Messages.getText(retryMessage);
+
+        // The prompt should contain the processed output from BuildAgent
+        assertTrue(
+                promptText.contains("PROCESSED:"),
+                "Retry prompt should contain the processed output marker 'PROCESSED:'");
+        assertTrue(
+                promptText.contains(distinctiveProcessedOutput),
+                "Retry prompt should contain the exact processed output: " + distinctiveProcessedOutput);
+
+        // The prompt should NOT contain the raw unprocessed error lines
+        assertFalse(
+                promptText.contains("RAW ERROR LINE 50"),
+                "Retry prompt should not contain raw unprocessed error lines like 'RAW ERROR LINE 50'");
+
+        // Verify processForLlm was called exactly once
+        assertEquals(
+                1,
+                countingModel.getPreprocessingCallCount(),
+                "BuildOutputPreprocessor.processForLlm should be called exactly once");
     }
 }

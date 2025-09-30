@@ -173,4 +173,16 @@ public final class TestContextManager implements IContextManager {
 
         return new ProjectFile(project.getRoot(), trimmed);
     }
+
+    private String buildFragmentContent = "";
+
+    @Override
+    public void updateBuildFragment(boolean success, String buildOutput) {
+        buildFragmentContent = success ? "" : buildOutput;
+    }
+
+    @Override
+    public String getProcessedBuildOutput() {
+        return buildFragmentContent;
+    }
 }
