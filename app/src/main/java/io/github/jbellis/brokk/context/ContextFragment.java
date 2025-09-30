@@ -1080,6 +1080,17 @@ public interface ContextFragment {
         public String shortDescription() {
             return "pasted text";
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            String t = DynamicSupport.renderNowOr("(Loading...)", this.computedText());
+            return new PasteTextFragment(
+                    this.id(),
+                    this.getContextManager(),
+                    t,
+                    this.getDescriptionFuture(),
+                    this.getSyntaxStyleFuture());
+        }
     }
 
     class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
@@ -1185,6 +1196,15 @@ public interface ContextFragment {
         @Override
         public String shortDescription() {
             return "pasted image";
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new AnonymousImageFragment(
+                    this.id(),
+                    this.getContextManager(),
+                    this.image,
+                    this.getDescriptionFuture());
         }
     }
 

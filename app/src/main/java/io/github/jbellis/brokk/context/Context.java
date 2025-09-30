@@ -547,6 +547,72 @@ public class Context {
         return allFragments().anyMatch(ContextFragment::isDynamic);
     }
 
+    /**
+     * Create a new Context reflecting external file changes.
+     * - Unchanged fragments are reused.
+     * - For DynamicFragments whose files() intersect 'changed', call refreshCopy() to get a new instance
+     *   with cleared ComputedValues (id is preserved).
+     * - Paste fragments (text/image) are always refreshed when 'changed' is non-empty, to clear/re-kick their
+     *   ComputedValues even though they may not reference files directly.
+     * - Preserves taskHistory and parsedOutput; sets action to "Load external changes".
+     * - If 'changed' is empty, returns this.
+     */
+    public Context copyAndRefresh(Set<ProjectFile> changed) {
+        if (changed.isEmpty()) {
+            return this;
+        }
+
+        boolean anyDynamicPresent = fragments.stream().anyMatch(ContextFragment::isDynamic);
+        var newFragments = new ArrayList<ContextFragment>(fragments.size());
+        boolean anyReplaced = false;
+
+        for (var f : fragments) {
+            boolean shouldRefresh = false;
+
+            if (f instanceof DynamicFragment df) {
+                // Paste fragments are refreshed whenever there are external changes to re-kick their ComputedValues
+                if (f instanceof ContextFragment.PasteTextFragment
+                        || f instanceof ContextFragment.AnonymousImageFragment) {
+                    shouldRefresh = true;
+                } else {
+                    // Refresh dynamic fragments whose referenced files intersect the changed set
+                    var referenced = f.files();
+                    if (!java.util.Collections.disjoint(referenced, changed)) {
+                        shouldRefresh = true;
+                    }
+                }
+
+                if (shouldRefresh) {
+                    var refreshed = df.refreshCopy();
+                    newFragments.add(refreshed);
+                    if (refreshed != f) {
+                        anyReplaced = true;
+                    }
+                    continue;
+                }
+            }
+
+            // Default: reuse as-is
+            newFragments.add(f);
+        }
+
+        // Create a new Context if any fragment changed, or if we contain dynamic fragments, or parsed output is present.
+        boolean mustCreateNew = anyReplaced || anyDynamicPresent || parsedOutput != null;
+
+        if (!mustCreateNew && newFragments.equals(fragments)) {
+            // No dynamic content to update; keep original Context
+            return this;
+        }
+
+        return new Context(
+                newContextId(),
+                contextManager,
+                newFragments,
+                taskHistory,
+                parsedOutput,
+                CompletableFuture.completedFuture("Load external changes"));
+    }
+
     private boolean isNewFileInGit(FrozenFragment ff) {
         if (ff.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
             return false;
