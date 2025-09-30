@@ -143,8 +143,6 @@ public final class HistoryIo {
         if (taskListBytes != null) {
             Files.createDirectories(sessionDir);
             Files.write(taskListStagingPath, taskListBytes);
-        } else {
-            Files.deleteIfExists(taskListStagingPath);
         }
 
         if (allFragmentsDto == null) {
