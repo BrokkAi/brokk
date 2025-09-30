@@ -36,6 +36,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -44,7 +45,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.text.BreakIterator;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -1424,19 +1424,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Compute vertical padding to center content within a cell of a given minimum height.
-     * If contentHeight >= minHeight, returns zero padding.
-     * Otherwise splits the extra space between top and bottom, with top = floor(extra/2).
+     * Compute vertical padding to center content within a cell of a given minimum height. If contentHeight >=
+     * minHeight, returns zero padding. Otherwise splits the extra space between top and bottom, with top =
+     * floor(extra/2).
      *
-     * Centering approach:
-     * - We dynamically compute the padding to position the text vertically without changing layout managers.
-     * - In the renderer, we apply the resulting top padding as a paint offset (or as an EmptyBorder when using a text component).
-     * Why not change layouts or switch to HTML/StyledDocument?
-     * - Changing the layout per cell (e.g., GridBag/Box) is heavier and can degrade performance on large lists.
-     * - HTML/StyledDocument introduce different wrapping/metrics and are more expensive than simple text painting,
-     *   and do not inherently solve vertical placement within a taller cell.
-     * - Keeping rendering lightweight and predictable avoids jank and keeps word-wrap behavior stable, which is
-     *   especially important when the inline editor uses JTextArea wrapping.
+     * <p>Centering approach: - We dynamically compute the padding to position the text vertically without changing
+     * layout managers. - In the renderer, we apply the resulting top padding as a paint offset (or as an EmptyBorder
+     * when using a text component). Why not change layouts or switch to HTML/StyledDocument? - Changing the layout per
+     * cell (e.g., GridBag/Box) is heavier and can degrade performance on large lists. - HTML/StyledDocument introduce
+     * different wrapping/metrics and are more expensive than simple text painting, and do not inherently solve vertical
+     * placement within a taller cell. - Keeping rendering lightweight and predictable avoids jank and keeps word-wrap
+     * behavior stable, which is especially important when the inline editor uses JTextArea wrapping.
      */
     static Insets verticalPaddingForCell(int contentHeight, int minHeight) {
         int extra = minHeight - contentHeight;
@@ -1684,15 +1682,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             return this;
         }
-
     }
 
     /**
-     * Lightweight wrapped text painter used in the renderer (no JTextArea).
-     * - Measures wrapped content height for a given available width.
-     * - Applies vertical centering by honoring a top padding paint offset.
-     * - Keeps rendering fast and stable; avoids layout churn and preserves wrap behavior consistent
-     *   with the inline editor (which uses JTextArea only while editing).
+     * Lightweight wrapped text painter used in the renderer (no JTextArea). - Measures wrapped content height for a
+     * given available width. - Applies vertical centering by honoring a top padding paint offset. - Keeps rendering
+     * fast and stable; avoids layout churn and preserves wrap behavior consistent with the inline editor (which uses
+     * JTextArea only while editing).
      */
     private static final class WrappedTextView extends JComponent {
         private String text = "";
