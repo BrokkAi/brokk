@@ -1527,11 +1527,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     @Override
     public void contextChanged(Context newCtx) {
-        UUID current = getCurrentSessionId();
-        UUID loaded = this.sessionIdAtLoad;
-        if (!Objects.equals(current, loaded)) {
-            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
-        }
+        SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
     }
 
     private record TaskItem(String text, boolean done) {}
