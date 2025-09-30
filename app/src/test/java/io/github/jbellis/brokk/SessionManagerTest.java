@@ -447,4 +447,47 @@ public class SessionManagerTest {
 
         project.close();
     }
+
+    @Test
+    void testTaskListPersistence() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo sessionInfo = sessionManager.newSession("TaskList Persistence Test");
+        UUID sessionId = sessionInfo.id();
+        // Wait for the asynchronous creation of the session to complete fully before proceeding.
+        project.close();
+        project = new MainProject(tempDir);
+        sessionManager = project.getSessionManager();
+
+        // 1. Create a dummy tasklist.json in the staging area
+        Path sessionStagingDir = tempDir.resolve(".brokk").resolve("sessions").resolve(sessionId.toString());
+        Files.createDirectories(sessionStagingDir);
+        Path taskListPath = sessionStagingDir.resolve("tasklist.json");
+        String originalContent = "{\"tasks\":[{\"text\":\"test task from test\",\"done\":true}]}";
+        Files.writeString(taskListPath, originalContent);
+
+        // 2. Save the session (this should include tasklist.json in the zip)
+        // A non-empty history ensures the session is marked as modified and the zip is rewritten.
+        var history = new ContextHistory(new Context(mockContextManager, "dummy context"));
+        sessionManager.saveHistory(history, sessionId);
+
+        // 3. Close the project, which waits for async save to finish
+        project.close();
+
+        // 4. Delete the staged tasklist.json to ensure it's restored from the zip
+        Files.delete(taskListPath);
+        assertFalse(Files.exists(taskListPath));
+
+        // 5. Re-open the project and load the session history
+        MainProject newProject = new MainProject(tempDir);
+        var newSessionManager = newProject.getSessionManager();
+        assertNotNull(newSessionManager.loadHistory(sessionId, mockContextManager));
+
+        // 6. Verify tasklist.json was restored
+        assertTrue(Files.exists(taskListPath), "tasklist.json should be restored after loading session");
+        String restoredContent = Files.readString(taskListPath);
+        assertEquals(originalContent, restoredContent, "Restored tasklist.json content should match original");
+
+        newProject.close();
+    }
 }
