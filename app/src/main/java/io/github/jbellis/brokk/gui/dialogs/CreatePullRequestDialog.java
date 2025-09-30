@@ -701,7 +701,7 @@ public class CreatePullRequestDialog extends JDialog {
             return;
         }
 
-        contextManager.submitUserTask("Show PR diff", () -> {
+        contextManager.submitExclusiveAction(() -> {
             buildAndShowDiffPanel(orderedFiles, currentMergeBase, currentSourceBranch);
             return null;
         });
@@ -802,7 +802,7 @@ public class CreatePullRequestDialog extends JDialog {
 
         createPrButton.setLoading(true, "Creating PR…");
 
-        contextManager.submitUserTask("Create Pull Request", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 // Gather details on the EDT before going to background if they come from Swing components
                 final String title = titleField.getText().trim();

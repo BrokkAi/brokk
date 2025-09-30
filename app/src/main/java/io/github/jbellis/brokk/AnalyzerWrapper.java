@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -44,6 +45,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
     private volatile boolean wasReady = false;
+    private final AtomicLong idlePollTriggeredRebuilds = new AtomicLong(0);
 
     public AnalyzerWrapper(
             IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener, IConsoleIO io) {
@@ -87,6 +89,17 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     @Override
     public void onFilesChanged(EventBatch batch) {
         logger.trace("Events batch: {}", batch);
+
+        // Instrumentation: log reason for callback and whether it includes .git metadata changes
+        Path gitMetaRel = (gitRepoRoot != null) ? root.relativize(gitRepoRoot.resolve(".git")) : null;
+        boolean dueToGitMeta = gitMetaRel != null
+                && batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaRel));
+        logger.debug(
+                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}, gitMetaDir={}",
+                batch.files.size(),
+                batch.isOverflowed,
+                dueToGitMeta,
+                (gitMetaRel != null ? gitMetaRel : "(none)"));
 
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
@@ -174,7 +187,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     @Override
     public void onNoFilesChangedDuringPollInterval() {
         if (externalRebuildRequested && !rebuildInProgress) {
-            logger.debug("External rebuild requested");
+            long count = idlePollTriggeredRebuilds.incrementAndGet();
+            logger.debug("Idle-poll triggered external rebuild #{}", count);
             refresh(() -> getLanguageHandle().createAnalyzer(project));
         }
     }
@@ -499,18 +513,37 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
     public void updateFiles(Set<ProjectFile> changedFiles) {
         try {
+            var wasDone = future.isDone();
+            var inProgress = rebuildInProgress;
+            var pending = rebuildPending;
+            var external = externalRebuildRequested;
+            long waitStart = System.currentTimeMillis();
             final var analyzer = future.get();
+            long waitedMs = System.currentTimeMillis() - waitStart;
+            logger.info(
+                    "updateFiles: waited {} ms for analyzer future (wasDone={}, rebuildInProgress={}, rebuildPending={}, externalRebuildRequested={}); changedFiles={}",
+                    waitedMs,
+                    wasDone,
+                    inProgress,
+                    pending,
+                    external,
+                    changedFiles.size());
             currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
                     .map(incAnalyzer -> {
                         long startTime = System.currentTimeMillis();
-                        IAnalyzer result = incAnalyzer.update(changedFiles);
-                        long duration = System.currentTimeMillis() - startTime;
-                        logger.info(
-                                "Library ingestion: {} analyzer processed {} files in {}ms",
-                                getLanguageDescription(),
-                                changedFiles.size(),
-                                duration);
-                        return result;
+                        int changedCount = changedFiles.size();
+                        logger.debug(
+                                "Starting incremental update: {} files for {}", changedCount, getLanguageDescription());
+                        try {
+                            return incAnalyzer.update(changedFiles);
+                        } finally {
+                            long duration = System.currentTimeMillis() - startTime;
+                            logger.info(
+                                    "Library ingestion: {} analyzer processed {} files in {}ms",
+                                    getLanguageDescription(),
+                                    changedCount,
+                                    duration);
+                        }
                     })
                     .orElse(analyzer);
         } catch (InterruptedException | ExecutionException e) {

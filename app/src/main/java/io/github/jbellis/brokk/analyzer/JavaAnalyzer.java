@@ -68,10 +68,15 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
         }
     }
 
-    private void safeBlockingLspOperation(Consumer<LspClient> clientConsumer, String errMessage) {
+    private void safeAsyncLspOperation(Consumer<LspClient> clientConsumer, String asyncTaskName, String errMessage) {
         try {
-            var client = awaitClient();
-            clientConsumer.accept(client);
+            CompletableFuture.runAsync(() -> {
+                long lspStart = System.currentTimeMillis();
+                var client = awaitClient();
+                clientConsumer.accept(client);
+                long lspDur = System.currentTimeMillis() - lspStart;
+                logger.debug("JavaAnalyzer {} - async: Completed in {} ms", asyncTaskName, lspDur);
+            });
         } catch (RuntimeException e) {
             logger.error(errMessage, e);
             if (io != null) io.systemOutput(errMessage);
@@ -118,15 +123,30 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-        safeBlockingLspOperation(
-                client -> client.update(changedFiles), "Unable to update language server due to error!");
-        return super.update(changedFiles);
+        safeAsyncLspOperation(
+                client -> client.update(changedFiles),
+                "LSP update (" + changedFiles.size() + ")",
+                "Unable to update language server due to error!");
+
+        long tsStart = System.currentTimeMillis();
+        IAnalyzer result = super.update(changedFiles);
+        long tsDur = System.currentTimeMillis() - tsStart;
+        logger.debug("JavaAnalyzer TreeSitter update: {} files in {} ms", changedFiles.size(), tsDur);
+
+        return result;
     }
 
     @Override
     public IAnalyzer update() {
-        safeBlockingLspOperation(LspClient::update, "Unable to update language server due to error!");
-        return super.update();
+        safeAsyncLspOperation(
+                LspClient::update, "LSP update (unspecified)", "Unable to update language server due to error!");
+
+        long tsStart = System.currentTimeMillis();
+        IAnalyzer result = super.update();
+        long tsDur = System.currentTimeMillis() - tsStart;
+        logger.debug("JavaAnalyzer TreeSitter full incremental update in {} ms", tsDur);
+
+        return result;
     }
 
     @Override

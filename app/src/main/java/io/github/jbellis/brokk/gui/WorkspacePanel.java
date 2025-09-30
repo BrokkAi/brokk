@@ -1036,7 +1036,7 @@ public class WorkspacePanel extends JPanel {
                     switch (selection) {
                         case EDIT -> {
                             // Only allow editing tracked files; others are silently ignored by editFiles
-                            contextManager.submitContextTask("Edit files (drop)", () -> {
+                            contextManager.submitContextTask(() -> {
                                 contextManager.addFiles(projectFiles);
                             });
                         }
@@ -1044,7 +1044,7 @@ public class WorkspacePanel extends JPanel {
                             if (!isAnalyzerReady()) {
                                 return false;
                             }
-                            contextManager.submitContextTask("Summarize files (drop)", () -> {
+                            contextManager.submitContextTask(() -> {
                                 contextManager.addSummaries(
                                         new java.util.HashSet<ProjectFile>(projectFiles),
                                         Collections.<CodeUnit>emptySet());
@@ -1627,7 +1627,7 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Find Symbol Usage", () -> {
+        contextManager.submitContextTask(() -> {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
@@ -1656,7 +1656,7 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Find Method Callers", () -> {
+        contextManager.submitContextTask(() -> {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
@@ -1689,7 +1689,7 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Find Method Callees", () -> {
+        contextManager.submitContextTask(() -> {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
@@ -1756,7 +1756,7 @@ public class WorkspacePanel extends JPanel {
             ContextAction action, List<? extends ContextFragment> selectedFragments) // Use wildcard
             {
         // Use submitContextTask from ContextManager to run the action on the appropriate executor
-        return contextManager.submitContextTask(action + " action", () -> {
+        return contextManager.submitContextTask(() -> {
             try {
                 switch (action) {
                     case EDIT -> doEditAction(selectedFragments);
@@ -2028,7 +2028,7 @@ public class WorkspacePanel extends JPanel {
         var fragment = result.fragment();
         boolean summarize = result.summarize();
 
-        contextManager.submitContextTask("Attach Context", () -> {
+        contextManager.submitContextTask(() -> {
             if (summarize) {
                 switch (fragment.getType()) {
                     case PROJECT_PATH -> {

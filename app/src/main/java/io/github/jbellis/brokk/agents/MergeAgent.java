@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
@@ -12,7 +13,6 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
-import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.TokenAware;
 import java.io.IOException;
@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -63,6 +64,7 @@ public class MergeAgent {
 
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
+    private final ContextManager.TaskScope scope;
 
     // Lightweight accumulators used during a run
     private final List<String> codeAgentFailures = new ArrayList<>();
@@ -72,7 +74,8 @@ public class MergeAgent {
             IContextManager cm,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
-            MergeConflict conflict) {
+            MergeConflict conflict,
+            ContextManager.TaskScope scope) {
         this.cm = cm;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -82,21 +85,26 @@ public class MergeAgent {
         this.baseCommitId = conflict.baseCommitId();
         this.otherCommitId = conflict.otherCommitId();
         this.conflicts = conflict.files();
+        this.scope = scope;
     }
 
     /** Create a MergeAgent by inspecting the on-disk repository state. */
     public static MergeAgent inferFromExternal(
-            ContextManager cm, StreamingChatModel planningModel, StreamingChatModel codeModel) {
+            ContextManager cm,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            ContextManager.TaskScope scope) {
         var conflict = ConflictInspector.inspectFromProject(cm.getProject());
         logger.debug(conflict);
-        return new MergeAgent(cm, planningModel, codeModel, conflict);
+        return new MergeAgent(cm, planningModel, codeModel, conflict, scope);
     }
 
     /**
      * High-level merge entry point. First annotates all conflicts, then resolves them file-by-file. Also publishes
      * commit explanations for the relevant ours/theirs commits discovered by blame.
      */
-    public void execute() throws IOException, GitAPIException, InterruptedException {
+    public TaskResult execute() throws IOException, GitAPIException, InterruptedException {
+        // FIXME handled InterruptedException, return TaskResult
         codeAgentFailures.clear();
 
         var repo = (GitRepo) cm.getProject().getRepo();
@@ -128,6 +136,11 @@ public class MergeAgent {
             unionOurCommits.addAll(annotated.ourCommits());
             unionTheirCommits.addAll(annotated.theirCommits());
         }
+
+        // Compute changed files set for reporting
+        var changedFiles = annotatedConflicts.stream()
+                .map(ConflictAnnotator.ConflictFileCommits::file)
+                .collect(Collectors.toSet());
 
         // Kick off background explanations for our/their relevant commits discovered via blame.
         Future<String> oursFuture = cm.submitBackgroundTask("Explain relevant OUR commits", () -> {
@@ -327,21 +340,24 @@ public class MergeAgent {
         var buildFailureText = runVerificationIfConfigured();
         if (buildFailureText.isBlank() && codeAgentFailures.isEmpty()) {
             logger.info("Verification passed and no CodeAgent failures; merge completed successfully.");
-            return;
+            var msg =
+                    "Merge completed successfully. Annotated %d conflicted files (%d tests, %d sources). Verification passed."
+                            .formatted(annotatedConflicts.size(), testAnnotated.size(), nonTestAnnotated.size());
+            return new TaskResult(
+                    cm,
+                    "Merge",
+                    List.of(new AiMessage(msg)),
+                    changedFiles,
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
         }
 
-        // We tried auto-editing files that are mentioned i nthe build failure, the trouble is that you
+        // We tried auto-editing files that are mentioned in the build failure, the trouble is that you
         // can cause errors in lots of files by screwing up the API in one, and adding all of them
         // obscures rather than clarifies the actual problem. So don't do that.
 
         // Kick off Architect in the background to attempt to fix build failures and code-agent errors.
         var contextManager = (ContextManager) cm;
         var codeAgentText = codeAgentFailures.isEmpty() ? "" : String.join("\n\n", codeAgentFailures);
-
-        // Publish build output to the workspace BuildFragment so Architect can reference it.
-        // Architect instructions should not inline the full build output; it will be available
-        // as a concise Build fragment in the workspace (keeps prompts compact).
-        contextManager.updateBuildFragment(buildFailureText);
 
         var agentInstructions =
                 """
@@ -357,11 +373,8 @@ public class MergeAgent {
                 """
                         .formatted(otherCommitId, mode, codeAgentText);
 
-        var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions);
-        var result = agent.execute();
-        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            contextManager.addToHistory(result, true);
-        }
+        var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, scope);
+        return agent.execute();
     }
 
     private static boolean containsConflictMarkers(String text) {
@@ -413,22 +426,7 @@ public class MergeAgent {
     /** Run verification build if configured; returns empty string on success, otherwise failure text. */
     private String runVerificationIfConfigured() {
         try {
-            var cmd = BuildAgent.determineVerificationCommandAsync((ContextManager) cm)
-                    .join();
-            if (cmd == null || cmd.isBlank()) return "";
-            cm.getIo()
-                    .llmOutput(
-                            "\nRunning verification command: " + cmd,
-                            dev.langchain4j.data.message.ChatMessageType.CUSTOM);
-            cm.getIo().llmOutput("\n```bash\n", dev.langchain4j.data.message.ChatMessageType.CUSTOM);
-            Environment.instance.runShellCommand(
-                    cmd,
-                    ((ContextManager) cm).getProject().getRoot(),
-                    line -> cm.getIo().llmOutput(line + "\n", dev.langchain4j.data.message.ChatMessageType.CUSTOM),
-                    Environment.UNLIMITED_TIMEOUT);
-            return ""; // success
-        } catch (Environment.SubprocessException e) {
-            return e.getMessage() + "\n\n" + e.getOutput();
+            return BuildAgent.runVerification((ContextManager) cm);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "Verification command was interrupted.";

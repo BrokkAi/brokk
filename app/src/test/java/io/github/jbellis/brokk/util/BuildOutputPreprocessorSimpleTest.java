@@ -12,67 +12,41 @@ import org.junit.jupiter.api.io.TempDir;
 class BuildOutputPreprocessorSimpleTest {
 
     @Test
-    void testPreprocessBuildOutput_shortOutput_returnsOriginal(@TempDir Path tempDir) {
+    void testPreprocessBuildOutput_shortOutput_returnsOriginal(@TempDir Path tempDir) throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         String shortOutput = "This is a short build output\nwith only a few lines\nshould pass through unchanged";
 
-        String result = BuildOutputPreprocessor.preprocessBuildOutput(shortOutput, contextManager);
+        String result = BuildOutputPreprocessor.maybePreprocessOutput(shortOutput, contextManager);
 
         assertEquals(shortOutput, result);
     }
 
     @Test
-    void testPreprocessBuildOutput_emptyInput_returnsEmptyString(@TempDir Path tempDir) {
+    void testPreprocessBuildOutput_emptyInput_returnsEmptyString(@TempDir Path tempDir) throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        String result = BuildOutputPreprocessor.preprocessBuildOutput("", contextManager);
+        String result = BuildOutputPreprocessor.maybePreprocessOutput("", contextManager);
         assertEquals("", result);
     }
 
     @Test
-    void testPreprocessBuildOutput_blankInput_returnsBlank(@TempDir Path tempDir) {
+    void testPreprocessBuildOutput_blankInput_returnsBlank(@TempDir Path tempDir) throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        String result = BuildOutputPreprocessor.preprocessBuildOutput("   ", contextManager);
+        String result = BuildOutputPreprocessor.maybePreprocessOutput("   ", contextManager);
         assertEquals("   ", result);
     }
 
     @Test
-    void testThresholdConstants() {
-        // Verify that our constants are reasonable values
-        assertEquals(200, BuildOutputPreprocessor.THRESHOLD_LINES);
-        assertEquals(10, BuildOutputPreprocessor.MAX_EXTRACTED_ERRORS);
-
-        // Threshold should be high enough to avoid false positives but low enough to be useful
-        assertTrue(BuildOutputPreprocessor.THRESHOLD_LINES > 50, "Threshold should be reasonably high");
-        assertTrue(BuildOutputPreprocessor.THRESHOLD_LINES < 1000, "Threshold should not be too high");
-
-        // Max errors should be enough to capture multiple issues but not too verbose
-        assertTrue(BuildOutputPreprocessor.MAX_EXTRACTED_ERRORS > 3, "Should extract multiple errors");
-        assertTrue(BuildOutputPreprocessor.MAX_EXTRACTED_ERRORS < 50, "Should not extract too many errors");
-    }
-
-    @Test
-    void testPreprocessBuildOutput_exactlyAtThreshold_doesNotPreprocess(@TempDir Path tempDir) {
+    void testPreprocessBuildOutput_exactlyAtThreshold_doesNotPreprocess(@TempDir Path tempDir)
+            throws InterruptedException {
         var contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         // Create output with exactly THRESHOLD_LINES lines
         String exactThresholdOutput = IntStream.range(0, BuildOutputPreprocessor.THRESHOLD_LINES)
                 .mapToObj(i -> "Line " + i)
                 .reduce("", (acc, line) -> acc.isEmpty() ? line : acc + "\n" + line);
 
-        String result = BuildOutputPreprocessor.preprocessBuildOutput(exactThresholdOutput, contextManager);
+        String result = BuildOutputPreprocessor.maybePreprocessOutput(exactThresholdOutput, contextManager);
 
         assertEquals(exactThresholdOutput, result);
-    }
-
-    @Test
-    void testPreprocessBuildOutput_oneLineOverThreshold_returnsOriginalWhenNoContextManager() {
-        // Create output with THRESHOLD_LINES + 1 lines
-        String overThresholdOutput = IntStream.range(0, BuildOutputPreprocessor.THRESHOLD_LINES + 1)
-                .mapToObj(i -> "Line " + i)
-                .reduce("", (acc, line) -> acc.isEmpty() ? line : acc + "\n" + line);
-
-        // Without context manager, should return original content even over threshold
-        String result = BuildOutputPreprocessor.preprocessBuildOutput(overThresholdOutput, null);
-        assertEquals(overThresholdOutput, result);
     }
 
     @Test

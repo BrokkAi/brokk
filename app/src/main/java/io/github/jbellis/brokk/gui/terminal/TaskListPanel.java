@@ -1,11 +1,13 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import static java.util.Objects.requireNonNull;
+
 import com.google.common.base.Splitter;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
-import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -43,6 +45,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -73,6 +76,7 @@ import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
@@ -93,7 +97,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton combineBtn = new MaterialButton();
     private final MaterialButton splitBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
-    private final IConsoleIO console;
+    private final Chrome chrome;
     private final Timer llmStateTimer;
     private final Timer runningFadeTimer;
     private long runningAnimStartMs = 0L;
@@ -105,7 +109,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
 
-    public TaskListPanel(IConsoleIO console) {
+    public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 4));
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -114,7 +118,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        this.console = console;
+        this.chrome = chrome;
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
@@ -449,14 +453,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         loadTasksForCurrentSession();
 
-        if (console instanceof Chrome c) {
-            try {
-                IContextManager cm = c.getContextManager();
-                registeredContextManager = cm;
-                cm.addContextListener(this);
-            } catch (Exception e) {
-                logger.debug("Unable to register TaskListPanel as context listener", e);
-            }
+        try {
+            IContextManager cm = chrome.getContextManager();
+            registeredContextManager = cm;
+            cm.addContextListener(this);
+        } catch (Exception e) {
+            logger.debug("Unable to register TaskListPanel as context listener", e);
         }
     }
 
@@ -481,7 +483,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        cm.submitUserTask("Auto-committing task result", () -> {
+        cm.submitExclusiveAction(() -> {
             try {
                 var workflowService = new GitWorkflow(cm);
                 var filesToCommit =
@@ -562,7 +564,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
                     + "Tasks that are running or queued will not be removed.\n"
                     + "This action cannot be undone.";
-            int result = console.showConfirmDialog(
+            int result = chrome.showConfirmDialog(
                     message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
             if (result != JOptionPane.YES_OPTION) {
@@ -761,12 +763,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void updateButtonStates() {
         boolean hasSelection = list.getSelectedIndex() >= 0;
         boolean llmBusy = false;
-        if (console instanceof Chrome c) {
-            try {
-                llmBusy = c.getContextManager().isLlmTaskInProgress();
-            } catch (Exception ex) {
-                logger.debug("Unable to query LLM busy state", ex);
-            }
+        try {
+            llmBusy = chrome.getContextManager().isLlmTaskInProgress();
+        } catch (Exception ex) {
+            logger.debug("Unable to query LLM busy state", ex);
         }
 
         boolean selectedIsDone = false;
@@ -817,31 +817,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearCompletedBtn.setEnabled(anyCompleted);
     }
 
-    private @Nullable UUID getCurrentSessionId() {
-        if (console instanceof Chrome c) {
-            try {
-                return c.getContextManager().getCurrentSessionId();
-            } catch (Exception e) {
-                logger.debug("Unable to get current session id", e);
-            }
-        }
-        return null;
+    private UUID getCurrentSessionId() {
+        return chrome.getContextManager().getCurrentSessionId();
     }
 
     private Path getTasksFilePath(UUID sessionId) {
-        if (console instanceof Chrome c) {
-            try {
-                Path root = c.getContextManager().getRoot();
-                return root.resolve(".brokk")
-                        .resolve("sessions")
-                        .resolve(sessionId.toString())
-                        .resolve("tasklist.json");
-            } catch (Exception e) {
-                logger.debug("Unable to resolve project root for tasks file; defaulting to user.dir", e);
-            }
-        }
-        Path userDir = Path.of(System.getProperty("user.dir"));
-        return userDir.resolve(".brokk")
+        Path root = chrome.getContextManager().getRoot();
+        return root.resolve(".brokk")
                 .resolve("sessions")
                 .resolve(sessionId.toString())
                 .resolve("tasklist.json");
@@ -849,10 +831,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void loadTasksForCurrentSession() {
         var sid = getCurrentSessionId();
-        if (sid == null) {
-            logger.debug("No current session id; skipping task load");
-            return;
-        }
         this.sessionIdAtLoad = sid;
         Path file = getTasksFilePath(sid);
         isLoadingTasks = true;
@@ -861,14 +839,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 model.clear();
             } else {
                 String json = Files.readString(file, StandardCharsets.UTF_8);
-                if (json != null && !json.isBlank()) {
+                if (!json.isBlank()) {
                     TaskListData data = Json.fromJson(json, TaskListData.class);
                     model.clear();
-                    if (data != null) {
-                        for (TaskEntryDto dto : data.tasks) {
-                            if (dto != null && !dto.text.isBlank()) {
-                                model.addElement(new TaskItem(dto.text, dto.done));
-                            }
+                    for (TaskEntryDto dto : data.tasks) {
+                        if (!dto.text.isBlank()) {
+                            model.addElement(new TaskItem(dto.text, dto.done));
                         }
                     }
                 } else {
@@ -888,10 +864,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         UUID sid = this.sessionIdAtLoad;
         if (sid == null) {
             sid = getCurrentSessionId();
-            if (sid == null) {
-                logger.debug("No session id available; skipping task save");
-                return;
-            }
             this.sessionIdAtLoad = sid;
         }
         Path file = getTasksFilePath(sid);
@@ -916,7 +888,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         boolean added = false;
         for (var t : tasks) {
-            if (t == null) continue;
             var text = t.strip();
             if (!text.isEmpty()) {
                 model.addElement(new TaskItem(text, false));
@@ -956,27 +927,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnIndices(int[] selected) {
-        // Prevent running if an LLM task is already busy or a queue is in progress
-        if (console instanceof Chrome cBusy) {
-            try {
-                if (cBusy.getContextManager().isLlmTaskInProgress()) {
-                    JOptionPane.showMessageDialog(
-                            this,
-                            "An AI task is already running. Please wait for it to finish.",
-                            "Busy",
-                            JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-            } catch (Exception ex) {
-                logger.debug("Error checking LLM busy state", ex);
-            }
-        }
-        if (queueActive || runningIndex != null) {
-            JOptionPane.showMessageDialog(
-                    this, "A task run is already in progress.", "In progress", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
         // Build the ordered list of indices to run: valid, not done
         Arrays.sort(selected);
         var toRun = new java.util.ArrayList<Integer>(selected.length);
@@ -1009,8 +959,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Reflect pending state in UI and disable Play buttons to avoid double trigger
         list.repaint();
-        playBtn.setEnabled(false);
-        playAllBtn.setEnabled(false);
 
         // Start the first task
         startRunForIndex(first);
@@ -1041,154 +989,98 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // IMMEDIATE FEEDBACK: inform user tasks were submitted without waiting for LLM work
         int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
-        if (console instanceof Chrome ch) {
-            SwingUtilities.invokeLater(() -> ch.systemOutput(
-                    "Submitted " + totalToRun + " task(s) for execution. Running task 1 of " + totalToRun + "..."));
-        }
+        SwingUtilities.invokeLater(() -> chrome.systemOutput(
+                "Submitted " + totalToRun + " task(s) for execution. Running task 1 of " + totalToRun + "..."));
 
-        if (!(console instanceof Chrome c)) {
+        var cm = chrome.getContextManager();
+
+        var future = runArchitectOnTaskAsync(idx, cm, originalPrompt);
+
+        // When finished (on background thread), update UI state on EDT
+        future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Internal error running architect", ex);
+                finishQueueOnError();
+                return;
+            }
             try {
-                console.toolError("Architect is only available in the main app context.", "Task Runner Error");
-            } catch (Exception e2) {
-                logger.debug("Error reporting Architect availability warning", e2);
-            }
-            finishQueueOnError();
-            return;
-        }
-
-        try {
-            var cm = c.getContextManager();
-
-            // Snapshot ordered task texts and position to avoid accessing Swing model from background threads.
-            final List<String> orderedTexts = new ArrayList<>();
-            int posInOrder = -1;
-            if (currentRunOrder != null) {
-                for (int i = 0; i < currentRunOrder.size(); i++) {
-                    int taskIdx = currentRunOrder.get(i);
-                    String ttext = "";
-                    if (taskIdx >= 0 && taskIdx < model.getSize()) {
-                        var t = model.get(taskIdx);
-                        if (t != null) ttext = t.text();
-                    }
-                    orderedTexts.add(ttext);
-                    if (taskIdx == idx) posInOrder = i;
-                }
-            } else {
-                orderedTexts.add(originalPrompt);
-                posInOrder = 0;
-            }
-            final int finalPosInOrder = posInOrder;
-            final int finalTotal = orderedTexts.size();
-
-            // Submit background work: perform LLM goal extraction and run Architect off the EDT.
-            var future = cm.submitBackgroundTask("Execute Task " + (idx + 1), () -> {
-                // Build header using LLM in background thread (non-blocking to EDT).
-                StringBuilder header = new StringBuilder();
-                if (!orderedTexts.isEmpty()) {
-                    String goal;
-                    try {
-                        var scanModel = cm.getService().getScanModel();
-                        var llm = cm.getLlm(scanModel, "Extract Goal from Task list", false);
-                        // Build a numbered task list text for the LLM
-                        StringBuilder orderedTasklistText = new StringBuilder();
-                        for (int i = 0; i < orderedTexts.size(); i++) {
-                            orderedTasklistText.append(String.format("%d. %s\n", i + 1, orderedTexts.get(i)));
-                        }
-                        var messages = List.<ChatMessage>of(new UserMessage(
-                                """
-                                You are a summarizer of tasks. Take a list of tasks and find the common goal for them in one
-                                sentence. Only return the goal.
-                                task list below:
-                                %s
-
-                                """
-                                        .stripIndent()
-                                        .formatted(orderedTasklistText.toString())));
-                        var result = llm.sendRequest(messages, false);
-                        var goalRaw = result.text();
-                        goal = goalRaw.trim();
-                    } catch (Exception e) {
-                        logger.error(e);
-                        goal = "Overall goal: Complete the following tasks in order.";
-                    }
-
-                    header.append(goal);
-                    header.append("\n\n");
-                    header.append("Ordered task list:\n");
-                    for (int i = 0; i < orderedTexts.size(); i++) {
-                        header.append(String.format("%d. %s\n", i + 1, orderedTexts.get(i)));
-                    }
-                    int humanPos = finalPosInOrder >= 0 ? finalPosInOrder + 1 : -1;
-                    if (humanPos > 0) {
-                        header.append("\nYou are executing task " + humanPos + " of " + finalTotal + ".\n");
-                    } else {
-                        header.append("\nYou are executing one of " + finalTotal + " tasks in this run.\n");
-                    }
-                } else {
-                    header.append("Overall goal: Complete the following task.\n\n");
+                if (res == null || res.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                    finishQueueOnError();
+                    return;
                 }
 
-                String augmentedPrompt = header.toString() + "\n" + originalPrompt;
-
-                // Optionally run SearchAgent (this is also background work)
-                boolean skipSearch = idx == 0 && !cm.liveContext().isEmpty();
-                if (skipSearch) {
-                    logger.debug("Skipping SearchAgent for first task since workspace is not empty");
-                } else {
-                    var scanModel = cm.getService().getScanModel();
-                    SearchAgent agent =
-                            new SearchAgent(originalPrompt, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
-                    var searchResult = agent.execute();
-                    if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                        logger.debug("Search failed: {}", searchResult.stopDetails());
-                        return false;
-                    }
-                }
-
-                var archFuture = c.getInstructionsPanel().runArchitectCommand(augmentedPrompt);
-                TaskResult archResult;
-                try {
-                    archResult = archFuture.get();
-                } catch (Exception e) {
-                    logger.error("Architect failed for prompt: {}", originalPrompt, e);
-                    return false;
-                }
-
-                if (archResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                    // Only auto-commit if we're processing multiple tasks as part of a queue
-                    if (queueActive) {
-                        autoCommitChanges(c, originalPrompt);
-                        cm.compressHistoryAsync().get();
-                    }
-                    return true;
-                }
-                return false;
-            });
-
-            future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
-                try {
-                    if (res && runningIndex != null && runningIndex == idx && idx < model.size()) {
-                        var it = model.get(idx);
+                if (Objects.equals(runningIndex, idx) && idx < model.size()) {
+                    var it = model.get(idx);
+                    if (it != null) {
                         model.set(idx, new TaskItem(it.text(), true));
                         saveTasksForCurrentSession();
                     }
-                } finally {
-                    // Clear running, advance queue
-                    runningIndex = null;
-                    runningFadeTimer.stop();
-                    list.repaint();
-                    updateButtonStates();
-                    startNextIfAny();
                 }
-            }));
-        } catch (Exception ex) {
-            try {
-                console.toolError("Failed to run queued tasks: " + ex.getMessage(), "Task Runner Error");
-            } catch (Exception e2) {
-                logger.debug("Error reporting queued task failure", e2);
+            } finally {
+                // Clear running, advance queue
+                runningIndex = null;
+                runningFadeTimer.stop();
+                list.repaint();
+                updateButtonStates();
+                startNextIfAny();
             }
-            finishQueueOnError();
+        }));
+    }
+
+    @NotNull
+    CompletableFuture<TaskResult> runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
+        // Submit an LLM action that will perform optional search + architect work off the EDT.
+        return cm.submitLlmAction("Execute Task " + (idx + 1), () -> {
+            chrome.showOutputSpinner("Executing Task command...");
+            TaskResult result;
+            try (var scope = cm.beginTask(originalPrompt, false)) {
+                result = runArchitectOnTaskInternal(idx, cm, originalPrompt, scope);
+            } finally {
+                chrome.hideOutputSpinner();
+                cm.checkBalanceAndNotify();
+            }
+
+            // do this AFTER the TaskScope closes with both search + architect results
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                // Only auto-commit if we're processing multiple tasks as part of a queue
+                if (queueActive) {
+                    autoCommitChanges(chrome, originalPrompt);
+                    cm.compressHistory(); // synchronous compress (avoid deadlock with async variant)
+                }
+            }
+
+            return result;
+        });
+    }
+
+    private @NotNull TaskResult runArchitectOnTaskInternal(
+            int idx, ContextManager cm, String originalPrompt, ContextManager.TaskScope scope) {
+        // Optionally run SearchAgent; we can skip search if this is the first task
+        // AND there are items in the context to edit (NOT context.isEmpty which includes task history)
+        boolean skipSearch =
+                idx == 0 && cm.liveContext().getEditableFragments().findAny().isPresent();
+        if (skipSearch) {
+            logger.debug("Skipping SearchAgent for first task since workspace has editable fragments");
+        } else {
+            var scanModel = cm.getService().getScanModel();
+            SearchAgent agent =
+                    new SearchAgent(originalPrompt, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
+            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+            var searchResult = agent.execute();
+            scope.append(searchResult);
+            if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                return searchResult;
+            }
         }
+
+        var planningModel = requireNonNull(cm.getService().getModel(Service.GEMINI_2_5_PRO));
+        var codeModel = requireNonNull(
+                cm.getService().getModel(chrome.getInstructionsPanel().getSelectedModel()));
+
+        var architectAgent = new ArchitectAgent(cm, planningModel, codeModel, originalPrompt, scope);
+        var archResult = architectAgent.execute();
+        scope.append(archResult);
+        return archResult;
     }
 
     private void startNextIfAny() {
@@ -1201,7 +1093,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
         // Get next pending index in insertion order and start it
-        int next = pendingQueue.iterator().next();
+        int next = pendingQueue.getFirst();
         pendingQueue.remove(next);
         list.repaint();
         startRunForIndex(next);
@@ -1231,6 +1123,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         repaint();
     }
 
+    public void disablePlay() {
+        playBtn.setEnabled(false);
+        playAllBtn.setEnabled(false);
+    }
+
+    public void enablePlay() {
+        updateButtonStates();
+    }
+
     /**
      * TransferHandler for in-place reordering via drag-and-drop. Keeps data locally and performs MOVE operations within
      * the same list.
@@ -1255,7 +1156,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Disallow dragging if selection includes the running task
             if (runningIndex != null && indices != null) {
                 for (int i : indices) {
-                    if (i == runningIndex.intValue()) {
+                    if (i == runningIndex) {
                         Toolkit.getDefaultToolkit().beep();
                         indices = null;
                         return null; // cancel drag
@@ -1391,7 +1292,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Check if either task is running or pending
         for (int idx : indices) {
-            if (runningIndex != null && idx == runningIndex.intValue()) {
+            if (runningIndex != null && idx == runningIndex) {
                 JOptionPane.showMessageDialog(
                         this,
                         "Cannot combine tasks while one is currently running.",
@@ -1456,7 +1357,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         int idx = indices[0];
 
-        if (runningIndex != null && idx == runningIndex.intValue()) {
+        if (runningIndex != null && idx == runningIndex) {
             JOptionPane.showMessageDialog(
                     this,
                     "Cannot split a task that is currently running.",
@@ -1518,7 +1419,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         // Replace the original with the first line; insert remaining lines after; mark all as not done
-        model.set(idx, new TaskItem(lines.get(0), false));
+        model.set(idx, new TaskItem(lines.getFirst(), false));
         for (int i = 1; i < lines.size(); i++) {
             model.add(idx + i, new TaskItem(lines.get(i), false));
         }
@@ -1550,7 +1451,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (int i = 0; i < model.size(); i++) {
             TaskItem it = model.get(i);
             if (it != null && it.done()) {
-                if (runningIndex != null && i == runningIndex.intValue()) {
+                if (runningIndex != null && i == runningIndex) {
                     continue;
                 }
                 completedCount++;
@@ -1566,7 +1467,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         String plural = completedCount == 1 ? "task" : "tasks";
         String message = "This will remove " + completedCount + " completed " + plural + " from this session.\n"
                 + "This action cannot be undone.";
-        int result = console.showConfirmDialog(
+        int result = chrome.showConfirmDialog(
                 message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
         if (result != JOptionPane.YES_OPTION) {
@@ -1580,7 +1481,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             TaskItem it = model.get(i);
             if (it != null && it.done()) {
                 // Do not remove the running task even if marked done (safety)
-                if (runningIndex != null && i == runningIndex.intValue()) {
+                if (runningIndex != null && i == runningIndex) {
                     continue;
                 }
                 model.remove(i);
@@ -1778,8 +1679,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private static final class TaskEntryDto {
         public String text = "";
         public boolean done;
-
-        public TaskEntryDto() {}
 
         public TaskEntryDto(String text, boolean done) {
             this.text = text;

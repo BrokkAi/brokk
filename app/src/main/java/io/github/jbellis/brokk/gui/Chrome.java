@@ -592,15 +592,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Sets up .gitignore entries and adds .brokk project files to git */
     private void setupGitIgnore() {
-        if (getProject().hasGit()) {
-            logger.warn("setupGitIgnore called when gitPanel is null. Skipping.");
+        // If project does not have git, nothing to do.
+        if (!getProject().hasGit()) {
+            logger.debug("setupGitIgnore called but project has no git repository; skipping.");
             return;
         }
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
             try {
                 var project = getProject();
-                var gitRepo =
-                        (GitRepo) project.getRepo(); // This is the repo for the current project (worktree or main)
+                var repo = project.getRepo();
+                if (!(repo instanceof GitRepo gitRepo)) {
+                    // Defensive: project claims to have git but repo isn't a GitRepo instance.
+                    logger.warn(
+                            "setupGitIgnore: project {} reports git but repo is not a GitRepo instance. Skipping.",
+                            project.getRoot());
+                    return;
+                }
                 var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
 
                 // Update .gitignore (located at gitTopLevel)
@@ -749,9 +756,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
+    public List<ChatMessage> getLlmRawMessages() {
         if (SwingUtilities.isEventDispatchThread()) {
-            return historyOutputPanel.getLlmRawMessages(includeReasoning);
+            return historyOutputPanel.getLlmRawMessages();
         }
 
         // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw
@@ -762,8 +769,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         while (true) {
             try {
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
-                SwingUtilities.invokeAndWait(
-                        () -> future.complete(historyOutputPanel.getLlmRawMessages(includeReasoning)));
+                SwingUtilities.invokeAndWait(() -> future.complete(historyOutputPanel.getLlmRawMessages()));
                 return future.get();
             } catch (InterruptedException e) {
                 // retry
@@ -785,6 +791,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
+            terminalDrawer.disablePlay();
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
             }
@@ -797,6 +804,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
+            terminalDrawer.enablePlay();
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();
             }
@@ -1141,6 +1149,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      *
      * <p>You should probably call ContextManager::beginTask instead of calling this directly.
      */
+    @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }
@@ -1370,6 +1379,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 previewFrame.setSize(800, 600); // Default size if no bounds saved
                 previewFrame.setLocationRelativeTo(frame); // Center relative to main window
             }
+
+            // Set a minimum width for preview windows to ensure search controls work properly
+            previewFrame.setMinimumSize(new Dimension(400, 200));
 
             // Add listener to save bounds using the "preview" key
             final JFrame finalFrameForBounds = previewFrame;
@@ -2022,7 +2034,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void updateCaptureButtons() {
-        var messageSize = historyOutputPanel.getLlmRawMessages(true).size();
+        var messageSize = historyOutputPanel.getLlmRawMessages().size();
         SwingUtilities.invokeLater(() -> historyOutputPanel.setCopyButtonEnabled(messageSize > 0));
     }
 
@@ -2680,6 +2692,27 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         label.setMinimumSize(label.getPreferredSize());
         label.setHorizontalAlignment(SwingConstants.CENTER);
         label.setToolTipText(tooltip);
+
+        // If this is a themed icon wrapper, ask it to ensure its delegate is resolved (non-blocking).
+        if (icon instanceof io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon themedIcon) {
+            try {
+                themedIcon.ensureResolved();
+            } catch (Exception ignored) {
+                // Defensive: do not let icon resolution errors interrupt UI construction
+            }
+        }
+
+        // Ensure we repaint when the label becomes showing; some themed icons resolve lazily and
+        // a repaint on SHOWING ensures the resolved image is painted immediately (fixes hover-only reveal).
+        label.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && label.isShowing()) {
+                SwingUtilities.invokeLater(() -> {
+                    label.revalidate();
+                    label.repaint();
+                });
+            }
+        });
+
         return label;
     }
 

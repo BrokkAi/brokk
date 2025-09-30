@@ -20,7 +20,6 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.TaskResult.StopDetails;
 import io.github.jbellis.brokk.TaskResult.StopReason;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -38,11 +37,10 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
@@ -57,11 +55,12 @@ public class ArchitectAgent {
     private final StreamingChatModel codeModel;
     private final ToolRegistry toolRegistry;
     private final String goal;
+    // scope is explicit so we can use its changed-files-tracking feature w/ Code Agent's results
+    private final ContextManager.TaskScope scope;
     // History of this agent's interactions
     private final List<ChatMessage> architectMessages = new ArrayList<>();
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
-    private final AtomicInteger planningStep = new AtomicInteger(1);
     private boolean offerUndoToolNext = false;
 
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
@@ -77,13 +76,15 @@ public class ArchitectAgent {
             ContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
-            String goal) {
+            String goal,
+            ContextManager.TaskScope scope) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
         this.toolRegistry = contextManager.getToolRegistry();
         this.goal = goal;
         this.io = contextManager.getIo();
+        this.scope = scope;
     }
 
     /** A tool for finishing the plan with a final answer. Similar to 'answerSearch' in SearchAgent. */
@@ -143,30 +144,12 @@ public class ArchitectAgent {
         var result = agent.runTask(instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
+        scope.append(result);
 
-        // Update the BuildFragment on build success or build error
-        if (reason == TaskResult.StopReason.SUCCESS || reason == TaskResult.StopReason.BUILD_ERROR) {
-            var buildText = (reason == TaskResult.StopReason.SUCCESS)
-                    ? "Build succeeded."
-                    : ("Build failed.\n\n" + stopDetails.explanation());
-            cm.updateBuildFragment(buildText);
-        }
-
-        var entry = cm.addToHistory(result, false);
-
-        if (reason == TaskResult.StopReason.SUCCESS) {
-            var entrySummary = entry.summary();
-            var resultString =
-                    """
-                            CodeAgent success! Details are in the Workspace messages.
-                            """
-                            .stripIndent()
-                            .formatted(entrySummary); // stopDetails may be redundant for success
-            logger.debug("successful callCodeAgent");
-            if (!deferBuild) {
-                // Mark success so Architect can auto-finish this turn
-                this.codeAgentJustSucceeded = true;
-            }
+        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+            var resultString = "CodeAgent finished! Details are in the Workspace messages.";
+            logger.debug("callCodeAgent finished");
+            this.codeAgentJustSucceeded = !deferBuild && !result.changedFiles().isEmpty();
             return resultString;
         }
 
@@ -194,19 +177,12 @@ public class ArchitectAgent {
     }
 
     private void addPlanningToHistory() {
-        var messages = io.getLlmRawMessages(true);
+        var messages = io.getLlmRawMessages();
         if (messages.isEmpty()) {
             return;
         }
 
-        cm.addToHistory(
-                new TaskResult(
-                        cm,
-                        "Architect planning step " + planningStep.getAndIncrement(),
-                        messages,
-                        Set.of(),
-                        StopReason.SUCCESS),
-                false);
+        scope.append(resultWithMessages(StopReason.SUCCESS));
     }
 
     @Tool(
@@ -236,7 +212,7 @@ public class ArchitectAgent {
             "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
     public String callSearchAgent(
             @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
-            throws FatalLlmException, InterruptedException {
+            throws FatalLlmException {
         addPlanningToHistory();
         logger.debug("callSearchAgent invoked with query: {}", query);
 
@@ -244,7 +220,7 @@ public class ArchitectAgent {
         io.llmOutput("Search Agent engaged: " + query, ChatMessageType.CUSTOM);
         var searchAgent = new SearchAgent(query, cm, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
         var result = searchAgent.execute();
-        cm.addToHistory(result, false);
+        scope.append(result);
 
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
@@ -264,14 +240,20 @@ public class ArchitectAgent {
      * Run the multi-step project until we either produce a final answer, abort, or run out of tasks. This uses an
      * iterative approach, letting the LLM decide which tool to call each time.
      */
-    public TaskResult execute() throws InterruptedException {
-        cm.beginTask("Architect", goal);
-
+    public TaskResult execute() {
         // First turn: try CodeAgent directly with the goal instructions
         if (cm.liveContext().isEmpty()) {
             throw new IllegalArgumentException(); // Architect should only be invoked by Task List harness
         }
 
+        try {
+            return executeInternal();
+        } catch (InterruptedException e) {
+            return resultWithMessages(StopReason.INTERRUPTED);
+        }
+    }
+
+    private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
         try {
             var initialSummary = callCodeAgent(goal, false);
@@ -279,15 +261,12 @@ public class ArchitectAgent {
         } catch (FatalLlmException e) {
             var errorMessage = "Fatal LLM error executing initial Code Agent: %s".formatted(e.getMessage());
             io.systemOutput(errorMessage);
-            return llmErrorResult(e.getMessage());
+            return resultWithMessages(StopReason.LLM_ERROR);
         }
 
         // If CodeAgent succeeded, immediately finish without entering planning loop
         if (this.codeAgentJustSucceeded) {
-            var successMsg = "Architect task complete!";
-            var fragment = new ContextFragment.TaskFragment(cm, List.of(new AiMessage(successMsg)), goal);
-            var stopDetails = new StopDetails(StopReason.SUCCESS, successMsg);
-            return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+            return codeAgentSuccessResult();
         }
 
         var llm = cm.getLlm(planningModel, "Architect: " + goal);
@@ -372,12 +351,7 @@ public class ArchitectAgent {
                         "Error from LLM while deciding next action: {}",
                         result.error().getMessage());
                 io.systemOutput("Error from LLM while deciding next action (see debug log for details)");
-                return llmErrorResult(result.error().getMessage());
-            }
-            if (result.isEmpty()) {
-                var msg = "Empty LLM response. Stopping project now";
-                io.systemOutput(msg);
-                return llmErrorResult(null);
+                return resultWithMessages(StopReason.LLM_ERROR);
             }
             // show thinking
             if (!result.text().isBlank()) {
@@ -436,11 +410,8 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                     var toolResult = toolRegistry.executeTool(this, answerReq);
-                    logger.debug("Project final answer: {}", toolResult.resultText());
-                    var fragment =
-                            new ContextFragment.TaskFragment(cm, List.of(new AiMessage(toolResult.resultText())), goal);
-                    var stopDetails = new StopDetails(StopReason.SUCCESS, toolResult.resultText());
-                    return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+                    io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI);
+                    return codeAgentSuccessResult();
                 }
             }
 
@@ -453,11 +424,8 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
                     var toolResult = toolRegistry.executeTool(this, abortReq);
-                    logger.debug("Project aborted: {}", toolResult.resultText());
-                    var fragment =
-                            new ContextFragment.TaskFragment(cm, List.of(new AiMessage(toolResult.resultText())), goal);
-                    var stopDetails = new StopDetails(StopReason.LLM_ABORTED, toolResult.resultText());
-                    return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+                    io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI);
+                    return resultWithMessages(StopReason.LLM_ABORTED);
                 }
             }
 
@@ -529,9 +497,7 @@ public class ArchitectAgent {
                 try {
                     toolResult = toolRegistry.executeTool(this, req);
                 } catch (FatalLlmException e) {
-                    var errorMessage = "Fatal LLM error executing Code Agent: %s".formatted(e.getMessage());
-                    io.systemOutput(errorMessage);
-                    return llmErrorResult(e.getMessage());
+                    return resultWithMessages(StopReason.LLM_ERROR);
                 }
 
                 architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
@@ -540,24 +506,19 @@ public class ArchitectAgent {
 
             // If CodeAgent succeeded (after making edits), automatically declare victory and stop.
             if (this.codeAgentJustSucceeded) {
-                var successMsg = "Architect task complete!";
-                var fragment = new ContextFragment.TaskFragment(cm, List.of(new AiMessage(successMsg)), goal);
-                var stopDetails = new StopDetails(StopReason.SUCCESS, successMsg);
-                return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
+                return codeAgentSuccessResult();
             }
         }
     }
 
-    private TaskResult llmErrorResult(@Nullable String message) {
-        if (message == null) {
-            message = "LLM returned an error with no explanation";
-        }
-        return new TaskResult(
-                cm,
-                "Architect: " + goal,
-                List.of(Messages.create(message, ChatMessageType.CUSTOM)),
-                Set.of(),
-                new StopDetails(StopReason.LLM_ERROR));
+    private @NotNull TaskResult codeAgentSuccessResult() {
+        // we've already added the code agent's result to history and we don't have anything extra to add to that here
+        return new TaskResult(cm, "Architect: " + goal, List.of(), Set.of(), new StopDetails(StopReason.SUCCESS));
+    }
+
+    private TaskResult resultWithMessages(StopReason reason) {
+        // include the messages we exchanged with the LLM for any planning steps since we ran a sub-agent
+        return new TaskResult(cm, "Architect: " + goal, io.getLlmRawMessages(), Set.of(), new StopDetails(reason));
     }
 
     /** Helper method to get priority rank for tool names. Lower number means higher priority. */

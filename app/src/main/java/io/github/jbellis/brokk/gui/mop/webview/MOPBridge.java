@@ -209,7 +209,8 @@ public final class MOPBridge {
             var msgs = taskFragment.messages();
             for (var message : msgs) {
                 var text = Messages.getText(message);
-                messages.add(new BrokkEvent.HistoryTask.Message(text, message.type()));
+                messages.add(
+                        new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
             }
         }
         var event = new BrokkEvent.HistoryTask(e, entry.sequence(), false, null, messages);
@@ -381,7 +382,7 @@ public final class MOPBridge {
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
 
             try {
-                logger.debug(
+                logger.trace(
                         "Starting streaming symbol lookup for {} symbols in context {}", symbolNames.size(), contextId);
 
                 // Use streaming lookup to send results as they become available
@@ -408,7 +409,7 @@ public final class MOPBridge {
                         },
                         // Completion callback - called when all symbols are processed
                         () -> {
-                            logger.debug(
+                            logger.trace(
                                     "Streaming symbol lookup completed for {} symbols in context {}",
                                     symbolNames.size(),
                                     contextId);
@@ -465,7 +466,7 @@ public final class MOPBridge {
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
 
             try {
-                logger.debug("Starting file path lookup for {} paths in context {}", filePaths.size(), contextId);
+                logger.trace("Starting file path lookup for {} paths in context {}", filePaths.size(), contextId);
 
                 // Use file path lookup service
                 FilePathLookupService.lookupFilePaths(
@@ -589,7 +590,7 @@ public final class MOPBridge {
             logger.warn("Cannot delete history entry {} - no context manager", sequence);
             return;
         }
-        cm.submitUserTask("Delete history entry " + sequence, () -> cm.dropHistoryEntryBySequence(sequence));
+        cm.submitExclusiveAction(() -> cm.dropHistoryEntryBySequence(sequence));
     }
 
     public String getContextCacheId() {
@@ -662,7 +663,7 @@ public final class MOPBridge {
                     analyzerLanguages = s.isEmpty() ? List.of() : List.of(s);
                 }
             } catch (Throwable t) {
-                logger.debug("Analyzer languages unavailable from project", t);
+                logger.trace("Analyzer languages unavailable from project", t);
             }
 
             var payload = new java.util.LinkedHashMap<String, Object>();

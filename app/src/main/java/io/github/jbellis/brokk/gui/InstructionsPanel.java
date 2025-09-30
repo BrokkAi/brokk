@@ -6,10 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.functions.Generator;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
@@ -19,7 +16,6 @@ import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
@@ -35,6 +31,7 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.wand.WandButton;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
@@ -106,9 +103,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Ask");
     private final MaterialButton actionButton;
-    private final MaterialButton wandButton = new MaterialButton();
-    private @Nullable volatile Future<?> currentActionFuture;
-    private @Nullable volatile Future<?> currentWandFuture;
+    private final WandButton wandButton;
     private final ModelSelector modelSelector;
     private String storedAction;
     private final ContextManager contextManager;
@@ -173,6 +168,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
+        wandButton = new WandButton(
+                contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,
@@ -608,7 +605,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         JMenuItem item = new JMenuItem(b);
                         item.addActionListener(ev -> {
                             // Checkout in background via ContextManager to get spinner/cancel behavior
-                            cm.submitUserTask("Checkout branch " + b, true, () -> {
+                            cm.submitExclusiveAction(() -> {
                                 try {
                                     IGitRepo r = project.getRepo();
                                     r.checkout(b);
@@ -652,7 +649,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         String name = JOptionPane.showInputDialog(chrome.getFrame(), "New branch name:");
                         if (name == null || name.isBlank()) return;
                         final String proposed = name.strip();
-                        cm.submitUserTask("Create branch " + proposed, true, () -> {
+                        cm.submitExclusiveAction(() -> {
                             try {
                                 IGitRepo r = project.getRepo();
                                 String sanitized = r.sanitizeBranchName(proposed);
@@ -1105,13 +1102,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(Box.createHorizontalGlue());
 
         // Wand button (Magic Ask) on the right
-        SwingUtilities.invokeLater(() -> {
-            wandButton.setIcon(Icons.WAND);
-        });
-        wandButton.setToolTipText("Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        wandButton.setFocusable(true);
-        wandButton.addActionListener(e -> onWandPressed());
         // Size set after fixedHeight is computed below
         bottomPanel.add(wandButton);
         bottomPanel.add(Box.createHorizontalStrut(4));
@@ -1610,24 +1601,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Executes the core logic for the "Code" command. This runs inside the Runnable passed to
-     * contextManager.submitUserTask.
-     */
-    private void executeCodeCommand(StreamingChatModel model, String input) {
-        var contextManager = chrome.getContextManager();
-
-        CodeAgent agent = new CodeAgent(contextManager, model);
-        var result = agent.runTask(input, Set.of());
-        chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-        // code agent has displayed status in llmoutput
-        if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-            maybeAddInterruptedResult(input, result);
-        } else {
-            contextManager.addToHistory(result, false);
-        }
-    }
-
-    /**
      * Executes the core logic for the "Ask" command. This runs inside the Runnable passed to
      * contextManager.submitAction.
      */
@@ -1639,7 +1612,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return new TaskResult(
                     cm,
                     "Ask: " + question,
-                    List.of(),
+                    cm.getIo().getLlmRawMessages(),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
@@ -1664,8 +1637,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (response.error() != null) {
                 String explanation = Objects.requireNonNullElse(response.error().getMessage(), "Unknown LLM error");
                 stop = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, explanation);
-            } else if (response.isEmpty()) {
-                stop = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE, "Empty response from LLM");
             } else {
                 stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
             }
@@ -1676,81 +1647,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return new TaskResult(
                 cm,
                 "Ask: " + question,
-                List.copyOf(cm.getIo().getLlmRawMessages(false)),
+                List.copyOf(cm.getIo().getLlmRawMessages()),
                 Set.of(), // Ask never changes files
                 stop);
-    }
-
-    public void maybeAddInterruptedResult(String input, TaskResult result) {
-        if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
-            logger.debug(result.actionDescription() + " command cancelled with partial results");
-            chrome.getContextManager().addToHistory(result, false);
-        }
-        populateInstructionsArea(input);
-    }
-
-    public void maybeAddInterruptedResult(String action, String input) {
-        if (chrome.getLlmRawMessages(false).stream().anyMatch(m -> m instanceof AiMessage)) {
-            logger.debug(action + " command cancelled with partial results");
-            var sessionResult = new TaskResult(
-                    "%s (Cancelled): %s".formatted(action, input),
-                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), input),
-                    Set.of(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
-            chrome.getContextManager().addToHistory(sessionResult, false);
-        }
-        populateInstructionsArea(input);
-    }
-
-    /**
-     * Executes the core logic for the "Architect" command. This runs inside the Runnable passed to
-     * contextManager.submitAction.
-     *
-     * @param goal The initial user instruction passed to the agent.
-     */
-    private TaskResult executeArchitectCommand(
-            StreamingChatModel planningModel, StreamingChatModel codeModel, String goal) {
-        var contextManager = chrome.getContextManager();
-        try {
-            var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal);
-            var result = agent.execute();
-            // Only add to history on failure, since if we were successful we don't have anything
-            // to add after the result that Code Agent already added
-            if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                contextManager.addToHistory(result, false);
-            }
-            return result;
-        } catch (InterruptedException e) {
-            throw new CancellationException(e.getMessage());
-        }
-    }
-
-    /**
-     * Executes the core logic for the "Search" command. This runs inside the Runnable passed to
-     * contextManager.submitAction.
-     */
-    private void executeSearchCommand(StreamingChatModel model, String query) {
-        if (query.isBlank()) {
-            chrome.toolError("Please provide a search query");
-            return;
-        }
-
-        var contextManager = chrome.getContextManager();
-        try {
-            SearchAgent agent = new SearchAgent(
-                    query,
-                    contextManager,
-                    model,
-                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
-            var result = agent.execute();
-
-            // Search does not stream to llmOutput, so add the final answer here
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            contextManager.addToHistory(result, false);
-            chrome.systemOutput("Search complete!");
-        } catch (InterruptedException e) {
-            throw new CancellationException(e.getMessage());
-        }
     }
 
     // --- Action Handlers ---
@@ -1789,7 +1688,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // don't use submitAction, we're going to kick off a new Worktree + Chrome and run in that, leaving the original
         // free
-        var future = cm.submitUserTask("Setup Architect Worktree", true, () -> {
+        cm.submitExclusiveAction(() -> {
             try {
                 chrome.showOutputSpinner("Setting up Git worktree...");
 
@@ -1871,7 +1770,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.hideOutputSpinner();
             }
         });
-        setActionRunning(future);
     }
 
     /**
@@ -1881,42 +1779,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param goal The user's goal/instructions.
      */
     public Future<TaskResult> runArchitectCommand(String goal) {
-        var future = submitAction(ACTION_ARCHITECT, goal, () -> {
+        return submitAction(ACTION_ARCHITECT, goal, scope -> {
             var service = chrome.getContextManager().getService();
             var planningModel = service.getModel(Service.GEMINI_2_5_PRO);
             if (planningModel == null) {
-                planningModel = service.quickModel();
+                throw new ModelUnavailableException();
             }
-            // Determine Code model from the Instructions dropdown, not from options
-            Service.ModelConfig codeCfg;
-            try {
-                codeCfg = modelSelector.getModel();
-                chrome.getProject().setCodeModelConfig(codeCfg);
-            } catch (IllegalStateException e) {
-                chrome.toolError("Please finish configuring your custom model or select a favorite first.");
-                codeCfg = chrome.getProject().getCodeModelConfig();
-            }
+
+            // Determine Code model from the Instructions dropdown
+            Service.ModelConfig codeCfg = modelSelector.getModel();
             var codeModel = service.getModel(codeCfg);
             if (codeModel == null) {
-                chrome.toolError("Selected model '" + codeCfg.name() + "' is not available with reasoning level "
-                        + codeCfg.reasoning());
-                codeModel = service.quickModel();
+                throw new ModelUnavailableException();
             }
+
             // Proceed with execution using the selected options
-            return executeArchitectCommand(planningModel, codeModel, goal);
+            var agent = new ArchitectAgent(chrome.getContextManager(), planningModel, codeModel, goal, scope);
+            return agent.execute();
         });
-        setActionRunning(future);
-        return future;
     }
 
-    // Methods for running commands. These prepare the input and model, then delegate
-    // the core logic execution to contextManager.submitAction, which calls back
-    // into the private execute* methods above.
-
-    // Public entry point for default Code model
     public void runCodeCommand() {
         var contextManager = chrome.getContextManager();
 
+        // fetch and save model config
         Service.ModelConfig config;
         try {
             config = modelSelector.getModel();
@@ -1925,13 +1811,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.toolError("Please finish configuring your custom model or select a favorite first.");
             return;
         }
-
         var model = contextManager.getService().getModel(config);
         if (model == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
             model = castNonNull(contextManager.getService().getModel(Service.GPT_5_MINI));
         }
+
         prepareAndRunCodeCommand(model);
     }
 
@@ -1977,17 +1863,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        var future = submitAction(ACTION_CODE, input, () -> {
-            executeCodeCommand(modelToUse, input);
-            var cm2 = chrome.getContextManager();
-            return new TaskResult(
-                    cm2,
-                    "Code: " + input,
-                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
-                    Set.of(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        submitAction(ACTION_CODE, input, () -> {
+            var contextManager1 = chrome.getContextManager();
+
+            CodeAgent agent = new CodeAgent(contextManager1, modelToUse);
+            var result = agent.runTask(input, Set.of());
+            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+            return result;
         });
-        setActionRunning(future);
     }
 
     // Public entry point for default Ask model
@@ -2006,211 +1889,100 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        var contextManager = chrome.getContextManager();
-        contextManager.beginTask("Ask", input);
-
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        var future = submitAction(ACTION_ASK, input, () -> {
+        submitAction(ACTION_ASK, input, () -> {
             var result = executeAskCommand(contextManager, modelToUse, input);
 
             // Persist to history regardless of success/failure
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                maybeAddInterruptedResult(input, result);
-            } else {
-                contextManager.addToHistory(result, false);
-            }
-
-            // Provide a brief status update
-            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                chrome.llmOutput("Ask command complete!", ChatMessageType.CUSTOM);
-            } else {
-                chrome.llmOutput("Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
-            }
             return result;
         });
-        setActionRunning(future);
     }
 
-    /** Handler for the Wand button: silently refine the prompt in the background and replace the input. */
-    private void onWandPressed() {
-        // If a refine task is already running, clicking the wand cancels it.
-        var running = currentWandFuture;
-        if (running != null && !running.isDone()) {
-            running.cancel(true);
-            return;
-        }
-
-        var original = getInstructions();
-        if (original.isBlank()) {
-            chrome.toolError("Please enter a prompt to refine");
-            return;
-        }
-
-        // Prepare UI: turn wand into a red Stop button; keep it enabled to allow cancel
-        SwingUtilities.invokeLater(() -> {
-            wandButton.setEnabled(true);
-            wandButton.setIcon(Icons.STOP);
-            wandButton.setToolTipText("Cancel prompt refinement");
-            // always use the off red of the light theme
-            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
-            wandButton.setBackground(badgeBackgroundColor);
-            actionButton.setEnabled(false);
-            instructionsArea.setEditable(false);
-        });
-
-        var cm = chrome.getContextManager();
-        var service = cm.getService();
-        var model = service.getWandModel(); // availability-based: GPT-5 Mini, else Gemini 2.0 Flash
-
-        var future = cm.submitBackgroundTask("Refine prompt", () -> {
-            try {
-                // Keep this operation silent (no streaming to LLM Output panel)
-                chrome.blockLlmOutput(true);
-
-                var instruction =
-                        """
-					You are a Prompt Refiner for coding instructions.
-
-					Take the draft prompt and rewrite it so it is:
-					- Clear
-					- Concise
-					- Structured
-					- Without adding new information beyond what’s in the original
-
-					Output only the improved prompt.
-
-
-                        Original Prompt:
-                        <<<
-                        %s
-                        >>>
-                        """
-                                .stripIndent()
-                                .formatted(original);
-
-                var llm = cm.getLlm(model, "Refine Prompt", false);
-                var messages = List.<ChatMessage>of(new UserMessage(instruction));
-                var result = llm.sendRequest(messages, false);
-
-                var refinedRaw = result.text();
-                var refined = refinedRaw.trim();
-
-                // Basic sanitization: strip code fences and leading labels
-                if (refined.startsWith("```")) {
-                    int start = refined.indexOf('\n');
-                    int endFence = refined.lastIndexOf("```");
-                    if (start >= 0 && endFence > start) {
-                        refined = refined.substring(start + 1, endFence).trim();
-                    } else {
-                        refined = refined.replace("```", "").trim();
-                    }
-                }
-                var lowered = refined.toLowerCase(Locale.ROOT);
-                if (lowered.startsWith("improved prompt:")) {
-                    int idx = refined.indexOf(':');
-                    if (idx >= 0 && idx + 1 < refined.length()) {
-                        refined = refined.substring(idx + 1).trim();
-                    }
-                }
-
-                if (refined.isBlank()) {
-                    SwingUtilities.invokeLater(() -> chrome.toolError("Could not refine prompt, please try again"));
-                } else {
-                    var finalRefined = refined;
-                    SwingUtilities.invokeLater(() -> populateInstructionsArea(finalRefined));
-                }
-            } catch (InterruptedException ignored) {
-                // ignore cancellation
-            } finally {
-                chrome.blockLlmOutput(false);
-            }
-            return null;
-        });
-
-        // Track and watch the refine task so we can restore UI when it completes or is cancelled
-        currentWandFuture = future;
-        Thread watcher = new Thread(
-                () -> {
-                    try {
-                        future.get();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } catch (ExecutionException | CancellationException ignored) {
-                        // ignore
-                    } finally {
-                        currentWandFuture = null;
-                        SwingUtilities.invokeLater(() -> {
-                            wandButton.setEnabled(true);
-                            wandButton.setIcon(Icons.WAND);
-                            wandButton.setToolTipText(
-                                    "Refine Prompt: rewrites your prompt for clarity and specificity (silent)");
-                            // Reset background to default (null lets LAF/theme paint it)
-                            wandButton.setBackground(null);
-                            actionButton.setEnabled(true);
-                            instructionsArea.setEditable(true);
-                        });
-                    }
-                },
-                "Brokk-Wand-Watcher");
-        watcher.setDaemon(true);
-        watcher.start();
-    }
-
-    public void runSearchCommand() {
+    public @Nullable Future<TaskResult> runSearchCommand() {
         var input = getInstructions();
         if (input.isBlank()) {
             chrome.toolError("Please provide a search query");
-            return;
+            return null;
         }
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
 
-        var future = executeSearchInternal(input);
-        if (future != null) {
-            setActionRunning(future);
-        }
+        return executeSearchInternal(input);
     }
 
-    private @Nullable Future<?> executeSearchInternal(String query) {
+    private Future<TaskResult> executeSearchInternal(String query) {
         final var modelToUse = selectDropdownModelOrShowError("Search", true);
         if (modelToUse == null) {
-            return null;
+            throw new IllegalStateException("LLM not found, usually this indicates a network error");
         }
 
-        // Update the LLM output panel directly via Chrome
-        chrome.llmOutput(
-                "# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.",
-                ChatMessageType.CUSTOM);
-
-        // Submit the action, calling the private execute method inside the lambda
         return submitAction(ACTION_SEARCH, query, () -> {
-            executeSearchCommand(modelToUse, query);
-            var cm2 = chrome.getContextManager();
-            return new TaskResult(
-                    cm2,
-                    "Search: " + query,
-                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
-                    Set.of(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+            assert !query.isBlank();
+
+            var cm = chrome.getContextManager();
+            SearchAgent agent = new SearchAgent(
+                    query, cm, modelToUse, EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
+            var result = agent.execute();
+
+            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+            return result;
         });
     }
 
-    public @Nullable Future<?> runSearchCommand(String query) {
-        if (query.isBlank()) {
-            chrome.toolError("Please provide a search query");
-            return null;
-        }
+    public Future<TaskResult> runSearchCommand(String query) {
+        assert !query.isBlank();
         return executeSearchInternal(query);
     }
 
-    /** sets the llm output to indicate the action has started, and submits the task on the user pool */
+    /**
+     * Runs the given task, handling spinner and add-to-history of the TaskResult, including partial result on
+     * interruption
+     */
     public Future<TaskResult> submitAction(String action, String input, Callable<TaskResult> task) {
         var cm = chrome.getContextManager();
+        // Map some actions to a more user-friendly display string for the spinner.
+        // We keep the original `action` (used for LLM output / history) unchanged to avoid
+        // affecting other subsystems that detect action by name, but present a clearer label
+        // to the user while the operation runs.
+        String displayAction;
+        if (InstructionsPanel.ACTION_ARCHITECT.equals(action)) {
+            displayAction = "Code With Plan";
+        } else if (InstructionsPanel.ACTION_SEARCH.equals(action)) {
+            displayAction = "Ask with Search";
+        } else if (InstructionsPanel.ACTION_ASK.equals(action)) {
+            displayAction = "Ask";
+        } else {
+            displayAction = action;
+        }
+
+        return cm.submitLlmAction(action, () -> {
+            try {
+                chrome.showOutputSpinner("Executing " + displayAction + " command...");
+                try (var scope = cm.beginTask(input, false)) {
+                    var result = task.call();
+                    scope.append(result);
+                    if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                        populateInstructionsArea(input);
+                    }
+                    return result;
+                }
+            } finally {
+                chrome.hideOutputSpinner();
+                contextManager.checkBalanceAndNotify();
+                notifyActionComplete(action);
+            }
+        });
+    }
+
+    /** Overload that provides a TaskScope to the task body so callers can pass it to agents. */
+    public Future<TaskResult> submitAction(
+            String action, String input, java.util.function.Function<ContextManager.TaskScope, TaskResult> task) {
+        var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
-        String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
+        String finalAction = (action + " MODE").toUpperCase(java.util.Locale.ROOT);
         // Map some actions to a more user-friendly display string for the spinner.
         // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
         // affecting other subsystems that detect action by name, but present a clearer label
@@ -2226,58 +1998,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             displayAction = action;
         }
 
-        // Adapt Runnable submission with LLM flag to return a Future<TaskResult>
-        final TaskResult[] holder = new TaskResult[1];
-
-        var underlying = cm.submitUserTask(finalAction, true, () -> {
+        return cm.submitLlmAction(finalAction, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + displayAction + " command...");
-                var result = task.call();
-                holder[0] = requireNonNull(result);
-            } catch (CancellationException e) {
-                maybeAddInterruptedResult(action, input);
-                throw e; // propagate to ContextManager
-            } catch (Exception e) {
-                // Let unexpected exceptions propagate so the underlying Future completes exceptionally
-                throw new RuntimeException(e);
+                try (var scope = cm.beginTask(input, false)) {
+                    var result = task.apply(scope);
+                    scope.append(result);
+                    if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                        populateInstructionsArea(input);
+                    }
+                    return result;
+                }
             } finally {
                 chrome.hideOutputSpinner();
                 contextManager.checkBalanceAndNotify();
                 notifyActionComplete(action);
             }
         });
-
-        // Return a delegating Future<TaskResult> that mirrors the underlying future,
-        // and yields the TaskResult computed by the callable.
-        return new Future<TaskResult>() {
-            @Override
-            public boolean cancel(boolean mayInterruptIfRunning) {
-                return underlying.cancel(mayInterruptIfRunning);
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return underlying.isCancelled();
-            }
-
-            @Override
-            public boolean isDone() {
-                return underlying.isDone();
-            }
-
-            @Override
-            public TaskResult get() throws InterruptedException, ExecutionException {
-                underlying.get();
-                return requireNonNull(holder[0]);
-            }
-
-            @Override
-            public TaskResult get(long timeout, TimeUnit unit)
-                    throws InterruptedException, ExecutionException, TimeoutException {
-                underlying.get(timeout, unit);
-                return requireNonNull(holder[0]);
-            }
-        };
     }
 
     // Methods to disable and enable buttons.
@@ -2390,19 +2127,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private boolean isActionRunning() {
-        var f = currentActionFuture;
-        return f != null && !f.isDone();
+        return chrome.getContextManager().isLlmTaskInProgress();
     }
 
     public void onActionButtonPressed() {
         if (isActionRunning()) {
             // Stop action
-            chrome.getContextManager().interruptUserActionThread();
-            var f = currentActionFuture;
-            if (f != null) {
-                f.cancel(true);
-            }
-            // Button will flip back to "Go" once the Future completes (see watcher in setActionRunning)
+            chrome.getContextManager().interruptLlmAction();
         } else {
             // Go action
             switch (storedAction) {
@@ -2417,48 +2148,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Always return focus to the instructions area to avoid re-triggering with Enter on the button
         requestCommandInputFocus();
     }
-
-    private void setActionRunning(Future<?> f) {
-        currentActionFuture = f;
-        SwingUtilities.invokeLater(() -> {
-            actionButton.setIcon(Icons.STOP);
-            actionButton.setText(null);
-            actionButton.setToolTipText("Cancel the current operation");
-            actionButton.setEnabled(true);
-            // always use the off red of the light theme
-            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
-            actionButton.setBackground(badgeBackgroundColor);
-        });
-        Thread watcher = new Thread(
-                () -> {
-                    try {
-                        f.get();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } catch (ExecutionException | CancellationException ignored) {
-                        // ignore
-                    } finally {
-                        currentActionFuture = null;
-                        SwingUtilities.invokeLater(() -> {
-                            KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                                    "instructions.submit",
-                                    KeyStroke.getKeyStroke(
-                                            KeyEvent.VK_ENTER,
-                                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-                            actionButton.setIcon(Icons.ARROW_WARM_UP);
-                            actionButton.setText(null);
-                            actionButton.setToolTipText(
-                                    "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
-                            actionButton.setEnabled(true);
-                            updateButtonStates();
-                        });
-                    }
-                },
-                "Brokk-Action-Watcher");
-        watcher.setDaemon(true);
-        watcher.start();
-    }
-
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
             // If placeholder is active or area is disabled, activate input first
@@ -2504,53 +2193,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(goal, 20);
         clearCommandInput();
 
-        var future = submitAction("Scan Project", goal, () -> {
-            executeScanProjectCommand(modelToUse, goal);
-            var cm2 = chrome.getContextManager();
-            return new TaskResult(
-                    cm2,
-                    "Scan Project: " + goal,
-                    List.copyOf(cm2.getIo().getLlmRawMessages(false)),
-                    Set.of(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        submitAction(ACTION_SCAN_PROJECT, goal, () -> {
+            try {
+                var cm = chrome.getContextManager();
+                var contextAgent = new ContextAgent(cm, modelToUse, goal, true);
+                var recommendation = contextAgent.getRecommendations(true);
+                var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
+                int finalBudget = cm.getService().getMaxInputTokens(modelToUse) / 2;
+
+                if (totalTokens > finalBudget) {
+                    var summary = ContextFragment.getSummary(recommendation.fragments());
+                    cm.addVirtualFragment(new ContextFragment.StringFragment(
+                            cm,
+                            summary,
+                            "Summary of Project Scan",
+                            recommendation.fragments().stream()
+                                    .findFirst()
+                                    .map(ContextFragment::syntaxStyle)
+                                    .orElseThrow()));
+                } else {
+                    WorkspaceTools.addToWorkspace(cm, recommendation);
+                }
+                return new TaskResult(
+                        chrome.getContextManager(),
+                        ACTION_SCAN_PROJECT + ": " + goal,
+                        List.copyOf(chrome.getContextManager().getIo().getLlmRawMessages()),
+                        Set.of(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+            } catch (InterruptedException e) {
+                return new TaskResult(
+                        chrome.getContextManager(),
+                        ACTION_SCAN_PROJECT + ": " + goal,
+                        List.copyOf(chrome.getContextManager().getIo().getLlmRawMessages()),
+                        Set.of(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+            }
         });
-        setActionRunning(future);
-    }
-
-    private void executeScanProjectCommand(StreamingChatModel model, String goal) {
-        var cm = chrome.getContextManager();
-        cm.beginTask("Scan Project", goal);
-        try {
-            var contextAgent = new ContextAgent(cm, model, goal, true);
-            var recommendation = contextAgent.getRecommendations(true);
-
-            if (!recommendation.reasoning().isEmpty()) {
-                chrome.llmOutput(
-                        "\nReasoning for recommendations: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
-            }
-
-            var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
-            int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
-
-            if (totalTokens > finalBudget) {
-                var summaries = ContextFragment.getSummary(recommendation.fragments());
-                var msgs = new ArrayList<>(List.of(
-                        new UserMessage("Scan for relevant files"),
-                        new AiMessage("Potentially relevant files:\n" + summaries)));
-                cm.addToHistory(
-                        new TaskResult(cm, "Scan for relevant files", msgs, Set.of(), TaskResult.StopReason.SUCCESS),
-                        false);
-                chrome.llmOutput(
-                        "Scan Project complete: recorded summaries to history (too large to add directly).",
-                        ChatMessageType.CUSTOM);
-            } else {
-                WorkspaceTools.addToWorkspace(cm, recommendation);
-                chrome.llmOutput(
-                        "Scan Project complete: added recommendations to the Workspace.", ChatMessageType.CUSTOM);
-            }
-        } catch (InterruptedException e) {
-            throw new CancellationException(e.getMessage());
-        }
     }
 
     public VoiceInputButton getVoiceInputButton() {
@@ -2988,6 +2666,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
             return fallback;
+
+    private static class ModelUnavailableException extends RuntimeException {
+        public ModelUnavailableException() {
+            super("Model is unavailable. Usually this indicates a networking problem.");
         }
     }
 }

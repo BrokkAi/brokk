@@ -460,15 +460,15 @@ public class JavaTreeSitterAnalyzerTest {
     @Test
     public void testNearestMethodName() {
         // regular method
-        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method"));
+        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method"));
         // method with lambda/anon class
-        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method$anon$357:32"));
+        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$anon$357:32"));
         // method with anon class (just digits)
-        assertEquals("package.Class.method", analyzer.nearestMethodName("package.Class.method$1"));
+        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$1"));
         // method in nested class
-        assertEquals("package.A.AInner.method", analyzer.nearestMethodName("package.A.AInner.method"));
+        assertEquals("package.A.AInner.method", analyzer.normalizeFullName("package.A.AInner.method"));
         // method with lambda in nested class
-        assertEquals("package.A.AInner.method", analyzer.nearestMethodName("package.A.AInner.method$anon$1"));
+        assertEquals("package.A.AInner.method", analyzer.normalizeFullName("package.A.AInner.method$anon$1"));
     }
 
     @Test
@@ -634,5 +634,61 @@ public class JavaTreeSitterAnalyzerTest {
         assertTrue(source.contains("The annotation value"), "Should contain annotation method description");
         assertTrue(source.contains("@return the value string"), "Should contain annotation method @return tag");
         assertTrue(source.contains("Priority level"), "Should contain priority method description");
+    }
+
+    @Test
+    public void testNormalizationStripsGenericsInClassNames() {
+        // Based on log example: SlidingWindowCache<K, V extends Disposable>.getCachedKeys
+        assertEquals(
+                "io.github.jbellis.brokk.util.SlidingWindowCache.getCachedKeys",
+                analyzer.normalizeFullName(
+                        "io.github.jbellis.brokk.util.SlidingWindowCache<K, V extends Disposable>.getCachedKeys"));
+
+        // Class lookup with generics on the type
+        assertTrue(
+                analyzer.getClassSource("A<String>", false).isPresent(), "Class lookup with generics should normalize");
+
+        // Method lookup with generics on the containing class
+        assertTrue(
+                analyzer.getMethodSource("A<Integer>.method1", false).isPresent(),
+                "Method lookup with class generics should normalize");
+
+        // Nested classes with generics on each segment
+        assertTrue(
+                analyzer.getMethodSource("A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
+                        .isPresent(),
+                "Nested class method with generics should normalize");
+    }
+
+    @Test
+    public void testNormalizationHandlesAnonymousAndLocationSuffix() {
+        // Based on log example: createPopupMenu$anon$328:16
+        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$anon$328:16"));
+
+        // Ensure anonymous + location suffix normalizes for real method lookups
+        assertTrue(
+                analyzer.getMethodSource("A.method6$anon$1:42", false).isPresent(),
+                "Anonymous and location suffixes should normalize for method source lookup");
+
+        // Location suffix without anon
+        assertTrue(
+                analyzer.getMethodSource("A.method1:16", false).isPresent(),
+                "Location suffix alone should normalize for method source lookup");
+
+        // Anonymous with just digits
+        assertTrue(
+                analyzer.getMethodSource("A.method6$1", false).isPresent(),
+                "Anonymous digit suffix should normalize for method source lookup");
+    }
+
+    @Test
+    public void testDefinitionAndSourcesWithNormalizedConstructorNames() {
+        // Based on log example: Type.Type for constructor (and possibly with generics on the type)
+        assertTrue(
+                analyzer.getMethodSource("B<B>.B", true).isPresent(),
+                "Constructor lookup with generics on the type should normalize and resolve");
+
+        // Also ensure plain constructor lookup works (control)
+        assertTrue(analyzer.getMethodSource("B.B", true).isPresent(), "Constructor lookup should resolve");
     }
 }

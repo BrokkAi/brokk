@@ -160,7 +160,7 @@ public final class MergeOneFile {
 
             var result = llm.sendRequest(
                     List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
-            if (result.error() != null || result.isEmpty()) {
+            if (result.error() != null) {
                 var msg = result.error() != null ? result.error().getMessage() : "Empty response";
                 io.systemOutput("LLM error in merge loop: " + msg);
                 break;

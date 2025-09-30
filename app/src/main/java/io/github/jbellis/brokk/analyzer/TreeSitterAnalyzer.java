@@ -10,8 +10,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayDeque; // Added import
 import java.util.ArrayList;
 import java.util.Collection;
@@ -24,6 +23,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -103,8 +104,10 @@ public abstract class TreeSitterAnalyzer
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
     private final ConcurrentSkipListMap<String, List<CodeUnit>> symbolIndex =
             new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
-    // SHA-1 hash of each analysed file, used to detect modifications
-    private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
+    // Timestamp of the last successful full-project update (epoch nanos)
+    private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
+    // Over-approximation buffer for filesystem mtime comparisons (nanos)
+    private static final long MTIME_EPSILON_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
     private final Map<ProjectFile, TSTree> parsedTreeCache =
             new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
     // Ensures reads see a consistent view while updates mutate internal maps atomically
@@ -197,6 +200,25 @@ public abstract class TreeSitterAnalyzer
             Set<String> modifierNodeTypes) {}
 
     public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
+
+    private record ProjectFilePair(ProjectFile lhs, ProjectFile rhs) {
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ProjectFilePair(ProjectFile oLhs, ProjectFile oRhs))) return false;
+            // Order-insensitive equality: (a,b) == (b,a)
+            return (Objects.equals(lhs, oLhs) && Objects.equals(rhs, oRhs))
+                    || (Objects.equals(lhs, oRhs) && Objects.equals(rhs, oLhs));
+        }
+
+        @Override
+        public int hashCode() {
+            // Order-insensitive hash: commutative combination
+            int h1 = Objects.hashCode(lhs);
+            int h2 = Objects.hashCode(rhs);
+            return h1 ^ h2;
+        }
+    }
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -398,6 +420,11 @@ public abstract class TreeSitterAnalyzer
                 topLevelDeclarations.size(),
                 childrenByParent.size(),
                 signatures.size());
+
+        // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
+        var initInstant = Instant.now();
+        long initNowNanos = initInstant.getEpochSecond() * 1_000_000_000L + initInstant.getNano();
+        lastUpdateEpochNanos.set(initNowNanos);
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language) {
@@ -458,7 +485,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        final String methodTarget = nearestMethodName(fqName);
+        final String methodTarget = normalizeFullName(fqName);
 
         List<CodeUnit> matches = uniqueCodeUnitList().stream()
                 .filter(cu -> cu.isFunction()
@@ -723,13 +750,14 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
-     * Assuming the fqName is an entity nested within a method, or is a method itself, will return the fqName of the
-     * method. This is mostly useful with escaping lambdas to their parent method.
+     * Assuming the fqName is an entity nested within a method, a type, or is a method itself, will return the fqName of
+     * the nearest method or type/class. This is useful with escaping lambdas to their parent method, or normalizing
+     * full names with generic type arguments.
      *
-     * @param fqName the fqName of a method.
-     * @return the surrounding method, or the given fqName otherwise.
+     * @param fqName the fqName of a code unit.
+     * @return the surrounding method or type, or the given fqName otherwise.
      */
-    protected String nearestMethodName(String fqName) {
+    protected String normalizeFullName(String fqName) {
         // Should be overridden by the subclasses
         return fqName;
     }
@@ -1018,9 +1046,6 @@ public abstract class TreeSitterAnalyzer
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
-
-        // record (or refresh) the file content hash
-        fileHashes.put(file, sha1Hex(fileBytes));
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
@@ -2211,24 +2236,6 @@ public abstract class TreeSitterAnalyzer
 
     /* ---------- helpers ---------- */
 
-    /**
-     * Compute SHA-1 of the provided data and return it as lowercase hex. SHA-1 is guaranteed to be available on every
-     * JVM.
-     */
-    private static String sha1Hex(byte[] data) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
-            byte[] digest = md.digest(data);
-            StringBuilder sb = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-1 algorithm unavailable", e);
-        }
-    }
-
     private static String formatSecondsMillis(long nanos) {
         long seconds = nanos / 1_000_000_000L;
         long millis = (nanos % 1_000_000_000L) / 1_000_000L;
@@ -2398,6 +2405,8 @@ public abstract class TreeSitterAnalyzer
             return this;
         }
 
+        long overallStartMs = System.currentTimeMillis();
+
         // Filter files by language extensions - only process files this analyzer can understand
         var relevantFiles = filterRelevantFiles(changedFiles);
 
@@ -2405,70 +2414,156 @@ public abstract class TreeSitterAnalyzer
             return this; // No relevant files to process
         }
 
-        var writeLock = stateRwLock.writeLock();
-        writeLock.lock();
-        try {
+        int total = relevantFiles.size();
+
+        // Thread-safe metrics and counters
+        var reanalyzedCount = new AtomicInteger(0);
+        var deletedCount = new AtomicInteger(0);
+        var cleanupNanos = new AtomicLong(0L);
+        var reanalyzeNanos = new AtomicLong(0L);
+
+        var filesCleanedCount = new AtomicInteger(0);
+        var symbolsTouchedCount = new AtomicInteger(0);
+        var parentsTouchedCount = new AtomicInteger(0);
+        var writeLockHoldNanos = new AtomicLong(0L);
+
+        final var fileEqualityCache = new ConcurrentHashMap<ProjectFilePair, Boolean>();
+
+        int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+        try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
             for (var file : relevantFiles) {
-                // -------- cleanup ----------
-                parsedTreeCache.remove(file);
-                topLevelDeclarations.remove(file);
-                fileHashes.remove(file);
+                CompletableFuture<Void> future = CompletableFuture.runAsync(
+                        () -> {
+                            // -------- cleanup (under short write lock) ----------
+                            long cleanupStart = System.nanoTime();
+                            var writeLock = stateRwLock.writeLock();
+                            writeLock.lock();
+                            long lockStartNanos = System.nanoTime();
+                            try {
+                                filesCleanedCount.incrementAndGet();
 
-                Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
+                                // Build predicate with cached ProjectFile equality checks
+                                Predicate<CodeUnit> fromFile = cu -> fileEqualityCache.computeIfAbsent(
+                                        new ProjectFilePair(file, cu.source()),
+                                        pair -> pair.lhs().equals(pair.rhs()));
 
-                var symbolsToPurge = new HashSet<String>();
-                var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
-                for (var entry : symbolIndex.entrySet()) {
-                    var symbol = entry.getKey();
-                    var cus = entry.getValue();
-                    var remaining = cus.stream().filter(fromFile.negate()).toList();
-                    if (remaining.isEmpty()) {
-                        symbolsToPurge.add(symbol);
-                    } else if (remaining.size() < cus.size()) {
-                        symbolsToUpdate.put(symbol, remaining);
-                    }
-                }
-                symbolsToUpdate.forEach(symbolIndex::put);
-                symbolsToPurge.forEach(symbolIndex::remove);
+                                parsedTreeCache.remove(file);
+                                topLevelDeclarations.remove(file);
 
-                childrenByParent.keySet().removeIf(fromFile);
-                signatures.keySet().removeIf(fromFile);
-                sourceRanges.keySet().removeIf(fromFile);
+                                var symbolsToPurge = new HashSet<String>();
+                                var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
+                                for (var entry : symbolIndex.entrySet()) {
+                                    var symbol = entry.getKey();
+                                    var cus = entry.getValue();
+                                    var remaining = cus.stream()
+                                            .filter(fromFile.negate())
+                                            .toList();
+                                    if (remaining.isEmpty()) {
+                                        symbolsToPurge.add(symbol);
+                                    } else if (remaining.size() < cus.size()) {
+                                        symbolsToUpdate.put(symbol, remaining);
+                                    }
+                                }
+                                symbolsTouchedCount.addAndGet(symbolsToPurge.size() + symbolsToUpdate.size());
+                                symbolIndex.putAll(symbolsToUpdate);
+                                symbolsToPurge.forEach(symbolIndex::remove);
 
-                // remove children entries pointing to CodeUnits from the changed file
-                childrenByParent.replaceAll((parent, kids) -> {
-                    var filtered = kids.stream().filter(fromFile.negate()).toList();
-                    return filtered.equals(kids) ? kids : List.copyOf(filtered);
-                });
+                                childrenByParent.keySet().removeIf(fromFile);
+                                signatures.keySet().removeIf(fromFile);
+                                sourceRanges.keySet().removeIf(fromFile);
 
-                // -------- re-analyse (if file still exists) ----------
-                if (Files.exists(file.absPath())) {
-                    try {
-                        var parser = getTSParser();
-                        byte[] bytes = Files.readAllBytes(file.absPath());
-                        var analysisResult = analyzeFileContent(file, bytes, parser, null);
-                        ingestAnalysisResult(file, analysisResult);
-                    } catch (IOException e) {
-                        log.warn("IO error re-analysing {}: {}", file, e.getMessage());
-                    } catch (RuntimeException e) {
-                        log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
-                    }
-                } else {
-                    log.debug("File {} deleted; state cleaned.", file);
-                }
+                                // remove children entries pointing to CodeUnits from the changed file
+                                childrenByParent.replaceAll((parent, kids) -> {
+                                    var filtered = kids.stream()
+                                            .filter(fromFile.negate())
+                                            .toList();
+                                    if (!filtered.equals(kids)) {
+                                        parentsTouchedCount.incrementAndGet();
+                                        return List.copyOf(filtered);
+                                    }
+                                    return kids;
+                                });
+                            } catch (Throwable t) {
+                                log.error("Exception encountered while performing update for file {}", file, t);
+                            } finally {
+                                cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
+                                writeLockHoldNanos.addAndGet(System.nanoTime() - lockStartNanos);
+                                writeLock.unlock();
+                            }
+
+                            // -------- re-analyse (I/O + parse outside lock; ingestion under lock) ----------
+                            if (Files.exists(file.absPath())) {
+                                long reanStart = System.nanoTime();
+                                try {
+                                    var parser = getTSParser();
+                                    byte[] bytes = Files.readAllBytes(file.absPath());
+                                    var analysisResult = analyzeFileContent(file, bytes, parser, null);
+
+                                    var writeLock2 = stateRwLock.writeLock();
+                                    writeLock2.lock();
+                                    long lock2StartNanos = System.nanoTime();
+                                    try {
+                                        ingestAnalysisResult(file, analysisResult);
+                                    } finally {
+                                        writeLockHoldNanos.addAndGet(System.nanoTime() - lock2StartNanos);
+                                        writeLock2.unlock();
+                                    }
+                                    reanalyzedCount.incrementAndGet();
+                                } catch (IOException e) {
+                                    log.warn("IO error re-analysing {}: {}", file, e.getMessage());
+                                } catch (RuntimeException e) {
+                                    log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
+                                } finally {
+                                    reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
+                                }
+                            } else {
+                                deletedCount.incrementAndGet();
+                                log.debug("File {} deleted; state cleaned.", file);
+                            }
+                        },
+                        executor);
+
+                futures.add(future);
+            }
+
+            if (!futures.isEmpty()) {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .join();
             }
         } finally {
-            writeLock.unlock();
+            fileEqualityCache.clear();
         }
+
+        long totalMs = System.currentTimeMillis() - overallStartMs;
+        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos.get());
+        long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos.get());
+        log.debug(
+                "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms, filesCleaned={}, symbolsTouched={}, parentsTouched={}, writeLockHold={} ms",
+                language.name(),
+                total,
+                reanalyzedCount.get(),
+                deletedCount.get(),
+                cleanupMs,
+                reanalyzeMs,
+                totalMs,
+                filesCleanedCount.get(),
+                symbolsTouchedCount.get(),
+                parentsTouchedCount.get(),
+                TimeUnit.NANOSECONDS.toMillis(writeLockHoldNanos.get()));
+
         return this;
     }
 
     /**
-     * Full-project incremental update: detect created/modified/deleted files by comparing on-disk SHA-1 hashes to the
-     * cached ones, then delegate to {@link #update(Set)}.
+     * Full-project incremental update: detect created/modified/deleted files using filesystem mtimes (nanos precision,
+     * with a 300ms over-approximation buffer), then delegate to {@link #update(Set)}.
      */
     @Override
     public IAnalyzer update() {
+        long detectStartMs = System.currentTimeMillis();
+
         // files currently on disk that this analyser is interested in
         Set<ProjectFile> currentFiles = project.getAllFiles().stream()
                 .filter(pf -> {
@@ -2482,32 +2577,84 @@ public abstract class TreeSitterAnalyzer
                 })
                 .collect(Collectors.toSet());
 
+        // Snapshot known files (those we've analyzed/cached)
+        Set<ProjectFile> knownFiles = withReadLock(() -> {
+            var s = new HashSet<ProjectFile>();
+            s.addAll(topLevelDeclarations.keySet());
+            s.addAll(parsedTreeCache.keySet());
+            return s;
+        });
+
         Set<ProjectFile> changed = new HashSet<>();
+        var nowInstant = Instant.now();
+        long nowNanos = nowInstant.getEpochSecond() * 1_000_000_000L + nowInstant.getNano();
+        long last = lastUpdateEpochNanos.get();
+        long threshold = (last > MTIME_EPSILON_NANOS) ? (last - MTIME_EPSILON_NANOS) : 0L;
 
         // deleted or no-longer-relevant files
-        for (ProjectFile known : new HashSet<>(fileHashes.keySet())) {
+        for (ProjectFile known : knownFiles) {
             if (!currentFiles.contains(known) || !Files.exists(known.absPath())) {
                 changed.add(known);
             }
         }
 
-        // new or modified files
-        for (ProjectFile pf : currentFiles) {
-            try {
-                byte[] bytes = Files.readAllBytes(pf.absPath());
-                String newHash = sha1Hex(bytes);
-                String oldHash = fileHashes.get(pf);
-                if (!newHash.equals(oldHash)) {
-                    changed.add(pf);
+        // new or modified files (parallelized)
+        int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
+        var concurrentChanged = ConcurrentHashMap.<ProjectFile>newKeySet();
+
+        try (var detectExecutor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-detect-")) {
+            List<CompletableFuture<?>> futures = new ArrayList<>();
+            for (ProjectFile pf : currentFiles) {
+                if (!knownFiles.contains(pf)) {
+                    // New file we have not seen before
+                    concurrentChanged.add(pf);
+                    continue;
                 }
-            } catch (IOException e) {
-                log.warn("Could not hash {}: {}", pf, e.getMessage());
-                changed.add(pf); // treat as changed; will retry next time
+
+                futures.add(CompletableFuture.runAsync(
+                        () -> {
+                            try {
+                                long mtimeNanos =
+                                        Files.getLastModifiedTime(pf.absPath()).to(TimeUnit.NANOSECONDS);
+                                if (mtimeNanos > threshold) {
+                                    concurrentChanged.add(pf);
+                                }
+                            } catch (IOException e) {
+                                log.warn("Could not stat {}: {}", pf, e.getMessage());
+                                concurrentChanged.add(pf); // treat as changed; will retry next time
+                            }
+                        },
+                        detectExecutor));
+            }
+
+            if (!futures.isEmpty()) {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .join();
             }
         }
 
+        changed.addAll(concurrentChanged);
+
+        long detectMs = System.currentTimeMillis() - detectStartMs;
+
         // reuse the existing incremental logic
-        return update(changed);
+        long updateStartMs = System.currentTimeMillis();
+        var analyzer = update(changed);
+        long updateMs = System.currentTimeMillis() - updateStartMs;
+
+        // Advance the last-update watermark to the time this scan began
+        lastUpdateEpochNanos.set(nowNanos);
+
+        long totalMs = detectMs + updateMs;
+        log.debug(
+                "[{}] TreeSitter full incremental scan: changed={} files, detect={} ms, update={} ms, total={} ms",
+                language.name(),
+                changed.size(),
+                detectMs,
+                updateMs,
+                totalMs);
+
+        return analyzer;
     }
 
     private void ingestAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult) {
@@ -2519,42 +2666,124 @@ public abstract class TreeSitterAnalyzer
 
         topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
 
+        // Merge codeUnitsBySymbol with no-op checks to avoid allocations
         analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
             symbolIndex.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
                 if (existing == null) {
                     return List.copyOf(cus);
                 }
-                var merged = new ArrayList<>(existing);
-                cus.stream().filter(c -> !merged.contains(c)).forEach(merged::add);
+                if (cus.isEmpty()) {
+                    return existing; // nothing to add
+                }
+                boolean changed = false;
+                for (CodeUnit cu : cus) {
+                    if (!existing.contains(cu)) {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (!changed) {
+                    return existing;
+                }
+                var merged = new ArrayList<CodeUnit>(existing.size() + cus.size());
+                merged.addAll(existing);
+                for (CodeUnit cu : cus) {
+                    if (!merged.contains(cu)) {
+                        merged.add(cu);
+                    }
+                }
                 return List.copyOf(merged);
             });
         });
 
+        // Merge childrenByParent with no-op checks
         analysisResult
                 .children()
                 .forEach((parent, newKids) ->
                         childrenByParent.compute(parent, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                            if (existing == null) return newKids;
-                            var merged = new ArrayList<>(existing);
-                            newKids.stream().filter(k -> !merged.contains(k)).forEach(merged::add);
+                            if (existing == null) {
+                                return newKids;
+                            }
+                            if (newKids.isEmpty()) {
+                                return existing;
+                            }
+                            boolean changed = false;
+                            for (CodeUnit kid : newKids) {
+                                if (!existing.contains(kid)) {
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                            if (!changed) {
+                                return existing;
+                            }
+                            var merged = new ArrayList<CodeUnit>(existing.size() + newKids.size());
+                            merged.addAll(existing);
+                            for (CodeUnit kid : newKids) {
+                                if (!merged.contains(kid)) {
+                                    merged.add(kid);
+                                }
+                            }
                             return List.copyOf(merged);
                         }));
 
+        // Merge signatures with no-op checks
         analysisResult
                 .signatures()
                 .forEach((cu, newSigs) -> signatures.compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
-                    if (existing == null) return List.copyOf(newSigs);
-                    var merged = new ArrayList<>(existing);
-                    newSigs.stream().filter(s -> !merged.contains(s)).forEach(merged::add);
+                    if (existing == null) {
+                        return List.copyOf(newSigs);
+                    }
+                    if (newSigs.isEmpty()) {
+                        return existing;
+                    }
+                    boolean changed = false;
+                    for (String s : newSigs) {
+                        if (!existing.contains(s)) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                    if (!changed) {
+                        return existing;
+                    }
+                    var merged = new ArrayList<String>(existing.size() + newSigs.size());
+                    merged.addAll(existing);
+                    for (String s : newSigs) {
+                        if (!merged.contains(s)) {
+                            merged.add(s);
+                        }
+                    }
                     return List.copyOf(merged);
                 }));
 
+        // Merge sourceRanges with no-op checks
         analysisResult
                 .sourceRanges()
                 .forEach((cu, newRanges) -> sourceRanges.compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
-                    if (existing == null) return List.copyOf(newRanges);
-                    var merged = new ArrayList<>(existing);
-                    merged.addAll(newRanges);
+                    if (existing == null) {
+                        return List.copyOf(newRanges);
+                    }
+                    if (newRanges.isEmpty()) {
+                        return existing;
+                    }
+                    boolean changed = false;
+                    for (Range r : newRanges) {
+                        if (!existing.contains(r)) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                    if (!changed) {
+                        return existing;
+                    }
+                    var merged = new ArrayList<Range>(existing.size() + newRanges.size());
+                    merged.addAll(existing);
+                    for (Range r : newRanges) {
+                        if (!merged.contains(r)) {
+                            merged.add(r);
+                        }
+                    }
                     return List.copyOf(merged);
                 }));
     }

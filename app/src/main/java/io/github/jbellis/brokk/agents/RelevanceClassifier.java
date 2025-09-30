@@ -29,8 +29,8 @@ public final class RelevanceClassifier {
             logger.trace("Invoking relevance classifier (attempt {}/{})", attempt, MAX_RELEVANCE_TRIES);
             var result = llm.sendRequest(messages);
 
-            if (result.error() != null || result.isEmpty()) {
-                logger.debug("Empty/error relevance response (attempt {}): {}", attempt, result);
+            if (result.error() != null) {
+                logger.debug("Error relevance response (attempt {}): {}", attempt, result);
                 continue;
             }
 

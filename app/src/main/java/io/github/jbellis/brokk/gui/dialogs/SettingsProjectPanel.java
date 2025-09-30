@@ -1277,7 +1277,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         setBuildControlsEnabled(false); // Disable controls in this panel
         setButtonToInferenceInProgress(true); // true = set Cancel text (manual agent)
 
-        manualInferBuildTaskFuture = cm.submitUserTask("Running Build Agent", () -> {
+        manualInferBuildTaskFuture = cm.submitExclusiveAction(() -> {
             try {
                 chrome.systemOutput("Starting Build Agent...");
                 var agent = new BuildAgent(

@@ -51,6 +51,38 @@ class CodeAgentTest {
         }
     }
 
+    private static class CountingPreprocessorModel implements StreamingChatModel {
+        private final AtomicInteger preprocessingCallCount = new AtomicInteger(0);
+        private final String cannedResponse;
+
+        CountingPreprocessorModel(String cannedResponse) {
+            this.cannedResponse = cannedResponse;
+        }
+
+        @Override
+        public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+            // Check if this is a preprocessing request by looking for the distinctive system message
+            boolean isPreprocessingRequest = chatRequest.messages().stream().anyMatch(msg -> {
+                String text = Messages.getText(msg);
+                return text != null && text.contains("You are familiar with common build and lint tools");
+            });
+
+            if (isPreprocessingRequest) {
+                preprocessingCallCount.incrementAndGet();
+            }
+
+            handler.onPartialResponse(cannedResponse);
+            var cr = ChatResponse.builder()
+                    .aiMessage(new AiMessage(cannedResponse))
+                    .build();
+            handler.onCompleteResponse(cr);
+        }
+
+        int getPreprocessingCallCount() {
+            return preprocessingCallCount.get();
+        }
+    }
+
     @TempDir
     Path projectRoot;
 
@@ -504,7 +536,6 @@ class CodeAgentTest {
 
         assertFalse(sanitized.contains(rootFwd), "Sanitized output should not contain absolute root");
         assertTrue(sanitized.contains("src/Main.java:12"), "Sanitized output should contain relativized path");
-        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("src/Main.java:12"));
     }
 
     // S-2: verifyPhase sanitizes Windows Java-style compiler output
@@ -533,7 +564,6 @@ class CodeAgentTest {
 
         assertFalse(sanitized.contains(rootBwd), "Sanitized traceback should not contain absolute Windows root");
         assertTrue(sanitized.contains("src\\Main.java:12"), "Sanitized output should contain relativized Windows path");
-        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("src\\Main.java:12"));
     }
 
     // S-3: verifyPhase sanitizes Python-style traceback paths
@@ -567,7 +597,6 @@ class CodeAgentTest {
 
         assertFalse(sanitized.contains(rootFwd), "Sanitized traceback should not contain absolute root");
         assertTrue(sanitized.contains("pkg/mod.py"), "Sanitized traceback should contain relativized path");
-        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("pkg/mod.py"));
     }
 
     // SRB-1: Generate SRBs from per-turn baseline; verify two-turn baseline behavior
@@ -728,5 +757,48 @@ class CodeAgentTest {
         assertEquals("Here are the SEARCH/REPLACE blocks:\n\n<summary>", ((AiMessage) finalMsgs.get(3)).text());
         // Next turn should start at end
         assertEquals(finalMsgs.size(), replaced.turnStartIndex());
+    }
+
+    // verifyPhase should call BuildOutputPreprocessor.processForLlm only once, not twice
+    @Test
+    void testVerifyPhase_callsProcessForLlmOnlyOnce() {
+        // Setup: Create a counting model that tracks preprocessing requests
+        var cannedPreprocessedOutput = "Error in file.java:10: syntax error";
+        var countingModel = new CountingPreprocessorModel(cannedPreprocessedOutput);
+
+        // Configure the context manager to use the counting model for quickest model
+        contextManager.setQuickestModel(countingModel);
+
+        // Configure build to fail with output that exceeds threshold (> 200 lines)
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Generate long build output (> 200 lines to trigger LLM preprocessing)
+        StringBuilder longOutput = new StringBuilder();
+        for (int i = 1; i <= 210; i++) {
+            longOutput.append("Error line ").append(i).append("\n");
+        }
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", longOutput.toString());
+        };
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1); // 1 block applied to trigger verification
+
+        // Act: Run verifyPhase which should process build output
+        var result = codeAgent.verifyPhase(cs, es, null);
+
+        // Assert: Should be a retry with build error
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+
+        // Assert: processForLlm should be called exactly once by BuildAgent
+        // CodeAgent retrieves the processed output from BuildFragment instead of reprocessing
+        assertEquals(
+                1,
+                countingModel.getPreprocessingCallCount(),
+                "BuildOutputPreprocessor.processForLlm should only be called once per build failure "
+                        + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
     }
 }

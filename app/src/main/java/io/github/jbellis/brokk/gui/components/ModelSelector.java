@@ -51,6 +51,7 @@ public class ModelSelector {
                 for (var listener : selectionListeners) {
                     listener.accept(fm.config());
                 }
+                chrome.getProject().setCodeModelConfig(lastSelected.config());
             } else if (sel instanceof String s && "Manage...".equals(s)) {
                 openCustomDialog();
             }
@@ -105,7 +106,7 @@ public class ModelSelector {
         if (sel instanceof Service.FavoriteModel fm) {
             return fm.config();
         }
-        throw new IllegalStateException("No favorite model selected");
+        throw new IllegalStateException("No model selected");
     }
 
     private void refresh() {

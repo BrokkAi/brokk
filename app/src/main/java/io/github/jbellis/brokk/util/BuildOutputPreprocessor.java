@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.util;
 import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import java.util.List;
@@ -58,27 +59,21 @@ public class BuildOutputPreprocessor {
      * @param contextManager The context manager to access project root and LLM
      * @return Processed output with extracted errors, or original output if processing fails
      */
-    public static String processForLlm(String rawBuildOutput, IContextManager contextManager) {
+    public static String processForLlm(String rawBuildOutput, IContextManager contextManager)
+            throws InterruptedException {
         logger.debug(
                 "Processing build output through standard pipeline. Original length: {} chars",
                 rawBuildOutput.length());
 
-        try {
-            // Step 1: Sanitize build output (cosmetic cleanup)
-            String sanitized = sanitizeBuildOutput(rawBuildOutput, contextManager);
-            logger.debug("After sanitization: {} chars", sanitized.length());
+        // Step 1: Sanitize build output (cosmetic cleanup)
+        String sanitized = sanitizeBuildOutput(rawBuildOutput, contextManager);
+        logger.debug("After sanitization: {} chars", sanitized.length());
 
-            // Step 2: Preprocess for context optimization
-            String processed = preprocessBuildOutput(sanitized, contextManager);
-            logger.debug("After preprocessing: {} chars", processed.length());
+        // Step 2: Preprocess for context optimization
+        String processed = maybePreprocessOutput(sanitized, contextManager);
+        logger.debug("After preprocessing: {} chars", processed.length());
 
-            return processed;
-
-        } catch (Exception e) {
-            logger.warn(
-                    "Exception during build output pipeline processing: {}. Using original output.", e.getMessage(), e);
-            return rawBuildOutput;
-        }
+        return processed;
     }
 
     /**
@@ -86,43 +81,26 @@ public class BuildOutputPreprocessor {
      * Uses the quickest model for fast error extraction, relying on the LLM service's built-in timeout protection.
      *
      * @param buildOutput The raw build output from compilation/test commands (empty string if no output)
-     * @param contextManager The context manager to access the quickest model via getLlm
+     * @param cm The context manager to access the quickest model via getLlm
      * @return Preprocessed output containing only relevant errors, or original output if preprocessing is not needed or
      *     fails. Never returns null - empty input returns empty string.
      */
-    public static String preprocessBuildOutput(String buildOutput, IContextManager contextManager) {
-        if (buildOutput.isBlank()) {
-            return buildOutput;
-        }
-
+    public static String maybePreprocessOutput(String buildOutput, IContextManager cm) throws InterruptedException {
         List<String> lines = Splitter.on('\n').splitToList(buildOutput);
+        logger.debug("Build output has {} lines, preprocessing threshold is {}", lines.size(), THRESHOLD_LINES);
         if (lines.size() <= THRESHOLD_LINES) {
-            logger.debug(
-                    "Build output has {} lines, below threshold of {}. Skipping preprocessing.",
-                    lines.size(),
-                    THRESHOLD_LINES);
             return buildOutput;
         }
-
-        logger.info(
-                "Build output has {} lines, above threshold of {}. Extracting relevant errors.",
-                lines.size(),
-                THRESHOLD_LINES);
-
-        try {
-            return performPreprocessing(buildOutput, contextManager);
-        } catch (Exception e) {
-            logger.warn("Exception during build output preprocessing: {}. Using original output.", e.getMessage(), e);
-            return buildOutput;
-        }
-    }
-
-    private static String performPreprocessing(String buildOutput, IContextManager contextManager)
-            throws InterruptedException {
-        var llm = contextManager.getLlm(contextManager.getService().quickestModel(), "BuildOutputPreprocessor");
 
         // Limit build output to fit within token constraints
-        String truncatedOutput = truncateToTokenLimit(buildOutput, llm);
+        var model = cm.getService().quickestModel();
+        var llm = cm.getLlm(model, "BuildOutputPreprocessor");
+        String truncatedOutput = truncateToTokenLimit(buildOutput, model, cm);
+        return preprocessOutput(truncatedOutput, cm, llm);
+    }
+
+    private static String preprocessOutput(String truncatedOutput, IContextManager contextManager, Llm llm)
+            throws InterruptedException {
 
         var systemMessage = new SystemMessage(
                 """
@@ -169,8 +147,18 @@ public class BuildOutputPreprocessor {
         var messages = List.of(systemMessage, userMessage);
 
         var result = llm.sendRequest(messages, false);
+        if (result.error() != null) {
+            logPreprocessingError(result.error(), contextManager);
+            return truncatedOutput;
+        }
 
-        return handlePreprocessingResult(result, buildOutput, contextManager);
+        String extractedErrors = result.text().trim();
+        if (extractedErrors.isBlank()) {
+            logger.warn("Build output preprocessing returned empty result. Using original output.");
+            return truncatedOutput;
+        }
+
+        return extractedErrors;
     }
 
     /**
@@ -178,71 +166,32 @@ public class BuildOutputPreprocessor {
      * conservative estimate since our tokenizer is approximate and we want to avoid exceeding limits.
      *
      * @param buildOutput The original build output
-     * @param llm The LLM instance (unused but kept for future extensibility)
+     * @param model
      * @return Truncated output that should fit within token constraints
      */
     @SuppressWarnings("UnusedVariable")
-    private static String truncateToTokenLimit(String buildOutput, Llm llm) {
-        // Conservative token limit estimate - assume most models have at least 8K context
-        // Use 2K tokens as safe limit for build output portion (leaving room for system message, etc.)
-        int targetTokens = 2000;
+    private static String truncateToTokenLimit(String buildOutput, StreamingChatModel model, IContextManager cm) {
+        int targetTokens = cm.getService().getMaxInputTokens(model) / 2;
         logger.debug("Using conservative target of {} tokens for build output", targetTokens);
 
         List<String> lines = Splitter.on('\n').splitToList(buildOutput);
         int currentLineCount = lines.size();
 
-        // Rough approximation: 4 characters per token (very conservative)
-        int currentEstimatedTokens = buildOutput.length() / 4;
-
-        if (currentEstimatedTokens <= targetTokens) {
-            logger.debug(
-                    "Build output estimated at {} tokens, under target of {}", currentEstimatedTokens, targetTokens);
-            return buildOutput;
-        }
-
         // Repeatedly halve line count until we're under target
-        while (currentLineCount > 1 && currentEstimatedTokens > targetTokens) {
+        while (lines.size() > 1) {
+            var approximateTokens = Messages.getApproximateTokens(buildOutput);
+            if (approximateTokens <= targetTokens) {
+                logger.debug(
+                        "Build output estimated at {} tokens, under target of {}", approximateTokens, targetTokens);
+                return buildOutput;
+            }
+
             currentLineCount = currentLineCount / 2;
             var truncatedLines = lines.subList(0, currentLineCount);
-            var truncatedOutput = String.join("\n", truncatedLines);
-            currentEstimatedTokens = truncatedOutput.length() / 4;
-
-            logger.debug("Halved to {} lines, estimated {} tokens", currentLineCount, currentEstimatedTokens);
+            buildOutput = String.join("\n", truncatedLines);
         }
 
-        var truncatedLines = lines.subList(0, currentLineCount);
-        String truncatedOutput = String.join("\n", truncatedLines);
-
-        logger.info(
-                "Truncated build output from {} to {} lines to fit token limit (estimated {} tokens)",
-                lines.size(),
-                currentLineCount,
-                currentEstimatedTokens);
-
-        return truncatedOutput;
-    }
-
-    private static String handlePreprocessingResult(
-            Llm.StreamingResult result, String originalOutput, IContextManager contextManager) {
-        if (result.error() != null) {
-            logPreprocessingError(result.error(), contextManager);
-            return originalOutput;
-        }
-
-        String extractedErrors = result.text().trim();
-        if (extractedErrors.isBlank()) {
-            logger.warn("Build output preprocessing returned empty result. Using original output.");
-            return originalOutput;
-        }
-
-        var lines = Splitter.on('\n').splitToList(originalOutput);
-        logger.info(
-                "Successfully extracted relevant errors from build output. "
-                        + "Reduced from {} lines to {} characters.",
-                lines.size(),
-                extractedErrors.length());
-
-        return extractedErrors;
+        return buildOutput;
     }
 
     private static void logPreprocessingError(@Nullable Throwable error, IContextManager contextManager) {

@@ -703,7 +703,7 @@ public class GitLogTab extends JPanel {
 
     /** Check out a branch (local or remote). */
     private void checkoutBranch(String branchName) {
-        contextManager.submitUserTask("Checking out branch: " + branchName, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 if (!getRepo().listLocalBranches().contains(branchName)) {
                     // If it's not a known local branch, assume it's remote or needs tracking.
@@ -732,10 +732,7 @@ public class GitLogTab extends JPanel {
 
     /** Enhanced merge that supports target branch selection and branch deletion. */
     private void performEnhancedMerge(MergeDialogUtil.MergeDialogResult result) {
-        String taskDescription = String.format(
-                "Merging %s into %s (%s)", result.sourceBranch(), result.targetBranch(), result.mergeMode());
-
-        contextManager.submitUserTask(taskDescription, () -> {
+        contextManager.submitExclusiveAction(() -> {
             var repo = getRepo();
             String originalBranch = null;
 
@@ -852,7 +849,7 @@ public class GitLogTab extends JPanel {
                 "Create New Branch",
                 JOptionPane.QUESTION_MESSAGE);
         if (newName != null && !newName.trim().isEmpty()) {
-            contextManager.submitUserTask("Creating new branch: " + newName + " from " + sourceBranch, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
                     update();
@@ -868,7 +865,7 @@ public class GitLogTab extends JPanel {
 
     /** Delete a local branch (with checks for merges). */
     private void deleteBranch(String branchName) {
-        contextManager.submitUserTask("Checking branch merge status", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 boolean isMerged = getRepo().isBranchMerged(branchName);
                 SwingUtilities.invokeLater(() -> {
@@ -909,7 +906,7 @@ public class GitLogTab extends JPanel {
 
     /** Perform the actual branch deletion with or without force. */
     private void performBranchDeletion(String branchName, boolean force) {
-        contextManager.submitUserTask("Deleting branch: " + branchName, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 logger.debug("Initiating {} deletion for branch: {}", force ? "force" : "normal", branchName);
 
@@ -1173,7 +1170,7 @@ public class GitLogTab extends JPanel {
                 return; // No change, do nothing.
             }
 
-            contextManager.submitUserTask("Renaming branch: " + oldName, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().renameBranch(oldName, newName);
                     SwingUtilities.invokeLater(() -> {

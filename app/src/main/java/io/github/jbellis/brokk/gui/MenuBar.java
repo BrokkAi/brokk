@@ -229,7 +229,7 @@ public class MenuBar {
                         return;
                     }
 
-                    cm.submitContextTask("Attach Non-Project Files", () -> {
+                    cm.submitContextTask(() -> {
                         Set<Path> pathsToAttach = new HashSet<>();
                         for (File file : selectedFiles) {
                             Path startPath = file.toPath();
@@ -314,8 +314,8 @@ public class MenuBar {
         clearTaskHistoryItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         clearTaskHistoryItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            chrome.getContextManager().submitContextTask("Clear Task History", () -> chrome.getContextManager()
-                    .clearHistory());
+            chrome.getContextManager()
+                    .submitContextTask(() -> chrome.getContextManager().clearHistory());
         }));
         clearTaskHistoryItem.setEnabled(true);
         contextMenu.add(clearTaskHistoryItem);
@@ -324,7 +324,7 @@ public class MenuBar {
         dropAllItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         dropAllItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            chrome.getContextManager().submitContextTask("Drop All", () -> {
+            chrome.getContextManager().submitContextTask(() -> {
                 chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of());
             });
         }));

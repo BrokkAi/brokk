@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -150,11 +151,12 @@ public class ProjectWatchService implements IWatchService {
     private void registerAllDirectories(Path start, WatchService watchService) throws IOException {
         if (!Files.isDirectory(start)) return;
 
-        var brokkPrivate = root.resolve(".brokk");
+        // TODO: Parse VSC ignore files to add to this list
+        var ignoredDirs = List.of(root.resolve(".brokk"), root.resolve(".git"));
         for (int attempt = 1; attempt <= 3; attempt++) {
             try (var walker = Files.walk(start)) {
                 walker.filter(Files::isDirectory)
-                        .filter(dir -> !dir.startsWith(brokkPrivate))
+                        .filter(dir -> ignoredDirs.stream().noneMatch(dir::startsWith))
                         .forEach(dir -> {
                             try {
                                 dir.register(

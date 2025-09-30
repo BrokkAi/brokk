@@ -187,7 +187,9 @@ public final class ContextExplorer extends JFrame {
                 List<TableRow> rows = new ArrayList<>();
                 int contextIndex = 1;
                 for (var ctx : ch.getHistory()) {
-                    var header = new HeaderRow(contextIndex, ctx.id(), safeAction(ctx));
+                    int historyEntries = ctx.getTaskHistory().size();
+                    int historyLines = countTaskHistoryLines(ctx);
+                    var header = new HeaderRow(contextIndex, ctx.id(), safeAction(ctx), historyEntries, historyLines);
                     rows.add(header);
 
                     for (var fragment : ctx.allFragments().toList()) {
@@ -195,6 +197,14 @@ public final class ContextExplorer extends JFrame {
                         int lines = isText ? safeLineCount(fragment) : 0;
                         rows.add(new FragmentRow(ctx.id(), fragment, lines));
                     }
+
+                    var parsed = ctx.getParsedOutput();
+                    if (parsed != null) {
+                        boolean isText = safeIsText(parsed);
+                        int lines = isText ? safeLineCount(parsed) : 0;
+                        rows.add(new FragmentRow(ctx.id(), parsed, lines));
+                    }
+
                     contextIndex++;
                 }
                 return rows;
@@ -251,6 +261,34 @@ public final class ContextExplorer extends JFrame {
             return t.isEmpty() ? 0 : (int) t.lines().count();
         } catch (Exception e) {
             logger.warn("Error getting line count for fragment {}: {}", f.id(), e.getMessage());
+            return 0;
+        }
+    }
+
+    private static int countTaskHistoryLines(Context ctx) {
+        try {
+            return ctx.getTaskHistory().stream()
+                    .mapToInt(te -> {
+                        try {
+                            if (te.log() != null) {
+                                var t = te.log().text();
+                                return t.isEmpty() ? 0 : (int) t.lines().count();
+                            } else if (te.summary() != null) {
+                                var s = te.summary();
+                                return s.isEmpty() ? 0 : (int) s.lines().count();
+                            }
+                        } catch (Exception e) {
+                            logger.warn(
+                                    "Error computing line count for TaskEntry {} in context {}: {}",
+                                    te.sequence(),
+                                    ctx.id(),
+                                    e.getMessage());
+                        }
+                        return 0;
+                    })
+                    .sum();
+        } catch (Exception e) {
+            logger.warn("Error computing task history line count for context {}: {}", ctx.id(), e.getMessage());
             return 0;
         }
     }
@@ -345,8 +383,10 @@ public final class ContextExplorer extends JFrame {
         var chooser = new JFileChooser();
         chooser.setDialogTitle("Select Brokk sessions directory");
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        // Default to a common location if possible, e.g., user home or current dir
         chooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+
+        // Show dotfiles (hidden files on Unix/macOS)
+        chooser.setFileHidingEnabled(false);
 
         int result = chooser.showOpenDialog(null);
         if (result == JFileChooser.APPROVE_OPTION) {
@@ -361,7 +401,8 @@ public final class ContextExplorer extends JFrame {
     private sealed interface TableRow permits HeaderRow, FragmentRow {}
 
     /** Represents a header row for a Context history entry. */
-    private record HeaderRow(int index, UUID contextId, String action) implements TableRow {}
+    private record HeaderRow(int index, UUID contextId, String action, int historyEntries, int historyLines)
+            implements TableRow {}
 
     /** Represents a fragment row within a Context history entry. */
     private record FragmentRow(UUID contextId, ContextFragment fragment, int lineCount) implements TableRow {}
@@ -414,7 +455,14 @@ public final class ContextExplorer extends JFrame {
             if (row instanceof HeaderRow h) {
                 return switch (columnIndex) {
                     case 0 -> "Context";
-                    case 1 -> String.format("#%d: %s (%s)", h.index(), h.action(), shortContext(h.contextId()));
+                    case 1 ->
+                        String.format(
+                                "#%d: %s (%s) | History: %d entries, %d lines",
+                                h.index(),
+                                h.action(),
+                                shortContext(h.contextId()),
+                                h.historyEntries(),
+                                h.historyLines());
                     default -> ""; // Empty for other columns in a header row
                 };
             } else { // FragmentRow
@@ -450,6 +498,9 @@ public final class ContextExplorer extends JFrame {
                 setText(String.format(
                         "%s (%s)", info.name(), info.id().toString().substring(0, 8)));
             }
+            // Add tooltip with full text, only when non-empty
+            String text = getText();
+            setToolTipText((text != null && !text.isEmpty()) ? text : null);
             return this;
         }
     }
@@ -486,6 +537,13 @@ public final class ContextExplorer extends JFrame {
                 c.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
                 c.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
             }
+
+            // Set tooltip to full cell contents for non-empty values
+            if (c instanceof JComponent jc) {
+                String tip = value.toString();
+                jc.setToolTipText(!tip.isEmpty() ? tip : null);
+            }
+
             return c;
         }
     }

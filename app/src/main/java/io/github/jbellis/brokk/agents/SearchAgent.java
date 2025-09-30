@@ -44,6 +44,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -71,7 +72,6 @@ public class SearchAgent {
     private final Llm llm;
     private final ToolRegistry toolRegistry;
     private final IConsoleIO io;
-    // private final int ordinal; // TODO use this to disambiguate different search agents spawned by Architect
     private final String goal;
     private final Set<Terminal> allowedTerminals;
 
@@ -101,9 +101,16 @@ public class SearchAgent {
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
-    public TaskResult execute() throws InterruptedException {
-        cm.beginTask("Search", goal);
+    public TaskResult execute() {
+        try {
+            return executeInternal();
+        } catch (InterruptedException e) {
+            logger.debug("Search interrupted", e);
+            return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+        }
+    }
 
+    private @NotNull TaskResult executeInternal() throws InterruptedException {
         // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
         addInitialContextToWorkspace();
 
@@ -498,12 +505,14 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.getSummary(recommendation.fragments());
-            var msgs = new ArrayList<>(List.of(
-                    new UserMessage("Scan for relevant files"),
-                    new AiMessage("Potentially relevant files:\n" + summaries)));
-            cm.addToHistory(
-                    new TaskResult(cm, "Scan for relevant files", msgs, Set.of(), TaskResult.StopReason.SUCCESS),
-                    false);
+            cm.addVirtualFragment(new ContextFragment.StringFragment(
+                    cm,
+                    summaries,
+                    "Summary of Scan Results",
+                    recommendation.fragments().stream()
+                            .findFirst()
+                            .orElseThrow()
+                            .syntaxStyle()));
         } else {
             WorkspaceTools.addToWorkspace(cm, recommendation);
             io.llmOutput("\n\nScan complete; added recommendations to the Workspace.", ChatMessageType.CUSTOM);
@@ -519,7 +528,7 @@ public class SearchAgent {
             @P(
                             "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
                     String explanation) {
-        logger.debug("answer selected with explanation length {}", explanation.length());
+        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI);
         return explanation;
     }
 
@@ -582,7 +591,7 @@ public class SearchAgent {
 
     private TaskResult createResult() {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages(false));
+        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
             finalMessages = new ArrayList<>(sessionMessages);
         }
@@ -597,7 +606,7 @@ public class SearchAgent {
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages(false));
+        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
             finalMessages = new ArrayList<>(sessionMessages);
         }
@@ -677,7 +686,7 @@ public class SearchAgent {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
-        if (sr.error() != null || sr.isEmpty()) {
+        if (sr.error() != null) {
             return rawResult; // fallback to raw
         }
         return sr.text();

@@ -200,6 +200,29 @@ public class SwingUtil {
             return new ThemedIcon(this.uiKey, displaySize);
         }
 
+        /**
+         * Non-blocking trigger to ensure the underlying icon is resolved or that resolution work has been started.
+         *
+         * <p>This method intentionally avoids expensive synchronous rasterization on the EDT. It calls
+         * {@link #delegate()} to provoke lightweight resolution and accesses image width where applicable to nudge any
+         * lazy loading.
+         */
+        public void ensureResolved() {
+            try {
+                Icon resolved = delegate();
+                if (resolved instanceof ImageIcon imageIcon) {
+                    var img = imageIcon.getImage();
+                    if (img != null) {
+                        // Accessing width with a null ImageObserver may trigger lazy loading callbacks without
+                        // blocking.
+                        img.getWidth(null);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to ensure resolve for UI key '{}': {}", uiKey, e.getMessage());
+            }
+        }
+
         /** Retrieve the up-to-date delegate icon (or a simple fallback). */
         public Icon delegate() {
             Object value = UIManager.get(uiKey);

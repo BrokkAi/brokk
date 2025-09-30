@@ -77,4 +77,5 @@ node_modules/
 jdeploy-bundle/
 jdeploy/
 
-.*
+# TreeSitter Benchmark Dataset
+test-projects

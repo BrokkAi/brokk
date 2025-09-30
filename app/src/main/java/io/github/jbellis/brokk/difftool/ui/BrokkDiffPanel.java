@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import io.github.jbellis.brokk.util.ContentDiffUtils;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.awt.*;
@@ -539,7 +540,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
 
             var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
-            contextManager.submitContextTask("Adding diff to context", () -> {
+            contextManager.submitContextTask(() -> {
                 contextManager.addVirtualFragment(fragment);
                 contextManager.getIo().systemOutput("Added captured diff to context: " + description);
             });
@@ -824,11 +825,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // Per-file diffs
             for (var entry : mergedByFilenameSuccessful.values()) {
                 var filename = entry.filename();
-                var originalLines = entry.originalContent().lines().collect(Collectors.toList());
-                var currentLines = entry.currentContent().lines().collect(Collectors.toList());
-                var patch = DiffUtils.diff(originalLines, currentLines, (DiffAlgorithmListener) null);
-                var unified = UnifiedDiffUtils.generateUnifiedDiff(filename, filename, originalLines, patch, 3);
-                var diffText = String.join("\n", unified);
+                var diffResult = ContentDiffUtils.computeDiffResult(
+                        entry.originalContent(), entry.currentContent(), filename, filename, 3);
+                var diffText = diffResult.diff();
 
                 var pf = entry.projectFile();
                 var header = "### " + (pf != null ? pf.toString() : filename);
@@ -854,7 +853,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     TaskResult.StopReason.SUCCESS);
 
             // Add a single history entry for the whole batch
-            contextManager.addToHistory(result, false);
+            try (var scope = contextManager.beginTask("", false)) {
+                scope.append(result);
+            }
             logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
 
             // Step 4: Finalize panels selectively and refresh UI

@@ -160,7 +160,7 @@ public class CreateBranchDialog extends JDialog {
         boolean checkoutAfter = checkoutCheckBox.isSelected();
         dispose();
 
-        contextManager.submitUserTask("Creating branch", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 String finalBranchName =
                         getRepo().sanitizeBranchName(userInputBranchName); // Ensures uniqueness and validity

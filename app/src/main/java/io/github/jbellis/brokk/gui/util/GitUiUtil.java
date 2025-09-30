@@ -51,7 +51,7 @@ public final class GitUiUtil {
         }
         var repo = contextManager.getProject().getRepo();
 
-        contextManager.submitContextTask("Capturing uncommitted diff", () -> {
+        contextManager.submitContextTask(() -> {
             try {
                 var diff = repo.diffFiles(selectedFiles);
                 if (diff.isEmpty()) {
@@ -73,7 +73,7 @@ public final class GitUiUtil {
 
     /** Open a file in the project’s editor. */
     public static void editFile(ContextManager contextManager, String filePath) {
-        contextManager.submitContextTask("Adding file to context", () -> {
+        contextManager.submitContextTask(() -> {
             var file = contextManager.toFile(filePath);
             contextManager.addFiles(List.of(file));
         });
@@ -84,7 +84,7 @@ public final class GitUiUtil {
             ContextManager contextManager, Chrome chrome, String commitId, ProjectFile file) {
         var repo = contextManager.getProject().getRepo();
 
-        contextManager.submitContextTask("Adding file change to context", () -> {
+        contextManager.submitContextTask(() -> {
             try {
                 var diff = repo.showFileDiff(commitId + "^", commitId, file);
                 if (diff.isEmpty()) {
@@ -138,7 +138,7 @@ public final class GitUiUtil {
     public static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitUserTask("Viewing file at revision", () -> {
+        cm.submitExclusiveAction(() -> {
             var file = new ProjectFile(cm.getRoot(), filePath);
             try {
                 final String content = repo.getFileContent(commitId, file);
@@ -169,12 +169,7 @@ public final class GitUiUtil {
             Chrome chrome,
             ICommitInfo newestCommitInSelection,
             ICommitInfo oldestCommitInSelection) {
-        var repoForLabel = contextManager.getProject().getRepo();
-        String taskDescription = String.format(
-                "Capturing diff from %s to %s",
-                ((GitRepo) repoForLabel).shortHash(oldestCommitInSelection.id()),
-                ((GitRepo) repoForLabel).shortHash(newestCommitInSelection.id()));
-        contextManager.submitContextTask(taskDescription, () -> {
+        contextManager.submitContextTask(() -> {
             try {
                 var repo = contextManager.getProject().getRepo();
                 var newestCommitId = newestCommitInSelection.id();
@@ -248,7 +243,7 @@ public final class GitUiUtil {
             String firstCommitId,
             String lastCommitId,
             List<ProjectFile> files) {
-        contextManager.submitContextTask("Adding file changes from range to context", () -> {
+        contextManager.submitContextTask(() -> {
             try {
                 if (files.isEmpty()) {
                     chrome.systemOutput("No files provided to capture diff");
@@ -463,7 +458,7 @@ public final class GitUiUtil {
             ContextManager cm, Chrome chrome, io.github.jbellis.brokk.git.ICommitInfo commitInfo) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitUserTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
+        cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
                 var files = commitInfo.changedFiles();
                 if (files.isEmpty()) {
@@ -514,7 +509,7 @@ public final class GitUiUtil {
             String targetFileName) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitUserTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
+        cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
                 var files = commitInfo.changedFiles();
                 if (files.isEmpty()) {
@@ -569,7 +564,7 @@ public final class GitUiUtil {
     }
 
     public static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
-        contextManager.submitUserTask("Opening multi-file diff to local", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var changedFiles = commitInfo.changedFiles();
                 if (changedFiles.isEmpty()) {
@@ -612,7 +607,7 @@ public final class GitUiUtil {
             ContextManager cm, Chrome chrome, String baseBranchName, String compareBranchName) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitContextTask("Capturing diff between " + compareBranchName + " and " + baseBranchName, () -> {
+        cm.submitContextTask(() -> {
             try {
                 var diff = repo.showDiff(compareBranchName, baseBranchName);
                 if (diff.isEmpty()) {
@@ -654,7 +649,7 @@ public final class GitUiUtil {
         var repo = (GitRepo) contextManager.getProject().getRepo();
         var shortCommitId = repo.shortHash(commitId);
 
-        contextManager.submitUserTask("Rolling back files to commit " + shortCommitId, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 repo.checkoutFilesFromCommit(commitId, files);
                 SwingUtilities.invokeLater(() -> {
@@ -706,7 +701,7 @@ public final class GitUiUtil {
             String prHeadSha,
             String prBaseSha,
             GitRepo repo) {
-        cm.submitContextTask("Capturing diff for PR #" + prNumber, () -> {
+        cm.submitContextTask(() -> {
             try {
                 String effectiveBaseSha = repo.getMergeBase(prHeadSha, prBaseSha);
                 if (effectiveBaseSha == null) {
@@ -811,7 +806,7 @@ public final class GitUiUtil {
             ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
         String targetFilePath = extractFilePathFromDisplay(targetFileName);
 
-        contextManager.submitUserTask("Show PR Diff", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var repo = (GitRepo) contextManager.getProject().getRepo();
 
@@ -918,7 +913,7 @@ public final class GitUiUtil {
             logger.debug(
                     "Commit object for SHA {} (resolved to {}) is missing locally.",
                     repo.shortHash(sha),
-                    objectId != null ? objectId.name() : "null");
+                    objectId.name());
             return false;
         } catch (Exception e) {
             logger.debug("Cannot resolve or parse SHA {}: {}", repo.shortHash(sha), e.getMessage());

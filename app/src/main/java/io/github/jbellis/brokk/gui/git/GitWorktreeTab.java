@@ -446,7 +446,7 @@ public class GitWorktreeTab extends JPanel {
 
         MainProject parentProject = (MainProject) contextManager.getProject().getParent();
 
-        contextManager.submitContextTask("Opening/focusing worktree(s)", () -> {
+        contextManager.submitContextTask(() -> {
             for (Path worktreePath : worktreePaths) {
                 if (worktreePath.equals(parentProject.getRoot())) {
                     logger.debug("Attempted to open/focus main project from worktree tab, focusing current window.");
@@ -497,7 +497,7 @@ public class GitWorktreeTab extends JPanel {
         MainProject project = contextManager.getProject().getMainProject();
         IGitRepo repo = project.getRepo(); // This repo instance is effectively final for the lambda
 
-        contextManager.submitContextTask("Preparing to add worktree...", () -> {
+        contextManager.submitContextTask(() -> {
             if (!(repo instanceof GitRepo gitRepo)) {
                 SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
                         this,
@@ -800,7 +800,7 @@ public class GitWorktreeTab extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Removing worktree(s)", () -> {
+        contextManager.submitContextTask(() -> {
             boolean anyFailed = false;
             boolean forceAll = false;
             for (Path worktreePath : pathsToRemove) {
@@ -1096,7 +1096,7 @@ public class GitWorktreeTab extends JPanel {
 
         Path worktreePath = worktreeProject.getRoot();
 
-        contextManager.submitUserTask("Performing merge operation...", () -> {
+        contextManager.submitExclusiveAction(() -> {
             String originalParentBranch = null;
             try {
                 originalParentBranch = parentGitRepo.getCurrentBranch();

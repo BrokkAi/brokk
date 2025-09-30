@@ -4,10 +4,8 @@ import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
-import io.github.jbellis.brokk.util.ExecutorServiceUtil;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -160,10 +158,8 @@ public interface Language {
             if (languages.stream().anyMatch(l -> l instanceof MultiLanguage))
                 throw new IllegalArgumentException("cannot nest MultiLanguage inside itself");
             // copy defensively to guarantee immutability and deterministic ordering
-            var ordered = languages.stream()
-                    .filter(l -> l != Languages.NONE)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            this.languages = Collections.unmodifiableSet(ordered);
+            this.languages =
+                    languages.stream().filter(l -> l != Languages.NONE).collect(Collectors.toUnmodifiableSet());
         }
 
         @Override
@@ -191,83 +187,30 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            var parallelism = Math.min(languages.size(), Runtime.getRuntime().availableProcessors());
-
-            try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "brokk-multilang-")) {
-                var futures = languages.stream()
-                        .map(lang -> CompletableFuture.supplyAsync(
-                                () -> {
-                                    try {
-                                        logger.debug("Creating analyzer for {}", lang.name());
-                                        var analyzer = lang.createAnalyzer(project);
-                                        if (analyzer.isEmpty()) {
-                                            logger.debug("Analyzer for {} is empty; skipping.", lang.name());
-                                            return null;
-                                        }
-                                        return Map.entry(lang, analyzer);
-                                    } catch (Throwable t) {
-                                        logger.error("Error creating analyzer for {}", lang.name(), t);
-                                        return null;
-                                    }
-                                },
-                                executor))
-                        .toList();
-
-                var delegates = futures.stream()
-                        .map(CompletableFuture::join)
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-
-                return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
+            var delegates = new HashMap<Language, IAnalyzer>();
+            for (var lang : languages) {
+                try {
+                    var analyzer = lang.createAnalyzer(project);
+                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
+                } catch (Throwable t) {
+                    logger.error("Error creating analyzer for {}", lang.name(), t);
+                }
             }
+            return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            var parallelism = Math.min(languages.size(), Runtime.getRuntime().availableProcessors());
-
-            try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "brokk-multilang-")) {
-                var futures = languages.stream()
-                        .map(lang -> CompletableFuture.supplyAsync(
-                                () -> {
-                                    try {
-                                        logger.debug("Loading analyzer for {}", lang.name());
-                                        var analyzer = lang.loadAnalyzer(project);
-                                        if (analyzer.isEmpty()) {
-                                            logger.debug("Loaded analyzer for {} is empty; skipping.", lang.name());
-                                            return null;
-                                        }
-                                        return Map.entry(lang, analyzer);
-                                    } catch (Throwable loadThrowable) {
-                                        logger.warn(
-                                                "Failed to load analyzer for {}; attempting to rebuild.",
-                                                lang.name(),
-                                                loadThrowable);
-                                        try {
-                                            var rebuilt = lang.createAnalyzer(project);
-                                            if (rebuilt.isEmpty()) {
-                                                logger.warn("Rebuilt analyzer for {} is empty; skipping.", lang.name());
-                                                return null;
-                                            }
-                                            logger.info("Rebuilt analyzer for {}", lang.name());
-                                            return Map.entry(lang, rebuilt);
-                                        } catch (Throwable createThrowable) {
-                                            logger.error(
-                                                    "Failed to rebuild analyzer for {}", lang.name(), createThrowable);
-                                            return null;
-                                        }
-                                    }
-                                },
-                                executor))
-                        .toList();
-
-                var delegates = futures.stream()
-                        .map(CompletableFuture::join)
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-
-                return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
+            var delegates = new HashMap<Language, IAnalyzer>();
+            for (var lang : languages) {
+                try {
+                    var analyzer = lang.loadAnalyzer(project);
+                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
+                } catch (Throwable t) {
+                    logger.error("Error loading analyzer for {}", lang.name(), t);
+                }
             }
+            return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
 
         @Override

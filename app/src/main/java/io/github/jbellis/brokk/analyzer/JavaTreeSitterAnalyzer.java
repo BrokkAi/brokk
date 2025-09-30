@@ -13,6 +13,7 @@ import org.treesitter.TreeSitterJava;
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     private final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+    private static final Pattern LOCATION_SUFFIX = Pattern.compile(":[0-9]+(?::[0-9]+)?$");
 
     public JavaTreeSitterAnalyzer(IProject project) {
         super(project, Languages.JAVA, project.getExcludedDirectories());
@@ -208,14 +209,51 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String nearestMethodName(String fqName) {
-        // Lambdas from LSP look something like `package.Class.Method$anon$357:32`, and we want `package.Class.Method`
-        var matcher = LAMBDA_REGEX.matcher(fqName);
-        if (matcher.find()) {
-            var match = matcher.group(1);
-            return fqName.substring(0, fqName.indexOf(match));
-        } else {
-            return fqName;
+    public Optional<CodeUnit> getDefinition(String fqName) {
+        // Normalize generics/anon/location suffixes for both class and method lookups
+        var normalized = normalizeFullName(fqName);
+        return super.getDefinition(normalized);
+    }
+
+    /**
+     * Strips Java generic type arguments (e.g., "<K, V extends X>") from any segments of the provided name. Handles
+     * nested generics by tracking angle bracket depth.
+     */
+    private String stripGenericTypeArguments(String name) {
+        if (name.isEmpty()) return name;
+        StringBuilder sb = new StringBuilder(name.length());
+        int depth = 0;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c == '<') {
+                depth++;
+                continue;
+            }
+            if (c == '>') {
+                if (depth > 0) depth--;
+                continue;
+            }
+            if (depth == 0) {
+                sb.append(c);
+            }
         }
+        return sb.toString();
+    }
+
+    @Override
+    protected String normalizeFullName(String fqName) {
+        // Normalize: strip generics, anonymous/lambda fragments, and trailing location suffixes
+        var s = stripGenericTypeArguments(fqName);
+
+        // Strip anonymous/lambda suffixes like $anon... or $<digits>...
+        var matcher = LAMBDA_REGEX.matcher(s);
+        if (matcher.find()) {
+            s = s.substring(0, matcher.start());
+        }
+
+        // Strip trailing source-location suffixes like :16 or :123:45
+        s = LOCATION_SUFFIX.matcher(s).replaceFirst("");
+
+        return s;
     }
 }

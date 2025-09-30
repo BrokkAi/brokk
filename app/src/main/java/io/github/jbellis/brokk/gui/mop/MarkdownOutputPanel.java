@@ -128,7 +128,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             logger.debug("Ignoring setMainIfChanged() while blocking is enabled.");
             return;
         }
-        if (getRawMessages(true).equals(newMessages)) {
+        if (getRawMessages().equals(newMessages)) {
             logger.debug("Skipping MOP main update, content is unchanged.");
             return;
         }
@@ -235,11 +235,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return messages.stream().map(Messages::getRepr).collect(java.util.stream.Collectors.joining("\n\n"));
     }
 
-    public List<ChatMessage> getRawMessages(boolean includeReasoning) {
-        if (includeReasoning) {
-            return List.copyOf(messages);
-        }
-        return messages.stream().filter(m -> !isReasoningMessage(m)).toList();
+    public List<ChatMessage> getRawMessages() {
+        return List.copyOf(messages);
     }
 
     public static boolean isReasoningMessage(ChatMessage msg) {

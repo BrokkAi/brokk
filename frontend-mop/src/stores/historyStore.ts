@@ -46,6 +46,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                         type: 'SYSTEM',
                         markdown: evt.summary,
                         streaming: false,
+                        reasoning: false
                     });
                 } else {
                     (evt.messages ?? []).forEach(msg => {
@@ -55,6 +56,9 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                             type: msg.msgType,
                             markdown: msg.text,
                             streaming: false,
+                            reasoning: msg.reasoning,
+                            reasoningComplete: msg.reasoning,
+                            isCollapsed: msg.reasoning,
                         });
                     });
                 }

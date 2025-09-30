@@ -545,7 +545,7 @@ public class ContextAgent {
         int promptTokens = Messages.getApproximateTokens(messages);
         debug("Invoking LLM to prune filenames (prompt size ~{} tokens)", promptTokens);
         var result = llm.sendRequest(messages, deepScan);
-        if (result.error() != null || result.isEmpty()) {
+        if (result.error() != null) {
             var error = result.error();
             // litellm does an inconsistent job translating into ContextWindowExceededError.
             // https://github.com/BrokkAi/brokk/issues/540
@@ -756,21 +756,17 @@ public class ContextAgent {
         // *** Execute LLM call with required tool ***
         var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, contextTool), deepScan);
         var tokenUsage = result.tokenUsage();
-        if (result.error() != null || result.isEmpty()) {
+        if (result.error() != null) {
             var error = result.error();
 
             // litellm does an inconsistent job translating into ContextWindowExceededError.
             // https://github.com/BrokkAi/brokk/issues/540
-            if (error != null
-                    && error.getMessage() != null
-                    && error.getMessage().contains("context")) {
+            if (error.getMessage() != null && error.getMessage().contains("context")) {
                 throw new ContextTooLargeException();
             }
 
             // not a context problem
-            logger.warn(
-                    "Error or empty response from LLM during context recommendation: {}. Returning empty",
-                    error != null ? error.getMessage() : "Empty response");
+            logger.warn("Error from LLM during context recommendation: {}. Returning empty", error.getMessage());
             return LlmRecommendation.EMPTY;
         }
         var toolRequests = result.toolRequests();
@@ -846,6 +842,23 @@ public class ContextAgent {
         List<ProjectFile> recommendedFiles = List.of();
         List<CodeUnit> recommendedClasses = List.of();
         List<String> responseLines;
+
+        // Short-circuit: if there are fewer than QUICK_TOPK items to choose from, don't call out to the LLM.
+        if (!summaries.isEmpty() && summaries.size() < QUICK_TOPK) {
+            recommendedClasses = new ArrayList<>(summaries.keySet());
+            debug("Fewer than QUICK_TOPK summaries ({}); skipping LLM.", summaries.size());
+            return new LlmRecommendation(recommendedFiles, recommendedClasses, "Fewer than QUICK_TOPK; selected all");
+        }
+        if (!contentsMap.isEmpty() && contentsMap.size() < QUICK_TOPK) {
+            recommendedFiles = new ArrayList<>(contentsMap.keySet());
+            debug("Fewer than QUICK_TOPK files with content ({}); skipping LLM.", contentsMap.size());
+            return new LlmRecommendation(recommendedFiles, recommendedClasses, "Fewer than QUICK_TOPK; selected all");
+        }
+        if (!filenames.isEmpty() && filenames.size() < QUICK_TOPK) {
+            recommendedFiles = new ArrayList<>(toProjectFiles(filenames));
+            debug("Fewer than QUICK_TOPK filenames ({}); skipping LLM.", filenames.size());
+            return new LlmRecommendation(recommendedFiles, recommendedClasses, "Fewer than QUICK_TOPK; selected all");
+        }
 
         if (!summaries.isEmpty()) {
             var summariesText = summaries.entrySet().stream()
@@ -971,7 +984,7 @@ public class ContextAgent {
                 promptTokens);
         var result = llm.sendRequest(messages, deepScan);
 
-        if (result.error() != null || result.isEmpty()) {
+        if (result.error() != null) {
             logger.warn(
                     "Error ({}) from LLM during quick %s selection: {}. Returning empty",
                     result.error() != null ? result.error().getMessage() : "empty response", inputType.itemTypePlural);

@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.cli;
 
-import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
-
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -67,11 +65,8 @@ public final class HeadlessConsole implements IConsoleIO {
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
-        if (includeReasoning) {
-            return List.copyOf(messages);
-        }
-        return messages.stream().filter(m -> !isReasoningMessage(m)).toList();
+    public List<ChatMessage> getLlmRawMessages() {
+        return List.copyOf(messages);
     }
 
     @Override

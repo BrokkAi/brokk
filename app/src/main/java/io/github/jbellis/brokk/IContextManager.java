@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -16,11 +15,6 @@ import java.util.concurrent.*;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
-
-    default void beginTask(String code, String userInput) {
-        getIo().llmOutput("Begin task " + code + ": " + userInput, ChatMessageType.CUSTOM);
-    }
-
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
         /** Called before each analyzer build begins. */
@@ -45,6 +39,19 @@ public interface IContextManager {
 
     default ExecutorService getBackgroundTasks() {
         throw new UnsupportedOperationException();
+    }
+
+    /** Replaces any existing Build Results fragments with a fresh one containing the provided text. */
+    default void updateBuildFragment(boolean success, String buildOutput) {}
+
+    /**
+     * Retrieves the processed build output from the current BuildFragment, if one exists. This returns the content that
+     * was passed to updateBuildFragment(), which has been preprocessed by BuildOutputPreprocessor.processForLlm().
+     *
+     * @return the processed build output, or empty string if no BuildFragment exists
+     */
+    default String getProcessedBuildOutput() {
+        return "";
     }
 
     default Collection<? extends ChatMessage> getHistoryMessages() {

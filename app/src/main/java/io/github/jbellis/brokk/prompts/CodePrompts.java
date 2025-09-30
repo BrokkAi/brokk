@@ -69,6 +69,19 @@ public abstract class CodePrompts {
             """
                     .stripIndent();
 
+    /** Formats the most recent build error for the LLM retry prompt. */
+    public static String buildFeedbackPrompt() {
+        return """
+                The build failed with the error visible in the Workspace.
+
+                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
+
+                IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
+                do your best to explain the problem but DO NOT provide any edits.
+                Otherwise, provide the edits as usual.
+                """;
+    }
+
     public String codeReminder(Service service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
 

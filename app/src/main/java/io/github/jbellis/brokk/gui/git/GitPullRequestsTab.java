@@ -1459,7 +1459,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             });
 
             // Now perform the capture into the newly created session
-            contextManager.submitContextTask("Capture PR Diff #" + pr.getNumber(), () -> {
+            contextManager.submitContextTask(() -> {
                 try {
                     var repo = getRepo();
 
@@ -1590,7 +1590,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GHPullRequest pr = displayedPrs.get(selectedRow);
         logger.info("Opening full diff viewer for PR #{}", pr.getNumber());
 
-        contextManager.submitUserTask("Show PR Diff", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var repo = getRepo();
 
@@ -1822,7 +1822,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      */
     private void updateExistingLocalPrBranch(int prNumber, String localBranchName) {
         logger.info("Updating existing local branch {} for PR #{}", localBranchName, prNumber);
-        contextManager.submitUserTask("Updating local branch " + localBranchName + " for PR #" + prNumber, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var repo = getRepo();
                 repo.checkout(localBranchName);
@@ -1847,7 +1847,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private void checkoutPrAsNewBranch(org.kohsuke.github.GHPullRequest pr) {
         final int prNumber = pr.getNumber();
         logger.info("Starting checkout of PR #{} as a new local branch", prNumber);
-        contextManager.submitUserTask("Checking out PR #" + prNumber, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var remoteUrl = getRepo().getRemoteUrl(); // Can be null
                 GitUiUtil.OwnerRepo ownerRepo =

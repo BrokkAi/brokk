@@ -51,7 +51,7 @@ public class TestConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages(boolean includeStreaming) {
+    public List<ChatMessage> getLlmRawMessages() {
         finishStreamingAiMessage();
         return llmRawMessages;
     }

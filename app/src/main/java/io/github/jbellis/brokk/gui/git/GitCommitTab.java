@@ -251,7 +251,7 @@ public class GitCommitTab extends JPanel {
 
             // Stash without asking for a message, using a default one.
             String stashMessage = "Stash created by Brokk";
-            contextManager.submitUserTask("Stashing changes", () -> {
+            contextManager.submitExclusiveAction(() -> {
                 try {
                     performStash(filesToStash, stashMessage);
                 } catch (GitAPIException ex) {
@@ -529,7 +529,7 @@ public class GitCommitTab extends JPanel {
             }
         }
 
-        contextManager.submitUserTask("show-uncomitted-files", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
@@ -602,7 +602,7 @@ public class GitCommitTab extends JPanel {
             return;
         }
 
-        contextManager.submitUserTask("Rolling back files", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 // 1. Identify which files are not in the workspace.
                 var filesNotInWorkspace = selectedFiles.stream()
@@ -668,8 +668,9 @@ public class GitCommitTab extends JPanel {
                         new HashSet<>(selectedFiles),
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 
-                // 8. Add the result to history. The snapshot will not contain the fragments for `newFiles`.
-                contextManager.addToHistory(taskResult, false);
+                try (var scope = contextManager.beginTask("", false)) {
+                    scope.append(taskResult);
+                }
 
                 // 9. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {

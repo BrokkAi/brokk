@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.gui.terminal;
 
-import io.github.jbellis.brokk.AbstractProject;
-import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -46,18 +44,18 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     private static final int MIN_OPEN_WIDTH = 200;
 
     // Dependencies
-    private final IConsoleIO console;
+    private final Chrome chrome;
     private final JSplitPane parentSplitPane;
 
     /**
      * Creates a new terminal drawer panel.
      *
-     * @param console Console IO for terminal operations
+     * @param chrome Console IO for terminal operations
      * @param parentSplitPane The split pane this drawer is part of
      */
-    public TerminalDrawerPanel(IConsoleIO console, JSplitPane parentSplitPane) {
+    public TerminalDrawerPanel(Chrome chrome, JSplitPane parentSplitPane) {
         super(new BorderLayout());
-        this.console = console;
+        this.chrome = chrome;
         this.parentSplitPane = parentSplitPane;
         this.originalDividerSize = parentSplitPane.getDividerSize();
 
@@ -263,7 +261,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         tasksToggle.setSelected(true);
         terminalToggle.setSelected(false);
         if (activeTaskList == null) {
-            activeTaskList = new TaskListPanel(console);
+            activeTaskList = new TaskListPanel(chrome);
         }
         drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
         drawerContentPanel.revalidate();
@@ -378,15 +376,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         // Ensure the TerminalPanel exists
         if (activeTerminal == null) {
             try {
-                Path cwd = null;
-                if (console instanceof Chrome c) {
-                    var project = c.getProject();
-                    cwd = project.getRoot();
-                }
-                if (cwd == null) {
-                    cwd = Path.of(System.getProperty("user.dir"));
-                }
-                activeTerminal = new TerminalPanel(console, this::closeTerminal, true, cwd);
+                var project = chrome.getProject();
+                Path cwd = project.getRoot();
+                activeTerminal = new TerminalPanel(chrome, this::closeTerminal, true, cwd);
                 drawerContentPanel.removeAll();
                 drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
             } catch (Exception ex) {
@@ -423,17 +415,23 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     public void openTerminalAndPasteText(String text) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> openTerminalAndPasteText(text));
+            return;
+        }
+
         // Ensure the Terminal is selected so it is visible
         terminalToggle.setSelected(true);
         tasksToggle.setSelected(false);
+
         openTerminalAsync()
-                .thenAccept(tp -> {
+                .thenAccept(tp -> SwingUtilities.invokeLater(() -> {
                     try {
                         tp.pasteText(text);
                     } catch (Exception e) {
                         logger.debug("Error pasting text into terminal", e);
                     }
-                })
+                }))
                 .exceptionally(ex -> {
                     logger.debug("Failed to open terminal and paste text", ex);
                     return null;
@@ -443,23 +441,16 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     // --- Persistence helpers and restore ---
 
     private boolean isUsingPerProjectPersistence() {
-        return GlobalUiSettings.isPersistPerProjectBounds() && getCurrentProject() != null;
-    }
-
-    private @Nullable AbstractProject getCurrentProject() {
-        if (console instanceof Chrome c) {
-            return c.getProject();
-        }
-        return null;
+        return GlobalUiSettings.isPersistPerProjectBounds();
     }
 
     private void restoreInitialState() {
         try {
             var usePerProject = isUsingPerProjectPersistence();
-            var ap = getCurrentProject();
+            var ap = chrome.getProject();
 
             // Last tab
-            var lastTab = usePerProject && ap != null ? ap.getTerminalDrawerLastTab() : null;
+            var lastTab = usePerProject ? ap.getTerminalDrawerLastTab() : null;
             if (lastTab == null) {
                 lastTab = GlobalUiSettings.getTerminalDrawerLastTab();
             }
@@ -468,15 +459,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             }
 
             // Open flag
-            boolean open = (usePerProject && ap != null)
+            boolean open = usePerProject
                     ? Boolean.TRUE.equals(ap.getTerminalDrawerOpen()) || GlobalUiSettings.isTerminalDrawerOpen()
                     : GlobalUiSettings.isTerminalDrawerOpen();
 
             // Proportion
-            double prop = usePerProject && ap != null
-                    ? (ap.getTerminalDrawerProportion() > 0.0
+            double prop = usePerProject
+                    ? ap.getTerminalDrawerProportion() > 0.0
                             ? ap.getTerminalDrawerProportion()
-                            : GlobalUiSettings.getTerminalDrawerProportion())
+                            : GlobalUiSettings.getTerminalDrawerProportion()
                     : GlobalUiSettings.getTerminalDrawerProportion();
             if (!(prop > 0.0 && prop < 0.90)) {
                 prop = 0.5;
@@ -521,8 +512,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     private void persistLastTab(String tab) {
-        var ap = getCurrentProject();
-        if (isUsingPerProjectPersistence() && ap != null) {
+        var ap = chrome.getProject();
+        if (isUsingPerProjectPersistence()) {
             ap.setTerminalDrawerLastTab(tab);
             GlobalUiSettings.saveTerminalDrawerLastTab(tab);
         } else {
@@ -531,8 +522,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     private void persistOpen(boolean open) {
-        var ap = getCurrentProject();
-        if (isUsingPerProjectPersistence() && ap != null) {
+        var ap = chrome.getProject();
+        if (isUsingPerProjectPersistence()) {
             ap.setTerminalDrawerOpen(open);
             GlobalUiSettings.saveTerminalDrawerOpen(open);
         } else {
@@ -562,8 +553,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         if (!(clamped > 0.0 && clamped < 1.0) || clamped >= 0.90) return;
         lastDividerLocation = clamped;
 
-        var ap = getCurrentProject();
-        if (isUsingPerProjectPersistence() && ap != null) {
+        var ap = chrome.getProject();
+        if (isUsingPerProjectPersistence()) {
             ap.setTerminalDrawerProportion(clamped);
             GlobalUiSettings.saveTerminalDrawerProportion(clamped);
         } else {
@@ -583,15 +574,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
     private void createTerminal() {
         try {
-            Path cwd = null;
-            if (console instanceof Chrome c) {
-                var project = c.getProject();
-                cwd = project.getRoot();
-            }
-            if (cwd == null) {
-                cwd = Path.of(System.getProperty("user.dir"));
-            }
-            var terminal = new TerminalPanel(console, this::closeTerminal, true, cwd);
+            var project = chrome.getProject();
+            Path cwd = project.getRoot();
+            var terminal = new TerminalPanel(chrome, this::closeTerminal, true, cwd);
             activeTerminal = terminal;
             drawerContentPanel.add(terminal, BorderLayout.CENTER);
             drawerContentPanel.revalidate();
@@ -609,5 +594,17 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 activeTerminal.updateTerminalFontSize();
             }
         });
+    }
+
+    public void disablePlay() {
+        if (activeTaskList != null) {
+            activeTaskList.disablePlay();
+        }
+    }
+
+    public void enablePlay() {
+        if (activeTaskList != null) {
+            activeTaskList.enablePlay();
+        }
     }
 }

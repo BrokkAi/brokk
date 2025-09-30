@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
+import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
 import java.io.IOException;
@@ -154,16 +155,6 @@ public class Context {
                 toAdd.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
         String action = "Edit " + actionDetails;
         return withFragments(newFragments, CompletableFuture.completedFuture(action));
-    }
-
-    public Context removePathFragments(List<? extends ContextFragment> toRemove, String actionPrefix) {
-        var newFragments = new ArrayList<>(fragments);
-        if (!newFragments.removeAll(toRemove)) {
-            return this;
-        }
-        String actionDetails =
-                toRemove.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
-        return withFragments(newFragments, CompletableFuture.completedFuture(actionPrefix + actionDetails));
     }
 
     public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
@@ -556,6 +547,14 @@ public class Context {
         return allFragments().anyMatch(ContextFragment::isDynamic);
     }
 
+    private boolean isNewFileInGit(FrozenFragment ff) {
+        if (ff.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+            return false;
+        }
+        IGitRepo repo = contextManager.getRepo();
+        return !repo.getTrackedFiles().contains(ff.files().iterator().next());
+    }
+
     /**
      * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Only considers fragments
      * present in this context, per requirements. Results are cached per other.id().
@@ -581,6 +580,17 @@ public class Context {
                             .findFirst()
                             .orElse(null);
                     if (ff2 == null) {
+                        // No matching fragment in 'other'; if this represents a new, untracked file in Git, diff
+                        // against empty
+                        if (isNewFileInGit(ff) && ff.isText()) {
+                            var newContent = ff.text();
+                            var result = ContentDiffUtils.computeDiffResult(
+                                    "", newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
+                            if (result.diff().isEmpty()) {
+                                return null;
+                            }
+                            return new DiffEntry(ff, result.diff(), result.added(), result.deleted(), "");
+                        }
                         return null;
                     }
 
