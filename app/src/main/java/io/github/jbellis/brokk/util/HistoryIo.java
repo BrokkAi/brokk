@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import static java.util.Objects.requireNonNull;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -44,6 +45,7 @@ public final class HistoryIo {
     private static final String RESET_EDGES_FILENAME = "reset_edges.json";
     private static final String GIT_STATES_FILENAME = "git_states.json";
     private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
+    private static final String TASKLIST_FILENAME = "tasklist.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
 
     private static final int CURRENT_FORMAT_VERSION = 3;
@@ -89,8 +91,8 @@ public final class HistoryIo {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 switch (entry.getName()) {
-                    case V3_FRAGMENTS_FILENAME ->
-                        allFragmentsDto = objectMapper.readValue(zis.readAllBytes(), AllFragmentsDto.class);
+                    case V3_FRAGMENTS_FILENAME -> allFragmentsDto =
+                            objectMapper.readValue(zis.readAllBytes(), AllFragmentsDto.class);
                     case CONTENT_FILENAME -> {
                         var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
                         contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
@@ -317,6 +319,20 @@ public final class HistoryIo {
         final var finalGitStatesBytes = gitStatesBytes;
         final var finalEntryInfosBytes = entryInfosBytes;
         final var finalResetEdgesBytes = resetEdgesBytes;
+
+        String zipFileName = target.getFileName().toString();
+        String sessionDirName = zipFileName.substring(0, zipFileName.length() - 4);
+        Path taskListStagingPath = requireNonNull(target.getParent()).resolve(sessionDirName).resolve(TASKLIST_FILENAME);
+        byte[] taskListBytes = null;
+        if (Files.exists(taskListStagingPath)) {
+            try {
+                taskListBytes = Files.readAllBytes(taskListStagingPath);
+            } catch (IOException e) {
+                logger.warn("Could not read tasklist from staging area {}: {}", taskListStagingPath, e.getMessage());
+            }
+        }
+        final byte[] finalTaskListBytes = taskListBytes;
+
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
                 zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
@@ -355,6 +371,12 @@ public final class HistoryIo {
                 if (finalResetEdgesBytes != null) {
                     zos.putNextEntry(new ZipEntry(RESET_EDGES_FILENAME));
                     zos.write(finalResetEdgesBytes);
+                    zos.closeEntry();
+                }
+
+                if (finalTaskListBytes != null) {
+                    zos.putNextEntry(new ZipEntry(TASKLIST_FILENAME));
+                    zos.write(finalTaskListBytes);
                     zos.closeEntry();
                 }
 
