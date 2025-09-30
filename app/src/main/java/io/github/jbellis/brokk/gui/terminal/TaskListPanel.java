@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.terminal;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -74,6 +76,7 @@ import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
@@ -991,14 +994,53 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var cm = chrome.getContextManager();
 
+        var future = runArchitectOnTaskAsync(idx, cm, originalPrompt);
+
+        // When finished (on background thread), update UI state on EDT
+        future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Internal error running architect", ex);
+                finishQueueOnError();
+                return;
+            }
+            try {
+                if (res == null || res.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                    finishQueueOnError();
+                    return;
+                }
+
+                if (Objects.equals(runningIndex, idx) && idx < model.size()) {
+                    var it = model.get(idx);
+                    if (it != null) {
+                        model.set(idx, new TaskItem(it.text(), true));
+                        saveTasksForCurrentSession();
+                    }
+                }
+            } finally {
+                // Clear running, advance queue
+                runningIndex = null;
+                runningFadeTimer.stop();
+                list.repaint();
+                updateButtonStates();
+                startNextIfAny();
+            }
+        }));
+    }
+
+    @NotNull
+    CompletableFuture<TaskResult> runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
         // Submit an LLM action that will perform optional search + architect work off the EDT.
-        var future = cm.submitLlmAction("Execute Task " + (idx + 1), () -> {
+        return cm.submitLlmAction("Execute Task " + (idx + 1), () -> {
             chrome.showOutputSpinner("Executing Task command...");
             try (var scope = cm.beginTask("LUTZ MODE", originalPrompt, false)) {
                 // Optionally run SearchAgent (this is also background work)
-                boolean skipSearch = idx == 0 && !cm.liveContext().isEmpty();
+                // we are assuming we can skip search agent if there are items in the context to edit
+                // we are not using liveContext.isEmpty() here as we want to make
+                // sure to run search if there is nothing editable
+                boolean skipSearch = idx == 0
+                        && cm.liveContext().getEditableFragments().findAny().isPresent();
                 if (skipSearch) {
-                    logger.debug("Skipping SearchAgent for first task since workspace is not empty");
+                    logger.debug("Skipping SearchAgent for first task since workspace has no editable fragments");
                 } else {
                     var scanModel = cm.getService().getScanModel();
                     SearchAgent agent =
@@ -1032,36 +1074,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 cm.checkBalanceAndNotify();
             }
         });
-
-        // When finished (on background thread), update UI state on EDT
-        future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
-            if (ex != null) {
-                logger.error("Internal error running architect", ex);
-                finishQueueOnError();
-                return;
-            }
-            try {
-                if (res == null || res.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                    finishQueueOnError();
-                    return;
-                }
-
-                if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                    var it = model.get(idx);
-                    if (it != null) {
-                        model.set(idx, new TaskItem(it.text(), true));
-                        saveTasksForCurrentSession();
-                    }
-                }
-            } finally {
-                // Clear running, advance queue
-                runningIndex = null;
-                runningFadeTimer.stop();
-                list.repaint();
-                updateButtonStates();
-                startNextIfAny();
-            }
-        }));
     }
 
     private void startNextIfAny() {
