@@ -28,7 +28,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.time.Duration;
+import java.util.function.Supplier;
+import io.github.jbellis.brokk.context.DynamicFragment;
+import io.github.jbellis.brokk.context.DynamicSupport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -46,6 +52,15 @@ public class SessionManager implements AutoCloseable {
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
+    @FunctionalInterface
+    interface HistoryWriter {
+        void write(ContextHistory ch, Path path) throws IOException;
+    }
+
+    private HistoryWriter historyWriter;
+
+    private final DebouncedHistorySaver debouncedHistorySaver;
+
     private final ExecutorService sessionExecutor;
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
@@ -61,6 +76,8 @@ public class SessionManager implements AutoCloseable {
         });
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
+        this.historyWriter = HistoryIo::writeZip;
+        this.debouncedHistorySaver = new DebouncedHistorySaver();
     }
 
     private Map<UUID, SessionInfo> loadSessions() {
@@ -97,7 +114,7 @@ public class SessionManager implements AutoCloseable {
                 Files.createDirectories(sessionHistoryPath.getParent());
                 // 1. Create the zip with empty history first. This ensures the zip file exists.
                 var emptyHistory = new ContextHistory(Context.EMPTY);
-                HistoryIo.writeZip(emptyHistory, sessionHistoryPath);
+                historyWriter.write(emptyHistory, sessionHistoryPath);
 
                 // 2. Now add/update manifest.json to the existing zip.
                 writeSessionInfoToZip(sessionHistoryPath, newSessionInfo); // Should use create="false" as zip exists.
@@ -273,6 +290,120 @@ public class SessionManager implements AutoCloseable {
         return newSessionInfo;
     }
 
+    // Test seam: allow stubbing the history writer
+    void setHistoryWriterForTesting(HistoryWriter writer) {
+        this.historyWriter = writer;
+    }
+
+    private final class DebouncedHistorySaver implements AutoCloseable {
+        private final ScheduledExecutorService scheduler;
+        private final Map<UUID, ScheduledFuture<?>> scheduled = new ConcurrentHashMap<>();
+        private final Map<UUID, Supplier<ContextHistory>> suppliers = new ConcurrentHashMap<>();
+        private final Duration delay = Duration.ofMillis(400);
+        private final Duration awaitTimeout = Duration.ofSeconds(5);
+
+        private DebouncedHistorySaver() {
+            this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                var t = new Thread(r, "session-save-debouncer");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+
+        void enqueueSave(UUID sessionId, Supplier<ContextHistory> snapshotSupplier) {
+            suppliers.put(sessionId, snapshotSupplier);
+            var existing = scheduled.get(sessionId);
+            if (existing != null) {
+                existing.cancel(false);
+            }
+            var future = scheduler.schedule(() -> flushAsync(sessionId), delay.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            scheduled.put(sessionId, future);
+        }
+
+        void flushPending(UUID sessionId) {
+            var f = scheduled.remove(sessionId);
+            if (f != null) {
+                f.cancel(false);
+            }
+            var supplier = suppliers.remove(sessionId);
+            if (supplier == null) {
+                return; // nothing pending
+            }
+            var snapshot = supplier.get();
+            awaitDynamicFields(snapshot);
+            var ioFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                try {
+                    Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                    historyWriter.write(snapshot, sessionHistoryPath);
+                    var info = sessionsCache.get(sessionId);
+                    if (info != null) {
+                        writeSessionInfoToZip(sessionHistoryPath, info);
+                    }
+                } catch (IOException e) {
+                    logger.error("Error saving context history or updating manifest for session {}: {}", sessionId, e.getMessage());
+                }
+            });
+            try {
+                ioFuture.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+                logger.error("Error during synchronous flush for session {}: {}", sessionId, e.getMessage());
+            }
+        }
+
+        private void flushAsync(UUID sessionId) {
+            scheduled.remove(sessionId);
+            var supplier = suppliers.remove(sessionId);
+            if (supplier == null) {
+                return;
+            }
+            var snapshot = supplier.get();
+            awaitDynamicFields(snapshot);
+            sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                try {
+                    Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                    historyWriter.write(snapshot, sessionHistoryPath);
+                    var info = sessionsCache.get(sessionId);
+                    if (info != null) {
+                        writeSessionInfoToZip(sessionHistoryPath, info);
+                    }
+                } catch (IOException e) {
+                    logger.error("Error saving context history or updating manifest for session {}: {}", sessionId, e.getMessage());
+                }
+            });
+        }
+
+        private void awaitDynamicFields(ContextHistory ch) {
+            for (var ctx : ch.getHistory()) {
+                for (var f : ctx.allFragments().toList()) {
+                    if (f instanceof DynamicFragment df) {
+                        // best-effort bounded waits
+                        DynamicSupport.await(awaitTimeout, df.computedDescription());
+                        DynamicSupport.await(awaitTimeout, df.computedSyntaxStyle());
+                        DynamicSupport.await(awaitTimeout, df.computedText());
+                        var imgCv = df.computedImageBytes();
+                        if (imgCv != null) {
+                            imgCv.await(awaitTimeout);
+                        }
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void close() {
+            scheduler.shutdown();
+            try {
+                scheduler.awaitTermination(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                scheduler.shutdownNow();
+            }
+        }
+    }
+
     private Path getSessionHistoryPath(UUID sessionId) {
         return sessionsDir.resolve(sessionId.toString() + ".zip");
     }
@@ -364,21 +495,8 @@ public class SessionManager implements AutoCloseable {
                     sessionId);
         }
 
-        final SessionInfo finalInfoToSave = infoToSave;
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try {
-                Path sessionHistoryPath = getSessionHistoryPath(sessionId);
-                HistoryIo.writeZip(contextHistory, sessionHistoryPath);
-                if (finalInfoToSave != null) {
-                    writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
-                }
-            } catch (IOException e) {
-                logger.error(
-                        "Error saving context history or updating manifest for session {}: {}",
-                        sessionId,
-                        e.getMessage());
-            }
-        });
+        // Debounce the actual write; supplier is evaluated at flush time
+        debouncedHistorySaver.enqueueSave(sessionId, () -> contextHistory);
     }
 
     /**
@@ -408,6 +526,8 @@ public class SessionManager implements AutoCloseable {
 
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
+        // Ensure any pending debounced save for this session is flushed before reading
+        debouncedHistorySaver.flushPending(sessionId);
         var future = sessionExecutorByKey.submit(
                 sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
@@ -523,6 +643,7 @@ public class SessionManager implements AutoCloseable {
 
     @Override
     public void close() {
+        debouncedHistorySaver.close();
         sessionExecutor.shutdown();
         try {
             if (!sessionExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
