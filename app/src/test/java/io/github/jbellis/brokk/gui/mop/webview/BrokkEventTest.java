@@ -13,7 +13,7 @@ public class BrokkEventTest {
 
     @Test
     public void testHistoryTaskSerialization() throws Exception {
-        var message = new BrokkEvent.HistoryTask.Message("Hello", ChatMessageType.USER);
+        var message = new BrokkEvent.HistoryTask.Message("Hello", ChatMessageType.USER, false);
         var event = new BrokkEvent.HistoryTask(123, 456, false, null, List.of(message));
 
         String json = MAPPER.writeValueAsString(event);
@@ -22,7 +22,7 @@ public class BrokkEventTest {
         assertTrue(json.contains("\"epoch\":123"));
         assertTrue(json.contains("\"taskSequence\":456"));
         assertTrue(json.contains("\"compressed\":false"));
-        assertTrue(json.contains("\"messages\":[{\"text\":\"Hello\",\"msgType\":\"USER\"}]"));
+        assertTrue(json.contains("\"messages\":[{\"text\":\"Hello\",\"msgType\":\"USER\",\"reasoning\":false}]"));
     }
 
     @Test
