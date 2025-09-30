@@ -110,6 +110,9 @@ public abstract class TreeSitterAnalyzer
     private static final long MTIME_EPSILON_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
     private final Map<ProjectFile, TSTree> parsedTreeCache =
             new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
+    // New combined state maps (mirrors of legacy maps during migration)
+    private final Map<CodeUnit, CodeUnitState> codeUnitState = new ConcurrentHashMap<>();
+    private final Map<ProjectFile, FileState> fileState = new ConcurrentHashMap<>();
     // Ensures reads see a consistent view while updates mutate internal maps atomically
     private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
 
@@ -179,6 +182,24 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
+     * A thread-safe way to interact with the "codeUnitState" field.
+     *
+     * @param function the callback.
+     */
+    protected <R> R withCodeUnitState(Function<Map<CodeUnit, CodeUnitState>, R> function) {
+        return withReadLock(() -> function.apply(codeUnitState));
+    }
+
+    /**
+     * A thread-safe way to interact with the "fileState" field.
+     *
+     * @param function the callback.
+     */
+    public <R> R withFileState(Function<Map<ProjectFile, FileState>, R> function) {
+        return withReadLock(() -> function.apply(fileState));
+    }
+
+    /**
      * Stores information about a definition found by a query match, including associated modifier keywords and
      * decorators.
      */
@@ -200,6 +221,13 @@ public abstract class TreeSitterAnalyzer
             Set<String> modifierNodeTypes) {}
 
     public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
+
+    // Combined state per CodeUnit (mirror of legacy children/signatures/sourceRanges)
+    protected record CodeUnitState(List<CodeUnit> children, List<String> signatures, List<Range> ranges) {}
+
+    // Combined state per file (mirror of legacy topLevelDeclarations/parsedTreeCache/imports)
+    protected record FileState(
+            List<CodeUnit> topLevelCUs, @Nullable TSTree parsedTree, List<String> importStatements) {}
 
     private record ProjectFilePair(ProjectFile lhs, ProjectFile rhs) {
         @Override
@@ -2451,6 +2479,18 @@ public abstract class TreeSitterAnalyzer
 
                                 parsedTreeCache.remove(file);
                                 topLevelDeclarations.remove(file);
+                                fileState.remove(file);
+
+                                // Purge CodeUnitState entries for this file and prune children lists
+                                codeUnitState.keySet().removeIf(fromFile);
+                                codeUnitState.replaceAll((parent, state) -> {
+                                    var filteredKids = state.children().stream().filter(fromFile.negate()).toList();
+                                    if (!filteredKids.equals(state.children())) {
+                                        parentsTouchedCount.incrementAndGet();
+                                        return new CodeUnitState(List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                    }
+                                    return state;
+                                });
 
                                 var symbolsToPurge = new HashSet<String>();
                                 var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
@@ -2786,6 +2826,67 @@ public abstract class TreeSitterAnalyzer
                     }
                     return List.copyOf(merged);
                 }));
+
+        // Mirror into combined per-CodeUnit state (codeUnitState)
+        var unionKeys = new HashSet<CodeUnit>();
+        unionKeys.addAll(analysisResult.children().keySet());
+        unionKeys.addAll(analysisResult.signatures().keySet());
+        unionKeys.addAll(analysisResult.sourceRanges().keySet());
+        for (var cu : unionKeys) {
+            var newKids = analysisResult.children().getOrDefault(cu, List.of());
+            var newSigs = analysisResult.signatures().getOrDefault(cu, List.of());
+            var newRngs = analysisResult.sourceRanges().getOrDefault(cu, List.of());
+            codeUnitState.compute(cu, (CodeUnit k, @Nullable CodeUnitState existing) -> {
+                if (existing == null) {
+                    return new CodeUnitState(List.copyOf(newKids), List.copyOf(newSigs), List.copyOf(newRngs));
+                }
+                List<CodeUnit> mergedKids = existing.children();
+                if (!newKids.isEmpty()) {
+                    var tmp = new ArrayList<CodeUnit>(existing.children().size() + newKids.size());
+                    tmp.addAll(existing.children());
+                    for (var kid : newKids) {
+                        if (!tmp.contains(kid)) {
+                            tmp.add(kid);
+                        }
+                    }
+                    mergedKids = List.copyOf(tmp);
+                }
+
+                List<String> mergedSigs = existing.signatures();
+                if (!newSigs.isEmpty()) {
+                    var tmp = new ArrayList<String>(existing.signatures().size() + newSigs.size());
+                    tmp.addAll(existing.signatures());
+                    for (var s : newSigs) {
+                        if (!tmp.contains(s)) {
+                            tmp.add(s);
+                        }
+                    }
+                    mergedSigs = List.copyOf(tmp);
+                }
+
+                List<Range> mergedRanges = existing.ranges();
+                if (!newRngs.isEmpty()) {
+                    var tmp = new ArrayList<Range>(existing.ranges().size() + newRngs.size());
+                    tmp.addAll(existing.ranges());
+                    for (var r : newRngs) {
+                        if (!tmp.contains(r)) {
+                            tmp.add(r);
+                        }
+                    }
+                    mergedRanges = List.copyOf(tmp);
+                }
+
+                return new CodeUnitState(mergedKids, mergedSigs, mergedRanges);
+            });
+        }
+
+        // Mirror per-file state
+        fileState.put(
+                pf,
+                new FileState(
+                        analysisResult.topLevelCUs(),
+                        parsedTreeCache.get(pf),
+                        analysisResult.importStatements()));
     }
 
     /* ---------- comment detection for source expansion ---------- */
