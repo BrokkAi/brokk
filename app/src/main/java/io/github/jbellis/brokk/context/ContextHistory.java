@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
@@ -187,49 +188,64 @@ public class ContextHistory {
     }
 
     /**
-     * Processes external file changes by deciding whether to replace the top context or push a new one. If the current
-     * top context's action starts with "Load external changes", it updates the count and replaces it. Otherwise, it
-     * pushes a new context entry.
+     * Processes external file changes using the refresh model. Builds a refreshed live context via
+     * copyAndRefresh(changed). If no changes are detected (same instance returned), no-op.
+     *
+     * If the current top context's action starts with "Load external changes", it updates the count and replaces it.
+     * Otherwise, it pushes a new context entry.
      *
      * @return The new frozen context if a change was made, otherwise null.
      */
     public synchronized @Nullable Context processExternalFileChangesIfNeeded() {
-        var fr = liveContext.freezeAndCleanup();
-        if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-            var topCtx = topContext();
-            var previousAction = topCtx.getAction();
-            if (!previousAction.startsWith("Load external changes")) {
-                // If the previous action is not about external changes, push a new context
-                var newLiveContext = fr.liveContext()
-                        .withParsedOutput(null, CompletableFuture.completedFuture("Load external changes"));
-                var cleaned = newLiveContext.freezeAndCleanup();
-                pushLiveAndFrozen(cleaned.liveContext(), cleaned.frozenContext());
-                return cleaned.frozenContext();
-            }
+        return processExternalFileChangesIfNeeded(Set.of());
+    }
 
-            // Parse the existing action to extract the count if present
+    /**
+     * Processes external file changes using the refresh model with an explicit set of changed files.
+     * Uses liveContext.copyAndRefresh(changed) to selectively refresh affected fragments.
+     *
+     * Keeps the existing "Load external changes (n)" counting behavior.
+     *
+     * @param changed the set of files that changed; may be empty
+     * @return The new frozen context if a change was made, otherwise null.
+     */
+    public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
+        var refreshedLive = liveContext.copyAndRefresh(changed);
+        if (refreshedLive.equals(liveContext)) {
+            // No change detected by refresh model
+            return null;
+        }
+
+        var previousAction = topContext().getAction();
+        boolean isContinuation = previousAction.startsWith("Load external changes");
+
+        String newAction = "Load external changes";
+        if (isContinuation) {
             var pattern = Pattern.compile("Load external changes(?: \\((\\d+)\\))?");
             var matcher = pattern.matcher(previousAction);
             int newCount;
             if (matcher.matches() && matcher.group(1) != null) {
-                var countGroup = matcher.group(1);
                 try {
-                    newCount = Integer.parseInt(countGroup) + 1;
+                    newCount = Integer.parseInt(matcher.group(1)) + 1;
                 } catch (NumberFormatException e) {
                     newCount = 2;
                 }
             } else {
                 newCount = 2;
             }
-
-            // Form the new action string with the updated count
-            var newAction = newCount > 1 ? "Load external changes (%d)".formatted(newCount) : "Load external changes";
-            var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
-            var cleaned = newLiveContext.freezeAndCleanup();
-            replaceTop(cleaned.liveContext(), cleaned.frozenContext());
-            return cleaned.frozenContext();
+            newAction = "Load external changes (%d)".formatted(newCount);
         }
-        return null;
+
+        // Ensure the action reflects the desired string (with counter if applicable)
+        var updatedLive = refreshedLive.withAction(CompletableFuture.completedFuture(newAction));
+        var cleaned = updatedLive.freezeAndCleanup();
+
+        if (isContinuation) {
+            replaceTop(cleaned.liveContext(), cleaned.frozenContext());
+        } else {
+            pushLiveAndFrozen(cleaned.liveContext(), cleaned.frozenContext());
+        }
+        return cleaned.frozenContext();
     }
 
     /* ─────────────── undo / redo  ────────────── */
