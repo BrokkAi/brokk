@@ -4,10 +4,10 @@ import java.awt.*;
 import javax.swing.*;
 
 public class Colors {
-    // Light Theme Colors. These are BACKGROUND colors for highlighting
-    private static final Color LIGHT_ADDED = new Color(180, 255, 180);
-    private static final Color LIGHT_CHANGED = new Color(160, 200, 255);
-    private static final Color LIGHT_DELETED = new Color(255, 160, 180);
+    // Light Theme Colors. These are BACKGROUND colors for highlighting (pastel/soft colors)
+    private static final Color LIGHT_ADDED = new Color(220, 250, 220);
+    private static final Color LIGHT_CHANGED = new Color(220, 235, 250);
+    private static final Color LIGHT_DELETED = new Color(250, 220, 220);
 
     // Dark Theme Colors. These are BACKGROUND colors for highlighting
     private static final Color DARK_ADDED = new Color(60, 80, 60);
