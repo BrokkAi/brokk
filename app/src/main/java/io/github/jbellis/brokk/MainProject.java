@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -77,6 +78,7 @@ public final class MainProject extends AbstractProject {
     // Keys for Plan First and Search First workspace preferences
     private static final String PLAN_FIRST_KEY = "planFirst";
     private static final String SEARCH_FIRST_KEY = "searchFirst";
+    private static final String PROP_INSTRUCTIONS_ASK = "instructions.ask";
 
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
@@ -906,24 +908,59 @@ public final class MainProject extends AbstractProject {
         return Boolean.parseBoolean(workspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
     }
 
-    /** Workspace preference: whether to "Plan First" (Architect) when coding. Defaults to true on first run. */
+    @Override
     public boolean getPlanFirst() {
-        return Boolean.parseBoolean(workspaceProps.getProperty(PLAN_FIRST_KEY, "true"));
+        return getLayoutBoolean(PLAN_FIRST_KEY);
     }
 
+    @Override
     public void setPlanFirst(boolean v) {
-        workspaceProps.setProperty(PLAN_FIRST_KEY, String.valueOf(v));
-        saveWorkspaceProperties();
+        setLayoutBoolean(PLAN_FIRST_KEY, v);
     }
 
-    /** Workspace preference: whether to "Search First" when in Ask/Answer mode. Defaults to true on first run. */
-    public boolean getSearchFirst() {
-        return Boolean.parseBoolean(workspaceProps.getProperty(SEARCH_FIRST_KEY, "true"));
+    @Override
+    public boolean getSearch() {
+        return getLayoutBoolean(SEARCH_FIRST_KEY);
     }
 
-    public void setSearchFirst(boolean v) {
-        workspaceProps.setProperty(SEARCH_FIRST_KEY, String.valueOf(v));
-        saveWorkspaceProperties();
+    @Override
+    public void setSearch(boolean v) {
+        setLayoutBoolean(SEARCH_FIRST_KEY, v);
+    }
+
+    @Override
+    public boolean getInstructionsAskMode() {
+        return getLayoutBoolean(PROP_INSTRUCTIONS_ASK);
+    }
+
+    @Override
+    public void setInstructionsAskMode(boolean ask) {
+        setLayoutBoolean(PROP_INSTRUCTIONS_ASK, ask);
+    }
+
+    private boolean getLayoutBoolean(String key) {
+        // Per-project first if enabled; else global. If per-project is enabled but unset, fallback to global.
+        if (GlobalUiSettings.isPersistPerProjectBounds()) {
+            String v = workspaceProps.getProperty(key);
+            if (v != null) {
+                return Boolean.parseBoolean(v);
+            }
+        }
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(key, "true"));
+    }
+
+    private void setLayoutBoolean(String key, boolean v) {
+        // Always persist globally so the preference carries across projects.
+        var props = loadGlobalProperties();
+        props.setProperty(key, String.valueOf(v));
+        saveGlobalProperties(props);
+
+        // Persist per-project only when per-project layout persistence is enabled.
+        if (GlobalUiSettings.isPersistPerProjectBounds()) {
+            workspaceProps.setProperty(key, String.valueOf(v));
+            saveWorkspaceProperties();
+        }
     }
 
     @Override

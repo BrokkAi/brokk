@@ -213,6 +213,22 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default boolean getPlanFirst() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setPlanFirst(boolean enabled) {
+        throw new UnsupportedOperationException();
+    }
+
+    default boolean getSearch() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setSearch(boolean enabled) {
+        throw new UnsupportedOperationException();
+    }
+
     default boolean getInstructionsAskMode() {
         throw new UnsupportedOperationException();
     }

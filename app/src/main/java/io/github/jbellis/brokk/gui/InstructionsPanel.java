@@ -242,15 +242,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
         modeSwitch.setSelected(proj.getInstructionsAskMode());
-        if (proj instanceof MainProject mp) {
-            codeCheckBox.setSelected(mp.getPlanFirst());
-            // Default to Search checked for Ask mode, but use persisted preference when available
-            searchProjectCheckBox.setSelected(mp.getSearchFirst());
-        } else {
-            // Fallback: both checked
-            codeCheckBox.setSelected(true);
-            searchProjectCheckBox.setSelected(true);
-        }
+        codeCheckBox.setSelected(proj.getPlanFirst());
+        searchProjectCheckBox.setSelected(proj.getSearch());
 
         // default stored action: Search (Ask + Search)
         storedAction = ACTION_SEARCH;
@@ -291,18 +284,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
-            if (chrome.getProject() instanceof MainProject mp) {
-                mp.setPlanFirst(codeCheckBox.isSelected());
-            }
+            proj.setPlanFirst(codeCheckBox.isSelected());
         });
 
         searchProjectCheckBox.addActionListener(e -> {
             if (modeSwitch.isSelected()) {
                 storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             }
-            if (chrome.getProject() instanceof MainProject mp) {
-                mp.setSearchFirst(searchProjectCheckBox.isSelected());
-            }
+            proj.setSearch(searchProjectCheckBox.isSelected());
         });
 
         // Initial checkbox visibility is handled by the optionsPanel (CardLayout) in buildBottomPanel().
