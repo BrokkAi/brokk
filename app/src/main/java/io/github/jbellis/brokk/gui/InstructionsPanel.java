@@ -424,11 +424,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        SwingUtilities.invokeLater(() -> {
-            if (chrome.getFrame().getRootPane() != null) {
-                chrome.getFrame().getRootPane().setDefaultButton(actionButton);
-            }
-        });
+        // Do not set a global default button on the root pane. This prevents plain Enter
+        // from submitting when focus is in other UI components (e.g., history/branch lists).
 
         // Add this panel as a listener to context changes
         this.contextManager.addContextListener(this);
@@ -2357,10 +2354,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Ensure the action button is the root pane's default button so Enter triggers it by default.
         // This mirrors the intended "default" behavior for the Go action.
-        var root = chrome.getFrame().getRootPane();
-        if (root != null) {
-            root.setDefaultButton(actionButton);
-        }
+        // Intentionally avoid setting a root default button to keep Enter key
+        // behavior local to the focused component.
 
         // Ensure storedAction is consistent with current UI
         if (!modeSwitch.isSelected()) {
@@ -2399,7 +2394,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return f != null && !f.isDone();
     }
 
-    private void onActionButtonPressed() {
+    public void onActionButtonPressed() {
         if (isActionRunning()) {
             // Stop action
             chrome.getContextManager().interruptUserActionThread();

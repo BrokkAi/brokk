@@ -899,29 +899,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bindKey(rootPane, toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
-        // Submit action (configurable; default Cmd/Ctrl+Enter)
+        // Submit action (configurable; default Cmd/Ctrl+Enter) - only when instructions area is focused
         KeyStroke submitKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "instructions.submit",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        bindKey(rootPane, submitKeyStroke, "globalSubmit");
-        rootPane.getActionMap().put("globalSubmit", new AbstractAction() {
+        // Bind directly to instructions area instead of globally to avoid interfering with other components
+        instructionsPanel
+                .getInstructionsArea()
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(submitKeyStroke, "submitAction");
+        instructionsPanel.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        // If focus is in instructions area or the submit button is the default, trigger it
-                        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager()
-                                .getFocusOwner();
-                        if (focusOwner == instructionsPanel.getInstructionsArea()
-                                || (rootPane.getDefaultButton() != null
-                                        && rootPane.getDefaultButton().isEnabled())) {
-                            if (rootPane.getDefaultButton() != null) {
-                                rootPane.getDefaultButton().doClick();
-                            }
-                        }
+                        instructionsPanel.onActionButtonPressed();
                     } catch (Exception ex) {
-                        logger.warn("Error triggering submit via shortcut", ex);
+                        logger.error("Error executing submit action", ex);
                     }
                 });
             }

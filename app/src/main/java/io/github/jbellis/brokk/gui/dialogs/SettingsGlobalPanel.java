@@ -141,9 +141,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var startupPanel = createStartupPanel();
         globalSubTabbedPane.addTab("Startup", null, startupPanel, "Startup behavior");
 
-        // Keybindings Tab
+        // Keybindings Tab (wrapped in a scroll pane to ensure visibility on smaller screens)
         var keybindingsPanel = createKeybindingsPanel();
-        globalSubTabbedPane.addTab("Keybindings", null, keybindingsPanel, "Configure keyboard shortcuts");
+        var keybindingsScroll = new JScrollPane(keybindingsPanel);
+        keybindingsScroll.setBorder(BorderFactory.createEmptyBorder());
+        keybindingsScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        keybindingsScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        globalSubTabbedPane.addTab("Keybindings", null, keybindingsScroll, "Configure keyboard shortcuts");
 
         add(globalSubTabbedPane, BorderLayout.CENTER);
     }
