@@ -517,7 +517,21 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
     public void updateFiles(Set<ProjectFile> changedFiles) {
         try {
+            var wasDone = future.isDone();
+            var inProgress = rebuildInProgress;
+            var pending = rebuildPending;
+            var external = externalRebuildRequested;
+            long waitStart = System.currentTimeMillis();
             final var analyzer = future.get();
+            long waitedMs = System.currentTimeMillis() - waitStart;
+            logger.info(
+                    "updateFiles: waited {} ms for analyzer future (wasDone={}, rebuildInProgress={}, rebuildPending={}, externalRebuildRequested={}); changedFiles={}",
+                    waitedMs,
+                    wasDone,
+                    inProgress,
+                    pending,
+                    external,
+                    changedFiles.size());
             currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
                     .map(incAnalyzer -> {
                         final int changedCount = changedFiles.size();

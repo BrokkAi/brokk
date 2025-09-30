@@ -2384,6 +2384,8 @@ public abstract class TreeSitterAnalyzer
             return this;
         }
 
+        long overallStartMs = System.currentTimeMillis();
+
         // Filter files by language extensions - only process files this analyzer can understand
         var relevantFiles = filterRelevantFiles(changedFiles);
 
@@ -2391,10 +2393,17 @@ public abstract class TreeSitterAnalyzer
             return this; // No relevant files to process
         }
 
+        int total = relevantFiles.size();
+        int reanalyzedCount = 0;
+        int deletedCount = 0;
+        long cleanupNanos = 0L;
+        long reanalyzeNanos = 0L;
+
         var writeLock = stateRwLock.writeLock();
         writeLock.lock();
         try {
             for (var file : relevantFiles) {
+                long cleanupStart = System.nanoTime();
                 // -------- cleanup ----------
                 parsedTreeCache.remove(file);
                 topLevelDeclarations.remove(file);
@@ -2425,26 +2434,46 @@ public abstract class TreeSitterAnalyzer
                     var filtered = kids.stream().filter(fromFile.negate()).toList();
                     return filtered.equals(kids) ? kids : List.copyOf(filtered);
                 });
+                cleanupNanos += (System.nanoTime() - cleanupStart);
 
                 // -------- re-analyse (if file still exists) ----------
                 if (Files.exists(file.absPath())) {
+                    long reanStart = System.nanoTime();
                     try {
                         var parser = getTSParser();
                         byte[] bytes = Files.readAllBytes(file.absPath());
                         var analysisResult = analyzeFileContent(file, bytes, parser, null);
                         ingestAnalysisResult(file, analysisResult);
+                        reanalyzedCount++;
                     } catch (IOException e) {
                         log.warn("IO error re-analysing {}: {}", file, e.getMessage());
                     } catch (RuntimeException e) {
                         log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
+                    } finally {
+                        reanalyzeNanos += (System.nanoTime() - reanStart);
                     }
                 } else {
+                    deletedCount++;
                     log.debug("File {} deleted; state cleaned.", file);
                 }
             }
         } finally {
             writeLock.unlock();
         }
+
+        long totalMs = System.currentTimeMillis() - overallStartMs;
+        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
+        long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos);
+        log.debug(
+                "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms",
+                language.name(),
+                total,
+                reanalyzedCount,
+                deletedCount,
+                cleanupMs,
+                reanalyzeMs,
+                totalMs);
+
         return this;
     }
 
@@ -2454,6 +2483,8 @@ public abstract class TreeSitterAnalyzer
      */
     @Override
     public IAnalyzer update() {
+        long detectStartMs = System.currentTimeMillis();
+
         // files currently on disk that this analyser is interested in
         Set<ProjectFile> currentFiles = project.getAllFiles().stream()
                 .filter(pf -> {
@@ -2506,11 +2537,24 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
+        long detectMs = System.currentTimeMillis() - detectStartMs;
+
         // reuse the existing incremental logic
+        long updateStartMs = System.currentTimeMillis();
         var analyzer = update(changed);
+        long updateMs = System.currentTimeMillis() - updateStartMs;
 
         // Advance the last-update watermark to the time this scan began
         lastUpdateEpochNanos.set(nowNanos);
+
+        long totalMs = detectMs + updateMs;
+        log.debug(
+                "[{}] TreeSitter full incremental scan: changed={} files, detect={} ms, update={} ms, total={} ms",
+                language.name(),
+                changed.size(),
+                detectMs,
+                updateMs,
+                totalMs);
 
         return analyzer;
     }

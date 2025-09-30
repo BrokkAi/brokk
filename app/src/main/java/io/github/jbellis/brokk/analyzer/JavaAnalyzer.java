@@ -118,15 +118,33 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
+        long lspStart = System.currentTimeMillis();
         safeBlockingLspOperation(
                 client -> client.update(changedFiles), "Unable to update language server due to error!");
-        return super.update(changedFiles);
+        long lspDur = System.currentTimeMillis() - lspStart;
+        logger.debug("JavaAnalyzer LSP update: {} files in {} ms", changedFiles.size(), lspDur);
+
+        long tsStart = System.currentTimeMillis();
+        IAnalyzer result = super.update(changedFiles);
+        long tsDur = System.currentTimeMillis() - tsStart;
+        logger.debug("JavaAnalyzer TreeSitter update: {} files in {} ms", changedFiles.size(), tsDur);
+
+        return result;
     }
 
     @Override
     public IAnalyzer update() {
+        long lspStart = System.currentTimeMillis();
         safeBlockingLspOperation(LspClient::update, "Unable to update language server due to error!");
-        return super.update();
+        long lspDur = System.currentTimeMillis() - lspStart;
+        logger.debug("JavaAnalyzer LSP full incremental update in {} ms", lspDur);
+
+        long tsStart = System.currentTimeMillis();
+        IAnalyzer result = super.update();
+        long tsDur = System.currentTimeMillis() - tsStart;
+        logger.debug("JavaAnalyzer TreeSitter full incremental update in {} ms", tsDur);
+
+        return result;
     }
 
     @Override
