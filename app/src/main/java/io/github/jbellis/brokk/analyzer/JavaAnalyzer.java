@@ -75,7 +75,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
                 var client = awaitClient();
                 clientConsumer.accept(client);
                 long lspDur = System.currentTimeMillis() - lspStart;
-                logger.debug("JavaAnalyzer {} (async): Completed in {} ms", asyncTaskName, lspDur);
+                logger.debug("JavaAnalyzer {} - async: Completed in {} ms", asyncTaskName, lspDur);
             });
         } catch (RuntimeException e) {
             logger.error(errMessage, e);
@@ -124,7 +124,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         safeAsyncLspOperation(
-                client -> client.update(changedFiles), "LSP update", "Unable to update language server due to error!");
+                client -> client.update(changedFiles), "LSP update (" + changedFiles.size() + ")", "Unable to update language server due to error!");
 
         long tsStart = System.currentTimeMillis();
         IAnalyzer result = super.update(changedFiles);
@@ -136,7 +136,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
 
     @Override
     public IAnalyzer update() {
-        safeAsyncLspOperation(LspClient::update, "LSP update", "Unable to update language server due to error!");
+        safeAsyncLspOperation(LspClient::update, "LSP update (unspecified)", "Unable to update language server due to error!");
 
         long tsStart = System.currentTimeMillis();
         IAnalyzer result = super.update();
