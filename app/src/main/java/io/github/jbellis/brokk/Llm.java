@@ -156,10 +156,11 @@ public class Llm {
      * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
      * 'echo' is true, partial tokens go to console.
      */
-    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo, boolean fenceJsonTokens) throws InterruptedException {
+    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo, boolean addJsonFence)
+            throws InterruptedException {
         StreamingResult result;
         try {
-            result = doSingleStreamingCallInternal(request, echo, fenceJsonTokens);
+            result = doSingleStreamingCallInternal(request, echo, addJsonFence);
         } catch (InterruptedException e) {
             logResult(model, request, null);
             throw e;
@@ -168,7 +169,7 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo, boolean fenceJsonTokens)
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo, boolean addJsonFence)
             throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
@@ -217,7 +218,7 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
-                        if (fenceJsonTokens && !fenceOpen.get()) {
+                        if (addJsonFence && !fenceOpen.get()) {
                             io.llmOutput("```json\n", ChatMessageType.AI);
                             fenceOpen.set(true);
                         }
@@ -261,7 +262,7 @@ public class Llm {
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
-                    if (echo && fenceJsonTokens && fenceOpen.get()) {
+                    if (echo && addJsonFence && fenceOpen.get()) {
                         io.llmOutput("\n```", ChatMessageType.AI);
                         fenceOpen.set(false);
                     }
@@ -275,7 +276,7 @@ public class Llm {
                     logger.debug(th);
                     io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
-                    if (echo && fenceJsonTokens && fenceOpen.get()) {
+                    if (echo && addJsonFence && fenceOpen.get()) {
                         io.llmOutput("\n```", ChatMessageType.AI);
                         fenceOpen.set(false);
                     }
@@ -314,7 +315,7 @@ public class Llm {
         }
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
-        if (echo && fenceJsonTokens && fenceOpen.get()) {
+        if (echo && addJsonFence && fenceOpen.get()) {
             io.llmOutput("\n```", ChatMessageType.AI);
             fenceOpen.set(false);
         }
