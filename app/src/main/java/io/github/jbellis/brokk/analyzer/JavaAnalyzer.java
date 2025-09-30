@@ -68,10 +68,15 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
         }
     }
 
-    private void safeBlockingLspOperation(Consumer<LspClient> clientConsumer, String errMessage) {
+    private void safeAsyncLspOperation(Consumer<LspClient> clientConsumer, String asyncTaskName, String errMessage) {
         try {
-            var client = awaitClient();
-            clientConsumer.accept(client);
+            CompletableFuture.runAsync(() -> {
+                long lspStart = System.currentTimeMillis();
+                var client = awaitClient();
+                clientConsumer.accept(client);
+                long lspDur = System.currentTimeMillis() - lspStart;
+                logger.debug("JavaAnalyzer {} (async): Completed in {} ms", asyncTaskName, lspDur);
+            });
         } catch (RuntimeException e) {
             logger.error(errMessage, e);
             if (io != null) io.systemOutput(errMessage);
@@ -118,11 +123,8 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-        long lspStart = System.currentTimeMillis();
-        safeBlockingLspOperation(
-                client -> client.update(changedFiles), "Unable to update language server due to error!");
-        long lspDur = System.currentTimeMillis() - lspStart;
-        logger.debug("JavaAnalyzer LSP update: {} files in {} ms", changedFiles.size(), lspDur);
+        safeAsyncLspOperation(
+                client -> client.update(changedFiles), "LSP update", "Unable to update language server due to error!");
 
         long tsStart = System.currentTimeMillis();
         IAnalyzer result = super.update(changedFiles);
@@ -134,10 +136,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
 
     @Override
     public IAnalyzer update() {
-        long lspStart = System.currentTimeMillis();
-        safeBlockingLspOperation(LspClient::update, "Unable to update language server due to error!");
-        long lspDur = System.currentTimeMillis() - lspStart;
-        logger.debug("JavaAnalyzer LSP full incremental update in {} ms", lspDur);
+        safeAsyncLspOperation(LspClient::update, "LSP update", "Unable to update language server due to error!");
 
         long tsStart = System.currentTimeMillis();
         IAnalyzer result = super.update();
