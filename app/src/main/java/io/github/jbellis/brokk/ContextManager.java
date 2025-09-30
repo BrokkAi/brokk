@@ -1894,8 +1894,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         ? "Aggregated task"
                         : selected.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
 
-                var finalResult =
-                        new TaskResult(ContextManager.this, decoratedAction, aggregatedMessages, aggregatedFiles, lastStop);
+                var finalResult = new TaskResult(
+                        ContextManager.this, decoratedAction, aggregatedMessages, aggregatedFiles, lastStop);
                 pushFinalHistory(finalResult, compressAtCommit);
             } finally {
                 io.blockLlmOutput(false);

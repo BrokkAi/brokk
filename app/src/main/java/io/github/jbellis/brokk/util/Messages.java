@@ -158,4 +158,10 @@ public class Messages {
     public static int getApproximateTokens(Collection<ChatMessage> messages) {
         return getApproximateTokens(messages.stream().map(Messages::getText).collect(Collectors.joining("\n")));
     }
+
+    public static boolean isReasoningMessage(ChatMessage message) {
+        return message instanceof AiMessage aiMessage
+                && aiMessage.reasoningContent() != null
+                && !aiMessage.reasoningContent().isBlank();
+    }
 }
