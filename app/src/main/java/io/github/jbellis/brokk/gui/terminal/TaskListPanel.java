@@ -1422,6 +1422,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Compute vertical padding to center content within a cell of a given minimum height.
+     * If contentHeight >= minHeight, returns zero padding.
+     * Otherwise splits the extra space between top and bottom, with top = floor(extra/2).
+     */
+    static Insets verticalPaddingForCell(int contentHeight, int minHeight) {
+        int extra = minHeight - contentHeight;
+        if (extra <= 0) {
+            return new Insets(0, 0, 0, 0);
+        }
+        int top = extra / 2;
+        int bottom = extra - top;
+        return new Insets(top, 0, bottom, 0);
+    }
+
     private void clearCompletedTasks() {
         if (model.isEmpty()) {
             return;
@@ -1542,6 +1557,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             check.setOpaque(false);
             check.setIcon(Icons.CIRCLE);
             check.setSelectedIcon(Icons.CHECK);
+            check.setVerticalAlignment(SwingConstants.CENTER);
             add(check, BorderLayout.WEST);
 
             textArea.setLineWrap(true);
@@ -1611,6 +1627,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Ensure minimum height to show full checkbox icon
             int minHeight = Math.max(prefH, 48);
             this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, minHeight));
+
+            // Vertically center the text within the row by applying top/bottom padding
+            Insets pad = verticalPaddingForCell(prefH, minHeight);
+            // Avoid overlay side-effects when inline editor is active
+            if (isEditingRow) {
+                pad = new Insets(0, 0, 0, 0);
+            }
+            textArea.setBorder(BorderFactory.createEmptyBorder(pad.top, 0, pad.bottom, 0));
 
             if (isRunningRow) {
                 long now = System.currentTimeMillis();
