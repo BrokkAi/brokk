@@ -105,6 +105,13 @@ public class ThemeColors {
         LIGHT_COLORS.put("filter_unselected_foreground", new Color(0xFF6600)); // Slightly darker orange for light theme
         LIGHT_COLORS.put("filter_selected_foreground", Color.BLACK);
         LIGHT_COLORS.put("filter_icon_hover_background", new Color(0, 0, 0, 32)); // Semi-transparent black
+
+        // Diff chevron colors
+        DARK_COLORS.put("chevron_normal", new Color(200, 200, 200)); // Lighter gray for dark theme (more visible)
+        DARK_COLORS.put("chevron_hover", Color.WHITE);
+
+        LIGHT_COLORS.put("chevron_normal", new Color(80, 80, 80)); // Darker gray for light theme (more visible)
+        LIGHT_COLORS.put("chevron_hover", new Color(40, 40, 40)); // Very dark gray for light theme
     }
 
     /**

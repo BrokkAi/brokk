@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.GeneralPath;
@@ -371,44 +372,45 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
                 var canMergeRight = !bdTo.isReadonly();
                 var canMergeLeft = !bdFrom.isReadonly();
 
-                // Draw merge right command (triangle pointing right on left edge of right bar)
+                // Draw merge right command (chevron pointing right on left edge of right bar)
                 if (canMergeRight) {
                     if (original.size() > 0 || revised.size() > 0) { // Show if there's something to merge
-                        int triangleX = xRightEdge;
-                        int triangleY = yRight + hRight / 2; // Center vertically
-                        int scale = hovered ? 2 : 1; // Scale up on hover
-                        Polygon mergeRightTriangle =
-                                createTriangle(triangleX, triangleY, scale, true); // Pointing right
+                        int chevronX = xRightEdge - 8;
+                        int chevronY = yRight + hRight / 2; // Center vertically
+                        float scale = hovered ? 1.3f : 1.0f; // Scale up on hover
 
+                        var oldStroke = g2.getStroke();
                         setAntiAlias(g2);
-                        g2.setColor(hovered ? Color.gray.brighter() : color);
-                        g2.fillPolygon(mergeRightTriangle);
-                        g2.setColor(hovered ? Color.darkGray : darkerColor);
-                        g2.drawPolygon(mergeRightTriangle);
+                        g2.setColor(getChevronColor(hovered));
+                        g2.setStroke(new BasicStroke(1.5f * scale));
+                        drawDoubleChevron(g2, chevronX, chevronY, scale, true); // Pointing right
+                        g2.setStroke(oldStroke);
                         resetAntiAlias(g2);
 
-                        // Add command for merging left-to-right (apply change to right panel)
-                        commands.add(new DiffChangeCommand(mergeRightTriangle, delta, fromPanelIndex, toPanelIndex));
+                        // Create clickable area (larger than visual chevron)
+                        Polygon clickArea = createChevronClickArea(chevronX, chevronY, scale, true);
+                        commands.add(new DiffChangeCommand(clickArea, delta, fromPanelIndex, toPanelIndex));
                     }
                 }
 
-                // Draw merge left command (triangle pointing left on right edge of left bar) - Symmetric logic
+                // Draw merge left command (chevron pointing left on right edge of left bar) - Symmetric logic
                 if (canMergeLeft) {
                     if (original.size() > 0 || revised.size() > 0) {
-                        int triangleX = xLeftEdge;
-                        int triangleY = yLeft + hLeft / 2;
-                        int scale = hovered ? 2 : 1;
-                        Polygon mergeLeftTriangle = createTriangle(triangleX, triangleY, scale, false); // Pointing left
+                        int chevronX = xLeftEdge + 8;
+                        int chevronY = yLeft + hLeft / 2;
+                        float scale = hovered ? 1.3f : 1.0f;
 
+                        var oldStroke = g2.getStroke();
                         setAntiAlias(g2);
-                        g2.setColor(hovered ? Color.gray.brighter() : color);
-                        g2.fillPolygon(mergeLeftTriangle);
-                        g2.setColor(hovered ? Color.darkGray : darkerColor);
-                        g2.drawPolygon(mergeLeftTriangle);
+                        g2.setColor(getChevronColor(hovered));
+                        g2.setStroke(new BasicStroke(1.5f * scale));
+                        drawDoubleChevron(g2, chevronX, chevronY, scale, false); // Pointing left
+                        g2.setStroke(oldStroke);
                         resetAntiAlias(g2);
 
-                        // Add command for merging right-to-left (apply change to left panel)
-                        commands.add(new DiffChangeCommand(mergeLeftTriangle, delta, toPanelIndex, fromPanelIndex));
+                        // Create clickable area (larger than visual chevron)
+                        Polygon clickArea = createChevronClickArea(chevronX, chevronY, scale, false);
+                        commands.add(new DiffChangeCommand(clickArea, delta, toPanelIndex, fromPanelIndex));
                     }
                 }
             }
@@ -507,32 +509,74 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
     }
 
     /**
-     * Creates a triangle shape for merge indicators.
+     * Gets the appropriate chevron color based on theme and hover state.
      *
-     * @param x X coordinate of the anchor point (tip for pointing left, base center for pointing right)
-     * @param y Y coordinate of the anchor point (vertical center)
-     * @param scale Scaling factor (e.g., 1 for normal, 2 for hover)
-     * @param pointRight True if the triangle should point right, false to point left.
-     * @return Polygon representing the triangle.
+     * @param hovered Whether the chevron is currently hovered
+     * @return Color for the chevron
      */
-    private Polygon createTriangle(int x, int y, int scale, boolean pointRight) {
-        Polygon shape = new Polygon();
-        int halfHeight = 4 * scale;
-        int width = 6 * scale;
+    private Color getChevronColor(boolean hovered) {
+        boolean isDark = diffPanel.isDarkTheme();
+        return ThemeColors.getColor(isDark, hovered ? "chevron_hover" : "chevron_normal");
+    }
+
+    /**
+     * Draws a double chevron (>> or <<) in IntelliJ style.
+     *
+     * @param g2 Graphics context
+     * @param x X coordinate of the center
+     * @param y Y coordinate of the center
+     * @param scale Scaling factor (e.g., 1.0 for normal, 1.3 for hover)
+     * @param pointRight True if chevrons should point right (>>), false for left (<<)
+     */
+    private void drawDoubleChevron(Graphics2D g2, int x, int y, float scale, boolean pointRight) {
+        int chevronHeight = Math.round(3 * scale);
+        int chevronWidth = Math.round(3 * scale);
+        int spacing = Math.round(4 * scale);
 
         if (pointRight) {
-            // Pointing Right -> Anchor X is the left base center
-            shape.addPoint(x, y - halfHeight); // Top-left corner of base
-            shape.addPoint(x + width, y); // Tip pointing right
-            shape.addPoint(x, y + halfHeight); // Bottom-left corner of base
+            // First chevron >
+            g2.drawLine(x, y - chevronHeight, x + chevronWidth, y);
+            g2.drawLine(x + chevronWidth, y, x, y + chevronHeight);
+            // Second chevron >
+            g2.drawLine(x + spacing, y - chevronHeight, x + spacing + chevronWidth, y);
+            g2.drawLine(x + spacing + chevronWidth, y, x + spacing, y + chevronHeight);
         } else {
-            // Pointing Left -> Anchor X is the right base center
-            shape.addPoint(x, y - halfHeight); // Top-right corner of base
-            shape.addPoint(x - width, y); // Tip pointing left
-            shape.addPoint(x, y + halfHeight); // Bottom-right corner of base
+            // First chevron <
+            g2.drawLine(x, y - chevronHeight, x - chevronWidth, y);
+            g2.drawLine(x - chevronWidth, y, x, y + chevronHeight);
+            // Second chevron <
+            g2.drawLine(x - spacing, y - chevronHeight, x - spacing - chevronWidth, y);
+            g2.drawLine(x - spacing - chevronWidth, y, x - spacing, y + chevronHeight);
+        }
+    }
+
+    /**
+     * Creates a clickable area around the chevron for hit testing.
+     *
+     * @param x X coordinate of the chevron center
+     * @param y Y coordinate of the chevron center
+     * @param scale Scaling factor
+     * @param pointRight True if chevrons point right, false for left
+     * @return Polygon representing the clickable area
+     */
+    private Polygon createChevronClickArea(int x, int y, float scale, boolean pointRight) {
+        Polygon area = new Polygon();
+        int height = Math.round(6 * scale);
+        int width = Math.round(10 * scale);
+
+        if (pointRight) {
+            area.addPoint(x - 2, y - height);
+            area.addPoint(x + width, y - height);
+            area.addPoint(x + width, y + height);
+            area.addPoint(x - 2, y + height);
+        } else {
+            area.addPoint(x + 2, y - height);
+            area.addPoint(x - width, y - height);
+            area.addPoint(x - width, y + height);
+            area.addPoint(x + 2, y + height);
         }
 
-        return shape;
+        return area;
     }
 
     /** Provide mouse-based selection or hover. */
@@ -559,12 +603,17 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
         };
     }
 
-    /** Support mouse wheel to go to next or previous delta. */
+    /** Forward mouse wheel events to the scroll panes for smooth scrolling. */
     private MouseWheelListener getMouseWheelListener() {
         return me -> {
-            // If wheel moves down, next delta; if up, previous delta
-            diffPanel.toNextDelta(me.getWheelRotation() > 0);
-            // No need to repaint here, toNextDelta usually triggers selection change -> repaint
+            // Forward scroll events to the left panel's scroll pane for smooth scrolling
+            // The ScrollSynchronizer will keep both sides in sync
+            FilePanel leftPanel = getFromPanel();
+            if (leftPanel != null) {
+                var scrollPane = leftPanel.getScrollPane();
+                // Forward the mouse wheel event to the scroll pane
+                scrollPane.dispatchEvent(SwingUtilities.convertMouseEvent(me.getComponent(), me, scrollPane));
+            }
         };
     }
 
