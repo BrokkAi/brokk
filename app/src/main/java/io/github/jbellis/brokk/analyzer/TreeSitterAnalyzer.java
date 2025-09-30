@@ -250,9 +250,7 @@ public abstract class TreeSitterAnalyzer
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
-            Map<CodeUnit, List<CodeUnit>> children,
-            Map<CodeUnit, List<String>> signatures,
-            Map<CodeUnit, List<Range>> sourceRanges,
+            Map<CodeUnit, CodeUnitState> codeUnitState,
             Map<String, List<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements // Added for module-level imports
             ) {}
@@ -1103,7 +1101,7 @@ public abstract class TreeSitterAnalyzer
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of());
         }
         // Log root node type
         String rootNodeType = rootNode.getType();
@@ -1531,6 +1529,19 @@ public abstract class TreeSitterAnalyzer
         Map<CodeUnit, List<Range>> finalLocalSourceRanges = new HashMap<>();
         localSourceRanges.forEach((c, ranges) -> finalLocalSourceRanges.put(c, Collections.unmodifiableList(ranges)));
 
+        // Combine local maps into CodeUnitState entries
+        Map<CodeUnit, CodeUnitState> localStates = new HashMap<>();
+        var unionKeys = new HashSet<CodeUnit>();
+        unionKeys.addAll(finalLocalChildren.keySet());
+        unionKeys.addAll(localSignatures.keySet());
+        unionKeys.addAll(finalLocalSourceRanges.keySet());
+        for (var cu : unionKeys) {
+            var kids = finalLocalChildren.getOrDefault(cu, List.of());
+            var sigs = localSignatures.getOrDefault(cu, List.of());
+            var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
+            localStates.put(cu, new CodeUnitState(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs)));
+        }
+
         long __processEnd = System.nanoTime();
         if (timing != null) {
             timing.processStageNanos().addAndGet(__processEnd - __processStart);
@@ -1539,9 +1550,7 @@ public abstract class TreeSitterAnalyzer
         }
         return new FileAnalysisResult(
                 Collections.unmodifiableList(localTopLevelCUs),
-                finalLocalChildren,
-                localSignatures,
-                finalLocalSourceRanges,
+                Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements));
     }
@@ -2403,8 +2412,7 @@ public abstract class TreeSitterAnalyzer
 
     private void mergeAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult, ConstructionTiming timing) {
         if (!analysisResult.topLevelCUs().isEmpty()
-                || !analysisResult.signatures().isEmpty()
-                || !analysisResult.sourceRanges().isEmpty()) {
+                || !analysisResult.codeUnitState().isEmpty()) {
 
             long __mergeStart = System.nanoTime();
             ingestAnalysisResult(pf, analysisResult);
@@ -2414,12 +2422,10 @@ public abstract class TreeSitterAnalyzer
             timing.mergeStageLastEndNanos().accumulateAndGet(__mergeEnd, Math::max);
 
             log.trace(
-                    "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
+                    "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} code-unit states.",
                     pf,
                     analysisResult.topLevelCUs().size(),
-                    analysisResult.signatures().size(),
-                    analysisResult.children().size(),
-                    analysisResult.sourceRanges().size());
+                    analysisResult.codeUnitState().size());
         } else {
             log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
         }
@@ -2699,8 +2705,7 @@ public abstract class TreeSitterAnalyzer
 
     private void ingestAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult) {
         if (analysisResult.topLevelCUs().isEmpty()
-                && analysisResult.signatures().isEmpty()
-                && analysisResult.sourceRanges().isEmpty()) {
+                && analysisResult.codeUnitState().isEmpty()) {
             return;
         }
 
@@ -2736,111 +2741,102 @@ public abstract class TreeSitterAnalyzer
             });
         });
 
-        // Merge childrenByParent with no-op checks
-        analysisResult
-                .children()
-                .forEach((parent, newKids) ->
-                        childrenByParent.compute(parent, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                            if (existing == null) {
-                                return newKids;
-                            }
-                            if (newKids.isEmpty()) {
-                                return existing;
-                            }
-                            boolean changed = false;
-                            for (CodeUnit kid : newKids) {
-                                if (!existing.contains(kid)) {
-                                    changed = true;
-                                    break;
-                                }
-                            }
-                            if (!changed) {
-                                return existing;
-                            }
-                            var merged = new ArrayList<CodeUnit>(existing.size() + newKids.size());
-                            merged.addAll(existing);
-                            for (CodeUnit kid : newKids) {
-                                if (!merged.contains(kid)) {
-                                    merged.add(kid);
-                                }
-                            }
-                            return List.copyOf(merged);
-                        }));
+        // Merge legacy maps and new combined state from analysisResult.codeUnitState()
+        analysisResult.codeUnitState().forEach((cu, newState) -> {
+            // children
+            childrenByParent.compute(cu, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
+                var newKids = newState.children();
+                if (existing == null) {
+                    return newKids;
+                }
+                if (newKids.isEmpty()) {
+                    return existing;
+                }
+                boolean changed = false;
+                for (CodeUnit kid : newKids) {
+                    if (!existing.contains(kid)) {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (!changed) {
+                    return existing;
+                }
+                var merged = new ArrayList<CodeUnit>(existing.size() + newKids.size());
+                merged.addAll(existing);
+                for (CodeUnit kid : newKids) {
+                    if (!merged.contains(kid)) {
+                        merged.add(kid);
+                    }
+                }
+                return List.copyOf(merged);
+            });
 
-        // Merge signatures with no-op checks
-        analysisResult
-                .signatures()
-                .forEach((cu, newSigs) -> signatures.compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
-                    if (existing == null) {
-                        return List.copyOf(newSigs);
+            // signatures
+            signatures.compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
+                var newSigs = newState.signatures();
+                if (existing == null) {
+                    return List.copyOf(newSigs);
+                }
+                if (newSigs.isEmpty()) {
+                    return existing;
+                }
+                boolean changed = false;
+                for (String s : newSigs) {
+                    if (!existing.contains(s)) {
+                        changed = true;
+                        break;
                     }
-                    if (newSigs.isEmpty()) {
-                        return existing;
+                }
+                if (!changed) {
+                    return existing;
+                }
+                var merged = new ArrayList<String>(existing.size() + newSigs.size());
+                merged.addAll(existing);
+                for (String s : newSigs) {
+                    if (!merged.contains(s)) {
+                        merged.add(s);
                     }
-                    boolean changed = false;
-                    for (String s : newSigs) {
-                        if (!existing.contains(s)) {
-                            changed = true;
-                            break;
-                        }
-                    }
-                    if (!changed) {
-                        return existing;
-                    }
-                    var merged = new ArrayList<String>(existing.size() + newSigs.size());
-                    merged.addAll(existing);
-                    for (String s : newSigs) {
-                        if (!merged.contains(s)) {
-                            merged.add(s);
-                        }
-                    }
-                    return List.copyOf(merged);
-                }));
+                }
+                return List.copyOf(merged);
+            });
 
-        // Merge sourceRanges with no-op checks
-        analysisResult
-                .sourceRanges()
-                .forEach((cu, newRanges) -> sourceRanges.compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
-                    if (existing == null) {
-                        return List.copyOf(newRanges);
+            // ranges
+            sourceRanges.compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
+                var newRngs = newState.ranges();
+                if (existing == null) {
+                    return List.copyOf(newRngs);
+                }
+                if (newRngs.isEmpty()) {
+                    return existing;
+                }
+                boolean changed = false;
+                for (Range r : newRngs) {
+                    if (!existing.contains(r)) {
+                        changed = true;
+                        break;
                     }
-                    if (newRanges.isEmpty()) {
-                        return existing;
+                }
+                if (!changed) {
+                    return existing;
+                }
+                var merged = new ArrayList<Range>(existing.size() + newRngs.size());
+                merged.addAll(existing);
+                for (Range r : newRngs) {
+                    if (!merged.contains(r)) {
+                        merged.add(r);
                     }
-                    boolean changed = false;
-                    for (Range r : newRanges) {
-                        if (!existing.contains(r)) {
-                            changed = true;
-                            break;
-                        }
-                    }
-                    if (!changed) {
-                        return existing;
-                    }
-                    var merged = new ArrayList<Range>(existing.size() + newRanges.size());
-                    merged.addAll(existing);
-                    for (Range r : newRanges) {
-                        if (!merged.contains(r)) {
-                            merged.add(r);
-                        }
-                    }
-                    return List.copyOf(merged);
-                }));
+                }
+                return List.copyOf(merged);
+            });
 
-        // Mirror into combined per-CodeUnit state (codeUnitState)
-        var unionKeys = new HashSet<CodeUnit>();
-        unionKeys.addAll(analysisResult.children().keySet());
-        unionKeys.addAll(analysisResult.signatures().keySet());
-        unionKeys.addAll(analysisResult.sourceRanges().keySet());
-        for (var cu : unionKeys) {
-            var newKids = analysisResult.children().getOrDefault(cu, List.of());
-            var newSigs = analysisResult.signatures().getOrDefault(cu, List.of());
-            var newRngs = analysisResult.sourceRanges().getOrDefault(cu, List.of());
+            // combined state merge
             codeUnitState.compute(cu, (CodeUnit k, @Nullable CodeUnitState existing) -> {
                 if (existing == null) {
-                    return new CodeUnitState(List.copyOf(newKids), List.copyOf(newSigs), List.copyOf(newRngs));
+                    return new CodeUnitState(newState.children(), newState.signatures(), newState.ranges());
                 }
                 List<CodeUnit> mergedKids = existing.children();
+                var newKids = newState.children();
                 if (!newKids.isEmpty()) {
                     var tmp = new ArrayList<CodeUnit>(existing.children().size() + newKids.size());
                     tmp.addAll(existing.children());
@@ -2853,6 +2849,7 @@ public abstract class TreeSitterAnalyzer
                 }
 
                 List<String> mergedSigs = existing.signatures();
+                var newSigs = newState.signatures();
                 if (!newSigs.isEmpty()) {
                     var tmp = new ArrayList<String>(existing.signatures().size() + newSigs.size());
                     tmp.addAll(existing.signatures());
@@ -2865,10 +2862,11 @@ public abstract class TreeSitterAnalyzer
                 }
 
                 List<Range> mergedRanges = existing.ranges();
-                if (!newRngs.isEmpty()) {
-                    var tmp = new ArrayList<Range>(existing.ranges().size() + newRngs.size());
+                var newRngs2 = newState.ranges();
+                if (!newRngs2.isEmpty()) {
+                    var tmp = new ArrayList<Range>(existing.ranges().size() + newRngs2.size());
                     tmp.addAll(existing.ranges());
-                    for (var r : newRngs) {
+                    for (var r : newRngs2) {
                         if (!tmp.contains(r)) {
                             tmp.add(r);
                         }
@@ -2878,7 +2876,7 @@ public abstract class TreeSitterAnalyzer
 
                 return new CodeUnitState(mergedKids, mergedSigs, mergedRanges);
             });
-        }
+        });
 
         // Mirror per-file state
         fileState.put(
