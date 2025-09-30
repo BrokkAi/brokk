@@ -219,7 +219,7 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
-                            io.llmOutput("```json\n", ChatMessageType.AI);
+                            io.llmOutput("\n```json\n", ChatMessageType.AI);
                             fenceOpen.set(true);
                         }
                         io.llmOutput(token, ChatMessageType.AI);
