@@ -87,6 +87,7 @@ public final class HistoryIo {
         Map<String, ContentMetadataDto> contentMetadata = Map.of();
         var contentBytesMap = new HashMap<String, byte[]>();
         byte[] taskListBytes = null;
+        ZipEntry taskListEntry = null;
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
@@ -118,7 +119,10 @@ public final class HistoryIo {
                         Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
                         entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
                     }
-                    case TASKLIST_FILENAME -> taskListBytes = zis.readAllBytes();
+                    case TASKLIST_FILENAME -> {
+                        taskListBytes = zis.readAllBytes();
+                        taskListEntry = entry;
+                    }
                     default -> {
                         if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
                             String name = entry.getName().substring(IMAGES_DIR_PREFIX.length());
@@ -140,10 +144,32 @@ public final class HistoryIo {
         String sessionDirName = zipFileName.substring(0, zipFileName.length() - 4);
         Path sessionDir = requireNonNull(zip.getParent()).resolve(sessionDirName);
         Path taskListStagingPath = sessionDir.resolve(TASKLIST_FILENAME);
-        if (taskListBytes != null) {
-            Files.createDirectories(sessionDir);
-            Files.write(taskListStagingPath, taskListBytes);
-            logger.debug("Extracted tasklist from zip {} to staging area {}", zip, taskListStagingPath);
+        if (taskListBytes != null && taskListEntry != null) {
+            try {
+                var zipModifiedTime = taskListEntry.getLastModifiedTime();
+                boolean shouldWrite = false;
+                if (!Files.exists(taskListStagingPath)) {
+                    shouldWrite = true;
+                    logger.debug("No local tasklist for session {}, extracting from zip.", sessionDirName);
+                } else {
+                    var stagingModifiedTime = Files.getLastModifiedTime(taskListStagingPath);
+                    if (zipModifiedTime.compareTo(stagingModifiedTime) > 0) {
+                        shouldWrite = true;
+                        logger.debug("Tasklist in zip is newer, overwriting local for session {}.", sessionDirName);
+                    } else {
+                        logger.debug(
+                                "Local tasklist is newer or same for session {}, keeping local.", sessionDirName);
+                    }
+                }
+
+                if (shouldWrite) {
+                    Files.createDirectories(sessionDir);
+                    Files.write(taskListStagingPath, taskListBytes);
+                    logger.debug("Extracted tasklist from zip {} to staging area {}", zip, taskListStagingPath);
+                }
+            } catch (IOException e) {
+                logger.error("Error comparing or writing tasklist for session {}: {}", sessionDirName, e.getMessage());
+            }
         } else {
             logger.debug("No tasklist found in zip {}", zip);
         }
@@ -338,10 +364,12 @@ public final class HistoryIo {
         String sessionDirName = zipFileName.substring(0, zipFileName.length() - 4);
         Path taskListStagingPath = requireNonNull(target.getParent()).resolve(sessionDirName).resolve(TASKLIST_FILENAME);
         byte[] taskListBytes = null;
+        java.nio.file.attribute.FileTime taskListTimestamp = null;
         if (Files.exists(taskListStagingPath)) {
             try {
                 logger.debug("Reading tasklist from staging area {}", taskListStagingPath);
                 taskListBytes = Files.readAllBytes(taskListStagingPath);
+                taskListTimestamp = Files.getLastModifiedTime(taskListStagingPath);
             } catch (IOException e) {
                 logger.warn("Could not read tasklist from staging area {}: {}", taskListStagingPath, e.getMessage());
             }
@@ -349,6 +377,7 @@ public final class HistoryIo {
             logger.debug("No tasklist in staging area {}", taskListStagingPath);
         }
         final byte[] finalTaskListBytes = taskListBytes;
+        final var finalTaskListTimestamp = taskListTimestamp;
 
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
@@ -393,7 +422,11 @@ public final class HistoryIo {
 
                 if (finalTaskListBytes != null) {
                     logger.debug("Writing tasklist to zip {}", target);
-                    zos.putNextEntry(new ZipEntry(TASKLIST_FILENAME));
+                    var taskListEntry = new ZipEntry(TASKLIST_FILENAME);
+                    if (finalTaskListTimestamp != null) {
+                        taskListEntry.setLastModifiedTime(finalTaskListTimestamp);
+                    }
+                    zos.putNextEntry(taskListEntry);
                     zos.write(finalTaskListBytes);
                     zos.closeEntry();
                 } else {
