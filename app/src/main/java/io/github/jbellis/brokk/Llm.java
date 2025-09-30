@@ -156,10 +156,11 @@ public class Llm {
      * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
      * 'echo' is true, partial tokens go to console.
      */
-    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo) throws InterruptedException {
+    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo, boolean addJsonFence)
+            throws InterruptedException {
         StreamingResult result;
         try {
-            result = doSingleStreamingCallInternal(request, echo);
+            result = doSingleStreamingCallInternal(request, echo, addJsonFence);
         } catch (InterruptedException e) {
             logResult(model, request, null);
             throw e;
@@ -168,7 +169,7 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo)
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo, boolean addJsonFence)
             throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
@@ -189,6 +190,7 @@ public class Llm {
         var accumulatedReasoningBuilder = new StringBuilder();
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
+        var fenceOpen = new AtomicBoolean(false);
 
         Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
@@ -216,6 +218,10 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
+                        if (addJsonFence && !fenceOpen.get()) {
+                            io.llmOutput("```json\n", ChatMessageType.AI);
+                            fenceOpen.set(true);
+                        }
                         io.llmOutput(token, ChatMessageType.AI);
                     }
                 });
@@ -256,6 +262,10 @@ public class Llm {
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
+                    if (echo && addJsonFence && fenceOpen.get()) {
+                        io.llmOutput("\n```", ChatMessageType.AI);
+                        fenceOpen.set(false);
+                    }
                     completed.set(true);
                 });
             }
@@ -266,6 +276,10 @@ public class Llm {
                     logger.debug(th);
                     io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
+                    if (echo && addJsonFence && fenceOpen.get()) {
+                        io.llmOutput("\n```", ChatMessageType.AI);
+                        fenceOpen.set(false);
+                    }
                     completed.set(true);
                 });
             }
@@ -298,6 +312,12 @@ public class Llm {
                 lock.unlock();
             }
             throw e; // Propagate interruption
+        }
+
+        // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
+        if (echo && addJsonFence && fenceOpen.get()) {
+            io.llmOutput("\n```", ChatMessageType.AI);
+            fenceOpen.set(false);
         }
 
         // At this point, latch has been counted down and we have a result or an error
@@ -534,7 +554,7 @@ public class Llm {
         }
 
         var request = requestBuilder.build();
-        var sr = doSingleStreamingCall(request, echo);
+        var sr = doSingleStreamingCall(request, echo, false);
 
         // Pretty-print native tool calls when echo is enabled
         // (For emulated calls, echo means we get the raw json in the response which is not ideal but
@@ -618,7 +638,7 @@ public class Llm {
 
             // Perform the request for THIS attempt
             lastRequest = requestBuilder.apply(attemptMessages);
-            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo);
+            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo, true);
 
             // Fast-fail on transport / HTTP errors (no retry)
             if (rawResult.error() != null) {
