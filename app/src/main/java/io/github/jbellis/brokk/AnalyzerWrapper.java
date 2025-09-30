@@ -533,9 +533,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                         long startTime = System.currentTimeMillis();
                         int changedCount = changedFiles.size();
                         logger.debug(
-                                "Starting incremental update: {} files for {}",
-                                changedCount,
-                                getLanguageDescription());
+                                "Starting incremental update: {} files for {}", changedCount, getLanguageDescription());
                         try {
                             return incAnalyzer.update(changedFiles);
                         } finally {
