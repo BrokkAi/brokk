@@ -2148,6 +2148,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Always return focus to the instructions area to avoid re-triggering with Enter on the button
         requestCommandInputFocus();
     }
+
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
             // If placeholder is active or area is disabled, activate input first
@@ -2666,6 +2667,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
             return fallback;
+        }
+    }
 
     private static class ModelUnavailableException extends RuntimeException {
         public ModelUnavailableException() {

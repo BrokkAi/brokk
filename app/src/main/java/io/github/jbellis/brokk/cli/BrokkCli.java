@@ -578,7 +578,7 @@ public final class BrokkCli implements Callable<Integer> {
      */
     private void autoDiscoverFilesFromPrompts() {
         // Collect all prompts that might mention files
-        var prompts = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
+        var prompts = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, searchTasksPrompt)
                 .filter(p -> p != null && !p.isBlank())
                 .toList();
 
