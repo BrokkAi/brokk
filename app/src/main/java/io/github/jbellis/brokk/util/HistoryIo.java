@@ -86,6 +86,7 @@ public final class HistoryIo {
         Map<String, ContextHistory.ContextHistoryEntryInfo> entryInfoDtos = new HashMap<>();
         Map<String, ContentMetadataDto> contentMetadata = Map.of();
         var contentBytesMap = new HashMap<String, byte[]>();
+        byte[] taskListBytes = null;
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
@@ -117,6 +118,7 @@ public final class HistoryIo {
                         Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
                         entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
                     }
+                    case TASKLIST_FILENAME -> taskListBytes = zis.readAllBytes();
                     default -> {
                         if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
                             String name = entry.getName().substring(IMAGES_DIR_PREFIX.length());
@@ -132,6 +134,17 @@ public final class HistoryIo {
                     }
                 }
             }
+        }
+
+        String zipFileName = zip.getFileName().toString();
+        String sessionDirName = zipFileName.substring(0, zipFileName.length() - 4);
+        Path sessionDir = requireNonNull(zip.getParent()).resolve(sessionDirName);
+        Path taskListStagingPath = sessionDir.resolve(TASKLIST_FILENAME);
+        if (taskListBytes != null) {
+            Files.createDirectories(sessionDir);
+            Files.write(taskListStagingPath, taskListBytes);
+        } else {
+            Files.deleteIfExists(taskListStagingPath);
         }
 
         if (allFragmentsDto == null) {
