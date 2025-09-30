@@ -1653,9 +1653,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private static final class TaskListData {
         public List<TaskEntryDto> tasks = new ArrayList<>();
+
         public TaskListData() {}
     }
-    
-    private static final record TaskEntryDto(String text, boolean done){
-    }
+
+    private static final record TaskEntryDto(String text, boolean done) {}
 }

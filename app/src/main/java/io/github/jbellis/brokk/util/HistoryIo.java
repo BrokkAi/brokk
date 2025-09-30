@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.util;
 
+import static java.util.Objects.requireNonNull;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +21,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import static java.util.Objects.requireNonNull;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -93,8 +94,8 @@ public final class HistoryIo {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 switch (entry.getName()) {
-                    case V3_FRAGMENTS_FILENAME -> allFragmentsDto =
-                            objectMapper.readValue(zis.readAllBytes(), AllFragmentsDto.class);
+                    case V3_FRAGMENTS_FILENAME ->
+                        allFragmentsDto = objectMapper.readValue(zis.readAllBytes(), AllFragmentsDto.class);
                     case CONTENT_FILENAME -> {
                         var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
                         contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
@@ -157,8 +158,7 @@ public final class HistoryIo {
                         shouldWrite = true;
                         logger.debug("Tasklist in zip is newer, overwriting local for session {}.", sessionDirName);
                     } else {
-                        logger.debug(
-                                "Local tasklist is newer or same for session {}, keeping local.", sessionDirName);
+                        logger.debug("Local tasklist is newer or same for session {}, keeping local.", sessionDirName);
                     }
                 }
 
@@ -362,7 +362,8 @@ public final class HistoryIo {
 
         String zipFileName = target.getFileName().toString();
         String sessionDirName = zipFileName.substring(0, zipFileName.length() - 4);
-        Path taskListStagingPath = requireNonNull(target.getParent()).resolve(sessionDirName).resolve(TASKLIST_FILENAME);
+        Path taskListStagingPath =
+                requireNonNull(target.getParent()).resolve(sessionDirName).resolve(TASKLIST_FILENAME);
         byte[] taskListBytes = null;
         java.nio.file.attribute.FileTime taskListTimestamp = null;
         if (Files.exists(taskListStagingPath)) {
