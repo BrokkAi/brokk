@@ -1052,9 +1052,8 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel = new MarkdownOutputPanel();
             outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
             outputPanel.updateTheme(isDark);
-            outputPanel.setBlocking(isBlockingMode);
             // Seed main content first, then history
-            outputPanel.setMainThenHistoryAsync(main, history);
+            outputPanel.setMainThenHistoryAsync(main, history).thenRun(() -> outputPanel.setBlocking(isBlockingMode));
 
             // Create toolbar panel with capture button if not in blocking mode
             JPanel toolbarPanel = null;
