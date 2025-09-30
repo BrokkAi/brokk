@@ -834,6 +834,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         try {
             if (!Files.exists(file)) {
                 model.clear();
+                logger.debug("No tasklist staging file found at {}, clearing model.", file);
             } else {
                 String json = Files.readString(file, StandardCharsets.UTF_8);
                 if (!json.isBlank()) {
@@ -844,12 +845,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                             model.addElement(new TaskItem(dto.text, dto.done));
                         }
                     }
+                    logger.debug("Loaded {} tasks for session {} from {}", model.size(), sid, file);
                 } else {
                     model.clear();
+                    logger.debug("Tasklist staging file is blank, clearing model. File: {}", file);
                 }
             }
         } catch (Exception e) {
-            logger.debug("Failed loading tasks for session {} from {}", sid, file, e);
+            logger.error("Failed loading tasks for session {} from {}", sid, file, e);
         } finally {
             isLoadingTasks = false;
             updateButtonStates();
@@ -873,8 +876,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             String json = Json.toJson(data);
             Files.writeString(file, json, StandardCharsets.UTF_8);
+            logger.debug("Saved {} tasks for session {} to staging file {}", data.tasks.size(), sid, file);
         } catch (IOException e) {
-            logger.debug("Failed saving tasks for session {} to {}", sid, file, e);
+            logger.error("Failed saving tasks for session {} to {}", sid, file, e);
         }
     }
 

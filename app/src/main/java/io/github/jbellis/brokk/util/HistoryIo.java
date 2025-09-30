@@ -143,6 +143,9 @@ public final class HistoryIo {
         if (taskListBytes != null) {
             Files.createDirectories(sessionDir);
             Files.write(taskListStagingPath, taskListBytes);
+            logger.debug("Extracted tasklist from zip {} to staging area {}", zip, taskListStagingPath);
+        } else {
+            logger.debug("No tasklist found in zip {}", zip);
         }
 
         if (allFragmentsDto == null) {
@@ -337,10 +340,13 @@ public final class HistoryIo {
         byte[] taskListBytes = null;
         if (Files.exists(taskListStagingPath)) {
             try {
+                logger.debug("Reading tasklist from staging area {}", taskListStagingPath);
                 taskListBytes = Files.readAllBytes(taskListStagingPath);
             } catch (IOException e) {
                 logger.warn("Could not read tasklist from staging area {}: {}", taskListStagingPath, e.getMessage());
             }
+        } else {
+            logger.debug("No tasklist in staging area {}", taskListStagingPath);
         }
         final byte[] finalTaskListBytes = taskListBytes;
 
@@ -386,9 +392,12 @@ public final class HistoryIo {
                 }
 
                 if (finalTaskListBytes != null) {
+                    logger.debug("Writing tasklist to zip {}", target);
                     zos.putNextEntry(new ZipEntry(TASKLIST_FILENAME));
                     zos.write(finalTaskListBytes);
                     zos.closeEntry();
+                } else {
+                    logger.debug("No tasklist to write to zip {}", target);
                 }
 
                 for (FrozenFragment ff : imageDomainFragments) {

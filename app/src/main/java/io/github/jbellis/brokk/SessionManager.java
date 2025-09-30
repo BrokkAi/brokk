@@ -368,10 +368,12 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                logger.debug("Saving history for session {} to {}", sessionId, sessionHistoryPath);
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
                 if (finalInfoToSave != null) {
                     writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
                 }
+                logger.debug("Successfully saved history for session {}", sessionId);
             } catch (IOException e) {
                 logger.error(
                         "Error saving context history or updating manifest for session {}: {}",
