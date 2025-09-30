@@ -2399,10 +2399,18 @@ public abstract class TreeSitterAnalyzer
         long cleanupNanos = 0L;
         long reanalyzeNanos = 0L;
 
+        // Lightweight metrics (per-call)
+        int filesCleanedCount = 0;
+        int symbolsTouchedCount = 0;
+        final int[] parentsTouchedCount = new int[1];
+        long writeLockHoldNanos = 0L;
+
         var writeLock = stateRwLock.writeLock();
         writeLock.lock();
+        long lockStartNanos = System.nanoTime();
         try {
             for (var file : relevantFiles) {
+                filesCleanedCount++;
                 long cleanupStart = System.nanoTime();
                 // -------- cleanup ----------
                 parsedTreeCache.remove(file);
@@ -2422,6 +2430,8 @@ public abstract class TreeSitterAnalyzer
                         symbolsToUpdate.put(symbol, remaining);
                     }
                 }
+                // Count how many symbols we touched (purged or updated)
+                symbolsTouchedCount += (symbolsToPurge.size() + symbolsToUpdate.size());
                 symbolsToUpdate.forEach(symbolIndex::put);
                 symbolsToPurge.forEach(symbolIndex::remove);
 
@@ -2432,7 +2442,11 @@ public abstract class TreeSitterAnalyzer
                 // remove children entries pointing to CodeUnits from the changed file
                 childrenByParent.replaceAll((parent, kids) -> {
                     var filtered = kids.stream().filter(fromFile.negate()).toList();
-                    return filtered.equals(kids) ? kids : List.copyOf(filtered);
+                    if (!filtered.equals(kids)) {
+                        parentsTouchedCount[0]++;
+                        return List.copyOf(filtered);
+                    }
+                    return kids;
                 });
                 cleanupNanos += (System.nanoTime() - cleanupStart);
 
@@ -2458,6 +2472,7 @@ public abstract class TreeSitterAnalyzer
                 }
             }
         } finally {
+            writeLockHoldNanos += (System.nanoTime() - lockStartNanos);
             writeLock.unlock();
         }
 
@@ -2465,14 +2480,18 @@ public abstract class TreeSitterAnalyzer
         long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
         long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos);
         log.debug(
-                "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms",
+                "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms, filesCleaned={}, symbolsTouched={}, parentsTouched={}, writeLockHold={} ms",
                 language.name(),
                 total,
                 reanalyzedCount,
                 deletedCount,
                 cleanupMs,
                 reanalyzeMs,
-                totalMs);
+                totalMs,
+                filesCleanedCount,
+                symbolsTouchedCount,
+                parentsTouchedCount[0],
+                TimeUnit.NANOSECONDS.toMillis(writeLockHoldNanos));
 
         return this;
     }
