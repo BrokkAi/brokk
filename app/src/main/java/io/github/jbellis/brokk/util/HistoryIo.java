@@ -18,6 +18,7 @@ import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -197,13 +198,52 @@ public final class HistoryIo {
         }
     }
 
+    private static void awaitDynamicFields(ContextHistory ch, Duration awaitTimeout) {
+        for (Context ctx : ch.getHistory()) {
+            for (var fragment : ctx.allFragments().toList()) {
+                if (fragment instanceof DynamicFragment df) {
+                    var desc = DynamicSupport.await(awaitTimeout, df.computedDescription());
+                    if (desc.isEmpty()) {
+                        logger.warn(
+                                "Timed out awaiting description for fragment {} ({}); using placeholder",
+                                fragment.id(),
+                                fragment.getClass().getSimpleName());
+                    }
+                    var style = DynamicSupport.await(awaitTimeout, df.computedSyntaxStyle());
+                    if (style.isEmpty()) {
+                        logger.warn(
+                                "Timed out awaiting syntax style for fragment {} ({}); using placeholder",
+                                fragment.id(),
+                                fragment.getClass().getSimpleName());
+                    }
+                    if (fragment.isText()) {
+                        var text = DynamicSupport.await(awaitTimeout, df.computedText());
+                        if (text.isEmpty()) {
+                            logger.warn(
+                                    "Timed out awaiting text for fragment {} ({}); using placeholder",
+                                    fragment.id(),
+                                    fragment.getClass().getSimpleName());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     public static void writeZip(ContextHistory ch, Path target) throws IOException {
+        writeZip(ch, target, Duration.ofSeconds(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS));
+    }
+
+    public static void writeZip(ContextHistory ch, Path target, Duration awaitTimeout) throws IOException {
         var writer = new ContentWriter();
         var collectedReferencedDtos = new HashMap<String, ReferencedFragmentDto>();
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
         var imageDomainFragments = new HashSet<FrozenFragment>();
         var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
+
+        // Best-effort: await dynamic fields within the provided timeout to avoid persisting placeholders.
+        awaitDynamicFields(ch, awaitTimeout);
 
         for (Context ctx : ch.getHistory()) {
             ctx.fileFragments().forEach(fragment -> {
