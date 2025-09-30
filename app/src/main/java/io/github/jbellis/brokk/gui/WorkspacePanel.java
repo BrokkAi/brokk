@@ -29,6 +29,9 @@ import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.StackTrace;
+import io.github.jbellis.brokk.context.DynamicFragment;
+import io.github.jbellis.brokk.context.DynamicSupport;
+import io.github.jbellis.brokk.util.ComputedValue;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
@@ -493,7 +496,7 @@ public class WorkspacePanel extends JPanel {
                 return panel; // Return empty panel if no data
             }
 
-            String description = data.description();
+            String description = nonBlockingDescription(data.fragment());
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
 
             // Calculate available width for description after reserving space for badges
@@ -585,6 +588,13 @@ public class WorkspacePanel extends JPanel {
             // low is first index that does NOT fit; use low-1
             return text.substring(0, Math.max(0, low - 1)) + ellipsis;
         }
+
+        private static String nonBlockingDescription(ContextFragment fragment) {
+            if (fragment instanceof DynamicFragment df) {
+                return DynamicSupport.renderNowOr("(Loading...)", df.computedDescription());
+            }
+            return fragment.description();
+        }
     }
 
     /** Helper for building popup menus consistently */
@@ -655,6 +665,10 @@ public class WorkspacePanel extends JPanel {
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
+
+    // Track subscriptions to ComputedValue completions to avoid duplicate listeners
+    private final java.util.Set<String> cvSubscriptions =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     // Observers for bottom-controls height changes
     private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
@@ -1357,16 +1371,39 @@ public class WorkspacePanel extends JPanel {
         StringBuilder fullText = new StringBuilder();
         for (var frag : allFragments) {
             String locText;
+
+            // Compute description non-blocking
+            String desc;
+            if (frag instanceof DynamicFragment df) {
+                desc = DynamicSupport.renderNowOr("(Loading...)", df.computedDescription());
+            } else {
+                desc = frag.description();
+            }
+
+            // Compute LOC non-blocking for text fragments; show "..." while pending
             if (frag.isText() || frag.getType().isOutput()) {
-                var text = frag.text();
-                fullText.append(text).append("\n");
-                int loc = text.split("\\r?\\n", -1).length;
-                totalLines += loc;
-                locText = "%,d".formatted(loc);
+                if (frag instanceof DynamicFragment df) {
+                    var textOpt = df.computedText().tryGet();
+                    if (textOpt.isPresent()) {
+                        var text = textOpt.get();
+                        fullText.append(text).append("\n");
+                        int loc = text.split("\\r?\\n", -1).length;
+                        totalLines += loc;
+                        locText = "%,d".formatted(loc);
+                    } else {
+                        // Pending text computation
+                        locText = "...";
+                    }
+                } else {
+                    var text = frag.text();
+                    fullText.append(text).append("\n");
+                    int loc = text.split("\\r?\\n", -1).length;
+                    totalLines += loc;
+                    locText = "%,d".formatted(loc);
+                }
             } else {
                 locText = "Image";
             }
-            var desc = frag.description();
 
             // Mark editable if it's in the editable streams
             boolean isEditable = ctx.fileFragments().anyMatch(e -> e == frag);
@@ -1388,6 +1425,11 @@ public class WorkspacePanel extends JPanel {
             // Create rich description object
             var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
             tableModel.addRow(new Object[] {locText, descriptionWithRefs, frag});
+        }
+
+        // Subscribe to dynamic fragment completions to refresh UI when values materialize
+        for (var frag : allFragments) {
+            subscribeToFragmentComputations(ctx, frag);
         }
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
@@ -2189,6 +2231,47 @@ public class WorkspacePanel extends JPanel {
         } else {
             return String.format("$%.2f", estimatedCost);
         }
+    }
+
+    // Subscribe to ComputedValue completions for this fragment; repaint/rebuild when done
+    private void subscribeToFragmentComputations(Context ctx, ContextFragment frag) {
+        if (!(frag instanceof DynamicFragment df)) {
+            return;
+        }
+        // Description
+        registerCvListener(ctx, frag, "desc", df.computedDescription());
+        // Syntax style
+        registerCvListener(ctx, frag, "style", df.computedSyntaxStyle());
+        // Text, if applicable
+        if (frag.isText()) {
+            registerCvListener(ctx, frag, "text", df.computedText());
+        }
+        // Image bytes, if applicable
+        var imgCv = df.computedImageBytes();
+        if (imgCv != null) {
+            registerCvListener(ctx, frag, "img", imgCv);
+        }
+    }
+
+    private <T> void registerCvListener(Context ctx, ContextFragment frag, String kind, ComputedValue<T> cv) {
+        // If already available, no need to subscribe
+        if (cv.tryGet().isPresent()) {
+            return;
+        }
+        var key = ctx.id() + "|" + frag.id() + "|" + kind;
+        if (!cvSubscriptions.add(key)) {
+            return; // already subscribed
+        }
+        cv.future().whenComplete((v, ex) -> {
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                // Rebuild current context table if still showing this context; otherwise just repaint
+                if (java.util.Objects.equals(currentContext, ctx)) {
+                    populateContextTable(ctx);
+                } else {
+                    contextTable.repaint();
+                }
+            });
+        });
     }
 
     /**
