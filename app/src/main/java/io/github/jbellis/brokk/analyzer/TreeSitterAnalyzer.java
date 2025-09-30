@@ -24,6 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -199,6 +200,25 @@ public abstract class TreeSitterAnalyzer
             Set<String> modifierNodeTypes) {}
 
     public record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {}
+
+    private record ProjectFilePair(ProjectFile lhs, ProjectFile rhs) {
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ProjectFilePair(ProjectFile oLhs, ProjectFile oRhs))) return false;
+            // Order-insensitive equality: (a,b) == (b,a)
+            return (Objects.equals(lhs, oLhs) && Objects.equals(rhs, oRhs))
+                    || (Objects.equals(lhs, oRhs) && Objects.equals(rhs, oLhs));
+        }
+
+        @Override
+        public int hashCode() {
+            // Order-insensitive hash: commutative combination
+            int h1 = Objects.hashCode(lhs);
+            int h2 = Objects.hashCode(rhs);
+            return h1 ^ h2;
+        }
+    }
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -2394,104 +2414,135 @@ public abstract class TreeSitterAnalyzer
         }
 
         int total = relevantFiles.size();
-        int reanalyzedCount = 0;
-        int deletedCount = 0;
-        long cleanupNanos = 0L;
-        long reanalyzeNanos = 0L;
 
-        // Lightweight metrics (per-call)
-        int filesCleanedCount = 0;
-        int symbolsTouchedCount = 0;
-        final int[] parentsTouchedCount = new int[1];
-        long writeLockHoldNanos = 0L;
+        // Thread-safe metrics and counters
+        var reanalyzedCount = new AtomicInteger(0);
+        var deletedCount = new AtomicInteger(0);
+        var cleanupNanos = new AtomicLong(0L);
+        var reanalyzeNanos = new AtomicLong(0L);
 
-        var writeLock = stateRwLock.writeLock();
-        writeLock.lock();
-        long lockStartNanos = System.nanoTime();
-        try {
+        var filesCleanedCount = new AtomicInteger(0);
+        var symbolsTouchedCount = new AtomicInteger(0);
+        var parentsTouchedCount = new AtomicInteger(0);
+        var writeLockHoldNanos = new AtomicLong(0L);
+
+        final var fileEqualityCache = new ConcurrentHashMap<ProjectFilePair, Boolean>();
+
+        int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+        try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
             for (var file : relevantFiles) {
-                filesCleanedCount++;
-                long cleanupStart = System.nanoTime();
-                // -------- cleanup ----------
-                parsedTreeCache.remove(file);
-                topLevelDeclarations.remove(file);
-
-                Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
-
-                var symbolsToPurge = new HashSet<String>();
-                var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
-                for (var entry : symbolIndex.entrySet()) {
-                    var symbol = entry.getKey();
-                    var cus = entry.getValue();
-                    var remaining = cus.stream().filter(fromFile.negate()).toList();
-                    if (remaining.isEmpty()) {
-                        symbolsToPurge.add(symbol);
-                    } else if (remaining.size() < cus.size()) {
-                        symbolsToUpdate.put(symbol, remaining);
-                    }
-                }
-                // Count how many symbols we touched (purged or updated)
-                symbolsTouchedCount += (symbolsToPurge.size() + symbolsToUpdate.size());
-                symbolsToUpdate.forEach(symbolIndex::put);
-                symbolsToPurge.forEach(symbolIndex::remove);
-
-                childrenByParent.keySet().removeIf(fromFile);
-                signatures.keySet().removeIf(fromFile);
-                sourceRanges.keySet().removeIf(fromFile);
-
-                // remove children entries pointing to CodeUnits from the changed file
-                childrenByParent.replaceAll((parent, kids) -> {
-                    var filtered = kids.stream().filter(fromFile.negate()).toList();
-                    if (!filtered.equals(kids)) {
-                        parentsTouchedCount[0]++;
-                        return List.copyOf(filtered);
-                    }
-                    return kids;
-                });
-                cleanupNanos += (System.nanoTime() - cleanupStart);
-
-                // -------- re-analyse (if file still exists) ----------
-                if (Files.exists(file.absPath())) {
-                    long reanStart = System.nanoTime();
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    // -------- cleanup (under short write lock) ----------
+                    long cleanupStart = System.nanoTime();
+                    var writeLock = stateRwLock.writeLock();
+                    writeLock.lock();
+                    long lockStartNanos = System.nanoTime();
                     try {
-                        var parser = getTSParser();
-                        byte[] bytes = Files.readAllBytes(file.absPath());
-                        var analysisResult = analyzeFileContent(file, bytes, parser, null);
-                        ingestAnalysisResult(file, analysisResult);
-                        reanalyzedCount++;
-                    } catch (IOException e) {
-                        log.warn("IO error re-analysing {}: {}", file, e.getMessage());
-                    } catch (RuntimeException e) {
-                        log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
+                        filesCleanedCount.incrementAndGet();
+
+                        // Build predicate with cached ProjectFile equality checks
+                        Predicate<CodeUnit> fromFile = cu ->
+                                fileEqualityCache.computeIfAbsent(
+                                        new ProjectFilePair(file, cu.source()),
+                                        pair -> pair.lhs().equals(pair.rhs()));
+
+                        parsedTreeCache.remove(file);
+                        topLevelDeclarations.remove(file);
+
+                        var symbolsToPurge = new HashSet<String>();
+                        var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
+                        for (var entry : symbolIndex.entrySet()) {
+                            var symbol = entry.getKey();
+                            var cus = entry.getValue();
+                            var remaining = cus.stream().filter(fromFile.negate()).toList();
+                            if (remaining.isEmpty()) {
+                                symbolsToPurge.add(symbol);
+                            } else if (remaining.size() < cus.size()) {
+                                symbolsToUpdate.put(symbol, remaining);
+                            }
+                        }
+                        symbolsTouchedCount.addAndGet(symbolsToPurge.size() + symbolsToUpdate.size());
+                        symbolsToUpdate.forEach(symbolIndex::put);
+                        symbolsToPurge.forEach(symbolIndex::remove);
+
+                        childrenByParent.keySet().removeIf(fromFile);
+                        signatures.keySet().removeIf(fromFile);
+                        sourceRanges.keySet().removeIf(fromFile);
+
+                        // remove children entries pointing to CodeUnits from the changed file
+                        childrenByParent.replaceAll((parent, kids) -> {
+                            var filtered = kids.stream().filter(fromFile.negate()).toList();
+                            if (!filtered.equals(kids)) {
+                                parentsTouchedCount.incrementAndGet();
+                                return List.copyOf(filtered);
+                            }
+                            return kids;
+                        });
                     } finally {
-                        reanalyzeNanos += (System.nanoTime() - reanStart);
+                        cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
+                        writeLockHoldNanos.addAndGet(System.nanoTime() - lockStartNanos);
+                        writeLock.unlock();
                     }
-                } else {
-                    deletedCount++;
-                    log.debug("File {} deleted; state cleaned.", file);
-                }
+
+                    // -------- re-analyse (I/O + parse outside lock; ingestion under lock) ----------
+                    if (Files.exists(file.absPath())) {
+                        long reanStart = System.nanoTime();
+                        try {
+                            var parser = getTSParser();
+                            byte[] bytes = Files.readAllBytes(file.absPath());
+                            var analysisResult = analyzeFileContent(file, bytes, parser, null);
+
+                            var writeLock2 = stateRwLock.writeLock();
+                            writeLock2.lock();
+                            long lock2StartNanos = System.nanoTime();
+                            try {
+                                ingestAnalysisResult(file, analysisResult);
+                            } finally {
+                                writeLockHoldNanos.addAndGet(System.nanoTime() - lock2StartNanos);
+                                writeLock2.unlock();
+                            }
+                            reanalyzedCount.incrementAndGet();
+                        } catch (IOException e) {
+                            log.warn("IO error re-analysing {}: {}", file, e.getMessage());
+                        } catch (RuntimeException e) {
+                            log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
+                        } finally {
+                            reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
+                        }
+                    } else {
+                        deletedCount.incrementAndGet();
+                        log.debug("File {} deleted; state cleaned.", file);
+                    }
+                }, executor);
+
+                futures.add(future);
+            }
+
+            if (!futures.isEmpty()) {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }
         } finally {
-            writeLockHoldNanos += (System.nanoTime() - lockStartNanos);
-            writeLock.unlock();
+            fileEqualityCache.clear();
         }
 
         long totalMs = System.currentTimeMillis() - overallStartMs;
-        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
-        long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos);
+        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos.get());
+        long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos.get());
         log.debug(
                 "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms, filesCleaned={}, symbolsTouched={}, parentsTouched={}, writeLockHold={} ms",
                 language.name(),
                 total,
-                reanalyzedCount,
-                deletedCount,
+                reanalyzedCount.get(),
+                deletedCount.get(),
                 cleanupMs,
                 reanalyzeMs,
                 totalMs,
-                filesCleanedCount,
-                symbolsTouchedCount,
-                parentsTouchedCount[0],
-                TimeUnit.NANOSECONDS.toMillis(writeLockHoldNanos));
+                filesCleanedCount.get(),
+                symbolsTouchedCount.get(),
+                parentsTouchedCount.get(),
+                TimeUnit.NANOSECONDS.toMillis(writeLockHoldNanos.get()));
 
         return this;
     }
