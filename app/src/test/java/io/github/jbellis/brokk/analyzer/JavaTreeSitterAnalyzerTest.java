@@ -646,8 +646,7 @@ public class JavaTreeSitterAnalyzerTest {
 
         // Class lookup with generics on the type
         assertTrue(
-                analyzer.getClassSource("A<String>", false).isPresent(),
-                "Class lookup with generics should normalize");
+                analyzer.getClassSource("A<String>", false).isPresent(), "Class lookup with generics should normalize");
 
         // Method lookup with generics on the containing class
         assertTrue(
@@ -656,9 +655,7 @@ public class JavaTreeSitterAnalyzerTest {
 
         // Nested classes with generics on each segment
         assertTrue(
-                analyzer
-                        .getMethodSource(
-                                "A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
+                analyzer.getMethodSource("A.AInner<List<String>>.AInnerInner<Map<Integer, String>>.method7", false)
                         .isPresent(),
                 "Nested class method with generics should normalize");
     }
@@ -666,9 +663,7 @@ public class JavaTreeSitterAnalyzerTest {
     @Test
     public void testNormalizationHandlesAnonymousAndLocationSuffix() {
         // Based on log example: createPopupMenu$anon$328:16
-        assertEquals(
-                "package.Class.method",
-                analyzer.normalizeFullName("package.Class.method$anon$328:16"));
+        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$anon$328:16"));
 
         // Ensure anonymous + location suffix normalizes for real method lookups
         assertTrue(
@@ -694,8 +689,6 @@ public class JavaTreeSitterAnalyzerTest {
                 "Constructor lookup with generics on the type should normalize and resolve");
 
         // Also ensure plain constructor lookup works (control)
-        assertTrue(
-                analyzer.getMethodSource("B.B", true).isPresent(),
-                "Constructor lookup should resolve");
+        assertTrue(analyzer.getMethodSource("B.B", true).isPresent(), "Constructor lookup should resolve");
     }
 }
