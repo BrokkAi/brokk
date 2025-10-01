@@ -23,7 +23,7 @@ public class SourceCaptureUtil {
      */
     public static void captureSourceForCodeUnit(CodeUnit codeUnit, ContextManager contextManager) {
         contextManager.submitBackgroundTask(
-                "Capture Source Code", () -> contextManager.sourceCodeForCodeUnit(codeUnit));
+                "Capture Source Code", () -> contextManager.addSourceCode(codeUnit));
     }
 
     /**

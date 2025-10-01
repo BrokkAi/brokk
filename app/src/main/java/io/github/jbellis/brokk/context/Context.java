@@ -279,8 +279,18 @@ public class Context {
     }
 
     public Context removeAll() {
+        // No-op if nothing to remove and nothing to clear
+        if (isEmpty() && parsedOutput == null) {
+            return this;
+        }
+
         String action = ActivityTableRenderers.DROPPED_ALL_CONTEXT;
-        return new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture(action));
+        return new Context(
+                contextManager,
+                List.of(),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture(action));
     }
 
     public boolean isEmpty() {
@@ -300,6 +310,11 @@ public class Context {
     }
 
     public Context clearHistory() {
+        // No-op if history is already empty and there's no parsed output to clear
+        if (taskHistory.isEmpty() && parsedOutput == null) {
+            return this;
+        }
+
         return new Context(
                 newContextId(),
                 contextManager,
@@ -387,6 +402,11 @@ public class Context {
      * action.
      */
     public Context withCompressedHistory(List<TaskEntry> newHistory) {
+        // Avoid creating a new Context if nothing actually changed
+        if (taskHistory.equals(newHistory) && parsedOutput == null) {
+            return this;
+        }
+
         return new Context(
                 newContextId(),
                 contextManager,

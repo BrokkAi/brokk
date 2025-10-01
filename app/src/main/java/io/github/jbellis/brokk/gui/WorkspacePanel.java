@@ -1745,7 +1745,7 @@ public class WorkspacePanel extends JPanel {
                     var selectedMethod = dialog.getSelectedMethod();
                     var callGraph = dialog.getCallGraph();
                     if (selectedMethod != null && callGraph != null) {
-                        contextManager.calleesForMethod(selectedMethod, dialog.getDepth(), callGraph);
+                        contextManager.addCalleesForMethod(selectedMethod, dialog.getDepth(), callGraph);
                     } else {
                         chrome.systemOutput("Method selection incomplete or cancelled.");
                     }

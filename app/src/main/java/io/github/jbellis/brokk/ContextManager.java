@@ -714,9 +714,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Add the given files to editable. */
+    @SuppressWarnings("ReferenceEquality")
     public void addPathFragments(List<? extends PathFragment> fragments) {
-        pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
-        io.systemOutput("Edit " + contextDescription(fragments));
+        var before = liveContext();
+        var after = pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
+        if (before != after) {
+            io.systemOutput("Edit " + contextDescription(fragments));
+        }
     }
 
     /** Drop all context. */
@@ -725,12 +729,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Drop fragments by their IDs. */
+    @SuppressWarnings("ReferenceEquality")
     public void drop(Collection<? extends ContextFragment> fragments) {
         var ids = fragments.stream()
                 .map(ContextFragment::id)
                 .toList();
-        pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
-        io.systemOutput("Remove " + contextDescription(fragments));
+
+        var before = liveContext();
+        var after = pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
+        if (before != after) {
+            io.systemOutput("Remove " + contextDescription(fragments));
+        }
     }
 
     /** Clear conversation history. */
@@ -1101,13 +1110,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** usage for identifier with control over including test files */
+    @SuppressWarnings("ReferenceEquality")
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
         var fragment = new Fragments.UsageFragment(this, identifier, includeTestFiles);
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Added uses of " + identifier + (includeTestFiles ? " (including tests)" : ""));
+
+        var before = liveContext();
+        var after = pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        if (before != after) {
+            io.systemOutput("Added uses of " + identifier + (includeTestFiles ? " (including tests)" : ""));
+        }
     }
 
-    public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
+    @SuppressWarnings("ReferenceEquality")
+    public void addSourceCode(CodeUnit codeUnit) {
         String sourceCode = null;
         try {
             sourceCode = getAnalyzer()
@@ -1124,39 +1139,52 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     sourceCode,
                     "Source code for " + codeUnit.fqName(),
                     codeUnit.source().getSyntaxStyle());
-            pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-            io.systemOutput("Add source code for " + codeUnit.shortName());
+
+            var before = liveContext();
+            var after = pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+            if (before != after) {
+                io.systemOutput("Add source code for " + codeUnit.shortName());
+            }
         } else {
             // Notify user of failed source capture
             SwingUtilities.invokeLater(() -> {
                 io.systemNotify(
                         "Could not capture source code for: " + codeUnit.shortName()
-                                + "\n\nThis may be due to unsupported symbol type or missing source ranges.",
+                        + "\n\nThis may be due to unsupported symbol type or missing source ranges.",
                         "Capture Source Failed",
                         JOptionPane.WARNING_MESSAGE);
             });
         }
     }
 
+    @SuppressWarnings("ReferenceEquality")
     public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
             io.systemOutput("No callers found for " + methodName + " (pre-check).");
             return;
         }
         var fragment = new Fragments.CallGraphFragment(this, methodName, depth, false);
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Add call graph for callers of " + methodName + " with depth " + depth);
+
+        var before = liveContext();
+        var after = pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        if (before != after) {
+            io.systemOutput("Add call graph for callers of " + methodName + " with depth " + depth);
+        }
     }
 
-    /** callees for method */
-    public void calleesForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
+    @SuppressWarnings("ReferenceEquality")
+    public void addCalleesForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
             io.systemOutput("No callees found for " + methodName + " (pre-check).");
             return;
         }
         var fragment = new Fragments.CallGraphFragment(this, methodName, depth, true);
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Add call graph for methods called by " + methodName + " with depth " + depth);
+
+        var before = liveContext();
+        var after = pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        if (before != after) {
+            io.systemOutput("Add call graph for methods called by " + methodName + " with depth " + depth);
+        }
     }
 
     /** parse stacktrace */
