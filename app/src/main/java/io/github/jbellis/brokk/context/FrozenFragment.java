@@ -41,8 +41,6 @@ import org.jetbrains.annotations.Nullable;
  * DTO types during history persistence.
  */
 public final class FrozenFragment extends ContextFragment.VirtualFragment {
-    private static final Logger logger = LogManager.getLogger(FrozenFragment.class);
-
     private static final ConcurrentMap<String, FrozenFragment> INTERN_POOL = new ConcurrentHashMap<>();
 
     // Captured fragment state for behavior and unfreezing
@@ -274,147 +272,6 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     }
 
     /**
-     * Creates a frozen, potentially interned, representation of the given live Fragment.
-     *
-     * @param liveFragment The live fragment to freeze
-     * @param contextManagerForFrozenFragment The context manager for the frozen fragment
-     * @return A frozen representation of the fragment
-     * @throws IOException If reading fragment content fails
-     * @throws InterruptedException If interrupted while reading fragment content
-     */
-    public static ContextFragment freeze(ContextFragment liveFragment, IContextManager contextManagerForFrozenFragment)
-            throws IOException, InterruptedException {
-        if (liveFragment instanceof FrozenFragment ff) {
-            return ff; // Already frozen
-        }
-
-        // Only freeze dynamic fragments. Non-dynamic fragments are already content-addressable.
-        if (!liveFragment.isDynamic()) {
-            return liveFragment;
-        }
-
-        try {
-            var type = liveFragment.getType();
-            String fullDescription = liveFragment.description();
-            String shortDescription = liveFragment.shortDescription();
-            var isText = liveFragment.isText();
-            var syntaxStyle = liveFragment.syntaxStyle();
-            var files = liveFragment.files();
-            var originalClassName = liveFragment.getClass().getName();
-
-            String textContent = null;
-            byte[] imageBytesContent = null;
-
-            if (isText) {
-                textContent = liveFragment.text();
-            } else {
-                try {
-                    var image = liveFragment.image();
-                    imageBytesContent = FragmentUtils.imageToBytes(image);
-                } catch (UncheckedIOException e) {
-                    // If image can't be read, treat as empty image data
-                    logger.warn(
-                            "Failed to read image for fragment {}: {}",
-                            liveFragment.shortDescription(),
-                            e.getMessage());
-                    imageBytesContent = null;
-                }
-            }
-
-            var meta = new HashMap<String, String>();
-            switch (liveFragment) {
-                case Fragments.ProjectPathFragment pf -> {
-                    meta.put("repoRoot", pf.file().getRoot().toString());
-                    meta.put("relPath", pf.file().getRelPath().toString());
-                }
-                case Fragments.ExternalPathFragment ef ->
-                    meta.put("absPath", ef.file().absPath().toString());
-                case Fragments.ImageFileFragment iff -> {
-                    meta.put("absPath", iff.file().absPath().toString());
-                    if (iff.file() instanceof ProjectFile pf) {
-                        meta.put("isProjectFile", "true");
-                        meta.put("repoRoot", pf.getRoot().toString());
-                        meta.put("relPath", pf.getRelPath().toString());
-                    }
-                }
-                case Fragments.GitFileFragment gff -> {
-                    meta.put("repoRoot", gff.file().getRoot().toString());
-                    meta.put("relPath", gff.file().getRelPath().toString());
-                    meta.put("revision", gff.revision());
-                }
-                case Fragments.SkeletonFragment skelf -> {
-                    meta.put("targetIdentifiers", String.join(";", skelf.getTargetIdentifiers()));
-                    meta.put("summaryType", skelf.getSummaryType().name());
-                }
-                case Fragments.UsageFragment uf -> meta.put("targetIdentifier", uf.targetIdentifier());
-                case Fragments.CallGraphFragment cgf -> {
-                    meta.put("methodName", cgf.getMethodName());
-                    meta.put("depth", String.valueOf(cgf.getDepth()));
-                    meta.put("isCalleeGraph", String.valueOf(cgf.isCalleeGraph()));
-                }
-                case Fragments.CodeFragment cf -> {
-                    var unit = cf.getCodeUnit();
-                    meta.put("fqName", unit.fqName());
-                    var source = unit.source();
-                    meta.put("repoRoot", source.getRoot().toString());
-                    meta.put("relPath", source.getRelPath().toString());
-                    meta.put("kind", unit.kind().name());
-                    meta.put("packageName", unit.packageName());
-                    meta.put("shortName", unit.shortName());
-                }
-                default -> {
-                    /* No type-specific meta beyond what's standard for hashing */
-                }
-            }
-
-            String contentHash = FragmentUtils.calculateContentHash(
-                    type,
-                    fullDescription,
-                    shortDescription,
-                    Objects.toString(textContent, ""),
-                    requireNonNullElse(imageBytesContent, new byte[0]),
-                    isText,
-                    syntaxStyle,
-                    files,
-                    originalClassName,
-                    meta);
-
-            // Snapshot additional top-level methods
-            String repr = liveFragment.repr();
-
-            final String finalFullDescription = fullDescription;
-            final String finalShortDescription = shortDescription;
-            final String finalTextContent = textContent;
-            final byte[] finalImageBytesContent = imageBytesContent;
-            final Map<String, String> finalMeta = meta;
-            final String finalRepr = repr;
-
-            return INTERN_POOL.computeIfAbsent(
-                    contentHash,
-                    k -> new FrozenFragment(
-                            k, // k is contentHash, used as ID
-                            contextManagerForFrozenFragment,
-                            type,
-                            finalFullDescription,
-                            finalShortDescription,
-                            finalTextContent,
-                            finalImageBytesContent,
-                            isText,
-                            syntaxStyle,
-                            files,
-                            originalClassName,
-                            finalMeta,
-                            finalRepr));
-        } catch (UncheckedIOException e) {
-            throw new IOException(e.getCause() != null ? e.getCause() : e);
-        } catch (CancellationException e) {
-            var interrupted = new InterruptedException(e.getMessage());
-            interrupted.initCause(e);
-            throw interrupted;
-        }
-    }
-
-    /**
      * Recreates a live fragment from this frozen representation.
      *
      * @param cm The context manager for the new live fragment
@@ -423,7 +280,13 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      */
     @Override
     public ContextFragment unfreeze(IContextManager cm) throws IOException {
-        return switch (originalClassName) {
+        // Accept both legacy ContextFragment$Foo and current Fragments$Foo class names
+        final var classKey = originalClassName.replace(
+                "io.github.jbellis.brokk.context.ContextFragment$",
+                "io.github.jbellis.brokk.context.Fragments$"
+        );
+
+        return switch (classKey) {
             case "io.github.jbellis.brokk.context.Fragments$ProjectPathFragment" -> {
                 var repoRoot = meta.get("repoRoot");
                 var relPath = meta.get("relPath");
@@ -496,10 +359,10 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 var shortName = meta.get("shortName");
                 CodeUnit unit;
                 if (repoRoot != null
-                        && relPath != null
-                        && kindStr != null
-                        && packageName != null
-                        && shortName != null) {
+                    && relPath != null
+                    && kindStr != null
+                    && packageName != null
+                    && shortName != null) {
                     var pf = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
                     var kind = CodeUnitType.valueOf(kindStr);
                     unit = new CodeUnit(pf, kind, packageName, shortName);
@@ -511,7 +374,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     var analyzer = cm.getAnalyzerUninterrupted();
                     unit = analyzer.getDefinition(fqName)
                             .orElseThrow(() ->
-                                    new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
+                                                 new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
                 }
                 yield new Fragments.CodeFragment(cm, unit);
             }
@@ -523,7 +386,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             }
             default -> {
                 throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName
-                        + ". Implement unfreezing logic if this type needs to become live.");
+                                                   + ". Implement unfreezing logic if this type needs to become live.");
             }
         };
     }

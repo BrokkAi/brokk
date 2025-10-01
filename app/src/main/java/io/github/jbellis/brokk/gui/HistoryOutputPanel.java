@@ -637,7 +637,6 @@ public class HistoryOutputPanel extends JPanel {
         logger.debug(
                 "Updating context history table with context {}",
                 contextToSelect != null ? contextToSelect.getAction() : "null");
-        assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
             // Recompute previous-context map for diffing AI result contexts

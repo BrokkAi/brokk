@@ -458,10 +458,6 @@ public class Context {
         return allFragments().toList().equals(other.allFragments().toList());
     }
 
-    public boolean containsDynamicFragments() {
-        return allFragments().anyMatch(ContextFragment::isDynamic);
-    }
-
     /**
      * Create a new Context reflecting external file changes.
      * - Unchanged fragments are reused.
