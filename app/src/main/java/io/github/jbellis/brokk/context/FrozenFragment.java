@@ -271,36 +271,6 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                         repr));
     }
 
-    // Backwards-compatible overload used by migration code (V2_DtoMapper) and older DTOs.
-    public static FrozenFragment fromDto(
-            String idFromDto,
-            IContextManager contextManager, // id is String
-            ContextFragment.FragmentType originalType,
-            @Nullable String description,
-            @Nullable String shortDescription,
-            @Nullable String textContent,
-            @Nullable byte[] imageBytesContent,
-            boolean isTextFragment,
-            @Nullable String syntaxStyle,
-            Set<ProjectFile> files,
-            String originalClassName,
-            Map<String, String> meta) {
-        return fromDto(
-                idFromDto,
-                contextManager,
-                originalType,
-                description,
-                shortDescription,
-                textContent,
-                imageBytesContent,
-                isTextFragment,
-                syntaxStyle,
-                files,
-                originalClassName,
-                meta,
-                null);
-    }
-
     /**
      * Creates a frozen, potentially interned, representation of the given live Fragment.
      *
