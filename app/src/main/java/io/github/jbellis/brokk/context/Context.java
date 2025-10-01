@@ -91,15 +91,6 @@ public class Context {
         this.parsedOutput = parsedOutput;
     }
 
-    public Context(
-            IContextManager contextManager,
-            List<ContextFragment> fragments,
-            List<TaskEntry> taskHistory,
-            @Nullable Fragments.TaskFragment parsedOutput,
-            Future<String> action) {
-        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
-    }
-
     /** Per-fragment diff entry between two contexts. */
     public record DiffEntry(
             ContextFragment fragment, String diff, int linesAdded, int linesDeleted, String oldContent) {}
@@ -285,12 +276,7 @@ public class Context {
         }
 
         String action = ActivityTableRenderers.DROPPED_ALL_CONTEXT;
-        return new Context(
-                contextManager,
-                List.of(),
-                List.of(),
-                null,
-                CompletableFuture.completedFuture(action));
+        return new Context(newContextId(), contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture(action));
     }
 
     public boolean isEmpty() {
@@ -401,7 +387,7 @@ public class Context {
      * Creates a new Context with a modified task history list. This generates a new context state with a new ID and
      * action.
      */
-    public Context withCompressedHistory(List<TaskEntry> newHistory) {
+    public Context withHistory(List<TaskEntry> newHistory) {
         // Avoid creating a new Context if nothing actually changed
         if (taskHistory.equals(newHistory) && parsedOutput == null) {
             return this;

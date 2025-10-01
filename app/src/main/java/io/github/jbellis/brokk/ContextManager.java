@@ -769,7 +769,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Push an updated context with the modified history and a "Delete message" action
         pushContext(currentLiveCtx ->
-                currentLiveCtx.withCompressedHistory(newHistory).withParsedOutput(null, "Delete task from history"));
+                currentLiveCtx.withHistory(newHistory).withParsedOutput(null, "Delete task from history"));
 
         io.systemOutput("Remove history entry " + sequence);
     }
@@ -921,43 +921,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         .map(ContextFragment::id)
                         .collect(Collectors.toSet());
 
-                for (ContextFragment fragmentFromKeeperList : fragmentsToKeep) {
-                    ContextFragment unfrozen = fragmentFromKeeperList;
+                for (ContextFragment f : fragmentsToKeep) {
 
-                    if (sourceEditableIds.contains(fragmentFromKeeperList.id())
-                            && unfrozen instanceof Fragments.ProjectPathFragment ppf) {
+                    if (sourceEditableIds.contains(f.id())
+                            && f instanceof Fragments.ProjectPathFragment ppf) {
                         pathsToAdd.add(ppf);
-                    } else if (sourceVirtualIds.contains(fragmentFromKeeperList.id())
-                            && unfrozen instanceof VirtualFragment vf) {
+                    } else if (sourceVirtualIds.contains(f.id())
+                            && f instanceof VirtualFragment vf) {
                         if (!(vf instanceof Fragments.HistoryFragment)) {
                             virtualFragmentsToAdd.add(vf);
                         }
-                    } else if (unfrozen instanceof Fragments.HistoryFragment) {
+                    } else if (f instanceof Fragments.HistoryFragment) {
                         // Handled by selectedHistoryFragmentOpt
                     } else {
                         logger.warn(
                                 "Fragment '{}' (ID: {}) from fragmentsToKeep could not be categorized. Original type: {}, Unfrozen type: {}",
-                                fragmentFromKeeperList.description(),
-                                fragmentFromKeeperList.id(),
-                                fragmentFromKeeperList.getClass().getSimpleName(),
-                                unfrozen.getClass().getSimpleName());
+                                f.description(),
+                                f.id(),
+                                f.getClass().getSimpleName(),
+                                f.getClass().getSimpleName());
                     }
                 }
 
                 pushContext(currentLiveCtx -> {
                     Context modifiedCtx = currentLiveCtx;
-                    if (!pathsToAdd.isEmpty()) {
-                        modifiedCtx = modifiedCtx.addPathFragments(pathsToAdd);
-                    }
+                    modifiedCtx = modifiedCtx.addPathFragments(pathsToAdd);
                     for (VirtualFragment vfToAdd : virtualFragmentsToAdd) {
                         modifiedCtx = modifiedCtx.addVirtualFragment(vfToAdd);
                     }
-                    return new Context(
-                            this,
-                            modifiedCtx.allFragments().toList(),
-                            newHistory,
-                            null,
-                            CompletableFuture.completedFuture(actionMessage));
+                    modifiedCtx = modifiedCtx.withHistory(newHistory);
+                    return modifiedCtx;
                 });
 
                 io.systemOutput(actionMessage);
@@ -2455,7 +2448,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // pushContext will update liveContext with the compressed history
             // and add a frozen version to contextHistory.
-            pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
+            pushContext(currentLiveCtx -> currentLiveCtx.withHistory(List.copyOf(compressedTaskEntries)));
             io.systemOutput("Task history compressed successfully.");
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
