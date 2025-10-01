@@ -209,6 +209,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                                 JOptionPane.WARNING_MESSAGE);
                         return;
                     }
+
+                    // Check for conflicts
+                    String conflictingAction = findConflictingKeybinding(captured, id);
+                    if (conflictingAction != null) {
+                        int result = JOptionPane.showConfirmDialog(
+                                panel,
+                                String.format(
+                                        "This shortcut is already used by '%s'. Do you want to reassign it?",
+                                        conflictingAction),
+                                "Shortcut Conflict",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.WARNING_MESSAGE);
+                        if (result != JOptionPane.YES_OPTION) {
+                            return;
+                        }
+                    }
+
                     io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, captured);
                     field.setText(formatKeyStroke(captured));
                     // Immediately refresh global keybindings so changes take effect
@@ -249,8 +266,56 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("panel.switchToPullRequests", "Switch to Pull Requests");
         adder.add("panel.switchToIssues", "Switch to Issues");
 
+        // Drawer navigation
+        adder.add("drawer.toggleTerminal", "Toggle Terminal Drawer");
+        adder.add("drawer.toggleDependencies", "Toggle Dependencies Drawer");
+        adder.add("drawer.switchToTerminal", "Switch to Terminal Tab");
+        adder.add("drawer.switchToTasks", "Switch to Tasks Tab");
+
+        // View controls
+        adder.add("view.zoomIn", "Zoom In");
+        adder.add("view.zoomInAlt", "Zoom In (Alt)");
+        adder.add("view.zoomOut", "Zoom Out");
+        adder.add("view.resetZoom", "Reset Zoom");
+
         // General navigation
+        adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
+
+        // Add global reset button
+        var resetAllBtn = new JButton("Reset All to Defaults");
+        resetAllBtn.setToolTipText("Reset all keybindings to their default values");
+        var gbcReset = new GridBagConstraints();
+        gbcReset.gridx = 0;
+        gbcReset.gridy = row.getAndIncrement();
+        gbcReset.gridwidth = 4;
+        gbcReset.insets = new Insets(20, 6, 6, 6);
+        gbcReset.anchor = GridBagConstraints.CENTER;
+        gbcReset.fill = GridBagConstraints.NONE;
+        panel.add(resetAllBtn, gbcReset);
+
+        resetAllBtn.addActionListener(ev -> {
+            int result = JOptionPane.showConfirmDialog(
+                    panel,
+                    "This will reset ALL keybindings to their default values. Are you sure?",
+                    "Reset All Keybindings",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                resetAllKeybindingsToDefaults();
+                // Refresh the keybindings
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        chrome.refreshKeybindings();
+                        JOptionPane.showMessageDialog(
+                                panel,
+                                "All keybindings have been reset to defaults. Please close and reopen this settings dialog to see the updated values.");
+                    } catch (Exception ex) {
+                        logger.debug("Failed to refresh keybindings after reset", ex);
+                    }
+                });
+            }
+        });
 
         var gbcSpacer = new GridBagConstraints();
         gbcSpacer.gridx = 0;
@@ -318,6 +383,113 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (ref[0] != null) kfm.removeKeyEventDispatcher(ref[0]);
         }
         return result[0] == null ? javax.swing.KeyStroke.getKeyStroke(0, 0) : result[0];
+    }
+
+    /** Checks if a KeyStroke conflicts with any existing keybinding. */
+    private static @Nullable String findConflictingKeybinding(javax.swing.KeyStroke newKeyStroke, String excludeId) {
+        if (newKeyStroke.getKeyCode() == 0) return null;
+
+        // List of all keybinding IDs to check
+        String[] allKeybindingIds = {
+            "instructions.submit",
+            "instructions.toggleMode",
+            "global.undo",
+            "global.redo",
+            "global.copy",
+            "global.paste",
+            "global.toggleMicrophone",
+            "global.openSettings",
+            "global.closeWindow",
+            "panel.switchToProjectFiles",
+            "panel.switchToChanges",
+            "panel.switchToWorktrees",
+            "panel.switchToLog",
+            "panel.switchToPullRequests",
+            "panel.switchToIssues",
+            "drawer.toggleTerminal",
+            "drawer.toggleDependencies",
+            "drawer.switchToTerminal",
+            "drawer.switchToTasks",
+            "view.zoomIn",
+            "view.zoomInAlt",
+            "view.zoomOut",
+            "view.resetZoom"
+        };
+
+        for (String id : allKeybindingIds) {
+            if (id.equals(excludeId)) continue; // Skip the one we're setting
+
+            javax.swing.KeyStroke existing =
+                    io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(id, defaultFor(id));
+            if (existing.equals(newKeyStroke)) {
+                return getKeybindingDisplayName(id);
+            }
+        }
+        return null;
+    }
+
+    /** Gets a human-readable display name for a keybinding ID. */
+    private static String getKeybindingDisplayName(String id) {
+        return switch (id) {
+            case "instructions.submit" -> "Submit (Ctrl/Cmd+Enter)";
+            case "instructions.toggleMode" -> "Toggle Code/Ask";
+            case "global.undo" -> "Undo";
+            case "global.redo" -> "Redo";
+            case "global.copy" -> "Copy";
+            case "global.paste" -> "Paste";
+            case "global.toggleMicrophone" -> "Toggle Microphone";
+            case "global.openSettings" -> "Open Settings";
+            case "global.closeWindow" -> "Close Window";
+            case "panel.switchToProjectFiles" -> "Switch to Project Files";
+            case "panel.switchToChanges" -> "Switch to Changes";
+            case "panel.switchToWorktrees" -> "Switch to Worktrees";
+            case "panel.switchToLog" -> "Switch to Log";
+            case "panel.switchToPullRequests" -> "Switch to Pull Requests";
+            case "panel.switchToIssues" -> "Switch to Issues";
+            case "drawer.toggleTerminal" -> "Toggle Terminal Drawer";
+            case "drawer.toggleDependencies" -> "Toggle Dependencies Drawer";
+            case "drawer.switchToTerminal" -> "Switch to Terminal Tab";
+            case "drawer.switchToTasks" -> "Switch to Tasks Tab";
+            case "view.zoomIn" -> "Zoom In";
+            case "view.zoomInAlt" -> "Zoom In (Alt)";
+            case "view.zoomOut" -> "Zoom Out";
+            case "view.resetZoom" -> "Reset Zoom";
+            default -> id;
+        };
+    }
+
+    /** Resets all keybindings to their default values. */
+    private static void resetAllKeybindingsToDefaults() {
+        String[] allKeybindingIds = {
+            "instructions.submit",
+            "instructions.toggleMode",
+            "global.undo",
+            "global.redo",
+            "global.copy",
+            "global.paste",
+            "global.toggleMicrophone",
+            "global.openSettings",
+            "global.closeWindow",
+            "panel.switchToProjectFiles",
+            "panel.switchToChanges",
+            "panel.switchToWorktrees",
+            "panel.switchToLog",
+            "panel.switchToPullRequests",
+            "panel.switchToIssues",
+            "drawer.toggleTerminal",
+            "drawer.toggleDependencies",
+            "drawer.switchToTerminal",
+            "drawer.switchToTasks",
+            "view.zoomIn",
+            "view.zoomInAlt",
+            "view.zoomOut",
+            "view.resetZoom"
+        };
+
+        for (String id : allKeybindingIds) {
+            javax.swing.KeyStroke defaultValue = defaultFor(id);
+            io.github.jbellis.brokk.util.GlobalUiSettings.saveKeybinding(id, defaultValue);
+        }
     }
 
     public JTabbedPane getGlobalSubTabbedPane() {
@@ -2594,6 +2766,63 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 java.awt.event.KeyEvent.VK_W);
     }
 
+    private static javax.swing.KeyStroke defaultOpenSettings() {
+        return io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(
+                java.awt.event.KeyEvent.VK_COMMA);
+    }
+
+    // Drawer navigation defaults
+    private static javax.swing.KeyStroke defaultToggleTerminalDrawer() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_T,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
+                        | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+    }
+
+    private static javax.swing.KeyStroke defaultToggleDependenciesDrawer() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_D,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
+                        | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToTerminalTab() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_T,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    }
+
+    private static javax.swing.KeyStroke defaultSwitchToTasksTab() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_K,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    }
+
+    // View control defaults
+    private static javax.swing.KeyStroke defaultZoomIn() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_PLUS,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    }
+
+    private static javax.swing.KeyStroke defaultZoomInAlt() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_EQUALS,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    }
+
+    private static javax.swing.KeyStroke defaultZoomOut() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_MINUS,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    }
+
+    private static javax.swing.KeyStroke defaultResetZoom() {
+        return javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_0,
+                java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+    }
+
     @SuppressWarnings("UnusedMethod")
     private static javax.swing.KeyStroke defaultFor(String id) {
         return switch (id) {
@@ -2621,7 +2850,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "panel.switchToPullRequests" -> defaultSwitchToPullRequests();
             case "panel.switchToIssues" -> defaultSwitchToIssues();
 
+            // Drawer navigation
+            case "drawer.toggleTerminal" -> defaultToggleTerminalDrawer();
+            case "drawer.toggleDependencies" -> defaultToggleDependenciesDrawer();
+            case "drawer.switchToTerminal" -> defaultSwitchToTerminalTab();
+            case "drawer.switchToTasks" -> defaultSwitchToTasksTab();
+
+            // View controls
+            case "view.zoomIn" -> defaultZoomIn();
+            case "view.zoomInAlt" -> defaultZoomInAlt();
+            case "view.zoomOut" -> defaultZoomOut();
+            case "view.resetZoom" -> defaultResetZoom();
+
             // General navigation
+            case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
 
             default ->

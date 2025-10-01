@@ -1065,6 +1065,61 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
+        // Drawer navigation shortcuts
+        // Cmd/Ctrl+Shift+T => toggle terminal drawer
+        KeyStroke toggleTerminalDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.toggleTerminal",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_T,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        bindKey(rootPane, toggleTerminalDrawerKeyStroke, "toggleTerminalDrawer");
+        rootPane.getActionMap().put("toggleTerminalDrawer", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                terminalDrawer.openTerminal();
+            }
+        });
+
+        // Cmd/Ctrl+Shift+D => toggle dependencies drawer
+        KeyStroke toggleDependenciesDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.toggleDependencies",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_D,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        bindKey(rootPane, toggleDependenciesDrawerKeyStroke, "toggleDependenciesDrawer");
+        rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                dependenciesDrawerPanel.openPanel();
+            }
+        });
+
+        // Cmd/Ctrl+T => switch to terminal tab
+        KeyStroke switchToTerminalTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.switchToTerminal",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        bindKey(rootPane, switchToTerminalTabKeyStroke, "switchToTerminalTab");
+        rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                terminalDrawer.openTerminal();
+            }
+        });
+
+        // Cmd/Ctrl+K => switch to tasks tab
+        KeyStroke switchToTasksTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.switchToTasks",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        bindKey(rootPane, switchToTasksTabKeyStroke, "switchToTasksTab");
+        rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                terminalDrawer.openTaskList();
+            }
+        });
+
         // Zoom shortcuts: read from global settings (defaults preserved)
         KeyStroke zoomInKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "view.zoomIn",
@@ -1091,6 +1146,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("zoomIn", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Use MOP webview zoom for global zoom functionality
                 historyOutputPanel.getLlmStreamArea().zoomIn();
             }
         });
@@ -1098,6 +1154,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("zoomOut", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Use MOP webview zoom for global zoom functionality
                 historyOutputPanel.getLlmStreamArea().zoomOut();
             }
         });
@@ -1105,6 +1162,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("resetZoom", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Use MOP webview zoom for global zoom functionality
                 historyOutputPanel.getLlmStreamArea().resetZoom();
             }
         });
