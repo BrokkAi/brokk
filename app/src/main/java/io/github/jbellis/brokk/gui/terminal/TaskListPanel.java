@@ -18,7 +18,6 @@ import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
-import io.github.jbellis.brokk.util.Json;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -33,10 +32,6 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -46,6 +41,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -800,43 +796,50 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return chrome.getContextManager().getCurrentSessionId();
     }
 
-    private Path getTasksFilePath(UUID sessionId) {
-        Path root = chrome.getContextManager().getRoot();
-        return root.resolve(".brokk")
-                .resolve("sessions")
-                .resolve(sessionId.toString())
-                .resolve("tasklist.json");
-    }
 
     private void loadTasksForCurrentSession() {
         var sid = getCurrentSessionId();
         this.sessionIdAtLoad = sid;
-        Path file = getTasksFilePath(sid);
         isLoadingTasks = true;
-        try {
-            if (!Files.exists(file)) {
-                model.clear();
-            } else {
-                String json = Files.readString(file, StandardCharsets.UTF_8);
-                if (!json.isBlank()) {
-                    TaskListData data = Json.fromJson(json, TaskListData.class);
-                    model.clear();
-                    for (TaskEntryDto dto : data.tasks) {
-                        if (!dto.text.isBlank()) {
-                            model.addElement(new TaskItem(dto.text, dto.done));
+
+        var sessionManager = chrome.getContextManager().getProject().getSessionManager();
+        Executor edt = SwingUtilities::invokeLater;
+
+        sessionManager.readTaskList(sid)
+                .thenAcceptAsync(data -> {
+                    try {
+                        // Ignore stale results if the session has changed since this request started
+                        if (!sid.equals(this.sessionIdAtLoad)) {
+                            return;
                         }
+                        model.clear();
+                        for (io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto dto : data.tasks()) {
+                            if (!dto.text().isBlank()) {
+                                model.addElement(new TaskItem(dto.text(), dto.done()));
+                            }
+                        }
+                        clearExpansionOnStructureChange();
+                        updateButtonStates();
+                    } finally {
+                        isLoadingTasks = false;
                     }
-                } else {
-                    model.clear();
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Failed loading tasks for session {} from {}", sid, file, e);
-        } finally {
-            isLoadingTasks = false;
-            clearExpansionOnStructureChange();
-            updateButtonStates();
-        }
+                }, edt)
+                .exceptionally(ex -> {
+                    logger.debug("Failed loading tasks for session {}", sid, ex);
+                    edt.execute(() -> {
+                        try {
+                            if (!sid.equals(this.sessionIdAtLoad)) {
+                                return;
+                            }
+                            model.clear();
+                            clearExpansionOnStructureChange();
+                            updateButtonStates();
+                        } finally {
+                            isLoadingTasks = false;
+                        }
+                    });
+                    return null;
+                });
     }
 
     private void saveTasksForCurrentSession() {
@@ -846,19 +849,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             sid = getCurrentSessionId();
             this.sessionIdAtLoad = sid;
         }
-        Path file = getTasksFilePath(sid);
-        try {
-            Files.createDirectories(file.getParent());
-            TaskListData data = new TaskListData();
-            for (int i = 0; i < model.size(); i++) {
-                TaskItem it = model.get(i);
-                data.tasks.add(new TaskEntryDto(it.text(), it.done()));
+
+        var sessionManager = chrome.getContextManager().getProject().getSessionManager();
+
+        var dtos = new java.util.ArrayList<io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto>(model.size());
+        for (int i = 0; i < model.size(); i++) {
+            TaskItem it = model.get(i);
+            if (it != null && !it.text().isBlank()) {
+                dtos.add(new io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto(it.text(), it.done()));
             }
-            String json = Json.toJson(data);
-            Files.writeString(file, json, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            logger.debug("Failed saving tasks for session {} to {}", sid, file, e);
         }
+        var data = new io.github.jbellis.brokk.sessions.TaskListStore.TaskListData(java.util.List.copyOf(dtos));
+
+        final UUID sidFinal = sid;
+        sessionManager.writeTaskList(sidFinal, data).exceptionally(ex -> {
+            logger.debug("Failed saving tasks for session {}", sidFinal, ex);
+            return null;
+        });
     }
 
     /** Append a collection of tasks to the end of the current list and persist them for the active session. */
@@ -1726,19 +1733,4 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    private static final class TaskListData {
-        public List<TaskEntryDto> tasks = new ArrayList<>();
-
-        public TaskListData() {}
-    }
-
-    private static final class TaskEntryDto {
-        public String text = "";
-        public boolean done;
-
-        public TaskEntryDto(String text, boolean done) {
-            this.text = text;
-            this.done = done;
-        }
-    }
 }
