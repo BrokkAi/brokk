@@ -1,10 +1,18 @@
 package io.github.jbellis.brokk.util;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
+
+import javax.swing.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -12,11 +20,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
-import javax.swing.SwingUtilities;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * One-shot, self-materializing computed value.
@@ -78,7 +81,7 @@ public final class ComputedValue<T> {
             } catch (Throwable ex) {
                 f.completeExceptionally(ex);
                 notifyComplete(null, ex);
-                logger.debug("ComputedValue supplier for {} failed: {}", this.name, ex.toString());
+                logger.debug("ComputedValue supplier for {} failed", this.name, ex);
             }
         };
         if (executor == null) {
@@ -145,7 +148,7 @@ public final class ComputedValue<T> {
             return Optional.empty();
         }
         try {
-            T v = futureRef.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
+            var v = futureRef.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
             return Optional.ofNullable(v);
         } catch (TimeoutException e) {
             return Optional.empty();
@@ -162,39 +165,18 @@ public final class ComputedValue<T> {
      * Returns a Subscription that can be disposed to remove the handler before completion.
      */
     public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {
-        var f = futureRef;
-        if (f.isDone()) {
-            T v = null;
-            Throwable ex = null;
-            try {
-                v = f.join();
-            } catch (Throwable t) {
-                ex = t.getCause() != null ? t.getCause() : t;
-            }
-            try {
-                handler.accept(v, ex);
-            } catch (Throwable t) {
-                logger.debug("onComplete handler for {} raised: {}", name, t.toString());
-            }
-            return () -> { /* no-op */ };
-        }
-
         synchronized (this) {
             // double-check after acquiring the lock
-            f = futureRef;
-            if (f.isDone()) {
+            /* no-op */
+            if (futureRef.isDone()) {
                 T v = null;
                 Throwable ex = null;
                 try {
-                    v = f.join();
-                } catch (Throwable t) {
+                    v = futureRef.join();
+                } catch (CancellationException | CompletionException t) {
                     ex = t.getCause() != null ? t.getCause() : t;
                 }
-                try {
-                    handler.accept(v, ex);
-                } catch (Throwable t) {
-                    logger.debug("onComplete handler for {} raised: {}", name, t.toString());
-                }
+                handler.accept(v, ex);
                 return () -> { /* no-op */ };
             }
 
@@ -224,11 +206,7 @@ public final class ComputedValue<T> {
         }
         if (toNotify != null) {
             for (var h : toNotify) {
-                try {
-                    h.accept(value, ex);
-                } catch (Throwable t) {
-                    logger.debug("onComplete handler for {} raised: {}", name, t.toString());
-                }
+                h.accept(value, ex);
             }
         }
     }
