@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.context;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
@@ -256,7 +256,7 @@ public class ContextHistory {
         }
     }
 
-    public synchronized UndoResult undo(int steps, IConsoleIO io, AbstractProject project) {
+    public synchronized UndoResult undo(int steps, IConsoleIO io, IProject project) {
         if (steps <= 0 || !hasUndoStates()) {
             return UndoResult.none();
         }
@@ -275,7 +275,7 @@ public class ContextHistory {
         return UndoResult.success(toUndo);
     }
 
-    private void undoFileDeletions(IConsoleIO io, AbstractProject project, Context popped) {
+    private void undoFileDeletions(IConsoleIO io, IProject project, Context popped) {
         getEntryInfo(popped.id()).ifPresent(info -> {
             if (info.deletedFiles().isEmpty()) {
                 return;
@@ -315,7 +315,7 @@ public class ContextHistory {
         });
     }
 
-    public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io, AbstractProject project) {
+    public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io, IProject project) {
         if (target == null) {
             return UndoResult.none();
         }
@@ -331,7 +331,7 @@ public class ContextHistory {
      * @param io the console IO for feedback
      * @return {@code true} if something was redone.
      */
-    public synchronized boolean redo(IConsoleIO io, AbstractProject project) {
+    public synchronized boolean redo(IConsoleIO io, IProject project) {
         if (redo.isEmpty()) return false;
         var popped = redo.removeLast();
         history.addLast(popped);
@@ -343,7 +343,7 @@ public class ContextHistory {
         return true;
     }
 
-    private void redoFileDeletions(IConsoleIO io, AbstractProject project, Context popped) {
+    private void redoFileDeletions(IConsoleIO io, IProject project, Context popped) {
         getEntryInfo(popped.id()).ifPresent(info -> {
             var filesToDelete =
                     info.deletedFiles().stream().map(DeletedFile::file).toList();
