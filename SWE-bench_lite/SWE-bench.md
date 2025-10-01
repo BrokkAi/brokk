@@ -329,6 +329,32 @@ python3 SWE-bench_lite/repo_setup.py --split test --max_repos 5 --repos_dir swe_
 - Network connectivity issues for AI model calls
 - Model rate limiting
 
+#### 2a. "Brokk CLI appears to hang with no logs"
+
+**What we added**:
+- The evaluator now streams Brokk's stdout/stderr live and kills Brokk after inactivity.
+- Java CLI prints explicit phase markers: "[BROKK] PHASE: ..." for Deep Scan and Action.
+
+**Controls/Knobs**:
+- `BROKK_INACTIVITY_TIMEOUT` (seconds). Default 180. Increase for large repos.
+  ```bash
+  export BROKK_INACTIVITY_TIMEOUT=480
+  python3 SWE-bench_lite/evaluate_brokk.py --instance_id sympy__sympy-22005 --repos_dir swe_bench_repos
+  ```
+
+**What to look for**:
+- Last printed phase marker tells where it stalled: Deep Scan vs Action.
+- Live stderr often shows model/network errors otherwise swallowed.
+
+**If killed by inactivity watchdog**:
+- Re-run with a higher timeout for heavy repos.
+- Verify model/API keys and network connectivity.
+- Try running Brokk directly in the repo:
+  ```bash
+  cd swe_bench_repos/<repo>
+  ../../cli --project . --deepscan --code "<problem>"
+  ```
+
 **Debug Steps**:
 ```bash
 # Check if Brokk CLI works on a simple case

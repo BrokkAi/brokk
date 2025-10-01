@@ -15,15 +15,18 @@ if ! ls "$LIB_DIR"/app-*.jar &>/dev/null; then
   exit 1
 fi
 
-# Use the most recently modified brokk-*.jar (shadow jar) as the executable
-SHADOW_JAR="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
-
-# If no shadow jar exists, fall back to building one
-if [[ ! -f "$SHADOW_JAR" ]]; then
-  echo "No shadow JAR found. Building one..."
+# Pick the most recent app-*.jar (shadow jar)
+if compgen -G "$LIB_DIR/app-*.jar" > /dev/null; then
+  # shellcheck disable=SC2207
+  JARS=( $(ls -t "$LIB_DIR"/app-*.jar 2>/dev/null) )
+  SHADOW_JAR="${JARS[0]}"
+else
+  echo "No app-*.jar found. Building one..." >&2
   cd "$SCRIPT_DIR"
-  ./gradlew shadowJar
-  SHADOW_JAR="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
+  ./gradlew -q shadowJar
+  # shellcheck disable=SC2207
+  JARS=( $(ls -t "$LIB_DIR"/app-*.jar 2>/dev/null) )
+  SHADOW_JAR="${JARS[0]}"
 fi
 
 # Launch BrokkCli.
@@ -57,6 +60,14 @@ fi
 EFFECTIVE_JVM_ARGS+=(${JVM_ARGS[@]+"${JVM_ARGS[@]}"})
 
 # Launch BrokkCli using the shadow JAR but override the main class
+if [[ "${BROKK_CLI_DEBUG:-}" == "1" ]]; then
+  echo "[CLI] Using shadow jar: $SHADOW_JAR" >&2
+  echo "[CLI] CWD: $(pwd)" >&2
+  echo "[CLI] Java: $(java -version 2>&1 | head -n1)" >&2
+  echo "[CLI] JVM ARGS: ${EFFECTIVE_JVM_ARGS[*]}" >&2
+  echo "[CLI] APP ARGS: ${APP_ARGS[*]-}" >&2
+fi
+
 exec java \
      "${EFFECTIVE_JVM_ARGS[@]}" \
      -cp "$SHADOW_JAR" \

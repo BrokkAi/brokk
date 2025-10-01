@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -41,7 +42,7 @@ import picocli.CommandLine;
 
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fiels are initialized in picocli's call()
 @CommandLine.Command(
-        name = "brokk-cli",
+        name = "cli",
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BrokkCli implements Callable<Integer> {
@@ -146,12 +147,63 @@ public final class BrokkCli implements Callable<Integer> {
         System.err.println("Starting Brokk CLI...");
         System.setProperty("java.awt.headless", "true");
 
+        if (System.getenv("BROKK_PICO_TRACE") != null) {
+            System.setProperty("picocli.trace", "DEBUG");
+        }
+
+        Thread preWatchdog = new Thread(() -> {
+            try {
+                long waitMs = 60000; // 60s
+                Thread.sleep(waitMs);
+                System.err.println("[BROKK] MAIN WATCHDOG: call() not started after " + (waitMs/1000) + "s. Thread dump:");
+                for (var e : Thread.getAllStackTraces().entrySet()) {
+                    Thread t = e.getKey();
+                    System.err.println("\n== Thread '" + t.getName() + "' (state: " + t.getState() + ") ==");
+                    for (StackTraceElement ste : e.getValue()) {
+                        System.err.println("  at " + ste.toString());
+                    }
+                }
+            } catch (InterruptedException ignored) {
+            }
+        }, "brokk-main-watchdog");
+        preWatchdog.setDaemon(true);
+        preWatchdog.start();
+
+        System.err.println("[BROKK] MAIN: invoking picocli CommandLine.execute");
         int exitCode = new CommandLine(new BrokkCli()).execute(args);
+        System.err.println("[BROKK] MAIN: CommandLine.execute returned exitCode=" + exitCode);
         System.exit(exitCode);
     }
 
     @Override
     public Integer call() throws Exception {
+        final AtomicLong lastProgress = new AtomicLong(System.currentTimeMillis());
+        Thread watchdog = new Thread(() -> {
+            try {
+                while (true) {
+                    Thread.sleep(10000);
+                    long idle = System.currentTimeMillis() - lastProgress.get();
+                    if (idle > 90000) { // 90s without progress
+                        System.err.println("[BROKK] WATCHDOG: No progress for " + (idle/1000) + "s. Thread dump:");
+                        for (var e : Thread.getAllStackTraces().entrySet()) {
+                            Thread t = e.getKey();
+                            System.err.println("\n== Thread '" + t.getName() + "' (state: " + t.getState() + ") ==");
+                            for (StackTraceElement ste : e.getValue()) {
+                                System.err.println("  at " + ste.toString());
+                            }
+                        }
+                        lastProgress.set(System.currentTimeMillis());
+                    }
+                }
+            } catch (InterruptedException ie) {
+                // exit
+            }
+        }, "brokk-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+
+        System.out.println("[BROKK] PHASE: CLI call - start");
+        lastProgress.set(System.currentTimeMillis());
         // --- Action Validation ---
         long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
                 .filter(p -> p != null && !p.isBlank())
@@ -190,6 +242,8 @@ public final class BrokkCli implements Callable<Integer> {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
         }
+        System.out.println("[BROKK] PHASE: CLI args processed");
+        lastProgress.set(System.currentTimeMillis());
 
         // --- Validation ---
         projectPath = requireNonNull(projectPath).toAbsolutePath();
@@ -201,6 +255,8 @@ public final class BrokkCli implements Callable<Integer> {
             System.err.println("Brokk CLI requires to have a Git repo");
             return 1;
         }
+        System.out.println("[BROKK] PHASE: Project validated at " + projectPath);
+        lastProgress.set(System.currentTimeMillis());
 
         // Worktree setup
         if (worktreePath != null) {
@@ -225,14 +281,22 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // Create Project + ContextManager
+        System.out.println("[BROKK] PHASE: ContextManager - creating MainProject");
         var mainProject = new MainProject(projectPath);
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
+        System.out.println("[BROKK] PHASE: ContextManager - creating ContextManager");
         cm = new ContextManager(project);
+        lastProgress.set(System.currentTimeMillis());
+        System.out.println("[BROKK] PHASE: ContextManager - createHeadless start");
         cm.createHeadless();
+        System.out.println("[BROKK] PHASE: ContextManager - createHeadless end");
+        lastProgress.set(System.currentTimeMillis());
         var io = cm.getIo();
 
         //  Model Overrides initialization
+        System.out.println("[BROKK] PHASE: Service - initialize");
         var service = cm.getService();
+        lastProgress.set(System.currentTimeMillis());
 
         StreamingChatModel taskModelOverride = null;
         if (modelName != null) {
@@ -260,7 +324,9 @@ public final class BrokkCli implements Callable<Integer> {
             assert codeModelOverride != null : service.getAvailableModels();
         }
 
+        System.out.println("[BROKK] PHASE: WorkspaceTools - init");
         var workspaceTools = new WorkspaceTools(cm);
+        lastProgress.set(System.currentTimeMillis());
 
         // --- Name Resolution and Context Building ---
         boolean callsAndUsagesRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
@@ -300,6 +366,7 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
+            System.out.println("[BROKK] PHASE: Deep Scan - start");
             io.systemOutput("# Workspace (pre-scan)");
             io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
 
@@ -329,17 +396,24 @@ public final class BrokkCli implements Callable<Integer> {
             } else {
                 io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
             }
+            System.out.println("[BROKK] PHASE: Deep Scan - end");
+            lastProgress.set(System.currentTimeMillis());
         }
 
         // --- Auto-discover files mentioned in prompts ---
+        System.out.println("[BROKK] PHASE: Auto-discover files - start");
         autoDiscoverFilesFromPrompts();
+        System.out.println("[BROKK] PHASE: Auto-discover files - end");
+        lastProgress.set(System.currentTimeMillis());
 
         // --- Run Action ---
+        System.out.println("[BROKK] PHASE: Action - pre-task summary");
         io.systemOutput("# Workspace (pre-task)");
         io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
 
         TaskResult result = null;
         try {
+            System.out.println("[BROKK] PHASE: Action - start");
             if (architectPrompt != null) {
                 var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
                 var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
@@ -380,6 +454,8 @@ public final class BrokkCli implements Callable<Integer> {
                 var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, terminalSet);
                 result = agent.execute();
             }
+            System.out.println("[BROKK] PHASE: Action - end");
+            lastProgress.set(System.currentTimeMillis());
         } catch (Throwable th) {
             io.toolError(getStackTrace(th), "Internal error: " + th.getMessage());
             return 1; // internal error
@@ -396,6 +472,7 @@ public final class BrokkCli implements Callable<Integer> {
             // harness see how we did
         }
 
+        System.out.println("[BROKK] PHASE: CLI call - end");
         return 0;
     }
 
@@ -595,5 +672,10 @@ public final class BrokkCli implements Callable<Integer> {
             cm.addFiles(discoveredFiles);
             System.out.println("Added " + discoveredFiles.size() + " auto-discovered files to workspace");
         }
+    }
+
+    // Backward-compatible name used elsewhere in this class
+    private void autoDiscoverFilesFromPrompts() {
+        d();
     }
 }

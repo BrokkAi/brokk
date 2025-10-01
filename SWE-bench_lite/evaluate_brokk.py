@@ -11,6 +11,7 @@ This script:
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -143,33 +144,76 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
         
         log_info(f"Command: {' '.join(brokk_cmd)}")
         
-        # Run with timeout and capture output
+        # Run with streaming and inactivity timeout
         start_time = time.time()
-        result = subprocess.run(
+        process = subprocess.Popen(
             brokk_cmd,
             cwd=repo_path,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=600
+            bufsize=1
         )
+
+        stdout_lines: List[str] = []
+        stderr_lines: List[str] = []
+        last_output_time = time.time()
+        inactivity_timeout_sec = int(os.environ.get("BROKK_INACTIVITY_TIMEOUT", "180"))
+
+        def _drain_stream(stream, collector, label):
+            for line in iter(stream.readline, ""):
+                collector.append(line)
+                last_nonlocal[0] = time.time()
+                # Echo live output for visibility
+                prefix = "BROKK STDOUT" if label == "stdout" else "BROKK STDERR"
+                print(f"{Colors.YELLOW}[{datetime.now().strftime('%H:%M:%S')}] [{prefix}] {line.rstrip()}{Colors.END}")
+
+        # We need a mutable box for last_output_time inside inner function
+        last_nonlocal = [last_output_time]
+
+        import threading
+        t_out = threading.Thread(target=_drain_stream, args=(process.stdout, stdout_lines, "stdout"), daemon=True)
+        t_err = threading.Thread(target=_drain_stream, args=(process.stderr, stderr_lines, "stderr"), daemon=True)
+        t_out.start(); t_err.start()
+
+        # Poll loop with inactivity watchdog
+        while True:
+            ret = process.poll()
+            now = time.time()
+            if ret is not None:
+                break
+            if now - last_nonlocal[0] > inactivity_timeout_sec:
+                log_error(f"No output from Brokk for {inactivity_timeout_sec}s – killing process")
+                process.kill()
+                ret = process.wait(timeout=5)
+                break
+            time.sleep(0.5)
+
+        t_out.join(timeout=2)
+        t_err.join(timeout=2)
+
         end_time = time.time()
-        
         execution_time = end_time - start_time
-        log_info(f"Brokk CLI execution completed in {execution_time:.1f} seconds")
-        
+        combined_stdout = "".join(stdout_lines)
+        combined_stderr = "".join(stderr_lines)
+        log_info(f"Brokk CLI finished with code {process.returncode} in {execution_time:.1f}s")
+
         # Check if Brokk CLI succeeded
-        if result.returncode != 0:
-            log_error(f"Brokk CLI failed with return code {result.returncode}")
-            log_error(f"STDOUT: {result.stdout}")
-            log_error(f"STDERR: {result.stderr}")
+        if process.returncode != 0:
+            log_error(f"Brokk CLI failed with return code {process.returncode}")
+            if combined_stdout:
+                log_error(f"STDOUT: {combined_stdout[-4000:]}")
+            if combined_stderr:
+                log_error(f"STDERR: {combined_stderr[-4000:]}")
             return {
                 "success": False,
-                "error": f"Brokk CLI failed: {result.stderr}",
+                "error": "Brokk CLI failed or was terminated (see stderr)",
                 "patch": "",
-                "stdout": result.stdout,
-                "stderr": result.stderr
+                "stdout": combined_stdout,
+                "stderr": combined_stderr,
+                "execution_time": execution_time
             }
-        
+
         log_success("Brokk CLI completed successfully")
         
         # Check for changes
@@ -189,7 +233,9 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
                 "error": None,
                 "patch": "",
                 "changes": False,
-                "stdout": result.stdout
+                "stdout": combined_stdout,
+                "stderr": combined_stderr,
+                "execution_time": execution_time
             }
         
         log_success(f"Changes detected: {final_status}")
@@ -224,9 +270,11 @@ def run_brokk_cli(repo_path: str, problem_statement: str, instance_id: str) -> D
             "error": None,
             "patch": patch,
             "changes": True,
-            "stdout": result.stdout,
+            "stdout": combined_stdout,
+            "stderr": combined_stderr,
             "initial_commit": initial_commit,
-            "final_commit": final_commit
+            "final_commit": final_commit,
+            "execution_time": execution_time
         }
         
     except subprocess.TimeoutExpired:
