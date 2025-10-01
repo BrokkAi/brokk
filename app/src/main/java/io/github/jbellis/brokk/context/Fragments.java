@@ -242,9 +242,22 @@ public class Fragments {
         // Helper to get image bytes, might throw UncheckedIOException
         @Nullable
         private static byte[] imageToBytes(@Nullable Image image) {
-            try {
-                // Assuming FrozenFragment.imageToBytes will be made public
-                return FrozenFragment.imageToBytes(image);
+            if (image == null) {
+                return null;
+            }
+            java.awt.image.BufferedImage bufferedImage;
+            if (image instanceof java.awt.image.BufferedImage bi) {
+                bufferedImage = bi;
+            } else {
+                bufferedImage =
+                        new java.awt.image.BufferedImage(image.getWidth(null), image.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                var g = bufferedImage.createGraphics();
+                g.drawImage(image, 0, 0, null);
+                g.dispose();
+            }
+            try (var baos = new java.io.ByteArrayOutputStream()) {
+                javax.imageio.ImageIO.write(bufferedImage, "PNG", baos);
+                return baos.toByteArray();
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }

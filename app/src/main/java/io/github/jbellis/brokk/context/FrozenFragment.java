@@ -37,6 +37,10 @@ import org.jetbrains.annotations.Nullable;
  * the entry was created. The ID of a FrozenFragment is its content hash.
  *
  * <p>FrozenFragments are never created for non-dynamic ContextFragments, which are already content-addressable.
+ *
+ * <p>This class is retained solely for reading legacy context histories. New context fragments should not be frozen
+ * into instances of this class; instead, their dynamic fields are computed and directly serialized to their original
+ * DTO types during history persistence.
  */
 public final class FrozenFragment extends ContextFragment.VirtualFragment {
     private static final Logger logger = LogManager.getLogger(FrozenFragment.class);
