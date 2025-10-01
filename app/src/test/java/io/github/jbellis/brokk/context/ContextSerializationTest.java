@@ -38,10 +38,8 @@ public class ContextSerializationTest {
     @BeforeEach
     void setup() throws IOException {
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        // Clear the intern pool before each test to ensure isolation
-        FrozenFragment.clearInternPoolForTesting();
         // Reset fragment ID counter for test isolation
-        ContextFragment.nextId.set(1);
+        ContextFragment.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -519,38 +517,27 @@ public class ContextSerializationTest {
         Context loadedCtx1 = loadedHistory.getHistory().get(0);
         Context loadedCtx2 = loadedHistory.getHistory().get(1);
 
-        // Verify ProjectPathFragment (which becomes FrozenFragment)
-        // After freezeOnly(), liveProjectPathFragment is turned into a FrozenFragment.
-        // Both contexts will reference the *same instance* of this FrozenFragment due to interning by content hash.
-        var frozenPathFrag1 = loadedCtx1
+        // Verify ProjectPathFragment deserialized directly to base fragment type
+        var pathFrag1 = loadedCtx1
                 .allFragments()
-                .filter(f -> f instanceof FrozenFragment
-                        && ((FrozenFragment) f)
-                                .originalClassName()
-                                .equals(Fragments.ProjectPathFragment.class.getName()))
-                .map(f -> (FrozenFragment) f)
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .map(f -> (Fragments.ProjectPathFragment) f)
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Frozen ProjectPathFragment not found in loadedCtx1"));
+                .orElseThrow(() -> new AssertionError("ProjectPathFragment not found in loadedCtx1"));
 
-        var frozenPathFrag2 = loadedCtx2
+        var pathFrag2 = loadedCtx2
                 .allFragments()
-                .filter(f -> f instanceof FrozenFragment
-                        && ((FrozenFragment) f)
-                                .originalClassName()
-                                .equals(Fragments.ProjectPathFragment.class.getName()))
-                .map(f -> (FrozenFragment) f)
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                .map(f -> (Fragments.ProjectPathFragment) f)
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Frozen ProjectPathFragment not found in loadedCtx2"));
+                .orElseThrow(() -> new AssertionError("ProjectPathFragment not found in loadedCtx2"));
 
-        assertSame(
-                frozenPathFrag1,
-                frozenPathFrag2,
-                "Frozen versions of the same dynamic ProjectPathFragment should be the same instance after deserialization and interning.");
-        // Verify meta for ProjectPathFragment
-        assertEquals(projectFile.getRoot().toString(), frozenPathFrag1.meta().get("repoRoot"));
-        assertEquals(projectFile.getRelPath().toString(), frozenPathFrag1.meta().get("relPath"));
+        // Same ID and file details across contexts
+        assertEquals(pathFrag1.id(), pathFrag2.id(), "ProjectPathFragment IDs should match across contexts");
+        assertEquals(projectFile.getRoot().toString(), pathFrag1.file().getRoot().toString());
+        assertEquals(projectFile.getRelPath().toString(), pathFrag1.file().getRelPath().toString());
 
-        // Verify StringFragment (which remains StringFragment, non-dynamic, content-hashed ID)
+        // Verify StringFragment by ID and content (no identity assertion)
         var loadedStringFrag1 = loadedCtx1
                 .virtualFragments()
                 .filter(f -> f instanceof Fragments.StringFragment
@@ -567,10 +554,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Shared StringFragment not found in loadedCtx2"));
 
-        assertSame(
-                loadedStringFrag1,
-                loadedStringFrag2,
-                "StringFragments with the same content-hash ID should be the same instance after deserialization.");
+        assertEquals(loadedStringFrag1.id(), loadedStringFrag2.id(), "StringFragment IDs should match across contexts");
         assertEquals("unique string fragment content for interning test", loadedStringFrag1.text());
 
         /* ---------- shared TaskFragment via TaskEntry ---------- */
@@ -604,7 +588,11 @@ public class ContextSerializationTest {
         assertNotNull(taskLog2);
         assertEquals(sharedTaskFragmentId, taskLog1.id(), "TaskLog1 ID mismatch");
         assertEquals(sharedTaskFragmentId, taskLog2.id(), "TaskLog2 ID mismatch");
-        assertSame(taskLog1, taskLog2, "Shared TaskFragment logs should be the same instance after deserialization.");
+
+        // Compare entries by value rather than identity
+        var entry1 = loadedTaskCtx1.getTaskHistory().get(0);
+        var entry2 = loadedTaskCtx2.getTaskHistory().get(0);
+        assertTaskEntriesEqual(entry1, entry2);
     }
 
     // --- Tests for individual fragment type round-trips ---

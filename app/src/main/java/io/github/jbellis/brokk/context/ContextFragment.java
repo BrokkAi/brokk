@@ -399,8 +399,7 @@ public interface ContextFragment {
         @Override
         public boolean equals(Object obj) {
             if (this == obj) return true;
-            if (obj == null || getClass() != obj.getClass()) return false;
-            VirtualFragment other = (VirtualFragment) obj;
+            if (!(obj instanceof VirtualFragment other)) return false;
             if (isText() != other.isText()) {
                 return false;
             }
@@ -408,6 +407,15 @@ public interface ContextFragment {
                 return Objects.equals(text(), other.text());
             }
             return Objects.equals(image(), other.image());
+        }
+
+        @Override
+        public int hashCode() {
+            if (isText()) {
+                return Objects.hash(text());
+            }
+            var img = image();
+            return System.identityHashCode(img);
         }
     }
 
@@ -539,8 +547,7 @@ public interface ContextFragment {
         @Override
         public boolean equals(Object obj) {
             if (this == obj) return true;
-            if (obj == null || getClass() != obj.getClass()) return false;
-            DynamicPathFragment other = (DynamicPathFragment) obj;
+            if (!(obj instanceof DynamicPathFragment other)) return false;
             if (isText() != other.isText()) {
                 return false;
             }
@@ -548,6 +555,15 @@ public interface ContextFragment {
                 return Objects.equals(text(), other.text());
             }
             return Objects.equals(image(), other.image());
+        }
+
+        @Override
+        public int hashCode() {
+            if (isText()) {
+                return Objects.hash(text());
+            }
+            var img = image();
+            return System.identityHashCode(img);
         }
     }
 }

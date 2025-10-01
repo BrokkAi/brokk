@@ -16,7 +16,6 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -479,12 +478,11 @@ public class Context {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
-        Context context = (Context) o;
-        return Objects.equals(fragments, context.fragments)
-               && Objects.equals(taskHistory, context.taskHistory)
-               && Objects.equals(parsedOutput, context.parsedOutput);
+    public boolean equals(@Nullable Object o) {
+        if (!(o instanceof Context other)) return false;
+        return Objects.equals(fragments, other.fragments)
+               && Objects.equals(taskHistory, other.taskHistory)
+               && Objects.equals(parsedOutput, other.parsedOutput);
     }
 
     @Override
@@ -551,35 +549,6 @@ public class Context {
                 taskHistory,
                 parsedOutput,
                 CompletableFuture.completedFuture("Load external changes"));
-    }
-
-    // Eagerly compute dynamic fields for a transient snapshot without creating FrozenFragments.
-    private void ensureComputedSnapshot(Duration timeout) {
-        for (var fragment : this.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.DynamicFragment df) {
-                try {
-                    // Kick off computations
-
-                    // Await bounded for strings
-                    df.computedDescription().await(timeout);
-                    df.computedSyntaxStyle().await(timeout);
-                    df.computedText().await(timeout);
-
-                    // Optionally await image bytes if present
-                    var imgCv = df.computedImageBytes();
-                    if (imgCv != null) {
-                        imgCv.await(timeout);
-                    }
-                } catch (Exception e) {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug(
-                                "Snapshot seed failed for fragment {}: {}",
-                                fragment.id(),
-                                e.toString());
-                    }
-                }
-            }
-        }
     }
 
     private boolean isNewFileInGit(ContextFragment fragment) {

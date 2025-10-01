@@ -27,7 +27,6 @@ import java.util.function.Supplier;
  * - Autostarts a single, short-lived daemon thread (or executor task) upon construction for non-preseeded values.
  * - Predictable thread names: cv-<name>-<sequence>.
  * - Non-blocking probe via {@link #tryGet()}.
- * - Async access via {@link #future()}.
  * - Best-effort bounded wait via {@link #await(Duration)}. If invoked on the Swing EDT, returns Optional.empty()
  *   immediately (never blocks the EDT).
  *
@@ -43,7 +42,7 @@ public final class ComputedValue<T> {
     private final String name;
     private final Supplier<T> supplier;
 
-    private final CompletableFuture<T> futureRef;
+    final CompletableFuture<T> futureRef;
 
     // listeners registered via onComplete; guarded by 'this'
     private final List<BiConsumer<? super T, ? super Throwable>> listeners = new ArrayList<>();

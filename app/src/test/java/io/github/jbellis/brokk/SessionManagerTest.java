@@ -10,7 +10,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.Fragments;
-import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.Messages;
@@ -39,10 +38,8 @@ public class SessionManagerTest {
     @BeforeEach
     void setup() throws IOException {
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        // Clear the intern pool before each test to ensure isolation
-        FrozenFragment.clearInternPoolForTesting();
         // Reset fragment ID counter for test isolation
-        ContextFragment.nextId.set(1);
+        ContextFragment.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -244,12 +241,10 @@ public class SessionManagerTest {
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 
         // Compare files and sources (ProjectFile and CodeUnit DTOs are by value)
-        if (!(expected instanceof FrozenFragment) && !(actual instanceof FrozenFragment)) {
-            assertEquals(
-                    expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                    actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                    "Fragment sources mismatch for ID " + expected.id());
-        }
+        assertEquals(
+                expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                "Fragment sources mismatch for ID " + expected.id());
         assertEquals(
                 expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
