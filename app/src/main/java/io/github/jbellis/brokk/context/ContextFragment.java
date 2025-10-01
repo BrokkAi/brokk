@@ -464,7 +464,6 @@ public interface ContextFragment {
                 textCv = new ComputedValue<>(
                         "dvf-text-" + id(),
                         this::text,
-                        false,
                         ContextFragment.getFragmentExecutor());
             }
             return textCv;
@@ -476,7 +475,6 @@ public interface ContextFragment {
                 descCv = new ComputedValue<>(
                         "dvf-desc-" + id(),
                         this::description,
-                        false,
                         ContextFragment.getFragmentExecutor());
             }
             return descCv;
@@ -488,7 +486,6 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>(
                         "dvf-syntax-" + id(),
                         this::syntaxStyle,
-                        false,
                         ContextFragment.getFragmentExecutor());
             }
             return syntaxCv;
@@ -511,7 +508,6 @@ public interface ContextFragment {
                 textCv = new ComputedValue<>(
                         "dpf-text-" + id(),
                         this::text,
-                        false,
                         ContextFragment.getFragmentExecutor());
             }
             return textCv;
@@ -523,7 +519,6 @@ public interface ContextFragment {
                 descCv = new ComputedValue<>(
                         "dpf-desc-" + id(),
                         this::description,
-                        false,
                         ContextFragment.getFragmentExecutor());
             }
             return descCv;
@@ -535,7 +530,6 @@ public interface ContextFragment {
                 syntaxCv = new ComputedValue<>(
                         "dpf-syntax-" + id(),
                         this::syntaxStyle,
-                        false,
                         ContextFragment.getFragmentExecutor());
             }
             return syntaxCv;

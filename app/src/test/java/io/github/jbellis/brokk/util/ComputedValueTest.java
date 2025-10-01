@@ -4,9 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -19,7 +17,7 @@ public class ComputedValueTest {
         var cv = new ComputedValue<Integer>("lazy", () -> {
             started.countDown();
             return 42;
-        }, false);
+        });
 
         // Not started yet
         assertEquals(1L, started.getCount(), "supplier should not have started yet");
@@ -40,7 +38,7 @@ public class ComputedValueTest {
         var cv = new ComputedValue<Integer>("eager", () -> {
             started.countDown();
             return 7;
-        }, true);
+        });
 
         assertTrue(started.await(500, java.util.concurrent.TimeUnit.MILLISECONDS), "supplier should start eagerly");
         assertEquals(7, cv.future().get().intValue());
@@ -54,7 +52,7 @@ public class ComputedValueTest {
             } catch (InterruptedException ignored) {
             }
             return 1;
-        }, false);
+        });
 
         Optional<Integer> res = cv.await(Duration.ofMillis(50));
         assertTrue(res.isEmpty(), "await should time out and return empty");
@@ -68,7 +66,7 @@ public class ComputedValueTest {
             } catch (InterruptedException ignored) {
             }
             return 2;
-        }, false);
+        });
 
         var ref = new AtomicReference<Optional<Integer>>();
         SwingUtilities.invokeAndWait(() -> {
@@ -79,20 +77,10 @@ public class ComputedValueTest {
     }
 
     @Test
-    public void reset_triggersRecomputation() throws Exception {
-        var counter = new AtomicInteger(0);
-        var cv = new ComputedValue<>("reset", () -> counter.incrementAndGet(), false);
-
-        assertEquals(1, cv.future().get().intValue());
-        cv.reset();
-        assertEquals(2, cv.future().get().intValue());
-    }
-
-    @Test
     public void exception_propagatesToFuture() {
         var cv = new ComputedValue<Integer>("fail", () -> {
             throw new IllegalStateException("boom");
-        }, false);
+        });
 
         var fut = cv.future();
         var ex = assertThrows(java.util.concurrent.CompletionException.class, fut::join);
@@ -106,7 +94,7 @@ public class ComputedValueTest {
         var cv = new ComputedValue<>("nameCheck", () -> {
             threadName.set(Thread.currentThread().getName());
             return 99;
-        }, true);
+        });
 
         cv.future().get();
         assertNotNull(threadName.get());

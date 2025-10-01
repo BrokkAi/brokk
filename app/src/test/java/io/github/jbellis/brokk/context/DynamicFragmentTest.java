@@ -13,7 +13,7 @@ public class DynamicFragmentTest {
         var slow = new ComputedValue<>("slow", () -> {
             try { Thread.sleep(200); } catch (InterruptedException ignored) {}
             return "done";
-        }, false);
+        });
 
         String rendered = slow.renderNowOr("(loading...)");
         assertEquals("(loading...)", rendered);

@@ -107,7 +107,6 @@ public class Fragments {
                             throw new RuntimeException(e);
                         }
                     },
-                    true,
                     ContextFragment.getFragmentExecutor());
         }
 
@@ -176,7 +175,6 @@ public class Fragments {
                             throw new RuntimeException(e);
                         }
                     },
-                    true,
                     ContextFragment.getFragmentExecutor());
             this.textCv = ComputedValue.completed("paste-text-" + id(), text);
         }
@@ -199,7 +197,6 @@ public class Fragments {
                             throw new RuntimeException(e);
                         }
                     },
-                    true,
                     ContextFragment.getFragmentExecutor());
             this.textCv = ComputedValue.completed("paste-text-" + id(), text);
         }
@@ -301,7 +298,6 @@ public class Fragments {
             this.imageBytesCv = new ComputedValue<>(
                     "paste-image-bytes-" + id(),
                     () -> imageToBytes(image),
-                    true,
                     ContextFragment.getFragmentExecutor());
             this.textCv = ComputedValue.completed("paste-image-text-" + id(), text());
             this.syntaxCv = ComputedValue.completed("paste-image-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -315,7 +311,6 @@ public class Fragments {
             this.imageBytesCv = new ComputedValue<>(
                     "paste-image-bytes-" + id(),
                     () -> imageToBytes(image),
-                    true,
                     ContextFragment.getFragmentExecutor());
             this.textCv = ComputedValue.completed("paste-image-text-" + id(), text());
             this.syntaxCv = ComputedValue.completed("paste-image-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);

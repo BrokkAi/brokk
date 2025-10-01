@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-import static java.util.Objects.requireNonNull;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,13 +20,12 @@ import org.jetbrains.annotations.VisibleForTesting;
  * One-shot, self-materializing computed value.
  *
  * Characteristics:
- * - Spawns a single, short-lived daemon thread on first access (or eagerly, if configured).
- * - Predictable thread names: cv-&lt;name&gt;-&lt;sequence&gt;.
+ * - Autostarts a single, short-lived daemon thread (or executor task) upon construction for non-preseeded values.
+ * - Predictable thread names: cv-<name>-<sequence>.
  * - Non-blocking probe via {@link #tryGet()}.
  * - Async access via {@link #future()}.
  * - Best-effort bounded wait via {@link #await(Duration)}. If invoked on the Swing EDT, returns Optional.empty()
  *   immediately (never blocks the EDT).
- * - {@link #reset()} is idempotent and causes the next access to recompute on a new thread.
  *
  * Notes:
  * - Exceptions thrown by the supplier complete the future exceptionally.
@@ -38,40 +35,48 @@ public final class ComputedValue<T> {
     private static final Logger logger = LogManager.getLogger(ComputedValue.class);
     private static final AtomicLong SEQ = new AtomicLong(0);
 
+    private enum StartMode { AUTO, SUPPRESS }
+
     private final String name;
     private final Supplier<T> supplier;
     private final @Nullable Executor executor;
 
     // Guarded by 'this' during transitions
     private volatile boolean started = false;
-    private volatile @Nullable CompletableFuture<T> futureRef = null;
+    private volatile CompletableFuture<T> futureRef;
+
     // listeners registered via onComplete; guarded by 'this'
-    private volatile @Nullable List<BiConsumer<? super T, ? super Throwable>> listeners = null;
+    private final List<BiConsumer<? super T, ? super Throwable>> listeners = new ArrayList<>();
 
     /**
-     * Create and optionally eager-start the computation with a predictable name for the thread.
+     * Create the computation with a predictable name for the thread.
+     * The computation autostarts by default (lazy flag is ignored).
      *
      * @param name       used in the worker thread name; not null/blank
      * @param supplier   computation to run
-     * @param eagerStart if true, start immediately
      */
-    public ComputedValue(String name, Supplier<T> supplier, boolean eagerStart) {
-        this(name, supplier, eagerStart, null);
+    public ComputedValue(String name, Supplier<T> supplier) {
+        this(name, supplier, null);
     }
 
     /**
-     * Create and optionally eager-start the computation with a predictable name for the thread.
+     * Create the computation with a predictable name for the thread.
+     * The computation autostarts by default (lazy flag is ignored).
      *
      * @param name       used in the worker thread name; not null/blank
      * @param supplier   computation to run
-     * @param eagerStart if true, start immediately
      * @param executor   optional executor on which to run the supplier; if null, a dedicated daemon thread is used
      */
-    public ComputedValue(String name, Supplier<T> supplier, boolean eagerStart, @Nullable Executor executor) {
+    public ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor) {
+        this(name, supplier, executor, StartMode.AUTO);
+    }
+
+    private ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor, StartMode mode) {
         this.name = name.isBlank() ? "value" : name;
         this.supplier = supplier;
         this.executor = executor;
-        if (eagerStart) {
+        this.futureRef = new CompletableFuture<>();
+        if (mode == StartMode.AUTO) {
             ensureStarted();
         }
     }
@@ -80,7 +85,7 @@ public final class ComputedValue<T> {
      * Create an already-completed ComputedValue with a custom name. No worker thread is started.
      */
     public static <T> ComputedValue<T> completed(String name, @Nullable T value) {
-        var cv = new ComputedValue<T>(name, () -> value, false);
+        var cv = new ComputedValue<>(name, () -> value, null, StartMode.SUPPRESS);
         synchronized (cv) {
             cv.started = true;
             cv.futureRef = CompletableFuture.completedFuture(value);
@@ -114,7 +119,7 @@ public final class ComputedValue<T> {
      */
     public Optional<T> tryGet() {
         var f = futureRef;
-        if (f == null || !f.isDone()) {
+        if (!f.isDone()) {
             return Optional.empty();
         }
         try {
@@ -136,9 +141,6 @@ public final class ComputedValue<T> {
         }
         ensureStarted();
         var f = futureRef;
-        if (f == null) {
-            return Optional.empty();
-        }
         try {
             T v = f.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
             return Optional.ofNullable(v);
@@ -157,7 +159,7 @@ public final class ComputedValue<T> {
     public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {
         ensureStarted();
         var f = futureRef;
-        if (f != null && f.isDone()) {
+        if (f.isDone()) {
             T v = null;
             Throwable ex = null;
             try {
@@ -176,7 +178,7 @@ public final class ComputedValue<T> {
         synchronized (this) {
             // double-check after acquiring the lock
             f = futureRef;
-            if (f != null && f.isDone()) {
+            if (f.isDone()) {
                 T v = null;
                 Throwable ex = null;
                 try {
@@ -192,21 +194,10 @@ public final class ComputedValue<T> {
                 return () -> { /* no-op */ };
             }
 
-            var list = listeners;
-            if (list == null) {
-                list = new ArrayList<>();
-                listeners = list;
-            }
-            list.add(handler);
+            listeners.add(handler);
             return () -> {
                 synchronized (ComputedValue.this) {
-                    var l = listeners;
-                    if (l != null) {
-                        l.remove(handler);
-                        if (l.isEmpty()) {
-                            listeners = null;
-                        }
-                    }
+                    listeners.remove(handler);
                 }
             };
         }
@@ -222,11 +213,10 @@ public final class ComputedValue<T> {
     private void notifyComplete(@Nullable T value, @Nullable Throwable ex) {
         List<BiConsumer<? super T, ? super Throwable>> toNotify = null;
         synchronized (this) {
-            var l = listeners;
-            if (l != null && !l.isEmpty()) {
-                toNotify = List.copyOf(l);
+            if (!listeners.isEmpty()) {
+                toNotify = List.copyOf(listeners);
+                listeners.clear();
             }
-            listeners = null;
         }
         if (toNotify != null) {
             for (var h : toNotify) {
@@ -246,15 +236,7 @@ public final class ComputedValue<T> {
     @VisibleForTesting
     CompletableFuture<T> future() {
         ensureStarted();
-        return requireNonNull(futureRef);
-    }
-
-    /**
-     * Reset the computation. Idempotent. Subsequent access recomputes on a new one-off thread.
-     */
-    public synchronized void reset() {
-        started = false;
-        futureRef = null;
+        return futureRef;
     }
 
     private void ensureStarted() {
@@ -266,8 +248,7 @@ public final class ComputedValue<T> {
                 return;
             }
             started = true;
-            var f = new CompletableFuture<T>();
-            futureRef = f;
+            var f = futureRef;
             String threadName = "cv-" + name + "-" + SEQ.incrementAndGet();
             Runnable task = () -> {
                 try {
