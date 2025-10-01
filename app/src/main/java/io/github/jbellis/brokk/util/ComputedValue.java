@@ -100,6 +100,13 @@ public final class ComputedValue<T> {
     }
 
     /**
+     * Non-blocking. If the value is available, returns it; otherwise returns the provided placeholder.
+     */
+    public T renderNowOr(T placeholder) {
+        return tryGet().orElse(placeholder);
+    }
+
+    /**
      * Non-blocking probe. Empty if not completed, or if completed exceptionally.
      */
     public Optional<T> tryGet() {

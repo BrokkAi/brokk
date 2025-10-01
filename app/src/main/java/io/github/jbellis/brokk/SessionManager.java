@@ -34,7 +34,6 @@ import java.util.concurrent.TimeUnit;
 import java.time.Duration;
 import java.util.function.Supplier;
 
-import io.github.jbellis.brokk.context.DynamicSupport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -379,9 +378,9 @@ public class SessionManager implements AutoCloseable {
                 for (var f : ctx.allFragments().toList()) {
                     if (f instanceof ContextFragment.DynamicFragment df) {
                         // best-effort bounded waits
-                        DynamicSupport.await(awaitTimeout, df.computedDescription());
-                        DynamicSupport.await(awaitTimeout, df.computedSyntaxStyle());
-                        DynamicSupport.await(awaitTimeout, df.computedText());
+                        df.computedDescription().await(awaitTimeout);
+                        df.computedSyntaxStyle().await(awaitTimeout);
+                        df.computedText().await(awaitTimeout);
                         var imgCv = df.computedImageBytes();
                         if (imgCv != null) {
                             imgCv.await(awaitTimeout);

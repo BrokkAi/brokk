@@ -120,7 +120,7 @@ public class Fragments {
 
         @Override
         public String description() {
-            return DynamicSupport.renderNowOr("(Loading...)", descriptionCv);
+            return descriptionCv.renderNowOr("(Loading...)");
         }
 
         @Override
@@ -225,7 +225,7 @@ public class Fragments {
 
         @Override
         public String syntaxStyle() {
-            return DynamicSupport.renderNowOr(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, syntaxCv);
+            return syntaxCv.renderNowOr(SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
         }
 
         public Future<String> getSyntaxStyleFuture() {

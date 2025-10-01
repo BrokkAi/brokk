@@ -590,9 +590,9 @@ public class Context {
                     df.computedText().future();
 
                     // Await bounded for strings
-                    DynamicSupport.await(timeout, df.computedDescription());
-                    DynamicSupport.await(timeout, df.computedSyntaxStyle());
-                    DynamicSupport.await(timeout, df.computedText());
+                    df.computedDescription().await(timeout);
+                    df.computedSyntaxStyle().await(timeout);
+                    df.computedText().await(timeout);
 
                     // Optionally await image bytes if present
                     var imgCv = df.computedImageBytes();

@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -372,9 +373,9 @@ public class ContextHistory {
                     df.computedText().future();
 
                     // Await bounded for strings
-                    DynamicSupport.await(timeout, df.computedDescription());
-                    DynamicSupport.await(timeout, df.computedSyntaxStyle());
-                    DynamicSupport.await(timeout, df.computedText());
+                    df.computedDescription().await(timeout);
+                    df.computedSyntaxStyle().await(timeout);
+                    df.computedText().await(timeout);
 
                     // Optionally await image bytes if present
                     var imgCv = df.computedImageBytes();

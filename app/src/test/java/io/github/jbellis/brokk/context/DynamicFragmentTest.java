@@ -2,11 +2,9 @@ package io.github.jbellis.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.util.ComputedValue;
 import java.time.Duration;
-import java.util.Optional;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+
 import org.junit.jupiter.api.Test;
 
 public class DynamicFragmentTest {
@@ -17,11 +15,11 @@ public class DynamicFragmentTest {
             return "done";
         }, false);
 
-        String rendered = DynamicSupport.renderNowOr("(loading...)", slow);
+        String rendered = slow.renderNowOr("(loading...)");
         assertEquals("(loading...)", rendered);
 
         // bounded await should time out and return empty
-        assertTrue(DynamicSupport.await(Duration.ofMillis(10), slow).isEmpty(),
+        assertTrue(slow.await(Duration.ofMillis(10)).isEmpty(),
                    "await with short timeout should return empty");
     }
 }

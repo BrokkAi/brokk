@@ -30,7 +30,6 @@ import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.StackTrace;
-import io.github.jbellis.brokk.context.DynamicSupport;
 import io.github.jbellis.brokk.util.ComputedValue;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -591,7 +590,7 @@ public class WorkspacePanel extends JPanel {
 
         private static String nonBlockingDescription(ContextFragment fragment) {
             if (fragment instanceof ContextFragment.DynamicFragment df) {
-                return DynamicSupport.renderNowOr("(Loading...)", df.computedDescription());
+                return df.computedDescription().renderNowOr("(Loading...)");
             }
             return fragment.description();
         }
@@ -1375,7 +1374,7 @@ public class WorkspacePanel extends JPanel {
             // Compute description non-blocking
             String desc;
             if (frag instanceof ContextFragment.DynamicFragment df) {
-                desc = DynamicSupport.renderNowOr("(Loading...)", df.computedDescription());
+                desc = df.computedDescription().renderNowOr("(Loading...)");
             } else {
                 desc = frag.description();
             }

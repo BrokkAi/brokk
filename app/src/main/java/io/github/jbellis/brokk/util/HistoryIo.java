@@ -195,14 +195,14 @@ public final class HistoryIo {
         for (Context ctx : ch.getHistory()) {
             for (var fragment : ctx.allFragments().toList()) {
                 if (fragment instanceof ContextFragment.DynamicFragment df) {
-                    var desc = DynamicSupport.await(awaitTimeout, df.computedDescription());
+                    var desc = df.computedDescription().await(awaitTimeout);
                     if (desc.isEmpty()) {
                         logger.warn(
                                 "Timed out awaiting description for fragment {} ({}); using placeholder",
                                 fragment.id(),
                                 fragment.getClass().getSimpleName());
                     }
-                    var style = DynamicSupport.await(awaitTimeout, df.computedSyntaxStyle());
+                    var style = df.computedSyntaxStyle().await(awaitTimeout);
                     if (style.isEmpty()) {
                         logger.warn(
                                 "Timed out awaiting syntax style for fragment {} ({}); using placeholder",
@@ -210,7 +210,7 @@ public final class HistoryIo {
                                 fragment.getClass().getSimpleName());
                     }
                     if (fragment.isText()) {
-                        var text = DynamicSupport.await(awaitTimeout, df.computedText());
+                        var text = df.computedText().await(awaitTimeout);
                         if (text.isEmpty()) {
                             logger.warn(
                                     "Timed out awaiting text for fragment {} ({}); using placeholder",
