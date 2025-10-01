@@ -121,6 +121,7 @@ public final class ComputedValue<T> {
      */
     public Optional<T> await(Duration timeout) {
         if (SwingUtilities.isEventDispatchThread()) {
+            logger.warn("ComputedValue.await() called on Swing EDT for {}", name);
             return Optional.empty();
         }
         ensureStarted();

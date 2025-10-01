@@ -20,6 +20,7 @@ import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -545,22 +546,9 @@ public class Context {
         boolean anyReplaced = false;
 
         for (var f : fragments) {
-            boolean shouldRefresh = false;
-
             if (f instanceof ContextFragment.DynamicFragment df) {
-                // Paste fragments are refreshed whenever there are external changes to re-kick their ComputedValues
-                if (f instanceof Fragments.PasteTextFragment
-                        || f instanceof Fragments.AnonymousImageFragment) {
-                    shouldRefresh = true;
-                } else {
-                    // Refresh dynamic fragments whose referenced files intersect the changed set
-                    var referenced = f.files();
-                    if (!java.util.Collections.disjoint(referenced, changed)) {
-                        shouldRefresh = true;
-                    }
-                }
-
-                if (shouldRefresh) {
+                // Refresh dynamic fragments whose referenced files intersect the changed set
+                if (!Collections.disjoint(f.files(), changed)) {
                     var refreshed = df.refreshCopy();
                     newFragments.add(refreshed);
                     if (refreshed != f) {
