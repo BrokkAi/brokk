@@ -25,7 +25,9 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -404,18 +406,17 @@ public interface ContextFragment {
                 return false;
             }
             if (isText()) {
-                return Objects.equals(text(), other.text());
+                return text().equals(other.text());
             }
-            return Objects.equals(image(), other.image());
+            return image().equals(other.image());
         }
 
         @Override
         public int hashCode() {
             if (isText()) {
-                return Objects.hash(text());
+                return text().hashCode();
             }
-            var img = image();
-            return System.identityHashCode(img);
+            return image().hashCode();
         }
     }
 
@@ -552,18 +553,73 @@ public interface ContextFragment {
                 return false;
             }
             if (isText()) {
-                return Objects.equals(text(), other.text());
+                return text().equals(other.text());
             }
-            return Objects.equals(image(), other.image());
+            return image().equals(other.image());
         }
 
         @Override
         public int hashCode() {
             if (isText()) {
-                return Objects.hash(text());
+                return text().hashCode();
             }
-            var img = image();
-            return System.identityHashCode(img);
+            return image().hashCode();
+        }
+    }
+
+    abstract class PasteFragment extends DynamicVirtualFragment {
+        protected transient Future<String> descriptionFuture;
+        private final ComputedValue<String> descriptionCv;
+
+        // PasteFragments are non-dynamic (content-hashed)
+        // The hash will be based on the initial text/image data, not the future description.
+        public PasteFragment(String id, IContextManager contextManager, Future<String> descriptionFuture) {
+            super(id, contextManager);
+            this.descriptionFuture = descriptionFuture;
+            // eagerly compute description using background executor
+            this.descriptionCv = new ComputedValue<>(
+                    "paste-desc-" + id,
+                    () -> {
+                        try {
+                            return "Paste of " + descriptionFuture.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    ContextFragment.getFragmentExecutor());
+        }
+
+        // Pre-seeded constructor to avoid recomputation when loading from history
+        public PasteFragment(String id, IContextManager contextManager, String precomputedDescription) {
+            super(id, contextManager);
+            this.descriptionFuture = CompletableFuture.completedFuture(precomputedDescription);
+            this.descriptionCv = ComputedValue.completed("paste-desc-" + id, "Paste of " + precomputedDescription);
+        }
+
+        @Override
+        public String description() {
+            return descriptionCv.renderNowOr("(Loading...)");
+        }
+
+        @Override
+        public String toString() {
+            return "PasteFragment('%s')".formatted(description());
+        }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            return descriptionCv;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            // Paste fragments are self-freezing; we don't need to recompute or clone.
+            // Keeping the same instance preserves the content-hash id and ComputedValues.
+            return this;
         }
     }
 }

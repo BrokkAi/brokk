@@ -204,11 +204,14 @@ public class ContextSerializationTest {
             assertTaskEntriesEqual(
                     expected.getTaskHistory().get(i), actual.getTaskHistory().get(i));
         }
+
+        // compare .equals
+        assertEquals(expected, actual);
+        assertEquals(actual, expected);
     }
 
     private void assertContextFragmentsEqual(ContextFragment expected, ContextFragment actual)
             throws IOException, InterruptedException {
-        assertEquals(expected.id(), actual.id(), "Fragment ID mismatch");
         assertEquals(expected.getType(), actual.getType(), "Fragment type mismatch for ID " + expected.id());
         assertEquals(
                 expected.description(), actual.description(), "Fragment description mismatch for ID " + expected.id());
@@ -239,6 +242,9 @@ public class ContextSerializationTest {
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
 
+        // finally, the actual equals() method should agree
+        assertEquals(expected, actual);
+        assertEquals(actual, expected);
     }
 
     private void assertTaskEntriesEqual(TaskEntry expected, TaskEntry actual) {

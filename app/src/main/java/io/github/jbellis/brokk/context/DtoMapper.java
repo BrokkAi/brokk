@@ -240,7 +240,6 @@ public class DtoMapper {
                 String text = reader.readContent(pasteTextDto.contentId());
                 String syntax = requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
                 yield new Fragments.PasteTextFragment(
-                        pasteTextDto.id(),
                         mgr,
                         text,
                         pasteTextDto.description(),

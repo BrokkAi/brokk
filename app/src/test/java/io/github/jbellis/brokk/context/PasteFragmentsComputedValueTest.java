@@ -56,7 +56,6 @@ public class PasteFragmentsComputedValueTest {
         var cm = cmWithExecutor(exec);
 
         var fragment = new Fragments.PasteTextFragment(
-                "hash-text-1",
                 cm,
                 "some text",
                 new CountingFuture<>(descCF, descGets),

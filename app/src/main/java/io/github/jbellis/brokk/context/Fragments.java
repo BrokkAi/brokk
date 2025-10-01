@@ -23,6 +23,7 @@ import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
+import javax.imageio.ImageIO;
 import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -88,63 +89,7 @@ public class Fragments {
         }
     }
 
-    public abstract static class PasteFragment extends ContextFragment.DynamicVirtualFragment {
-        protected transient Future<String> descriptionFuture;
-        private final ComputedValue<String> descriptionCv;
-
-        // PasteFragments are non-dynamic (content-hashed)
-        // The hash will be based on the initial text/image data, not the future description.
-        public PasteFragment(String id, IContextManager contextManager, Future<String> descriptionFuture) {
-            super(id, contextManager);
-            this.descriptionFuture = descriptionFuture;
-            // eagerly compute description using background executor
-            this.descriptionCv = new ComputedValue<>(
-                    "paste-desc-" + id,
-                    () -> {
-                        try {
-                            return "Paste of " + descriptionFuture.get();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    },
-                    ContextFragment.getFragmentExecutor());
-        }
-
-        // Pre-seeded constructor to avoid recomputation when loading from history
-        public PasteFragment(String id, IContextManager contextManager, String precomputedDescription) {
-            super(id, contextManager);
-            this.descriptionFuture = CompletableFuture.completedFuture(precomputedDescription);
-            this.descriptionCv = ComputedValue.completed("paste-desc-" + id, "Paste of " + precomputedDescription);
-        }
-
-        @Override
-        public String description() {
-            return descriptionCv.renderNowOr("(Loading...)");
-        }
-
-        @Override
-        public String toString() {
-            return "PasteFragment('%s')".formatted(description());
-        }
-
-        public Future<String> getDescriptionFuture() {
-            return descriptionFuture;
-        }
-
-        @Override
-        public ComputedValue<String> computedDescription() {
-            return descriptionCv;
-        }
-
-        @Override
-        public ContextFragment refreshCopy() {
-            // Paste fragments are self-freezing; we don't need to recompute or clone.
-            // Keeping the same instance preserves the content-hash id and ComputedValues.
-            return this;
-        }
-    }
-
-    public static class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
+    public static class PasteTextFragment extends ContextFragment.PasteFragment { // Non-dynamic, content-hashed
         private final String text;
         private final ComputedValue<String> syntaxCv;
         private final ComputedValue<String> textCv;
@@ -156,36 +101,9 @@ public class Fragments {
                 Future<String> descriptionFuture,
                 Future<String> syntaxStyleFuture) {
             super(
-                    FragmentUtils.calculateContentHash(
-                            FragmentType.PASTE_TEXT,
-                            "(Pasting text)", // Initial description for hashing before future completes
-                            text,
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // Default syntax style for hashing
-                            PasteTextFragment.class.getName()),
-                    contextManager,
-                    descriptionFuture);
-            this.syntaxStyleFuture = syntaxStyleFuture;
-            this.text = text;
-            this.syntaxCv = new ComputedValue<>(
-                    "paste-syntax-" + id(),
-                    () -> {
-                        try {
-                            return syntaxStyleFuture.get();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    },
-                    ContextFragment.getFragmentExecutor());
-            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
-        }
-
-        public PasteTextFragment(
-                String existingHashId,
-                IContextManager contextManager,
-                String text,
-                Future<String> descriptionFuture,
-                Future<String> syntaxStyleFuture) {
-            super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
+                String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                contextManager,
+                descriptionFuture);
             this.syntaxStyleFuture = syntaxStyleFuture;
             this.text = text;
             this.syntaxCv = new ComputedValue<>(
@@ -203,12 +121,11 @@ public class Fragments {
 
         // Pre-seeded constructor to avoid recomputation when loading from history
         public PasteTextFragment(
-                String existingHashId,
                 IContextManager contextManager,
                 String text,
                 String precomputedDescription,
                 String precomputedSyntaxStyle) {
-            super(existingHashId, contextManager, precomputedDescription);
+            super(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, precomputedDescription);
             this.syntaxStyleFuture = CompletableFuture.completedFuture(precomputedSyntaxStyle);
             this.text = text;
             this.syntaxCv = ComputedValue.completed("paste-syntax-" + id(), precomputedSyntaxStyle);
@@ -250,7 +167,7 @@ public class Fragments {
         }
     }
 
-    public static class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
+    public static class AnonymousImageFragment extends ContextFragment.PasteFragment { // Non-dynamic, content-hashed
         private final Image image;
         private final ComputedValue<byte[]> imageBytesCv;
         private final ComputedValue<String> textCv;
@@ -273,7 +190,7 @@ public class Fragments {
                 g.dispose();
             }
             try (var baos = new java.io.ByteArrayOutputStream()) {
-                javax.imageio.ImageIO.write(bufferedImage, "PNG", baos);
+                ImageIO.write(bufferedImage, "PNG", baos);
                 return baos.toByteArray();
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
@@ -282,16 +199,7 @@ public class Fragments {
 
         public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(
-                    FragmentUtils.calculateContentHash(
-                            FragmentType.PASTE_IMAGE,
-                            "(Pasting image)", // Initial description for hashing
-                            null, // No text content for image
-                            imageToBytes(image), // image bytes for hashing
-                            false, // isTextFragment = false
-                            SyntaxConstants.SYNTAX_STYLE_NONE,
-                            Set.of(), // No project files
-                            AnonymousImageFragment.class.getName(),
-                            Map.of()), // No specific meta for hashing
+                    String.valueOf(nextId.getAndIncrement()),
                     contextManager,
                     descriptionFuture);
             this.image = image;
@@ -1493,18 +1401,6 @@ public class Fragments {
         public String formatSummary() {
             return PathFragment.formatSummary(file());
         }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ExternalPathFragment that)) return false;
-            return file().equals(that.file());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(file());
-        }
     }
 
     /** Represents an image file, either from the project or external. This is dynamic. */
@@ -1598,7 +1494,7 @@ public class Fragments {
                             new IOException("Cannot read image file (permission denied): " + file().absPath()));
                 }
 
-                Image result = javax.imageio.ImageIO.read(imageFile);
+                Image result = ImageIO.read(imageFile);
                 if (result == null) {
                     // ImageIO.read() returns null if no registered ImageReader can read the file
                     // This can happen for unsupported formats, corrupted files, or non-image files
@@ -1636,18 +1532,6 @@ public class Fragments {
         @Override
         public String formatSummary() {
             return PathFragment.formatSummary(file());
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ImageFileFragment that)) return false;
-            return file().equals(that.file());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(file());
         }
 
         @Override
