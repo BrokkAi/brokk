@@ -712,6 +712,15 @@ public class GitLogTab extends JPanel {
                 } else {
                     getRepo().checkout(branchName);
                 }
+
+                // After successful checkout, update branch selector and Project Files title on EDT
+                String currentActualBranch = getRepo().getCurrentBranch();
+                SwingUtilities.invokeLater(() -> {
+                    chrome.updateGitRepo();
+                    chrome.getInstructionsPanel().refreshBranchUi(currentActualBranch);
+                });
+
+                // Refresh the log tab view
                 update();
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
