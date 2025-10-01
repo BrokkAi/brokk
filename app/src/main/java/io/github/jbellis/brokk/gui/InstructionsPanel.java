@@ -609,12 +609,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     r.checkout(b);
                                     SwingUtilities.invokeLater(() -> {
                     try {
-                        requireNonNull(branchSplitButton).setText("branch: " + r.getCurrentBranch());
+                        var currentBranch = r.getCurrentBranch();
+                        var displayBranch = currentBranch.isBlank() ? b : currentBranch;
+                        refreshBranchUi(displayBranch);
                     } catch (Exception ex) {
-                        logger.debug("Error updating branch label after checkout", ex);
+                        logger.debug("Error updating branch UI after checkout", ex);
+                        refreshBranchUi(b);
                     }
-                    // Update Project Files drawer title with the new branch name
-                    updateProjectFilesDrawerTitle(b);
                     chrome.systemOutput("Checked out: " + b);
                 });
                                 } catch (Exception ex) {
