@@ -1158,8 +1158,7 @@ public class WorkspacePanel extends JPanel {
                     "attachContext",
                     () -> SwingUtilities.invokeLater(() -> {
                         attachContextViaDialog();
-                    })
-            );
+                    }));
 
             // Wrap the button so it vertically centers nicely with the labels
             var buttonWrapper = new JPanel(new GridBagLayout());
@@ -2344,7 +2343,8 @@ public class WorkspacePanel extends JPanel {
                 if (e.getID() != KeyEvent.KEY_PRESSED) return false;
 
                 int mods = e.getModifiersEx();
-                int shortcutMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // Cmd on macOS, Ctrl elsewhere
+                int shortcutMask =
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // Cmd on macOS, Ctrl elsewhere
                 boolean hasShortcut = (mods & shortcutMask) != 0;
                 boolean hasShift = (mods & InputEvent.SHIFT_DOWN_MASK) != 0;
 
