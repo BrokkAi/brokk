@@ -715,10 +715,7 @@ public class GitLogTab extends JPanel {
 
                 // After successful checkout, update branch selector and Project Files title on EDT
                 String currentActualBranch = getRepo().getCurrentBranch();
-                SwingUtilities.invokeLater(() -> {
-                    chrome.updateGitRepo();
-                    chrome.getInstructionsPanel().refreshBranchUi(currentActualBranch);
-                });
+                refreshAllGitUi(currentActualBranch);
 
                 // Refresh the log tab view
                 update();
@@ -799,14 +796,19 @@ public class GitLogTab extends JPanel {
                 }
 
                 // Refresh UI to reflect changes
+                String branchForUiRefresh;
+                try {
+                    branchForUiRefresh = repo.getCurrentBranch();
+                } catch (GitAPIException ex) {
+                    logger.error("Error determining current branch after merge: {}", ex.getMessage());
+                    branchForUiRefresh = null;
+                }
+                final String branchForUiRefreshFinal = branchForUiRefresh;
                 SwingUtilities.invokeLater(() -> {
                     // Update commit/branch tables
                     this.update();
-                    // Also refresh the branch selector + Project Files drawer title
-                    try {
-                        chrome.getInstructionsPanel().refreshBranchUi(repo.getCurrentBranch());
-                    } catch (GitAPIException ex) {
-                        logger.error("Error refreshing branch UI after merge: {}", ex.getMessage());
+                    if (branchForUiRefreshFinal != null) {
+                        refreshAllGitUi(branchForUiRefreshFinal);
                     }
                 });
             }
@@ -870,10 +872,7 @@ public class GitLogTab extends JPanel {
             contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    SwingUtilities.invokeLater(() -> {
-                        chrome.updateGitRepo();
-                        chrome.getInstructionsPanel().refreshBranchUi(newName);
-                    });
+                    refreshAllGitUi(newName);
                     chrome.systemOutput(
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
@@ -963,6 +962,13 @@ public class GitLogTab extends JPanel {
     // ==================================================================
     // Helper Methods
     // ==================================================================
+
+    private void refreshAllGitUi(String branchName) {
+        SwingUtilities.invokeLater(() -> {
+            chrome.updateGitRepo();
+            chrome.getInstructionsPanel().refreshBranchUi(branchName);
+        });
+    }
 
     private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();
