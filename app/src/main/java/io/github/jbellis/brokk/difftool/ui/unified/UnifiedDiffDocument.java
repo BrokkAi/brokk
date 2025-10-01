@@ -93,7 +93,6 @@ public class UnifiedDiffDocument extends RSyntaxDocument {
         this.documentLineToOriginalLine = new HashMap<>();
         this.filteredLines = new ArrayList<>();
 
-
         rebuildDocument();
     }
 

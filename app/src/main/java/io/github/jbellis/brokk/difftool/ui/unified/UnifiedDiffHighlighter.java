@@ -29,12 +29,10 @@ public final class UnifiedDiffHighlighter {
         try {
             String content = textArea.getText();
             if (content == null || content.isEmpty()) {
-                logger.debug("No content to highlight");
                 return;
             }
 
             String[] lines = content.split("\n", -1); // Include empty trailing strings
-            logger.debug("Applying highlights to {} lines", lines.length);
 
             int currentOffset = 0;
             for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -51,8 +49,6 @@ public final class UnifiedDiffHighlighter {
                 // Move to next line (add 1 for newline character, except for last line)
                 currentOffset = lineEnd + (lineIndex < lines.length - 1 ? 1 : 0);
             }
-
-            logger.debug("Applied highlights to unified diff content");
 
         } catch (Exception e) {
             logger.warn("Error applying unified diff highlights: {}", e.getMessage(), e);
@@ -131,7 +127,6 @@ public final class UnifiedDiffHighlighter {
             highlighter.removeHighlights(JMHighlighter.LAYER0);
             highlighter.removeHighlights(JMHighlighter.LAYER1);
             highlighter.removeHighlights(JMHighlighter.LAYER2);
-            logger.debug("Removed all diff highlights");
         }
     }
 

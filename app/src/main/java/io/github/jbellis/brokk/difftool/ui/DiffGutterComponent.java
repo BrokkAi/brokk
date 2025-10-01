@@ -16,17 +16,17 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Unified gutter component for both unified diff display and side-by-side diff display.
- * For unified mode, it shows dual columns with actual source line numbers.
- * For side-by-side mode, it shows a single column of sequential line numbers with diff highlighting.
+ * Unified gutter component for both unified diff display and side-by-side diff display. For unified mode, it shows dual
+ * columns with actual source line numbers. For side-by-side mode, it shows a single column of sequential line numbers
+ * with diff highlighting.
  */
 public class DiffGutterComponent extends JComponent {
     private static final Logger logger = LogManager.getLogger(DiffGutterComponent.class);
 
     /** Display mode for the gutter component */
     public enum DisplayMode {
-        UNIFIED_DUAL_COLUMN,    // Shows both left and right line numbers for unified diff
-        SIDE_BY_SIDE_SINGLE     // Shows sequential line numbers for side-by-side diff
+        UNIFIED_DUAL_COLUMN, // Shows both left and right line numbers for unified diff
+        SIDE_BY_SIDE_SINGLE // Shows sequential line numbers for side-by-side diff
     }
 
     @Nullable
@@ -36,7 +36,6 @@ public class DiffGutterComponent extends JComponent {
     private boolean isDarkTheme = false;
     private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
     private DisplayMode displayMode = DisplayMode.UNIFIED_DUAL_COLUMN;
-    private static int paintSequence = 0;
 
     // Side-by-side mode specific fields
     @Nullable
@@ -52,8 +51,13 @@ public class DiffGutterComponent extends JComponent {
             this.backgroundColor = backgroundColor;
         }
 
-        public int getLineNumber() { return lineNumber; }
-        public Color getBackgroundColor() { return backgroundColor; }
+        public int getLineNumber() {
+            return lineNumber;
+        }
+
+        public Color getBackgroundColor() {
+            return backgroundColor;
+        }
     }
 
     /**
@@ -81,8 +85,6 @@ public class DiffGutterComponent extends JComponent {
 
         // Add scroll listener to ensure we repaint when the text area scrolls
         setupScrollListener();
-
-        logger.debug("Created DiffGutterComponent in {} mode", displayMode);
     }
 
     /**
@@ -92,7 +94,6 @@ public class DiffGutterComponent extends JComponent {
      */
     public void setDisplayMode(DisplayMode mode) {
         if (this.displayMode != mode) {
-            logger.debug("Display mode changed from {} to {}", this.displayMode, mode);
             this.displayMode = mode;
             repaint();
         }
@@ -139,7 +140,6 @@ public class DiffGutterComponent extends JComponent {
      */
     public void setContextMode(UnifiedDiffDocument.ContextMode contextMode) {
         if (this.contextMode != contextMode) {
-            logger.debug("Context mode changed from {} to {} in gutter component", this.contextMode, contextMode);
             this.contextMode = contextMode;
             repaint();
         }
@@ -152,7 +152,6 @@ public class DiffGutterComponent extends JComponent {
      */
     public void setUnifiedDocument(UnifiedDiffDocument document) {
         this.unifiedDocument = document;
-        logger.debug("Set unified document for line number lookup");
         // Force immediate repaint to ensure line numbers are updated
         javax.swing.SwingUtilities.invokeLater(() -> repaint());
     }
@@ -160,34 +159,21 @@ public class DiffGutterComponent extends JComponent {
     /** Clear the unified diff document reference. */
     public void clearUnifiedDocument() {
         this.unifiedDocument = null;
-        logger.debug("Cleared unified document reference");
         repaint();
     }
 
-    /**
-     * Set up scroll listener to ensure the gutter repaints when the text area scrolls.
-     */
+    /** Set up scroll listener to ensure the gutter repaints when the text area scrolls. */
     private void setupScrollListener() {
         javax.swing.SwingUtilities.invokeLater(() -> {
             // Listen to text area viewport changes
             if (textArea.getParent() instanceof javax.swing.JViewport textAreaViewport) {
-                textAreaViewport.addChangeListener(e -> {
-                    logger.trace("Text area viewport change detected, triggering gutter repaint");
-                    repaint();
-                });
-                logger.debug("Scroll listener attached to text area viewport");
+                textAreaViewport.addChangeListener(e -> repaint());
             }
 
             // Also listen to our own parent viewport changes (row header viewport)
             javax.swing.SwingUtilities.invokeLater(() -> {
                 if (getParent() instanceof javax.swing.JViewport rowHeaderViewport) {
-                    rowHeaderViewport.addChangeListener(e -> {
-                        logger.trace("Row header viewport change detected, triggering gutter repaint");
-                        repaint();
-                    });
-                    logger.debug("Scroll listener attached to row header viewport");
-                } else {
-                    logger.debug("Row header parent is not a JViewport, listener not attached");
+                    rowHeaderViewport.addChangeListener(e -> repaint());
                 }
             });
         });
@@ -195,8 +181,6 @@ public class DiffGutterComponent extends JComponent {
 
     @Override
     protected void paintComponent(Graphics g) {
-        logger.debug("paintComponent called - component size: {}x{}, mode: {}", getWidth(), getHeight(), displayMode);
-
         if (displayMode == DisplayMode.UNIFIED_DUAL_COLUMN) {
             paintUnifiedDiffLineNumbers(g);
         } else {
@@ -204,24 +188,17 @@ public class DiffGutterComponent extends JComponent {
         }
     }
 
-    /**
-     * Paint line numbers for unified diff mode (dual column).
-     */
+    /** Paint line numbers for unified diff mode (dual column). */
     private void paintUnifiedDiffLineNumbers(Graphics g) {
         if (unifiedDocument == null) {
-            logger.debug("No unified document set, using default painting");
             super.paintComponent(g);
             return;
         }
-
-        int currentPaint = ++paintSequence;
-        logger.debug("paintUnifiedDiffLineNumbers #{} starting", currentPaint);
 
         // textArea is never null as it's passed in constructor
 
         var clipBounds = g.getClipBounds();
         if (clipBounds == null || clipBounds.isEmpty()) {
-            logger.debug("paintUnifiedDiffLineNumbers #{} - clipBounds is null/empty", currentPaint);
             return;
         }
 
@@ -246,18 +223,7 @@ public class DiffGutterComponent extends JComponent {
 
         try {
             var textAreaViewport = textArea.getParent();
-            if (textAreaViewport instanceof javax.swing.JViewport viewport) {
-                var viewPosition = viewport.getViewPosition();
-
-                logger.debug(
-                        "Scroll Debug: clipBounds=({},{}) size={}x{}, viewPosition=({},{})",
-                        clipBounds.x,
-                        clipBounds.y,
-                        clipBounds.width,
-                        clipBounds.height,
-                        viewPosition.x,
-                        viewPosition.y);
-
+            if (textAreaViewport instanceof javax.swing.JViewport) {
                 int textAreaStartY = clipBounds.y;
                 int textAreaEndY = clipBounds.y + clipBounds.height;
 
@@ -274,14 +240,6 @@ public class DiffGutterComponent extends JComponent {
                     int diffDocumentLines = unifiedDocument.getFilteredLines().size();
                     endLine = Math.min(endLine, diffDocumentLines - 1);
                 }
-
-                logger.debug(
-                        "Paint #{}: Visible lines: {} to {} (offsets: {} to {})",
-                        currentPaint,
-                        startLine,
-                        endLine,
-                        startOffset,
-                        endOffset);
 
                 // Paint line numbers for visible lines with color-coded backgrounds
                 for (int documentLine = startLine; documentLine <= endLine; documentLine++) {
@@ -301,12 +259,6 @@ public class DiffGutterComponent extends JComponent {
                                 boolean coordsReasonable =
                                         (lineY > -1000 && lineY < getHeight() + 1000 && lineHeight > 0);
                                 if (!coordsReasonable) {
-                                    logger.info(
-                                            "Line {} EXTREME COORDINATES, skipping (lineY={}, height={}, componentHeight={})",
-                                            documentLine,
-                                            lineY,
-                                            lineHeight,
-                                            getHeight());
                                     continue;
                                 }
 
@@ -324,32 +276,23 @@ public class DiffGutterComponent extends JComponent {
                         }
                     }
                 }
-
-                logger.debug("Paint #{} - Finished painting lines {} to {}", currentPaint, startLine, endLine);
             }
 
         } catch (BadLocationException e) {
-            logger.warn("Paint #{} - Error painting unified diff line numbers: {}", currentPaint, e.getMessage());
+            logger.warn("Error painting unified diff line numbers: {}", e.getMessage());
         }
 
         // Always paint the full-height border on the right edge for visual separation
         g.setColor(UnifiedDiffColorResolver.getGutterBorderColor(isDarkTheme));
         g.drawLine(getWidth() - 1, clipBounds.y, getWidth() - 1, clipBounds.y + clipBounds.height - 1);
-
-        logger.debug("paintUnifiedDiffLineNumbers #{} completed", currentPaint);
     }
 
-    /**
-     * Paint line numbers for side-by-side mode (single column with sequential numbering).
-     */
+    /** Paint line numbers for side-by-side mode (single column with sequential numbering). */
     private void paintSideBySideLineNumbers(Graphics g) {
-        logger.debug("paintSideBySideLineNumbers starting");
-
         // textArea is never null as it's passed in constructor
 
         var clipBounds = g.getClipBounds();
         if (clipBounds == null || clipBounds.isEmpty()) {
-            logger.debug("paintSideBySideLineNumbers - clipBounds is null/empty");
             return;
         }
 
@@ -377,8 +320,6 @@ public class DiffGutterComponent extends JComponent {
 
             startLine = Math.max(0, startLine);
             endLine = Math.min(textArea.getLineCount() - 1, endLine);
-
-            logger.debug("Side-by-side visible lines: {} to {}", startLine, endLine);
 
             // Paint line numbers for visible lines
             for (int documentLine = startLine; documentLine <= endLine; documentLine++) {
@@ -410,13 +351,9 @@ public class DiffGutterComponent extends JComponent {
         // Always paint the full-height border on the right edge
         g.setColor(UnifiedDiffColorResolver.getGutterBorderColor(isDarkTheme));
         g.drawLine(getWidth() - 1, clipBounds.y, getWidth() - 1, clipBounds.y + clipBounds.height - 1);
-
-        logger.debug("paintSideBySideLineNumbers completed");
     }
 
-    /**
-     * Paint background color for a line in side-by-side mode based on diff highlights.
-     */
+    /** Paint background color for a line in side-by-side mode based on diff highlights. */
     private void paintSideBySideLineBackground(Graphics g, int documentLine, int lineY, int lineHeight) {
         if (diffHighlights == null) {
             return;
@@ -428,15 +365,12 @@ public class DiffGutterComponent extends JComponent {
             if (highlight.getLineNumber() == lineNumber) {
                 g.setColor(highlight.getBackgroundColor());
                 g.fillRect(0, lineY, getWidth(), lineHeight);
-                logger.trace("Painted side-by-side background for line {} with color {}", lineNumber, highlight.getBackgroundColor());
                 break;
             }
         }
     }
 
-    /**
-     * Paint the background color for a line based on its diff type (unified mode).
-     */
+    /** Paint the background color for a line based on its diff type (unified mode). */
     private void paintLineBackground(Graphics g, int documentLine, int lineY, int lineHeight) {
         if (unifiedDocument == null) {
             return;
@@ -452,20 +386,10 @@ public class DiffGutterComponent extends JComponent {
         if (backgroundColor != null) {
             g.setColor(backgroundColor);
             g.fillRect(0, lineY, getWidth(), lineHeight);
-            logger.trace(
-                    "Painted background for line {} type {} with color {} at rect(0,{},{},{})",
-                    documentLine,
-                    diffLine.getType(),
-                    backgroundColor,
-                    lineY,
-                    getWidth(),
-                    lineHeight);
         }
     }
 
-    /**
-     * Format line numbers for display using GitHub-style dual column approach (unified mode).
-     */
+    /** Format line numbers for display using GitHub-style dual column approach (unified mode). */
     @Nullable
     private String[] formatLineNumbers(UnifiedDiffDocument.DiffLine diffLine) {
         int leftLine = diffLine.getLeftLineNumber();
@@ -496,9 +420,7 @@ public class DiffGutterComponent extends JComponent {
         };
     }
 
-    /**
-     * Paint dual column line numbers in GitHub style (unified mode).
-     */
+    /** Paint dual column line numbers in GitHub style (unified mode). */
     private void paintDualColumnNumbers(Graphics g, String[] lineNumbers, int lineY, int fontAscent, FontMetrics fm) {
         g.setColor(UnifiedDiffColorResolver.getLineNumberTextColor(isDarkTheme));
 
@@ -535,9 +457,7 @@ public class DiffGutterComponent extends JComponent {
         }
     }
 
-    /**
-     * Map a text area line to the corresponding DiffLine object (unified mode).
-     */
+    /** Map a text area line to the corresponding DiffLine object (unified mode). */
     @Nullable
     private UnifiedDiffDocument.DiffLine getDiffLineForTextLine(int textAreaLine) {
         if (unifiedDocument == null || textAreaLine < 0) {
@@ -560,9 +480,7 @@ public class DiffGutterComponent extends JComponent {
         return null;
     }
 
-    /**
-     * Get the preferred width for the gutter component.
-     */
+    /** Get the preferred width for the gutter component. */
     public int getPreferredWidth() {
         if (displayMode == DisplayMode.SIDE_BY_SIDE_SINGLE) {
             // Simple width calculation for side-by-side mode

@@ -119,17 +119,9 @@ public class UnifiedDiffGenerator {
             BufferSource leftSource,
             BufferSource rightSource) {
 
-        System.err.println("=== DIFF_DEBUG: generateStandardContextDiff CALLED ===");
-
         // Use UnifiedDiffUtils to generate standard unified diff
         var unifiedLines = UnifiedDiffUtils.generateUnifiedDiff(
                 leftSource.title(), rightSource.title(), leftLines, patch, STANDARD_CONTEXT_LINES);
-
-        System.err.println("DIFF_DEBUG_START:RAW_LINES");
-        for (int i = 0; i < unifiedLines.size(); i++) {
-            System.err.println("DIFF_DEBUG:RAW[" + i + "]: " + unifiedLines.get(i));
-        }
-        System.err.println("DIFF_DEBUG_END:RAW_LINES");
 
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         int leftLineNum = 0;
@@ -152,24 +144,10 @@ public class UnifiedDiffGenerator {
                 hunkRightCount = hunkInfo[3];
                 isCurrentHunkNewFile = hunkInfo[4] == 1;
 
-                logger.debug(
-                        "Parsed hunk header '{}' -> leftStart={}, rightStart={}, isNewFile={}",
-                        line,
-                        newLeftStart,
-                        newRightStart,
-                        isCurrentHunkNewFile);
-                System.err.println("DIFF_DEBUG:HUNK_HEADER: " + line + " -> left=" + newLeftStart + ", right="
-                        + newRightStart + ", isNewFile=" + isCurrentHunkNewFile);
-
                 // Check if there's a gap between this hunk and the previous one
                 if (lastLeftEnd > 0 && lastRightEnd > 0) {
                     int leftGap = newLeftStart - lastLeftEnd;
                     int rightGap = newRightStart - lastRightEnd;
-
-                    System.err.println("DIFF_DEBUG:GAP_CHECK: lastLeftEnd=" + lastLeftEnd + ", lastRightEnd="
-                            + lastRightEnd + ", newLeftStart="
-                            + newLeftStart + ", newRightStart=" + newRightStart + ", leftGap="
-                            + leftGap + ", rightGap=" + rightGap);
 
                     // Insert OMITTED_LINES for any significant gap (more than 1 line on either side)
                     // This handles cases where there are large additions/deletions causing line number jumps
@@ -179,28 +157,16 @@ public class UnifiedDiffGenerator {
                         // - For pure deletions (leftGap > 1, rightGap = 1), show left gap
                         // - For mixed changes, show the larger gap
                         int omittedCount;
-                        String gapType;
 
                         if (leftGap == 1 && rightGap > 1) {
                             omittedCount = rightGap - 1;
-                            gapType = "addition gap";
                         } else if (rightGap == 1 && leftGap > 1) {
                             omittedCount = leftGap - 1;
-                            gapType = "deletion gap";
                         } else {
                             omittedCount = Math.max(leftGap - 1, rightGap - 1);
-                            gapType = "mixed gap";
                         }
 
                         String omittedText = String.format("... %d lines omitted ...", omittedCount);
-                        logger.debug(
-                                "Inserting OMITTED_LINES: '{}' (leftGap={}, rightGap={}, type={})",
-                                omittedText,
-                                leftGap,
-                                rightGap,
-                                gapType);
-                        System.err.println("DIFF_DEBUG:OMITTED_LINES_INSERTED: " + omittedText + " (leftGap=" + leftGap
-                                + ", rightGap=" + rightGap + ", type=" + gapType + ")");
                         diffLines.add(new UnifiedDiffDocument.DiffLine(
                                 UnifiedDiffDocument.LineType.OMITTED_LINES, omittedText, -1, -1, false));
                     }
@@ -213,67 +179,29 @@ public class UnifiedDiffGenerator {
                 // These represent where this hunk will end
                 lastLeftEnd = newLeftStart + hunkLeftCount;
                 lastRightEnd = newRightStart + hunkRightCount;
-                System.err.println(
-                        "DIFF_DEBUG:HUNK_END_POSITIONS: lastLeftEnd=" + lastLeftEnd + ", lastRightEnd=" + lastRightEnd);
 
                 diffLines.add(
                         new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, line, -1, -1, false));
             } else if (line.startsWith("+")) {
                 // Addition - increment right line number
-                logger.trace(
-                        "Addition line: '{}' -> right={}",
-                        line.substring(0, Math.min(20, line.length())),
-                        rightLineNum);
-                System.err.println("DIFF_DEBUG:ADDITION: rightLineNum=" + rightLineNum + ", content='"
-                        + line.substring(0, Math.min(30, line.length())) + "'");
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
                         UnifiedDiffDocument.LineType.ADDITION, line, -1, rightLineNum, true));
                 rightLineNum++;
-                System.err.println("DIFF_DEBUG:ADDITION_AFTER: rightLineNum=" + rightLineNum);
             } else if (line.startsWith("-")) {
                 // Deletion - increment left line number
                 // For new files, we don't show left line numbers since there's no original file
                 int displayLeftLineNum = isCurrentHunkNewFile ? 0 : leftLineNum;
-                logger.trace(
-                        "Deletion line: '{}' -> left={} (isNewFile={}, displayLeft={})",
-                        line.substring(0, Math.min(20, line.length())),
-                        leftLineNum,
-                        isCurrentHunkNewFile,
-                        displayLeftLineNum);
-                System.err.println("DIFF_DEBUG:DELETION: leftLineNum=" + leftLineNum + ", isNewFile="
-                        + isCurrentHunkNewFile + ", displayLeftLineNum=" + displayLeftLineNum + ", content='"
-                        + line.substring(0, Math.min(30, line.length())) + "'");
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
                         UnifiedDiffDocument.LineType.DELETION, line, displayLeftLineNum, -1, false));
                 leftLineNum++;
-                System.err.println("DIFF_DEBUG:DELETION_AFTER: leftLineNum=" + leftLineNum);
             } else if (line.startsWith(" ")) {
                 // Context - increment both line numbers
-                logger.trace(
-                        "Context line: '{}' -> left={}, right={}",
-                        line.substring(0, Math.min(20, line.length())),
-                        leftLineNum,
-                        rightLineNum);
-                System.err.println("DIFF_DEBUG:CONTEXT: leftLineNum=" + leftLineNum + ", rightLineNum=" + rightLineNum
-                        + ", content='" + line.substring(0, Math.min(30, line.length())) + "'");
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
                         UnifiedDiffDocument.LineType.CONTEXT, line, leftLineNum, rightLineNum, true));
                 leftLineNum++;
                 rightLineNum++;
-                System.err.println(
-                        "DIFF_DEBUG:CONTEXT_AFTER: leftLineNum=" + leftLineNum + ", rightLineNum=" + rightLineNum);
             }
         }
-
-        System.err.println("DIFF_DEBUG_START:FINAL_DIFFLINES");
-        for (int i = 0; i < diffLines.size(); i++) {
-            var diffLine = diffLines.get(i);
-            System.err.println("DIFF_DEBUG:DIFFLINE[" + i + "]: " + diffLine.getType() + " (left="
-                    + diffLine.getLeftLineNumber() + ", right=" + diffLine.getRightLineNumber() + ") - '"
-                    + diffLine.getContent()
-                            .substring(0, Math.min(50, diffLine.getContent().length())) + "'");
-        }
-        System.err.println("DIFF_DEBUG_END:FINAL_DIFFLINES");
 
         return diffLines;
     }
@@ -290,12 +218,6 @@ public class UnifiedDiffGenerator {
         var unifiedLines =
                 UnifiedDiffUtils.generateUnifiedDiff(leftTitle, rightTitle, leftLines, patch, STANDARD_CONTEXT_LINES);
 
-        System.err.println("DIFF_DEBUG_START:RAW_LINES_PATCH");
-        for (int i = 0; i < unifiedLines.size(); i++) {
-            System.err.println("DIFF_DEBUG:RAW[" + i + "]: " + unifiedLines.get(i));
-        }
-        System.err.println("DIFF_DEBUG_END:RAW_LINES_PATCH");
-
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         int leftLineNum = 0;
         int rightLineNum = 0;
@@ -317,24 +239,10 @@ public class UnifiedDiffGenerator {
                 hunkRightCount = hunkInfo[3];
                 isCurrentHunkNewFile = hunkInfo[4] == 1;
 
-                logger.debug(
-                        "Parsed hunk header '{}' -> leftStart={}, rightStart={}, isNewFile={}",
-                        line,
-                        newLeftStart,
-                        newRightStart,
-                        isCurrentHunkNewFile);
-                System.err.println("DIFF_DEBUG:HUNK_HEADER: " + line + " -> left=" + newLeftStart + ", right="
-                        + newRightStart + ", isNewFile=" + isCurrentHunkNewFile);
-
                 // Check if there's a gap between this hunk and the previous one
                 if (lastLeftEnd > 0 && lastRightEnd > 0) {
                     int leftGap = newLeftStart - lastLeftEnd;
                     int rightGap = newRightStart - lastRightEnd;
-
-                    System.err.println("DIFF_DEBUG:GAP_CHECK: lastLeftEnd=" + lastLeftEnd + ", lastRightEnd="
-                            + lastRightEnd + ", newLeftStart="
-                            + newLeftStart + ", newRightStart=" + newRightStart + ", leftGap="
-                            + leftGap + ", rightGap=" + rightGap);
 
                     // Insert OMITTED_LINES for any significant gap (more than 1 line on either side)
                     // This handles cases where there are large additions/deletions causing line number jumps
@@ -344,28 +252,16 @@ public class UnifiedDiffGenerator {
                         // - For pure deletions (leftGap > 1, rightGap = 1), show left gap
                         // - For mixed changes, show the larger gap
                         int omittedCount;
-                        String gapType;
 
                         if (leftGap == 1 && rightGap > 1) {
                             omittedCount = rightGap - 1;
-                            gapType = "addition gap";
                         } else if (rightGap == 1 && leftGap > 1) {
                             omittedCount = leftGap - 1;
-                            gapType = "deletion gap";
                         } else {
                             omittedCount = Math.max(leftGap - 1, rightGap - 1);
-                            gapType = "mixed gap";
                         }
 
                         String omittedText = String.format("... %d lines omitted ...", omittedCount);
-                        logger.debug(
-                                "Inserting OMITTED_LINES: '{}' (leftGap={}, rightGap={}, type={})",
-                                omittedText,
-                                leftGap,
-                                rightGap,
-                                gapType);
-                        System.err.println("DIFF_DEBUG:OMITTED_LINES_INSERTED: " + omittedText + " (leftGap=" + leftGap
-                                + ", rightGap=" + rightGap + ", type=" + gapType + ")");
                         diffLines.add(new UnifiedDiffDocument.DiffLine(
                                 UnifiedDiffDocument.LineType.OMITTED_LINES, omittedText, -1, -1, false));
                     }
@@ -378,67 +274,29 @@ public class UnifiedDiffGenerator {
                 // These represent where this hunk will end
                 lastLeftEnd = newLeftStart + hunkLeftCount;
                 lastRightEnd = newRightStart + hunkRightCount;
-                System.err.println(
-                        "DIFF_DEBUG:HUNK_END_POSITIONS: lastLeftEnd=" + lastLeftEnd + ", lastRightEnd=" + lastRightEnd);
 
                 diffLines.add(
                         new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, line, -1, -1, false));
             } else if (line.startsWith("+")) {
                 // Addition - increment right line number
-                logger.trace(
-                        "Addition line: '{}' -> right={}",
-                        line.substring(0, Math.min(20, line.length())),
-                        rightLineNum);
-                System.err.println("DIFF_DEBUG:ADDITION: rightLineNum=" + rightLineNum + ", content='"
-                        + line.substring(0, Math.min(30, line.length())) + "'");
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
                         UnifiedDiffDocument.LineType.ADDITION, line, -1, rightLineNum, true));
                 rightLineNum++;
-                System.err.println("DIFF_DEBUG:ADDITION_AFTER: rightLineNum=" + rightLineNum);
             } else if (line.startsWith("-")) {
                 // Deletion - increment left line number
                 // For new files, we don't show left line numbers since there's no original file
                 int displayLeftLineNum = isCurrentHunkNewFile ? 0 : leftLineNum;
-                logger.trace(
-                        "Deletion line: '{}' -> left={} (isNewFile={}, displayLeft={})",
-                        line.substring(0, Math.min(20, line.length())),
-                        leftLineNum,
-                        isCurrentHunkNewFile,
-                        displayLeftLineNum);
-                System.err.println("DIFF_DEBUG:DELETION: leftLineNum=" + leftLineNum + ", isNewFile="
-                        + isCurrentHunkNewFile + ", displayLeftLineNum=" + displayLeftLineNum + ", content='"
-                        + line.substring(0, Math.min(30, line.length())) + "'");
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
                         UnifiedDiffDocument.LineType.DELETION, line, displayLeftLineNum, -1, false));
                 leftLineNum++;
-                System.err.println("DIFF_DEBUG:DELETION_AFTER: leftLineNum=" + leftLineNum);
             } else if (line.startsWith(" ")) {
                 // Context - increment both line numbers
-                logger.trace(
-                        "Context line: '{}' -> left={}, right={}",
-                        line.substring(0, Math.min(20, line.length())),
-                        leftLineNum,
-                        rightLineNum);
-                System.err.println("DIFF_DEBUG:CONTEXT: leftLineNum=" + leftLineNum + ", rightLineNum=" + rightLineNum
-                        + ", content='" + line.substring(0, Math.min(30, line.length())) + "'");
                 diffLines.add(new UnifiedDiffDocument.DiffLine(
                         UnifiedDiffDocument.LineType.CONTEXT, line, leftLineNum, rightLineNum, true));
                 leftLineNum++;
                 rightLineNum++;
-                System.err.println(
-                        "DIFF_DEBUG:CONTEXT_AFTER: leftLineNum=" + leftLineNum + ", rightLineNum=" + rightLineNum);
             }
         }
-
-        System.err.println("DIFF_DEBUG_START:FINAL_DIFFLINES_PATCH");
-        for (int i = 0; i < diffLines.size(); i++) {
-            var diffLine = diffLines.get(i);
-            System.err.println("DIFF_DEBUG:DIFFLINE[" + i + "]: " + diffLine.getType() + " (left="
-                    + diffLine.getLeftLineNumber() + ", right=" + diffLine.getRightLineNumber() + ") - '"
-                    + diffLine.getContent()
-                            .substring(0, Math.min(50, diffLine.getContent().length())) + "'");
-        }
-        System.err.println("DIFF_DEBUG_END:FINAL_DIFFLINES_PATCH");
 
         return diffLines;
     }
@@ -449,8 +307,6 @@ public class UnifiedDiffGenerator {
 
         var diffLines = new ArrayList<UnifiedDiffDocument.DiffLine>();
         var deltas = patch.getDeltas();
-
-        System.err.println("FULL_CONTEXT_DEBUG: generateFullContextFromPatch called - " + leftLines.size() + " left lines, " + deltas.size() + " deltas");
 
         // If no changes, just show all lines as context
         if (deltas.isEmpty()) {
@@ -471,7 +327,7 @@ public class UnifiedDiffGenerator {
                 if (leftIndex < leftLines.size()) {
                     // Handle case where left and right files might have different content
                     if (rightIndex < rightLines.size()
-                        && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+                            && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
                         // Same line in both files - show as context
                         var line = " " + leftLines.get(leftIndex);
                         diffLines.add(new UnifiedDiffDocument.DiffLine(
@@ -559,7 +415,7 @@ public class UnifiedDiffGenerator {
                 if (leftIndex < leftLines.size()) {
                     // Handle case where left and right files might have different content
                     if (rightIndex < rightLines.size()
-                        && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
+                            && leftLines.get(leftIndex).equals(rightLines.get(rightIndex))) {
                         // Same line in both files - show as context
                         var line = " " + leftLines.get(leftIndex);
                         diffLines.add(new UnifiedDiffDocument.DiffLine(
@@ -662,11 +518,6 @@ public class UnifiedDiffGenerator {
             // Detect new file pattern: @@ -0,0 +1,X @@
             int isNewFile = (leftStart == 0 && leftCount == 0) ? 1 : 0;
 
-            System.err.println("DIFF_DEBUG:PARSE_HUNK: " + hunkHeader + " -> leftStart="
-                    + leftStart + ", leftCount=" + leftCount + ", rightStart="
-                    + rightStart + ", rightCount=" + rightCount + ", isNewFile="
-                    + isNewFile);
-
             return new int[] {leftStart, rightStart, leftCount, rightCount, isNewFile};
         } catch (Exception e) {
             logger.warn("Failed to parse hunk header: {}", hunkHeader, e);
@@ -744,24 +595,11 @@ public class UnifiedDiffGenerator {
             if (leftBufferNode != null) {
                 var rawLeftLines = leftBufferNode.getDocument().getLineList();
                 leftTitle = leftBufferNode.getDocument().getName();
-                logger.debug(
-                        "Left source has {} lines, first few: {}",
-                        rawLeftLines.size(),
-                        rawLeftLines.stream()
-                                .limit(3)
-                                .map(line -> "'" + line.replace("\n", "\\n") + "'")
-                                .toList());
 
                 // Normalize lines to remove any embedded newlines that could cause spacing issues
                 leftLines = rawLeftLines.stream()
                         .map(UnifiedDiffGenerator::normalizeLineEndings)
                         .toList();
-                logger.debug(
-                        "After normalization, first few: {}",
-                        leftLines.stream()
-                                .limit(3)
-                                .map(line -> "'" + line + "'")
-                                .toList());
             } else {
                 leftLines = new ArrayList<>();
                 leftTitle = "<empty>";
@@ -796,8 +634,6 @@ public class UnifiedDiffGenerator {
         var textBuilder = new StringBuilder();
         var deltas = patch.getDeltas();
 
-        logger.debug("Generating standard context diff with {} deltas", deltas.size());
-
         for (var delta : deltas) {
             // Add hunk header
             var hunkHeader = String.format(
@@ -820,18 +656,12 @@ public class UnifiedDiffGenerator {
             // Add deleted lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var deletedLine : delta.getSource().getLines()) {
                 var normalizedDeletedLine = normalizeLineEndings(deletedLine);
-                logger.trace(
-                        "Normalized deleted line: '{}' -> '{}'",
-                        deletedLine.replace("\n", "\\n"),
-                        normalizedDeletedLine);
                 textBuilder.append('-').append(normalizedDeletedLine).append('\n');
             }
 
             // Add added lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var addedLine : delta.getTarget().getLines()) {
                 var normalizedAddedLine = normalizeLineEndings(addedLine);
-                logger.trace(
-                        "Normalized added line: '{}' -> '{}'", addedLine.replace("\n", "\\n"), normalizedAddedLine);
                 textBuilder.append('+').append(normalizedAddedLine).append('\n');
             }
 
@@ -851,10 +681,6 @@ public class UnifiedDiffGenerator {
             textBuilder.setLength(textBuilder.length() - 1);
         }
 
-        logger.debug(
-                "Generated clean unified diff with {} characters, {} lines",
-                textBuilder.length(),
-                textBuilder.toString().split("\n").length);
         return textBuilder.toString();
     }
 
@@ -862,8 +688,6 @@ public class UnifiedDiffGenerator {
     private static String generateFullContextPlainText(List<String> leftLines, Patch<String> patch) {
         var textBuilder = new StringBuilder();
         var deltas = patch.getDeltas();
-
-        logger.debug("Generating full context diff with {} deltas", deltas.size());
 
         int leftIndex = 0;
 
@@ -893,10 +717,6 @@ public class UnifiedDiffGenerator {
             // Add deleted lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var deletedLine : delta.getSource().getLines()) {
                 var normalizedDeletedLine = normalizeLineEndings(deletedLine);
-                logger.trace(
-                        "Normalized deleted line: '{}' -> '{}'",
-                        deletedLine.replace("\n", "\\n"),
-                        normalizedDeletedLine);
                 textBuilder.append("-");
                 textBuilder.append(normalizedDeletedLine);
                 textBuilder.append('\n');
@@ -906,8 +726,6 @@ public class UnifiedDiffGenerator {
             // Add added lines - NORMALIZE THESE (they come from patch and may have line endings)
             for (var addedLine : delta.getTarget().getLines()) {
                 var normalizedAddedLine = normalizeLineEndings(addedLine);
-                logger.trace(
-                        "Normalized added line: '{}' -> '{}'", addedLine.replace("\n", "\\n"), normalizedAddedLine);
                 textBuilder.append("+");
                 textBuilder.append(normalizedAddedLine);
                 textBuilder.append('\n');
@@ -927,7 +745,6 @@ public class UnifiedDiffGenerator {
             textBuilder.setLength(textBuilder.length() - 1);
         }
 
-        logger.debug("Generated full context diff with {} characters", textBuilder.length());
         return textBuilder.toString();
     }
 

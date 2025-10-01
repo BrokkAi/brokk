@@ -209,8 +209,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
                 unifiedPanel.setContextMode(targetMode);
             }
-
-            logger.debug("Context mode changed to: {}", showAll ? "FULL_CONTEXT" : "STANDARD_3_LINES");
         });
 
         // Set up view mode toggle
@@ -359,7 +357,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
         // Don't allow BufferDiffPanel to override currentDiffPanel when in unified view mode
         if (bufferDiffPanel != null && isUnifiedView) {
-            logger.debug("Rejecting BufferDiffPanel override because current view mode is unified");
             return;
         }
 
@@ -457,7 +454,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         updateNavigationButtons();
 
         // Log memory and window status
-        logger.debug("Window after switch: {}", panelCache.getWindowInfo());
         logMemoryUsage();
     }
 
@@ -505,10 +501,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 // Ensure checkbox state matches global preference before adding
                 showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
                 toolBar.add(showAllLinesCheckBox, insertPosition);
-                logger.debug("Added context mode control to toolbar for unified view");
             } else {
                 toolBar.add(showBlankLineDiffsCheckBox, insertPosition);
-                logger.debug("Added whitespace control to toolbar for side-by-side view");
             }
 
             toolBar.revalidate();
@@ -582,7 +576,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Capture diff button should always remain enabled
 
-        logger.debug("All control buttons disabled during file loading");
     }
 
     private JToolBar createToolbar() {
@@ -1014,7 +1007,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
             // Add a single history entry for the whole batch
             contextManager.addToHistory(result, false);
-            logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
 
             // Step 4: Finalize panels selectively and refresh UI
             for (var p : panelsToSave) {
@@ -1147,20 +1139,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private void displayCachedFile(int fileIndex, IDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        logger.debug("displayCachedFile() called for file index {} with panel type: {}",
-                    fileIndex, cachedPanel.getClass().getSimpleName());
-
         // Check if cached panel type matches current view mode preference
         boolean cachedIsUnified = cachedPanel instanceof UnifiedDiffPanel;
-        logger.debug("Panel type check: cachedIsUnified={}, currentViewIsUnified={}",
-                    cachedIsUnified, this.isUnifiedView);
 
         if (cachedIsUnified != this.isUnifiedView) {
-            logger.info(
-                    "Cached panel type (unified={}) doesn't match current preference (unified={}), clearing cache and recreating for file {}",
-                    cachedIsUnified,
-                    this.isUnifiedView,
-                    fileIndex);
 
             // Dispose the incompatible panel
             cachedPanel.dispose();
@@ -1554,9 +1536,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Validate that panel type matches current view mode
         boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
         if (isPanelUnified != isUnifiedView) {
-            logger.debug("Rejecting {} panel because current view mode is {}",
-                        panel.getClass().getSimpleName(),
-                        isUnifiedView ? "unified" : "side-by-side");
             // Don't cache panels that don't match current view mode (prevents async race conditions)
             return;
         }
@@ -1610,7 +1589,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     /** Preload a single file in the background */
     private void preloadFile(int fileIndex) {
         try {
-            logger.debug("Preloading file {} in background", fileIndex);
             var compInfo = fileComparisons.get(fileIndex);
 
             // Use extracted file validation logic
@@ -1636,13 +1614,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         // Create appropriate panel type based on current view mode
                         IDiffPanel panel;
                         if (isUnifiedView) {
-                            // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires non-null
+                            // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires
+                            // non-null
                             var diffNode = loadingResult.getDiffNode();
                             if (diffNode != null) {
                                 panel = new UnifiedDiffPanel(this, theme, diffNode);
                             } else {
                                 // Fallback to BufferDiffPanel if diffNode is null
-                                logger.warn("Cannot create UnifiedDiffPanel with null diffNode for file {}, using BufferDiffPanel", fileIndex);
+                                logger.warn(
+                                        "Cannot create UnifiedDiffPanel with null diffNode for file {}, using BufferDiffPanel",
+                                        fileIndex);
                                 var bufferPanel = new BufferDiffPanel(this, theme);
                                 bufferPanel.markCreationContext("preload-fallback");
                                 panel = bufferPanel;
@@ -1667,7 +1648,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         logger.warn("Skipping preload of file {} - {}", fileIndex, loadingResult.getErrorMessage());
                     }
                 } else {
-                    logger.debug("Preload cancelled for file {} (cached or outside window)", fileIndex);
                 }
             });
 
@@ -1684,11 +1664,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         var usedMemory = totalMemory - freeMemory;
         var maxMemory = runtime.maxMemory();
 
-        var usedMB = usedMemory / (1024 * 1024);
-        var maxMB = maxMemory / (1024 * 1024);
         var percentUsed = (usedMemory * 100) / maxMemory;
-
-        logger.debug("Memory: {}MB/{}MB ({}%), {}", usedMB, maxMB, percentUsed, panelCache.getWindowInfo());
 
         // Use configurable threshold for memory cleanup
         if (percentUsed > PerformanceConstants.MEMORY_HIGH_THRESHOLD_PERCENT) {
@@ -1699,7 +1675,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     /** Perform cleanup when memory usage is high */
     private void performWindowCleanup() {
-        logger.debug("Performing sliding window memory cleanup");
 
         // Clear caches in all window panels
         for (var panel : panelCache.nonNullValues()) {
@@ -1708,8 +1683,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Suggest garbage collection
         System.gc();
-
-        logger.debug("Window cleanup complete: {}", panelCache.getWindowInfo());
     }
 
     /**
@@ -1928,7 +1901,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         this.isUnifiedView = useUnifiedView;
-        logger.debug("Switching to {} view mode", useUnifiedView ? "unified" : "side-by-side");
 
         // Update toolbar controls for the new view mode
         updateToolbarForViewMode();
@@ -1936,7 +1908,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Clear the current file from cache since we need a different panel type
         var cachedPanel = panelCache.get(currentFileIndex);
         if (cachedPanel != null) {
-            logger.debug("Disposing cached panel for file {} due to view mode change", currentFileIndex);
             // Dispose the old panel to free resources
             cachedPanel.dispose();
         }
@@ -1946,7 +1917,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Force cache invalidation - since sliding window manipulation doesn't work reliably,
         // we'll clear the entire cache to ensure the old panel type is removed
-        logger.debug("Clearing entire cache to force panel recreation with new view mode");
         panelCache.clear();
 
         // Verify the cache is actually clear
@@ -1955,9 +1925,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             logger.error(
                     "Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
         } else {
-            logger.debug(
-                    "Successfully cleared cache - panel will be recreated with {} view",
-                    useUnifiedView ? "unified" : "side-by-side");
         }
 
         // Refresh the current file with the new view mode

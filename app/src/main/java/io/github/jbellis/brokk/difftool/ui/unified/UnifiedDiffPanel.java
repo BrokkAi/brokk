@@ -144,12 +144,10 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
         // Apply initial theme (same approach as FilePanel:177)
         GuiTheme.loadRSyntaxTheme(getTheme().isDarkTheme()).ifPresent(theme -> theme.apply(textArea));
-
     }
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
     private void generateDiffFromDiffNode(JMDiffNode diffNode) {
-
 
         // Generate the UnifiedDiffDocument (for line number metadata and display content)
         this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
@@ -201,7 +199,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
         // Apply diff highlights after content is set
         reDisplay();
-
     }
 
     /** Generate the unified diff content from BufferSources (legacy approach). */
@@ -243,19 +240,18 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         if (plainTextContent != null && textArea != null) {
             this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
         } else {
-            logger.warn("Cannot create navigator: plainTextContent={}, textArea={}",
-                       plainTextContent != null ? "valid" : "null",
-                       textArea != null ? "valid" : "null");
+            logger.warn(
+                    "Cannot create navigator: plainTextContent={}, textArea={}",
+                    plainTextContent != null ? "valid" : "null",
+                    textArea != null ? "valid" : "null");
             this.navigator = null;
         }
-
 
         // Apply syntax highlighting only (diff coloring disabled)
         applySyntaxHighlighting();
 
         // Apply diff highlights after content is set
         reDisplay();
-
     }
 
     @Override
@@ -312,27 +308,27 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // caused issues when switching from FULL_CONTEXT back to STANDARD_3_LINES
         {
 
-                // Regenerate the document with the target context mode
-                var diffNode = getDiffNode();
-                if (diffNode != null) {
-                    generateDiffFromDiffNode(diffNode);
-                } else if (leftSource != null && rightSource != null) {
-                    generateDiffFromBufferSources();
-                } else {
-                    logger.warn("No source available for regenerating diff");
-                }
+            // Regenerate the document with the target context mode
+            var diffNode = getDiffNode();
+            if (diffNode != null) {
+                generateDiffFromDiffNode(diffNode);
+            } else if (leftSource != null && rightSource != null) {
+                generateDiffFromBufferSources();
+            } else {
+                logger.warn("No source available for regenerating diff");
+            }
 
-                // Update text area display after regeneration
-                updateTextAreaFromDocument();
+            // Update text area display after regeneration
+            updateTextAreaFromDocument();
 
-                // Force repaint to ensure immediate visual update
-                textArea.repaint();
-                textArea.revalidate();
+            // Force repaint to ensure immediate visual update
+            textArea.repaint();
+            textArea.revalidate();
 
-                // Update navigator with new content
-                if (navigator != null) {
-                    navigator.refreshHunkPositions();
-                }
+            // Update navigator with new content
+            if (navigator != null) {
+                navigator.refreshHunkPositions();
+            }
         }
 
         // Update the line number list with new context
@@ -373,7 +369,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
         String plainTextContent = textBuilder.toString();
         textArea.setText(plainTextContent);
-
     }
 
     /** Get the current context mode. */
@@ -597,7 +592,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
             // Refresh highlights with new theme colors
             reDisplay();
-
         });
     }
 

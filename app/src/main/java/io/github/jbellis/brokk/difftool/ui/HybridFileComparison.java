@@ -38,19 +38,6 @@ public class HybridFileComparison {
         boolean isLowConfidence =
                 leftEstimation.confidence() == SizeConfidence.LOW || rightEstimation.confidence() == SizeConfidence.LOW;
 
-        // More detailed logging with human-readable sizes
-        String leftSizeStr = formatFileSize(leftEstimation.estimatedBytes());
-        String rightSizeStr = formatFileSize(rightEstimation.estimatedBytes());
-        String maxSizeStr = formatFileSize(maxSize);
-
-        logger.debug(
-                "Size estimation: left={} ({}), right={} ({}), max={}",
-                leftSizeStr,
-                leftEstimation.confidence(),
-                rightSizeStr,
-                rightEstimation.confidence(),
-                maxSizeStr);
-
         // Use consistent file size validation from FileComparisonHelper
         var sizeValidationError = FileComparisonHelper.validateFileSizes(leftSource, rightSource);
         if (sizeValidationError != null) {
@@ -66,9 +53,8 @@ public class HybridFileComparison {
 
         // Warn about potentially problematic files
         if (maxSize > PerformanceConstants.HUGE_FILE_THRESHOLD_BYTES) {
-            logger.warn("Processing huge file ({}): may cause memory issues", maxSizeStr);
+            logger.warn("Processing huge file ({} bytes): may cause memory issues", maxSize);
         } else if (maxSize > PerformanceConstants.MEDIUM_FILE_THRESHOLD_BYTES) {
-            logger.info("Processing medium file ({}): using async processing for responsiveness", maxSizeStr);
         }
 
         // Use async for large files OR when size estimation is uncertain and file is medium+
@@ -76,7 +62,6 @@ public class HybridFileComparison {
                 || (isLowConfidence && maxSize > PerformanceConstants.MEDIUM_FILE_THRESHOLD_BYTES);
 
         if (useAsync) {
-            logger.info("Using async processing: size={}, lowConfidence={}", maxSizeStr, isLowConfidence);
             createAsyncDiffPanel(
                     leftSource,
                     rightSource,
@@ -87,7 +72,6 @@ public class HybridFileComparison {
                     fileIndex,
                     startTime);
         } else {
-            logger.debug("Using sync processing: size={}", maxSizeStr);
             createSyncDiffPanel(
                     leftSource,
                     rightSource,
@@ -158,7 +142,6 @@ public class HybridFileComparison {
                             totalElapsedTime,
                             totalElapsedTime);
                 } else {
-                    logger.debug("Sync diff panel created successfully in {}ms", totalElapsedTime);
                 }
 
             } catch (RuntimeException ex) {
@@ -184,8 +167,6 @@ public class HybridFileComparison {
 
         var taskDescription = "Computing diff: %s"
                 .formatted(mainPanel.fileComparisons.get(fileIndex).getDisplayName());
-        logger.debug(
-                "Starting async diff computation for large file: {} vs {}", leftSource.title(), rightSource.title());
 
         contextManager.submitBackgroundTask(taskDescription, () -> {
             try {
@@ -220,7 +201,6 @@ public class HybridFileComparison {
                         if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS * 5) {
                             logger.warn("Slow async diff creation: {}ms", elapsedTime);
                         } else {
-                            logger.debug("Async diff panel created successfully in {}ms", elapsedTime);
                         }
 
                     } catch (RuntimeException ex) {
@@ -305,24 +285,14 @@ public class HybridFileComparison {
 
             return unifiedPanel;
         } catch (Exception e) {
-            logger.error("Exception in createUnifiedDiffPanel for JMDiffNode {} - {}: {}",
-                        diffNode.getName(), e.getClass().getSimpleName(), e.getMessage(), e);
+            logger.error(
+                    "Exception in createUnifiedDiffPanel for JMDiffNode {} - {}: {}",
+                    diffNode.getName(),
+                    e.getClass().getSimpleName(),
+                    e.getMessage(),
+                    e);
             // Fallback to empty panel that shows the error
             throw new RuntimeException("Failed to create unified diff panel: " + e.getMessage(), e);
-        }
-    }
-
-
-    /** Format file size in human-readable format with appropriate units. */
-    private static String formatFileSize(long bytes) {
-        if (bytes < 1024) {
-            return bytes + "B";
-        } else if (bytes < 1024 * 1024) {
-            return String.format("%.1fKB", bytes / 1024.0);
-        } else if (bytes < 1024 * 1024 * 1024) {
-            return String.format("%.1fMB", bytes / (1024.0 * 1024.0));
-        } else {
-            return String.format("%.1fGB", bytes / (1024.0 * 1024.0 * 1024.0));
         }
     }
 }

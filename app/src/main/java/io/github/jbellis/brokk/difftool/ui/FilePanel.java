@@ -425,12 +425,13 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             }
 
             // Get color based on delta type
-            var color = switch (delta.getType()) {
-                case INSERT -> io.github.jbellis.brokk.difftool.utils.Colors.getAdded(isDark);
-                case DELETE -> io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(isDark);
-                case CHANGE -> io.github.jbellis.brokk.difftool.utils.Colors.getChanged(isDark);
-                case EQUAL -> null; // Should not happen
-            };
+            var color =
+                    switch (delta.getType()) {
+                        case INSERT -> io.github.jbellis.brokk.difftool.utils.Colors.getAdded(isDark);
+                        case DELETE -> io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(isDark);
+                        case CHANGE -> io.github.jbellis.brokk.difftool.utils.Colors.getChanged(isDark);
+                        case EQUAL -> null; // Should not happen
+                    };
 
             if (color == null) {
                 continue;

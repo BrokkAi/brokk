@@ -216,9 +216,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             boolean skipAutoScroll = shouldSkipAutoScroll();
 
             if (!skipAutoScroll) {
-                logger.debug(
-                        "Auto-scrolling to first difference at line {}",
-                        selectedDelta.getSource().getPosition());
                 SwingUtilities.invokeLater(this::scrollToFirstDifference);
             }
         } else if (scrollSynchronizer != null) {
@@ -659,7 +656,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         }
 
         if (autoScrollInProgress) {
-            logger.debug("Auto-scroll already in progress, skipping concurrent attempt");
             return;
         }
 
@@ -771,9 +767,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
                     leftPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
                     rightPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
 
-                    logger.debug("scrollToTop: Successfully scrolled both panels to top");
                 } catch (Exception e) {
-                    logger.debug("scrollToTop: Error scrolling to top", e);
+                    // Ignore scrolling errors during auto-scroll
                 }
             });
         }
@@ -793,13 +788,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
         // Primary check: file addition/deletion scenarios (one side essentially empty)
         if (isFileAdditionOrDeletion()) {
-            logger.debug("Skipping auto-scroll: file addition/deletion detected");
             return true;
         }
 
         // Check for massive single change covering most of the file
         if (isMassiveFileChange()) {
-            logger.debug("Skipping auto-scroll: massive file change detected");
             return true;
         }
 
@@ -813,7 +806,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         });
 
         if (hasOnlyInsertDelete && isVeryAsymmetricContent()) {
-            logger.debug("Skipping auto-scroll: pure INSERT/DELETE with asymmetric content");
             return true;
         }
 
@@ -853,9 +845,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
         boolean isAdditionOrDeletion = (leftEmpty && rightSubstantial) || (rightEmpty && leftSubstantial);
 
-        if (isAdditionOrDeletion) {
-            logger.debug("File addition/deletion detected: left={} lines, right={} lines", leftLines, rightLines);
-        }
+        if (isAdditionOrDeletion) {}
 
         return isAdditionOrDeletion;
     }
@@ -880,13 +870,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
                 && delta.getSource().size() > 50
                 && delta.getTarget().size() > 50;
 
-        if (isMassive) {
-            logger.debug(
-                    "Massive file change detected: position={}, sourceSize={}, targetSize={}",
-                    delta.getSource().getPosition(),
-                    delta.getSource().size(),
-                    delta.getTarget().size());
-        }
+        if (isMassive) {}
 
         return isMassive;
     }
@@ -919,9 +903,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         // This is much more restrictive to avoid blocking normal file diffs
         boolean isAsymmetric = (leftLines < 3 && rightLines > 50) || (rightLines < 3 && leftLines > 50);
 
-        if (isAsymmetric) {
-            logger.debug("Very asymmetric content detected: left={} lines, right={} lines", leftLines, rightLines);
-        }
+        if (isAsymmetric) {}
 
         return isAsymmetric;
     }

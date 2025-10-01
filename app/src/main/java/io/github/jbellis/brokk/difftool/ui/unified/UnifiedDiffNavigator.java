@@ -35,7 +35,6 @@ public class UnifiedDiffNavigator {
             var document = textArea.getDocument();
             int lineCount = textArea.getLineCount();
 
-
             for (int i = 0; i < lineCount; i++) {
                 int lineStart = textArea.getLineStartOffset(i);
                 int lineEnd = textArea.getLineEndOffset(i);
@@ -56,7 +55,6 @@ public class UnifiedDiffNavigator {
         if (currentHunkIndex >= hunkStartLines.size()) {
             currentHunkIndex = Math.max(0, hunkStartLines.size() - 1);
         }
-
     }
 
     /** Navigate to the next hunk. */
@@ -208,7 +206,6 @@ public class UnifiedDiffNavigator {
                     var expandedRect = new Rectangle(rect.x, Math.max(0, rect.y - 50), rect.width, rect.height + 100);
                     textArea.scrollRectToVisible(expandedRect);
                 }
-
 
             } catch (BadLocationException e) {
                 logger.error(
