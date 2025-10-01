@@ -258,7 +258,8 @@ public class AttachContextDialog extends JDialog {
         gateTabs();
         onTabChanged();
 
-        setPreferredSize(new Dimension(700, 160));
+        setMinimumSize(new Dimension(700, 180));
+        setPreferredSize(new Dimension(700, 180));
         pack();
         setLocationRelativeTo(parent);
 

@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -656,6 +657,10 @@ public class WorkspacePanel extends JPanel {
     @Nullable
     private JMenuItem dropAllMenuItem = null;
 
+    // Global dispatcher for Cmd/Ctrl+Shift+I to open Attach Context
+    @Nullable
+    private KeyEventDispatcher globalAttachDispatcher = null;
+
     // Observers for bottom-controls height changes
     private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
 
@@ -1140,12 +1145,21 @@ public class WorkspacePanel extends JPanel {
             // Add button to show Add popup (same menu as table's Add)
             var addButton = new MaterialButton();
             addButton.setIcon(Icons.ATTACH_FILE);
-            addButton.setToolTipText("Add content to workspace");
+            addButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
             addButton.setFocusable(false);
             addButton.setOpaque(false);
             addButton.addActionListener(e -> {
                 attachContextViaDialog();
             });
+            // Keyboard shortcut: Cmd/Ctrl+Shift+A opens the Attach Context dialog
+            KeyboardShortcutUtil.registerGlobalShortcut(
+                    WorkspacePanel.this,
+                    KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
+                    "attachContext",
+                    () -> SwingUtilities.invokeLater(() -> {
+                        attachContextViaDialog();
+                    })
+            );
 
             // Wrap the button so it vertically centers nicely with the labels
             var buttonWrapper = new JPanel(new GridBagLayout());
@@ -2306,6 +2320,50 @@ public class WorkspacePanel extends JPanel {
         // Also update the global drop all menu item
         if (dropAllMenuItem != null) {
             dropAllMenuItem.setEnabled(true);
+        }
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        registerGlobalAttachDispatcher();
+    }
+
+    @Override
+    public void removeNotify() {
+        unregisterGlobalAttachDispatcher();
+        super.removeNotify();
+    }
+
+    private void registerGlobalAttachDispatcher() {
+        if (globalAttachDispatcher != null) return;
+
+        globalAttachDispatcher = new KeyEventDispatcher() {
+            @Override
+            public boolean dispatchKeyEvent(KeyEvent e) {
+                if (e.getID() != KeyEvent.KEY_PRESSED) return false;
+
+                int mods = e.getModifiersEx();
+                int shortcutMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // Cmd on macOS, Ctrl elsewhere
+                boolean hasShortcut = (mods & shortcutMask) != 0;
+                boolean hasShift = (mods & InputEvent.SHIFT_DOWN_MASK) != 0;
+
+                if (hasShortcut && hasShift && e.getKeyCode() == KeyEvent.VK_I) {
+                    SwingUtilities.invokeLater(() -> attachContextViaDialog());
+                    // Consume the event so focused components (e.g., terminal) don't handle it
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(globalAttachDispatcher);
+    }
+
+    private void unregisterGlobalAttachDispatcher() {
+        if (globalAttachDispatcher != null) {
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(globalAttachDispatcher);
+            globalAttachDispatcher = null;
         }
     }
 }
