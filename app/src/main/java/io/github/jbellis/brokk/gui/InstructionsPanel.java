@@ -678,6 +678,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     } catch (Exception ex) {
                                         logger.debug("Error updating branch label after branch creation", ex);
                                     }
+                                    // Update Project Files drawer title with the new branch name
+                                    GitUiUtil.updatePanelBorderWithBranch(chrome.getProjectFilesPanel(), "Project Files", sanitized);
                                     chrome.systemOutput("Created and checked out: " + sanitized);
                                 });
                             } catch (Exception ex) {
