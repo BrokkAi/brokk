@@ -235,4 +235,30 @@ class CompletionsFuzzyTest {
                         scoreMsg(pattern, textGappy, scoreGappy) + " vs "
                                 + scoreMsg(pattern, textMidWord, scoreMidWord)));
     }
+
+    @Test
+    @DisplayName("Lowercase pattern should match filename stems before lowercase extension")
+    void lowercaseStemMatchesBeforeExtension() {
+        var chromeMatcher = new FuzzyMatcher("chrome");
+        assertTrue(chromeMatcher.matches("chrome.ts"), "chrome should match chrome.ts");
+        assertNotEquals(Integer.MAX_VALUE, chromeMatcher.score("chrome.ts"), "chrome.ts score must not be MAX_VALUE");
+
+        var contextMatcher = new FuzzyMatcher("context");
+        assertTrue(contextMatcher.matches("context.json"), "context should match context.json");
+        assertNotEquals(
+                Integer.MAX_VALUE, contextMatcher.score("context.json"), "context.json score must not be MAX_VALUE");
+
+        var csTestMatcher = new FuzzyMatcher("cstest");
+        assertTrue(csTestMatcher.matches("cstest.rs"), "cstest should match cstest.rs");
+        assertNotEquals(Integer.MAX_VALUE, csTestMatcher.score("cstest.rs"), "cstest.rs score must not be MAX_VALUE");
+    }
+
+    @Test
+    @DisplayName("Simple lowercase should not match across nested-class dot separators")
+    void simpleLowercaseDoesNotCrossNestedSeparator() {
+        var matcher = new FuzzyMatcher("do");
+        // Names like Do.Re denote nested code units (dot before uppercase). Simple lowercase patterns shouldn't match
+        // across.
+        assertEquals(Integer.MAX_VALUE, matcher.score("Do.Re"), "Simple lowercase 'do' should not match 'Do.Re'");
+    }
 }
