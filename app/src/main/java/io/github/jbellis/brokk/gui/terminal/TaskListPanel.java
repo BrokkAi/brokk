@@ -108,6 +108,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable List<Integer> currentRunOrder = null;
     // Tracks which task rows are expanded to show full text; collapsed by default to two lines.
     private final LinkedHashSet<Integer> expandedIndices = new LinkedHashSet<>();
+    // Debounce single-click so it doesn't consume double-click edits.
+    private @Nullable Timer expandClickTimer = null;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 4));
@@ -124,7 +126,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
         list.setFixedCellHeight(-1);
-        list.setToolTipText("Double-click to edit");
+        list.setToolTipText("Click to expand/collapse. Double-click to edit");
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> {
@@ -426,7 +428,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Single-click toggles expand/collapse; double-click opens modal edit dialog
+        // Single-click toggles expand/collapse (debounced); double-click opens modal edit dialog.
+        // Debounce ensures a double-click doesn't trigger a prior single-click toggle.
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -438,10 +441,37 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (cell == null || !cell.contains(e.getPoint())) return;
 
                 if (e.getClickCount() == 2) {
+                    // Cancel pending single-click action and edit
+                    if (expandClickTimer != null) {
+                        expandClickTimer.stop();
+                        expandClickTimer = null;
+                    }
                     list.setSelectedIndex(index);
                     editSelected();
                 } else if (e.getClickCount() == 1) {
-                    toggleExpandedAt(index);
+                    // Schedule expand/collapse after the platform's double-click interval
+                    if (expandClickTimer != null) {
+                        expandClickTimer.stop();
+                    }
+                    int delay = 250;
+                    try {
+                        Object v = Toolkit.getDefaultToolkit().getDesktopProperty("awt.multiClickInterval");
+                        if (v instanceof Integer i) {
+                            delay = Math.max(120, Math.min(500, i));
+                        }
+                    } catch (Exception ignore) {
+                        // best-effort; keep reasonable default
+                    }
+                    final int rowIndex = index;
+                    expandClickTimer = new Timer(delay, ev -> {
+                        toggleExpandedAt(rowIndex);
+                        if (expandClickTimer != null) {
+                            expandClickTimer.stop();
+                            expandClickTimer = null;
+                        }
+                    });
+                    expandClickTimer.setRepeats(false);
+                    expandClickTimer.start();
                 }
             }
         });
@@ -1554,6 +1584,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         llmStateTimer.stop();
         runningFadeTimer.stop();
+        if (expandClickTimer != null) {
+            expandClickTimer.stop();
+            expandClickTimer = null;
+        }
         super.removeNotify();
     }
 
