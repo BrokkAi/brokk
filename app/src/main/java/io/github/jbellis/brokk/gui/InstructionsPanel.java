@@ -30,6 +30,7 @@ import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandButton;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -606,13 +607,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     IGitRepo r = project.getRepo();
                                     r.checkout(b);
                                     SwingUtilities.invokeLater(() -> {
-                                        try {
-                                            branchSplitButton.setText("branch: " + r.getCurrentBranch());
-                                        } catch (Exception ex) {
-                                            logger.debug("Error updating branch label after checkout", ex);
-                                        }
-                                        chrome.systemOutput("Checked out: " + b);
-                                    });
+                                try {
+                                    branchSplitButton.setText("branch: " + r.getCurrentBranch());
+                                } catch (Exception ex) {
+                                    logger.debug("Error updating branch label after checkout", ex);
+                                }
+                                // Update Project Files drawer title with the new branch name
+                                GitUiUtil.updatePanelBorderWithBranch(chrome.getProjectFilesPanel(), "Project Files", b);
+                                chrome.systemOutput("Checked out: " + b);
+                            });
                                 } catch (Exception ex) {
                                     logger.error("Error checking out branch {}", b, ex);
                                     SwingUtilities.invokeLater(
