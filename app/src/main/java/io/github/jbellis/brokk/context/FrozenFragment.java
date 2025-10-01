@@ -128,7 +128,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         if (isTextFragment) {
             return requireNonNullElse(textContent, "");
         } else {
-            return "[Image content]";
+            return "[Image content provided out of band]";
         }
     }
 

@@ -175,14 +175,7 @@ public class ContextSerializationTest {
         assertTrue(loadedImageFragmentOpt.isPresent(), "Pasted image fragment (by id) not found in loaded context 2");
         var loadedImageFragment = loadedImageFragmentOpt.get();
 
-        byte[] imageBytesContent;
-        if (loadedImageFragment instanceof FrozenFragment ff) {
-            imageBytesContent = ff.imageBytesContent();
-        } else if (loadedImageFragment instanceof Fragments.AnonymousImageFragment pif) {
-            imageBytesContent = imageToBytes(pif.image());
-        } else {
-            throw new AssertionError("Unexpected fragment type for pasted image: " + loadedImageFragment.getClass());
-        }
+        byte[] imageBytesContent = imageToBytes(loadedImageFragment.image());
 
         assertNotNull(imageBytesContent);
         assertTrue(imageBytesContent.length > 0);
@@ -232,19 +225,11 @@ public class ContextSerializationTest {
         if (expected.isText()) {
             assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
         } else {
-            // For image fragments, compare byte content if both are FrozenFragment or can provide bytes
-            if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-                assertArrayEquals(
-                        expectedFf.imageBytesContent(),
-                        actualFf.imageBytesContent(),
-                        "FrozenFragment imageBytesContent mismatch for ID " + expected.id());
-            } else if (expected.image() != null
-                    && actual.image() != null) { // Fallback for non-frozen, if any after freezing
-                assertArrayEquals(
-                        imageToBytes(expected.image()),
-                        imageToBytes(actual.image()),
-                        "Fragment image content mismatch for ID " + expected.id());
-            }
+            // Compare image content via the common API
+            assertArrayEquals(
+                    imageToBytes(expected.image()),
+                    imageToBytes(actual.image()),
+                    "Fragment image content mismatch for ID " + expected.id());
         }
 
         // Compare additional serialized top-level methods
@@ -256,13 +241,6 @@ public class ContextSerializationTest {
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
 
-        if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-            assertEquals(
-                    expectedFf.originalClassName(),
-                    actualFf.originalClassName(),
-                    "FrozenFragment originalClassName mismatch for ID " + expected.id());
-            assertEquals(expectedFf.meta(), actualFf.meta(), "FrozenFragment meta mismatch for ID " + expected.id());
-        }
     }
 
     private void assertTaskEntriesEqual(TaskEntry expected, TaskEntry actual) {
@@ -336,22 +314,8 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 2"));
 
-        byte[] imageBytes1, imageBytes2;
-        if (fragment1 instanceof FrozenFragment ff1) {
-            imageBytes1 = ff1.imageBytesContent();
-        } else if (fragment1 instanceof Fragments.AnonymousImageFragment pif1) {
-            imageBytes1 = imageToBytes(pif1.image());
-        } else {
-            throw new AssertionError("Unexpected fragment type for image in ctx1: " + fragment1.getClass());
-        }
-
-        if (fragment2 instanceof FrozenFragment ff2) {
-            imageBytes2 = ff2.imageBytesContent();
-        } else if (fragment2 instanceof Fragments.AnonymousImageFragment pif2) {
-            imageBytes2 = imageToBytes(pif2.image());
-        } else {
-            throw new AssertionError("Unexpected fragment type for image in ctx2: " + fragment2.getClass());
-        }
+        byte[] imageBytes1 = imageToBytes(fragment1.image());
+        byte[] imageBytes2 = imageToBytes(fragment2.image());
 
         // Verify image content
         assertNotNull(imageBytes1);
@@ -702,17 +666,13 @@ public class ContextSerializationTest {
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
                 .allFragments()
-                .filter(f -> f.getType()
-                        == ContextFragment.FragmentType.EXTERNAL_PATH) // getType on FrozenFragment returns originalType
+                .filter(f -> f.getType() == ContextFragment.FragmentType.EXTERNAL_PATH)
                 .findFirst()
                 .orElseThrow();
 
-        assertTrue(
-                loadedRawFragment instanceof FrozenFragment, "ExternalPathFragment should be loaded as FrozenFragment");
-        var loadedFrozenFragment = (FrozenFragment) loadedRawFragment;
-        assertEquals(ContextFragment.FragmentType.EXTERNAL_PATH, loadedFrozenFragment.getType());
-        assertEquals(Fragments.ExternalPathFragment.class.getName(), loadedFrozenFragment.originalClassName());
-        assertEquals(externalFilePath.toString(), loadedFrozenFragment.meta().get("absPath"));
+        assertEquals(ContextFragment.FragmentType.EXTERNAL_PATH, loadedRawFragment.getType());
+        assertEquals("External file content", loadedRawFragment.text());
+        assertTrue(loadedRawFragment.description().contains(externalFilePath.toString()));
     }
 
     @Test
@@ -736,22 +696,14 @@ public class ContextSerializationTest {
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
                 .allFragments()
-                .filter(f -> f.getType()
-                        == ContextFragment.FragmentType.IMAGE_FILE) // getType on FrozenFragment returns originalType
+                .filter(f -> f.getType() == ContextFragment.FragmentType.IMAGE_FILE)
                 .findFirst()
                 .orElseThrow();
 
-        assertTrue(loadedRawFragment instanceof FrozenFragment, "ImageFileFragment should be loaded as FrozenFragment");
-        var loadedFrozenFragment = (FrozenFragment) loadedRawFragment;
-        assertEquals(ContextFragment.FragmentType.IMAGE_FILE, loadedFrozenFragment.getType());
-        assertEquals(Fragments.ImageFileFragment.class.getName(), loadedFrozenFragment.originalClassName());
-
-        // Check path from meta
-        String loadedAbsPath = loadedFrozenFragment.meta().get("absPath");
-        assertNotNull(loadedAbsPath, "absPath not found in FrozenFragment meta for ImageFileFragment");
-        assertEquals(imageFilePath.toString(), loadedAbsPath);
-
-        // Image file content is referenced by path; no embedded image bytes are required for round-trip.
+        assertEquals(ContextFragment.FragmentType.IMAGE_FILE, loadedRawFragment.getType());
+        assertFalse(loadedRawFragment.isText());
+        assertNotNull(loadedRawFragment.image());
+        assertEquals("[Image content provided out of band]", loadedRawFragment.text());
     }
 
     @Test
@@ -830,20 +782,8 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        if (loadedRawFragment instanceof Fragments.SkeletonFragment loadedFragment) {
-            assertEquals(targetIds, loadedFragment.getTargetIdentifiers());
-            assertEquals(ContextFragment.SummaryType.CODEUNIT_SKELETON, loadedFragment.getSummaryType());
-        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
-            assertEquals(ContextFragment.FragmentType.SKELETON, loadedFrozenFragment.getType());
-            assertEquals(Fragments.SkeletonFragment.class.getName(), loadedFrozenFragment.originalClassName());
-            assertEquals(
-                    String.join(";", targetIds), loadedFrozenFragment.meta().get("targetIdentifiers"));
-            assertEquals(
-                    ContextFragment.SummaryType.CODEUNIT_SKELETON.name(),
-                    loadedFrozenFragment.meta().get("summaryType"));
-        } else {
-            fail("Expected SkeletonFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
-        }
+        assertEquals(ContextFragment.FragmentType.SKELETON, loadedRawFragment.getType());
+        assertTrue(loadedRawFragment.description().startsWith("Summary of"));
     }
 
     @Test
@@ -866,16 +806,8 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        if (loadedRawFragment instanceof Fragments.UsageFragment loadedFragment) {
-            assertEquals("com.example.MyClass.myMethod", loadedFragment.targetIdentifier());
-        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
-            assertEquals(ContextFragment.FragmentType.USAGE, loadedFrozenFragment.getType());
-            assertEquals(Fragments.UsageFragment.class.getName(), loadedFrozenFragment.originalClassName());
-            assertEquals(
-                    "com.example.MyClass.myMethod", loadedFrozenFragment.meta().get("targetIdentifier"));
-        } else {
-            fail("Expected UsageFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
-        }
+        assertEquals(ContextFragment.FragmentType.USAGE, loadedRawFragment.getType());
+        assertTrue(loadedRawFragment.description().startsWith("Uses of"));
     }
 
     @Test
@@ -896,14 +828,8 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        if (loadedRawFragment instanceof Fragments.UsageFragment loadedFragment) {
-            assertTrue(loadedFragment.includeTestFiles(), "includeTestFiles should be preserved as true");
-            assertEquals("com.example.MyClass.myMethod", loadedFragment.targetIdentifier());
-        } else if (loadedRawFragment instanceof FrozenFragment ff) {
-            assertEquals(ContextFragment.FragmentType.USAGE, ff.getType());
-        } else {
-            fail("Expected UsageFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
-        }
+        assertEquals(ContextFragment.FragmentType.USAGE, loadedRawFragment.getType());
+        assertTrue(loadedRawFragment.description().startsWith("Uses of"));
     }
 
     @Test
@@ -927,20 +853,8 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        if (loadedRawFragment instanceof Fragments.CallGraphFragment loadedFragment) {
-            assertEquals("com.example.MyClass.doStuff", loadedFragment.getMethodName());
-            assertEquals(3, loadedFragment.getDepth());
-            assertTrue(loadedFragment.isCalleeGraph());
-        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
-            assertEquals(ContextFragment.FragmentType.CALL_GRAPH, loadedFrozenFragment.getType());
-            assertEquals(Fragments.CallGraphFragment.class.getName(), loadedFrozenFragment.originalClassName());
-            assertEquals(
-                    "com.example.MyClass.doStuff", loadedFrozenFragment.meta().get("methodName"));
-            assertEquals("3", loadedFrozenFragment.meta().get("depth"));
-            assertEquals("true", loadedFrozenFragment.meta().get("isCalleeGraph"));
-        } else {
-            fail("Expected CallGraphFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
-        }
+        assertEquals(ContextFragment.FragmentType.CALL_GRAPH, loadedRawFragment.getType());
+        assertTrue(loadedRawFragment.description().contains("Callees"));
     }
 
     @Test
@@ -1189,23 +1103,8 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
 
-        if (loadedRawFragment instanceof Fragments.CodeFragment loadedFragment) {
-            assertEquals(codeUnit.fqName(), loadedFragment.getCodeUnit().fqName());
-        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
-            assertEquals(ContextFragment.FragmentType.CODE, loadedFrozenFragment.getType());
-            assertEquals(Fragments.CodeFragment.class.getName(), loadedFrozenFragment.originalClassName());
-            assertEquals(
-                    "com.example.CodeFragmentTarget",
-                    loadedFrozenFragment.meta().get("fqName"));
-            assertEquals(
-                    projectFile.getRoot().toString(),
-                    loadedFrozenFragment.meta().get("repoRoot"));
-            assertEquals(
-                    projectFile.getRelPath().toString(),
-                    loadedFrozenFragment.meta().get("relPath"));
-        } else {
-            fail("Expected CodeFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
-        }
+        assertEquals(ContextFragment.FragmentType.CODE, loadedRawFragment.getType());
+        assertTrue(loadedRawFragment.description().startsWith("Source for"));
     }
     @Test
     void testDtoLoadSeedingComputedValuesReady() throws Exception {

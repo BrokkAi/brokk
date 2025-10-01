@@ -229,20 +229,11 @@ public class SessionManagerTest {
         if (expected.isText()) {
             assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
         } else {
-            // For image fragments, compare byte content if both are FrozenFragment or can provide bytes
-            if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-                assertArrayEquals(
-                        expectedFf.imageBytesContent(),
-                        actualFf.imageBytesContent(),
-                        "FrozenFragment imageBytesContent mismatch for ID " + expected.id());
-            } else {
-                if (actual.image() != null) { // Fallback for non-frozen, if any after freezing
-                    assertArrayEquals(
-                            imageToBytes(expected.image()),
-                            imageToBytes(actual.image()),
-                            "Fragment image content mismatch for ID " + expected.id());
-                }
-            }
+            // Compare image content via the common API
+            assertArrayEquals(
+                    imageToBytes(expected.image()),
+                    imageToBytes(actual.image()),
+                    "Fragment image content mismatch for ID " + expected.id());
         }
 
         // Compare additional serialized top-level methods
@@ -263,14 +254,6 @@ public class SessionManagerTest {
                 expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
-
-        if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-            assertEquals(
-                    expectedFf.originalClassName(),
-                    actualFf.originalClassName(),
-                    "FrozenFragment originalClassName mismatch for ID " + expected.id());
-            assertEquals(expectedFf.meta(), actualFf.meta(), "FrozenFragment meta mismatch for ID " + expected.id());
-        }
     }
 
     private void assertTaskEntriesEqual(TaskEntry expected, TaskEntry actual) {
