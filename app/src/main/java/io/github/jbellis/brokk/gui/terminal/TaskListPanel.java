@@ -806,39 +806,42 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         Executor edt = SwingUtilities::invokeLater;
 
         sessionManager.readTaskList(sid)
-                .thenAcceptAsync(data -> {
-                    try {
-                        // Ignore stale results if the session has changed since this request started
-                        if (!sid.equals(this.sessionIdAtLoad)) {
-                            return;
-                        }
-                        model.clear();
-                        for (io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto dto : data.tasks()) {
-                            if (!dto.text().isBlank()) {
-                                model.addElement(new TaskItem(dto.text(), dto.done()));
+                .whenComplete((data, ex) -> {
+                    if (ex != null) {
+                        logger.debug("Failed loading tasks for session {}", sid, ex);
+                        edt.execute(() -> {
+                            try {
+                                if (!sid.equals(this.sessionIdAtLoad)) {
+                                    return;
+                                }
+                                model.clear();
+                                clearExpansionOnStructureChange();
+                                updateButtonStates();
+                                chrome.toolError("Unable to load task list: " + ex.getMessage(), "Task List");
+                            } finally {
+                                isLoadingTasks = false;
                             }
-                        }
-                        clearExpansionOnStructureChange();
-                        updateButtonStates();
-                    } finally {
-                        isLoadingTasks = false;
+                        });
+                    } else {
+                        edt.execute(() -> {
+                            try {
+                                // Ignore stale results if the session has changed since this request started
+                                if (!sid.equals(this.sessionIdAtLoad)) {
+                                    return;
+                                }
+                                model.clear();
+                                for (io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto dto : data.tasks()) {
+                                    if (!dto.text().isBlank()) {
+                                        model.addElement(new TaskItem(dto.text(), dto.done()));
+                                    }
+                                }
+                                clearExpansionOnStructureChange();
+                                updateButtonStates();
+                            } finally {
+                                isLoadingTasks = false;
+                            }
+                        });
                     }
-                }, edt)
-                .exceptionally(ex -> {
-                    logger.debug("Failed loading tasks for session {}", sid, ex);
-                    edt.execute(() -> {
-                        try {
-                            if (!sid.equals(this.sessionIdAtLoad)) {
-                                return;
-                            }
-                            model.clear();
-                            clearExpansionOnStructureChange();
-                            updateButtonStates();
-                        } finally {
-                            isLoadingTasks = false;
-                        }
-                    });
-                    return null;
                 });
     }
 
@@ -862,10 +865,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var data = new io.github.jbellis.brokk.sessions.TaskListStore.TaskListData(java.util.List.copyOf(dtos));
 
         final UUID sidFinal = sid;
-        sessionManager.writeTaskList(sidFinal, data).exceptionally(ex -> {
-            logger.debug("Failed saving tasks for session {}", sidFinal, ex);
-            return null;
-        });
+        Executor edt = SwingUtilities::invokeLater;
+        sessionManager.writeTaskList(sidFinal, data)
+                .whenComplete((ignored, ex) -> {
+                    if (ex != null) {
+                        logger.debug("Failed saving tasks for session {}", sidFinal, ex);
+                        edt.execute(() -> chrome.toolError("Unable to save task list: " + ex.getMessage(), "Task List"));
+                    }
+                });
     }
 
     /** Append a collection of tasks to the end of the current list and persist them for the active session. */
