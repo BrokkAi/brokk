@@ -140,6 +140,7 @@ public class Fragments {
     public static class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final String text;
         private final ComputedValue<String> syntaxCv;
+        private final ComputedValue<String> textCv;
         protected transient Future<String> syntaxStyleFuture;
 
         public PasteTextFragment(
@@ -169,6 +170,7 @@ public class Fragments {
                     },
                     true,
                     ContextFragment.getFragmentExecutor());
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
         }
 
         public PasteTextFragment(
@@ -191,6 +193,7 @@ public class Fragments {
                     },
                     true,
                     ContextFragment.getFragmentExecutor());
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
         }
 
         // Pre-seeded constructor to avoid recomputation when loading from history
@@ -204,6 +207,7 @@ public class Fragments {
             this.syntaxStyleFuture = CompletableFuture.completedFuture(precomputedSyntaxStyle);
             this.text = text;
             this.syntaxCv = ComputedValue.completed("paste-syntax-" + id(), precomputedSyntaxStyle);
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
         }
 
         @Override
@@ -224,6 +228,10 @@ public class Fragments {
             return syntaxCv;
         }
 
+        public ComputedValue<String> computedText() {
+            return textCv;
+        }
+
         @Override
         public String text() {
             return text;
@@ -238,6 +246,8 @@ public class Fragments {
     public static class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final Image image;
         private final ComputedValue<byte[]> imageBytesCv;
+        private final ComputedValue<String> textCv;
+        private final ComputedValue<String> syntaxCv;
 
         // Helper to get image bytes, might throw UncheckedIOException
         @Nullable
@@ -283,6 +293,8 @@ public class Fragments {
                     () -> imageToBytes(image),
                     true,
                     ContextFragment.getFragmentExecutor());
+            this.textCv = ComputedValue.completed("paste-image-text-" + id(), text());
+            this.syntaxCv = ComputedValue.completed("paste-image-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -295,6 +307,8 @@ public class Fragments {
                     () -> imageToBytes(image),
                     true,
                     ContextFragment.getFragmentExecutor());
+            this.textCv = ComputedValue.completed("paste-image-text-" + id(), text());
+            this.syntaxCv = ComputedValue.completed("paste-image-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         // Pre-seeded constructor to avoid recomputation when loading from history
@@ -307,6 +321,8 @@ public class Fragments {
             super(existingHashId, contextManager, precomputedDescription);
             this.image = image;
             this.imageBytesCv = ComputedValue.completed("paste-image-bytes-" + id(), precomputedImageBytes);
+            this.textCv = ComputedValue.completed("paste-image-text-" + id(), text());
+            this.syntaxCv = ComputedValue.completed("paste-image-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         @Override
@@ -336,6 +352,14 @@ public class Fragments {
 
         public ComputedValue<byte[]> computedImageBytes() {
             return imageBytesCv;
+        }
+
+        public ComputedValue<String> computedText() {
+            return textCv;
+        }
+
+        public ComputedValue<String> computedSyntaxStyle() {
+            return syntaxCv;
         }
 
         @Override

@@ -1207,4 +1207,55 @@ public class ContextSerializationTest {
             fail("Expected CodeFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }
     }
+    @Test
+    void testDtoLoadSeedingComputedValuesReady() throws Exception {
+        // Build a history with paste text and image, serialize and read back
+        var pasteText = new Fragments.PasteTextFragment(
+                mockContextManager,
+                "Seeded text",
+                CompletableFuture.completedFuture("Seeded desc"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+
+        var img = createTestImage(Color.MAGENTA, 12, 12);
+        var pasteImage = new Fragments.AnonymousImageFragment(
+                mockContextManager, img, CompletableFuture.completedFuture("Seeded image"));
+
+        var context = new Context(mockContextManager, "Seeding test")
+                .addVirtualFragment(pasteText)
+                .addVirtualFragment(pasteImage);
+        var history = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("dto_load_seeding.zip");
+        HistoryIo.writeZip(history, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertEquals(1, loadedHistory.getHistory().size());
+        var loadedCtx = loadedHistory.getHistory().get(0);
+
+        var loadedPasteText = loadedCtx.virtualFragments()
+                .filter(f -> f instanceof Fragments.PasteTextFragment)
+                .map(f -> (Fragments.PasteTextFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        // Computed values should be available immediately after load
+        assertTrue(loadedPasteText.computedText().tryGet().isPresent(), "PasteText computedText should be ready");
+        assertTrue(loadedPasteText.computedDescription().tryGet().isPresent(), "PasteText computedDescription should be ready");
+        assertTrue(loadedPasteText.computedSyntaxStyle().tryGet().isPresent(), "PasteText computedSyntaxStyle should be ready");
+        // Repeated calls should remain ready (no recomputation)
+        assertTrue(loadedPasteText.computedText().tryGet().isPresent(), "PasteText computedText should remain ready");
+
+        var loadedPasteImage = loadedCtx.virtualFragments()
+                .filter(f -> f instanceof Fragments.AnonymousImageFragment)
+                .map(f -> (Fragments.AnonymousImageFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(loadedPasteImage.computedImageBytes().tryGet().isPresent(), "PasteImage computedImageBytes should be ready");
+        assertTrue(loadedPasteImage.computedDescription().tryGet().isPresent(), "PasteImage computedDescription should be ready");
+        assertTrue(loadedPasteImage.computedSyntaxStyle().tryGet().isPresent(), "PasteImage computedSyntaxStyle should be ready");
+        assertTrue(loadedPasteImage.computedText().tryGet().isPresent(), "PasteImage computedText should be ready");
+        // Repeat calls to ensure readiness remains
+        assertTrue(loadedPasteImage.computedImageBytes().tryGet().isPresent(), "PasteImage computedImageBytes should remain ready");
+    }
 }
