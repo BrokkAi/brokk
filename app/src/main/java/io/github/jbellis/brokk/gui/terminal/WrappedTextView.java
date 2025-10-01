@@ -23,7 +23,7 @@ public class WrappedTextView extends JComponent {
     private int contentHeight = 0;
     private boolean strikeThrough = false;
     private boolean expanded = false;
-    private int maxVisibleLines = 2;
+    private int maxVisibleLines = 3;
     private int topPadding = 0;
 
     public void setText(String text) {
@@ -138,24 +138,14 @@ public class WrappedTextView extends JComponent {
 
             var lines = wrapLines(text, fm, availableWidth);
             List<String> renderLines = lines;
-            if (!expanded && lines.size() > maxVisibleLines) {
+            if (!expanded && lines.size() >= maxVisibleLines) {
                 var tmp = new ArrayList<String>(maxVisibleLines);
-                int lastIdx = Math.max(0, maxVisibleLines - 1);
-                for (int i = 0; i < lastIdx; i++) {
+                int keepCount = Math.max(0, maxVisibleLines - 1);
+                for (int i = 0; i < keepCount; i++) {
                     tmp.add(lines.get(i));
                 }
-                String last = lines.get(lastIdx);
-                // Always indicate there is more content by appending an ellipsis when collapsed.
-                // If last + "..." fits, use it directly; otherwise, truncate to fit with ellipsis.
-                String ellipsis = ".....";
-                int ellipsisWidth = fm.stringWidth(ellipsis);
-                String lastWithEllipsis;
-                if (fm.stringWidth(last) + ellipsisWidth <= availableWidth) {
-                    lastWithEllipsis = last + ellipsis;
-                } else {
-                    lastWithEllipsis = addEllipsisToFit(last, fm, availableWidth);
-                }
-                tmp.add(lastWithEllipsis);
+                // Force the last visible line to be only ellipsis so it's guaranteed visible.
+                tmp.add(".....");
                 renderLines = tmp;
             }
 

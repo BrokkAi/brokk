@@ -106,10 +106,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
-    // Tracks which task rows are expanded to show full text; collapsed by default to two lines.
-    private final LinkedHashSet<Integer> expandedIndices = new LinkedHashSet<>();
-    // Debounce single-click so it doesn't consume double-click edits.
-    private @Nullable Timer expandClickTimer = null;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 4));
@@ -126,7 +122,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
         list.setFixedCellHeight(-1);
-        list.setToolTipText("Click to expand/collapse. Double-click to edit");
+        list.setToolTipText("Double-click to edit");
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> {
@@ -428,8 +424,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Single-click toggles expand/collapse (debounced); double-click opens modal edit dialog.
-        // Debounce ensures a double-click doesn't trigger a prior single-click toggle.
+        // Double-click opens modal edit dialog; single-click only selects.
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -441,37 +436,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (cell == null || !cell.contains(e.getPoint())) return;
 
                 if (e.getClickCount() == 2) {
-                    // Cancel pending single-click action and edit
-                    if (expandClickTimer != null) {
-                        expandClickTimer.stop();
-                        expandClickTimer = null;
-                    }
                     list.setSelectedIndex(index);
                     editSelected();
-                } else if (e.getClickCount() == 1) {
-                    // Schedule expand/collapse after the platform's double-click interval
-                    if (expandClickTimer != null) {
-                        expandClickTimer.stop();
-                    }
-                    int delay = 250;
-                    try {
-                        Object v = Toolkit.getDefaultToolkit().getDesktopProperty("awt.multiClickInterval");
-                        if (v instanceof Integer i) {
-                            delay = Math.max(120, Math.min(500, i));
-                        }
-                    } catch (Exception ignore) {
-                        // best-effort; keep reasonable default
-                    }
-                    final int rowIndex = index;
-                    expandClickTimer = new Timer(delay, ev -> {
-                        toggleExpandedAt(rowIndex);
-                        if (expandClickTimer != null) {
-                            expandClickTimer.stop();
-                            expandClickTimer = null;
-                        }
-                    });
-                    expandClickTimer.setRepeats(false);
-                    expandClickTimer.start();
                 }
             }
         });
@@ -1439,28 +1405,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      */
     private void clearExpansionOnStructureChange() {
         assert SwingUtilities.isEventDispatchThread();
-        if (expandedIndices.isEmpty()) return;
-        expandedIndices.clear();
         list.revalidate();
         list.repaint();
     }
 
-    private boolean isExpanded(int index) {
-        return expandedIndices.contains(index);
-    }
 
-    private void toggleExpandedAt(int index) {
-        if (index < 0 || index >= model.size()) return;
-        if (expandedIndices.contains(index)) {
-            expandedIndices.remove(index);
-        } else {
-            expandedIndices.add(index);
-        }
-        list.revalidate();
-        var rect = list.getCellBounds(index, index);
-        if (rect != null) list.repaint(rect);
-        else list.repaint();
-    }
 
     // endregion
 
@@ -1584,10 +1533,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         llmStateTimer.stop();
         runningFadeTimer.stop();
-        if (expandClickTimer != null) {
-            expandClickTimer.stop();
-            expandClickTimer = null;
-        }
         super.removeNotify();
     }
 
@@ -1617,7 +1562,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             add(check, BorderLayout.WEST);
 
             view.setOpaque(false);
-            view.setMaxVisibleLines(2);
+            view.setMaxVisibleLines(3);
             add(view, BorderLayout.CENTER);
         }
 
@@ -1644,9 +1589,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
-            boolean expandedRow = TaskListPanel.this.isExpanded(index);
-            view.setExpanded(expandedRow);
-            view.setMaxVisibleLines(2);
+            view.setExpanded(false);
+            view.setMaxVisibleLines(3);
 
             // Set text
             view.setText(value.text());
@@ -1683,9 +1627,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     : "minHeight must remain Math.max(contentH, 48) to keep wrapping stable";
             // Add a descent-based buffer when expanded to ensure the bottom line is never clipped.
             // Using the font descent gives a robust buffer across LAFs and DPI settings.
-            var fmCell = list.getFontMetrics(view.getFont());
-            int extraBuffer = expandedRow ? Math.max(2, fmCell.getDescent()) : 0;
-            int heightToSet = minHeight + extraBuffer;
+            int heightToSet = minHeight;
             this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, heightToSet));
 
             // Vertically center the text within the row by applying top padding as a paint offset.
