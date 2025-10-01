@@ -472,6 +472,24 @@ public class SessionManager implements AutoCloseable {
     /**
      * Asynchronously write the task list for a session, serialized per session key.
      * Stores tasklist.json inside the session's zip file.
+     *
+     * <p>Concurrency: this uses {@link SerialByKeyExecutor} with the session UUID string as the key:
+     * calls for the same session are executed in submission order, while calls for different sessions
+     * run in parallel. This mirrors how manifest/history writes are handled elsewhere in this class.
+     *
+     * <pre>{@code
+     * // All I/O for a given sessionId runs serially with respect to that same sessionId:
+     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
+     *     // ... open the session zip and write tasklist.json ...
+     *     return null;
+     * });
+     *
+     * // A different sessionId can proceed concurrently on the same underlying ExecutorService:
+     * sessionExecutorByKey.submit(otherSessionId.toString(), () -> {
+     *     // ... independent I/O for another session ...
+     *     return null;
+     * });
+     * }</pre>
      */
     public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskListData data) {
         Path zipPath = getSessionHistoryPath(sessionId);
@@ -492,6 +510,18 @@ public class SessionManager implements AutoCloseable {
     /**
      * Asynchronously read the task list for a session, serialized per session key.
      * Reads tasklist.json from the session's zip file. Returns an empty list if not present.
+     *
+     * <p>Concurrency: submitted via {@link SerialByKeyExecutor} using {@code sessionId.toString()} so
+     * reads of the same session are ordered with respect to writes/reads for that session, while reads
+     * on different sessions may run in parallel.
+     *
+     * <pre>{@code
+     * // Serialized with other work for the same session:
+     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
+     *     // ... open the session zip and read tasklist.json ...
+     *     return new TaskListData(List.of());
+     * });
+     * }</pre>
      */
     public CompletableFuture<TaskListData> readTaskList(UUID sessionId) {
         Path zipPath = getSessionHistoryPath(sessionId);
