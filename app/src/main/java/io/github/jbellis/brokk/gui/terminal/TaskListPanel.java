@@ -1576,60 +1576,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Ensures an expanded row is fully visible. Retries a few times to allow the list layout to recompute the new cell
-     * height after expansion before attempting to resize the window.
-     */
-    private void ensureExpandedRowFullyVisible(int index, int attempt) {
-        assert SwingUtilities.isEventDispatchThread();
-        if (index < 0 || index >= model.getSize()) return;
-
-        boolean expanded = expandedIndices.contains(index);
-        var cell = list.getCellBounds(index, index);
-        if (cell == null) return;
-
-        var parent = list.getParent();
-        if (!(parent instanceof javax.swing.JViewport vp)) {
-            // Fallback: best we can do is scroll to it.
-            list.scrollRectToVisible(cell);
-            return;
-        }
-
-        int viewportHeight = vp.getExtentSize().height;
-
-        // Give BasicListUI a few chances to recompute the larger preferred height after expansion.
-        if (expanded && attempt < 5) {
-            // If the cell still does not exceed the viewport (common before re-layout), try again.
-            if (cell.height <= viewportHeight) {
-                SwingUtilities.invokeLater(() -> ensureExpandedRowFullyVisible(index, attempt + 1));
-                // Still make sure the row is visible in case it was near the edge.
-                list.scrollRectToVisible(cell);
-                return;
-            }
-        }
-
-        if (expanded && cell.height > viewportHeight) {
-            var window = SwingUtilities.getWindowAncestor(TaskListPanel.this);
-            if (window != null) {
-                int delta = cell.height - viewportHeight + 16; // small margin
-                int currentHeight = window.getHeight();
-                int desired = currentHeight + delta;
-
-                var screen = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
-                int maxHeight = Math.max(100, screen.height - 32); // keep some screen margin
-                int newHeight = Math.min(desired, maxHeight);
-
-                if (newHeight > currentHeight) {
-                    window.setSize(window.getWidth(), newHeight);
-                    window.validate();
-                }
-            }
-        }
-
-        // Ensure the (now expanded) row is visible.
-        list.scrollRectToVisible(cell);
-    }
-
-    /**
      * Clears all per-row expansion state. Call this after structural changes that may affect row indices (e.g.,
      * reorders) to avoid stale mappings.
      */
