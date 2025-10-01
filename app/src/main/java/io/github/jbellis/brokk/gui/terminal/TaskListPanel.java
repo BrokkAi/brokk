@@ -1579,9 +1579,26 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         Color bg;
         Color fg;
+
         if (isSelectedRow) {
             Color selBg = list.getSelectionBackground();
             Color selFg = list.getSelectionForeground();
+
+            if (selBg == null) selBg = UIManager.getColor("List.selectionBackground");
+            if (selFg == null) selFg = UIManager.getColor("List.selectionForeground");
+
+            if (selBg == null || selFg == null) {
+                // Derive sensible defaults similar to TaskListPanel.applyTheme
+                Color baseBg = list.getBackground();
+                int r = baseBg.getRed();
+                int g = baseBg.getGreen();
+                int b = baseBg.getBlue();
+                double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                boolean dark = luminance < 128.0;
+                if (selBg == null) selBg = dark ? new Color(60, 90, 140) : new Color(200, 220, 255);
+                if (selFg == null) selFg = dark ? Color.WHITE : Color.BLACK;
+            }
+
             bg = selBg != null ? selBg : list.getBackground();
             fg = selFg != null ? selFg : list.getForeground();
         } else {
