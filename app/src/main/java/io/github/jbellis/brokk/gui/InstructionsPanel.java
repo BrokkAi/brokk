@@ -607,15 +607,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     IGitRepo r = project.getRepo();
                                     r.checkout(b);
                                     SwingUtilities.invokeLater(() -> {
-                                try {
-                                    branchSplitButton.setText("branch: " + r.getCurrentBranch());
-                                } catch (Exception ex) {
-                                    logger.debug("Error updating branch label after checkout", ex);
-                                }
-                                // Update Project Files drawer title with the new branch name
-                                GitUiUtil.updatePanelBorderWithBranch(chrome.getProjectFilesPanel(), "Project Files", b);
-                                chrome.systemOutput("Checked out: " + b);
-                            });
+                    try {
+                        branchSplitButton.setText("branch: " + r.getCurrentBranch());
+                    } catch (Exception ex) {
+                        logger.debug("Error updating branch label after checkout", ex);
+                    }
+                    // Update Project Files drawer title with the new branch name
+                    updateProjectFilesDrawerTitle(b);
+                    chrome.systemOutput("Checked out: " + b);
+                });
                                 } catch (Exception ex) {
                                     logger.error("Error checking out branch {}", b, ex);
                                     SwingUtilities.invokeLater(
@@ -679,7 +679,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                         logger.debug("Error updating branch label after branch creation", ex);
                                     }
                                     // Update Project Files drawer title with the new branch name
-                                    GitUiUtil.updatePanelBorderWithBranch(chrome.getProjectFilesPanel(), "Project Files", sanitized);
+                                    updateProjectFilesDrawerTitle(sanitized);
                                     chrome.systemOutput("Created and checked out: " + sanitized);
                                 });
                             } catch (Exception ex) {
@@ -1012,6 +1012,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             instructionsTitledBorder.setTitle(askMode ? "Instructions - Ask" : "Instructions - Code");
             revalidate();
             repaint();
+        }
+    }
+
+    /** Updates the Project Files drawer title to reflect the current Git branch. Ensures EDT execution. */
+    private void updateProjectFilesDrawerTitle(String branchName) {
+        var panel = chrome.getProjectFilesPanel();
+        if (SwingUtilities.isEventDispatchThread()) {
+            GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName);
+        } else {
+            SwingUtilities.invokeLater(() -> GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName));
         }
     }
 
