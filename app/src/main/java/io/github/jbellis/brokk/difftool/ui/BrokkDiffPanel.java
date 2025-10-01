@@ -1904,6 +1904,29 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return; // No change needed
         }
 
+        // Check for unsaved changes before switching views
+        if (hasUnsavedChanges()) {
+            Object[] options = {"Save All", "Discard", "Cancel"};
+            int choice = JOptionPane.showOptionDialog(
+                    this,
+                    "You have unsaved changes. Save or discard before switching views?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
+
+            if (choice == 0) { // Save All
+                saveAll();
+            } else if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) { // Cancel or X button
+                // Reset toggle to previous state
+                SwingUtilities.invokeLater(() -> viewModeToggle.setSelected(!useUnifiedView));
+                return; // Abort the view switch
+            }
+            // choice == 1 (Discard) - continue with switch, losing edits
+        }
+
         this.isUnifiedView = useUnifiedView;
         logger.debug("Switching to {} view mode", useUnifiedView ? "unified" : "side-by-side");
 
