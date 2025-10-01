@@ -133,7 +133,7 @@ public class WrappedTextView extends JComponent {
                     tmp.add(lines.get(i));
                 }
                 String last = lines.get(lastIdx);
-                String lastTruncated = truncateWithEllipsis(last, " ...", fm, availableWidth);
+                String lastTruncated = addEllipsisToFit(last, fm, availableWidth);
                 tmp.add(lastTruncated);
                 renderLines = tmp;
             }
@@ -239,29 +239,40 @@ public class WrappedTextView extends JComponent {
         return i;
     }
 
-    private String truncateWithEllipsis(String line, String suffix, FontMetrics fm, int maxWidth) {
-        String sfx = suffix.isEmpty() ? "..." : suffix;
+
+    /**
+     * Returns a version of the given line that fits within availableWidth. If the line
+     * would overflow, it is truncated and suffixed with "...". If even the suffix does
+     * not fit, returns an empty string. Uses binary search for predictable performance.
+     */
+    public static String addEllipsisToFit(String line, FontMetrics fm, int availableWidth) {
+        if (availableWidth <= 0) return "";
+
+        String sfx = "...";
         int sfxW = fm.stringWidth(sfx);
-        if (sfxW > maxWidth) {
+        if (sfxW > availableWidth) {
             return "";
         }
+
         int lineW = fm.stringWidth(line);
-        if (lineW + sfxW <= maxWidth) {
-            return line + sfx;
+        if (lineW <= availableWidth) {
+            return line;
         }
+
         int low = 0;
         int high = line.length();
         int best = -1;
         while (low <= high) {
             int mid = (low + high) >>> 1;
             int w = fm.stringWidth(line.substring(0, mid)) + sfxW;
-            if (w <= maxWidth) {
+            if (w <= availableWidth) {
                 best = mid;
                 low = mid + 1;
             } else {
                 high = mid - 1;
             }
         }
+
         if (best <= 0) {
             return sfx;
         }
