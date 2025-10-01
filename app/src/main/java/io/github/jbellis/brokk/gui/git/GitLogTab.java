@@ -790,7 +790,16 @@ public class GitLogTab extends JPanel {
                 }
 
                 // Refresh UI to reflect changes
-                SwingUtilities.invokeLater(this::update);
+                SwingUtilities.invokeLater(() -> {
+                    // Update commit/branch tables
+                    this.update();
+                    // Also refresh the branch selector + Project Files drawer title
+                    try {
+                        chrome.getInstructionsPanel().refreshBranchUi(repo.getCurrentBranch());
+                    } catch (GitAPIException ex) {
+                        logger.error("Error refreshing branch UI after merge: {}", ex.getMessage());
+                    }
+                });
             }
 
             return null;
