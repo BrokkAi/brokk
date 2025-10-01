@@ -139,35 +139,14 @@ public class DtoMapper {
             @Nullable Map<String, byte[]> imageBytesMap,
             ContentReader reader) {
         return switch (dto) {
-            case ProjectFileDto pfd -> {
-                var live = Fragments.ProjectPathFragment.withId(
+            case ProjectFileDto pfd ->
+                Fragments.ProjectPathFragment.withId(
                         new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
-                try {
-                    var frozen = (FrozenFragment) FrozenFragment.freeze(live, mgr);
-                    yield frozen;
-                } catch (Exception e) {
-                    // Fallback to live if freezing fails
-                    yield live;
-                }
-            }
-            case ExternalFileDto efd -> {
-                var live = Fragments.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
-                try {
-                    var frozen = (FrozenFragment) FrozenFragment.freeze(live, mgr);
-                    yield frozen;
-                } catch (Exception e) {
-                    yield live;
-                }
-            }
+            case ExternalFileDto efd ->
+                Fragments.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case ImageFileDto ifd -> {
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
-                var live = Fragments.ImageFileFragment.withId(file, ifd.id(), mgr);
-                try {
-                    var frozen = (FrozenFragment) FrozenFragment.freeze(live, mgr);
-                    yield frozen;
-                } catch (Exception e) {
-                    yield live;
-                }
+                yield Fragments.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
             case GitFileFragmentDto gfd ->
                 Fragments.GitFileFragment.withId(
@@ -176,6 +155,7 @@ public class DtoMapper {
                         reader.readContent(gfd.contentId()),
                         gfd.id());
             case FrozenFragmentDto ffd -> {
+                // Legacy: materialize FrozenFragment from DTO
                 yield FrozenFragment.fromDto(
                         ffd.id(),
                         mgr,

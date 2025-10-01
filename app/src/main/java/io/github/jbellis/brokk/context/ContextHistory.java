@@ -187,19 +187,6 @@ public class ContextHistory {
     }
 
     /**
-     * Processes external file changes using the refresh model. Builds a refreshed live context via
-     * copyAndRefresh(changed). If no changes are detected (same instance returned), no-op.
-     *
-     * If the current top context's action starts with "Load external changes", it updates the count and replaces it.
-     * Otherwise, it pushes a new context entry.
-     *
-     * @return The new frozen context if a change was made, otherwise null.
-     */
-    public synchronized @Nullable Context processExternalFileChangesIfNeeded() {
-        return processExternalFileChangesIfNeeded(Set.of());
-    }
-
-    /**
      * Processes external file changes using the refresh model with an explicit set of changed files.
      * Uses liveContext.copyAndRefresh(changed) to selectively refresh affected fragments.
      *
@@ -405,39 +392,21 @@ public class ContextHistory {
     }
 
     /**
-     * Builds a frozen snapshot Context from a live Context by converting dynamic fragments
-     * to FrozenFragment while preserving the original context ID, task history, parsedOutput,
-     * and action. Non-dynamic fragments are retained as-is.
+     * Builds a snapshot Context from a live Context without converting fragments.
+     * Dynamic fields should already be seeded via ensureComputedSnapshot; we persist
+     * the same fragment instances to avoid introducing FrozenFragment into in-memory history.
      */
     private Context toFrozenSnapshot(Context ctx) {
         var cm = ctx.getContextManager();
 
-        var frozenFragments = new java.util.ArrayList<ContextFragment>();
-        for (var fragment : ctx.allFragments().toList()) {
-            if (fragment instanceof FrozenFragment) {
-                frozenFragments.add(fragment);
-                continue;
-            }
+        // Identity snapshot: keep the same fragment instances.
+        var fragments = ctx.allFragments().toList();
 
-            if (fragment.isDynamic()) {
-                try {
-                    var ff = FrozenFragment.freeze(fragment, cm);
-                    frozenFragments.add(ff);
-                } catch (Exception e) {
-                    // On failure, fall back to keeping the original fragment
-                    logger.warn("Failed to freeze fragment {}: {}", fragment.id(), e.toString());
-                    frozenFragments.add(fragment);
-                }
-            } else {
-                frozenFragments.add(fragment);
-            }
-        }
-
-        var editable = frozenFragments.stream()
+        var editable = fragments.stream()
                 .filter(f -> f.getType().isPath())
                 .toList();
 
-        var virtuals = frozenFragments.stream()
+        var virtuals = fragments.stream()
                 .filter(f -> f.getType().isVirtual())
                 .map(f -> (ContextFragment.VirtualFragment) f)
                 .toList();

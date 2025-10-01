@@ -1360,7 +1360,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return true if context has changed, false otherwise
      */
     private boolean processExternalFileChangesIfNeeded() {
-        var newFrozenContext = contextHistory.processExternalFileChangesIfNeeded();
+        var newFrozenContext = contextHistory.processExternalFileChangesIfNeeded(project.getAllFiles());
         if (newFrozenContext != null) {
             contextPushed(newFrozenContext);
             return true;
