@@ -486,12 +486,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.remove(showAllLinesCheckBox);
 
         // Find the position where we want to insert the control
-        // This should be after the separator and horizontal strut, before the viewModeToggle
+        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
         int insertPosition = -1;
         Component[] components = toolBar.getComponents();
+
+        // If dev mode is enabled, insert before viewModeToggle; otherwise before captureDiffButton
+        Component targetComponent = isDevMode ? viewModeToggle : captureDiffButton;
         for (int i = 0; i < components.length; i++) {
-            if (components[i] == viewModeToggle) {
-                insertPosition = i - 1; // Insert before the horizontal strut that's before viewModeToggle
+            if (components[i] == targetComponent) {
+                insertPosition = i - 1; // Insert before the horizontal strut that precedes the target
                 break;
             }
         }
@@ -726,8 +729,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Add appropriate control based on view mode (will be updated dynamically)
         updateToolbarForViewMode();
 
-        toolBar.add(Box.createHorizontalStrut(10));
-        toolBar.add(viewModeToggle);
+        // Only show unified view toggle if dev mode is enabled
+        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+        if (isDevMode) {
+            toolBar.add(Box.createHorizontalStrut(10));
+            toolBar.add(viewModeToggle);
+        }
+
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
         toolBar.add(captureDiffButton);
 
