@@ -903,6 +903,46 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testRoundTripPasteImageFragment() throws Exception {
+        var image = createTestImage(Color.ORANGE, 16, 16);
+        var description = "Orange sample";
+        var fragment = new Fragments.AnonymousImageFragment(
+                mockContextManager, image, CompletableFuture.completedFuture(description));
+
+        var context = new Context(mockContextManager, "Test PasteImageFragment").addVirtualFragment(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_pasteimage_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertEquals(1, loadedHistory.getHistory().size());
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+
+        var loadedFragment = (Fragments.AnonymousImageFragment) loadedCtx
+                .virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PASTE_IMAGE)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(ContextFragment.FragmentType.PASTE_IMAGE, loadedFragment.getType());
+        assertFalse(loadedFragment.isText());
+
+        byte[] bytes = imageToBytes(loadedFragment.image());
+        assertNotNull(bytes);
+        assertTrue(bytes.length > 0);
+
+        var readBack = ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+        assertNotNull(readBack);
+        assertEquals(16, readBack.getWidth(null));
+        assertEquals(16, readBack.getHeight(null));
+
+        assertTrue(loadedFragment.description().startsWith("Paste of "));
+        assertTrue(loadedFragment.description().endsWith(description));
+        assertEquals(fragment.id(), loadedFragment.id());
+    }
+
+    @Test
     void testRoundTripStacktraceFragment() throws Exception {
         var projectFile = new ProjectFile(tempDir, "src/ErrorSource.java");
         Files.createDirectories(projectFile.absPath().getParent());
