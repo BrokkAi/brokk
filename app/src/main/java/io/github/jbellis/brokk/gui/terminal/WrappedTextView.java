@@ -133,8 +133,17 @@ public class WrappedTextView extends JComponent {
                     tmp.add(lines.get(i));
                 }
                 String last = lines.get(lastIdx);
-                String lastTruncated = addEllipsisToFit(last, fm, availableWidth);
-                tmp.add(lastTruncated);
+                // Always indicate there is more content by appending an ellipsis when collapsed.
+                // If last + "..." fits, use it directly; otherwise, truncate to fit with ellipsis.
+                String ellipsis = ".....";
+                int ellipsisWidth = fm.stringWidth(ellipsis);
+                String lastWithEllipsis;
+                if (fm.stringWidth(last) + ellipsisWidth <= availableWidth) {
+                    lastWithEllipsis = last + ellipsis;
+                } else {
+                    lastWithEllipsis = addEllipsisToFit(last, fm, availableWidth);
+                }
+                tmp.add(lastWithEllipsis);
                 renderLines = tmp;
             }
 
@@ -248,7 +257,7 @@ public class WrappedTextView extends JComponent {
     public static String addEllipsisToFit(String line, FontMetrics fm, int availableWidth) {
         if (availableWidth <= 0) return "";
 
-        String sfx = "...";
+        String sfx = ".....";
         int sfxW = fm.stringWidth(sfx);
         if (sfxW > availableWidth) {
             return "";

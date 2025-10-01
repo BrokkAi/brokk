@@ -1721,7 +1721,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             int minHeight = Math.max(contentH, 48);
             assert minHeight == Math.max(contentH, 48)
                     : "minHeight must remain Math.max(contentH, 48) to keep wrapping stable";
-            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, minHeight));
+            int heightToSet = minHeight + (expandedRow ? 2 : 0);
+            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, heightToSet));
 
             // Vertically center the text within the row by applying top padding as a paint offset.
             // We intentionally avoid changing layouts or switching to HTML so that wrapping remains predictable
