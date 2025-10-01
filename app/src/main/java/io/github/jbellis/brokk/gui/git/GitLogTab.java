@@ -731,9 +731,6 @@ public class GitLogTab extends JPanel {
                     }
                 }
                 refreshAllGitUi(currentActualBranch);
-
-                // Refresh the log tab view
-                update();
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -821,7 +818,6 @@ public class GitLogTab extends JPanel {
                 final String branchForUiRefreshFinal = branchForUiRefresh;
                 SwingUtilities.invokeLater(() -> {
                     // Update commit/branch tables
-                    this.update();
                     if (branchForUiRefreshFinal != null) {
                         refreshAllGitUi(branchForUiRefreshFinal);
                     }
@@ -888,7 +884,6 @@ public class GitLogTab extends JPanel {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
                     refreshAllGitUi(newName);
-                    update();
                     chrome.systemOutput(
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
