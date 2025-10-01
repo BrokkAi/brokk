@@ -412,6 +412,26 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var scroll =
                 new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         add(scroll, BorderLayout.CENTER);
+
+        // Recompute wrapping and ellipsis when the viewport/list width changes
+        var vp = scroll.getViewport();
+        vp.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                // Trigger layout and re-render so the renderer recalculates available width per row
+                list.revalidate();
+                list.repaint();
+            }
+        });
+        // Also listen on the JList itself in case LAF resizes the list directly
+        list.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                list.revalidate();
+                list.repaint();
+            }
+        });
+
         add(controls, BorderLayout.SOUTH);
 
         // Ensure correct initial layout with wrapped rows after the panel becomes visible
@@ -1603,12 +1623,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Compute wrapping height based on available width (with safe fallbacks for first render)
             int checkboxRegionWidth = 28;
-            int width = list.getWidth();
-            if (width <= 0) {
-                java.awt.Container parent = list.getParent();
-                if (parent instanceof javax.swing.JViewport vp) {
-                    width = vp.getWidth();
-                }
+            // Prefer the viewport's width — that's the visible region we should wrap to.
+            java.awt.Container parent = list.getParent();
+            int width;
+            if (parent instanceof javax.swing.JViewport vp) {
+                width = vp.getWidth();
+            } else {
+                width = list.getWidth();
             }
             if (width <= 0) {
                 // Final fallback to a reasonable width to avoid giant first row
