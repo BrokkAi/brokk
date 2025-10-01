@@ -14,9 +14,9 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
-import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Json;
 import java.awt.BorderLayout;
@@ -685,7 +685,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
         javax.swing.JDialog dialog = (owner != null)
                 ? new javax.swing.JDialog(owner, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL)
-                : new javax.swing.JDialog((java.awt.Window) null, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+                : new javax.swing.JDialog(
+                        (java.awt.Window) null, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
 
         javax.swing.JTextArea ta = new javax.swing.JTextArea(current.text());
         ta.setLineWrap(true);
@@ -693,7 +694,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         ta.setFont(list.getFont());
 
         javax.swing.JScrollPane sp = new javax.swing.JScrollPane(
-                ta, javax.swing.JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+                ta,
+                javax.swing.JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         sp.setPreferredSize(new java.awt.Dimension(520, 220));
 
         javax.swing.JPanel content = new javax.swing.JPanel(new java.awt.BorderLayout(6, 6));
@@ -735,10 +738,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         dialog.setVisible(true);
     }
-
-
-
-
 
     private void updateButtonStates() {
         boolean hasSelection = list.getSelectedIndex() >= 0;
@@ -1422,7 +1421,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .collect(Collectors.toList());
     }
 
-
     /**
      * Clears all per-row expansion state. Call this after structural changes that may affect row indices (e.g.,
      * reorders) to avoid stale mappings.
@@ -1434,10 +1432,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Nudge the list to recompute per-row preferred heights when the width changes,
-     * ensuring wrapping and the third-line "....." ellipsis are recalculated for visible rows.
-     * This avoids cases where the renderer wants to draw 3 lines but the UI has not yet
-     * updated the cached row heights, which would clip the ellipsis.
+     * Nudge the list to recompute per-row preferred heights when the width changes, ensuring wrapping and the
+     * third-line "....." ellipsis are recalculated for visible rows. This avoids cases where the renderer wants to draw
+     * 3 lines but the UI has not yet updated the cached row heights, which would clip the ellipsis.
      */
     private void forceRowHeightsRecalc() {
         // Defer to ensure the viewport/list have the final width before we nudge rows
@@ -1460,8 +1457,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
     }
-
-
 
     // endregion
 
