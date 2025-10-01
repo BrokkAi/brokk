@@ -465,13 +465,6 @@ public class Context {
                 CompletableFuture.completedFuture("Reset context to historical state"));
     }
 
-    @Deprecated
-    public Context freeze() {
-        // Temporary shim: ensure dynamic fields are computed, then return this live context.
-        ensureComputedSnapshot(Duration.ofSeconds(CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS));
-        return this;
-    }
-
     @SuppressWarnings("unchecked")
     public static <T extends ContextFragment> T unfreezeFragmentIfNeeded(T fragment, IContextManager contextManager) {
         if (fragment instanceof FrozenFragment frozen) {

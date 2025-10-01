@@ -133,7 +133,7 @@ public final class TestContextManager implements IContextManager {
 
     @Override
     public Context topContext() {
-        return liveContext().freeze();
+        return liveContext();
     }
 
     @Override

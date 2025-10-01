@@ -312,20 +312,7 @@ public final class ContextExplorer extends JFrame {
                     if (fragment.isText()) {
                         textContent = fragment.text();
                     } else {
-                        // For non-text fragments, try to get image
-                        // FrozenFragment is the common type coming from history for images
-                        if (fragment instanceof FrozenFragment ff) {
-                            imageContent = ff.image();
-                        } else if (fragment instanceof Fragments.ImageFileFragment ifd) {
-                            // If it's a live ImageFileFragment, try its image() method
-                            imageContent = ifd.image();
-                        } else if (fragment instanceof Fragments.AnonymousImageFragment aif) {
-                            imageContent = aif.image();
-                        } else {
-                            // If it's another non-text type, we can't display it directly as image or text
-                            textContent =
-                                    "Fragment type " + fragment.getType() + " is not a displayable image or text.";
-                        }
+                        imageContent = fragment.image();
                     }
                 } catch (Exception e) {
                     failed = true;
