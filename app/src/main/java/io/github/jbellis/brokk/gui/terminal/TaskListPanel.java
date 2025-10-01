@@ -426,19 +426,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Double‑click to edit via modal dialog (no inline editor/overlay)
+        // Single-click toggles expand/collapse; double-click opens modal edit dialog
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 if (!javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
 
+                int index = list.locationToIndex(e.getPoint());
+                if (index < 0) return;
+                java.awt.Rectangle cell = list.getCellBounds(index, index);
+                if (cell == null || !cell.contains(e.getPoint())) return;
+
                 if (e.getClickCount() == 2) {
-                    int index = list.locationToIndex(e.getPoint());
-                    if (index < 0) return;
-                    java.awt.Rectangle cell = list.getCellBounds(index, index);
-                    if (cell == null || !cell.contains(e.getPoint())) return;
                     list.setSelectedIndex(index);
                     editSelected();
+                } else if (e.getClickCount() == 1) {
+                    toggleExpandedAt(index);
                 }
             }
         });
@@ -1412,6 +1415,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.repaint();
     }
 
+    private boolean isExpanded(int index) {
+        return expandedIndices.contains(index);
+    }
+
+    private void toggleExpandedAt(int index) {
+        if (index < 0 || index >= model.size()) return;
+        if (expandedIndices.contains(index)) {
+            expandedIndices.remove(index);
+        } else {
+            expandedIndices.add(index);
+        }
+        list.revalidate();
+        var rect = list.getCellBounds(index, index);
+        if (rect != null) list.repaint(rect);
+        else list.repaint();
+    }
+
     // endregion
 
     /**
@@ -1590,9 +1610,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
-            // Always render collapsed; full preview is handled by a read-only overlay
-            boolean expandedRow = false;
-            view.setExpanded(false);
+            boolean expandedRow = TaskListPanel.this.isExpanded(index);
+            view.setExpanded(expandedRow);
             view.setMaxVisibleLines(2);
 
             // Set text
