@@ -17,6 +17,7 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
 import io.github.jbellis.brokk.util.Messages;
@@ -287,9 +288,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return btnUndo;
     }
 
-    private final MaterialButton btnUndo = new MaterialButton("Undo"); // Initialize to prevent NullAway issues
-    private final MaterialButton btnRedo = new MaterialButton("Redo");
-    private final MaterialButton btnSaveAll = new MaterialButton("Save");
+    private final MaterialButton btnUndo = new MaterialButton(); // Initialize to prevent NullAway issues
+    private final MaterialButton btnRedo = new MaterialButton();
+    private final MaterialButton btnSaveAll = new MaterialButton();
 
     // Components for undo/redo/save group that need to be hidden together
     private @Nullable Component undoRedoGroupSeparator;
@@ -297,11 +298,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private @Nullable Component undoRedoGroupStrutAfter1;
     private @Nullable Component undoRedoGroupStrutAfter2;
     private @Nullable Component undoRedoGroupStrutAfter3;
-    private final MaterialButton captureDiffButton = new MaterialButton("Capture Diff");
-    private final MaterialButton btnNext = new MaterialButton("Next Change");
-    private final MaterialButton btnPrevious = new MaterialButton("Previous Change");
-    private final MaterialButton btnPreviousFile = new MaterialButton("Previous File");
-    private final MaterialButton btnNextFile = new MaterialButton("Next File");
+    private final MaterialButton captureDiffButton = new MaterialButton();
+    private final MaterialButton btnNext = new MaterialButton();
+    private final MaterialButton btnPrevious = new MaterialButton();
+    private final MaterialButton btnPreviousFile = new MaterialButton();
+    private final MaterialButton btnNextFile = new MaterialButton();
     private final JLabel fileIndicatorLabel = new JLabel(""); // Initialize
 
     // Flag to track when layout hierarchy needs reset after navigation
@@ -471,16 +472,38 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Buttons are already initialized as fields
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
+        // Configure button icons and tooltips
+        btnNext.setIcon(Icons.NAVIGATE_NEXT);
+        btnNext.setToolTipText("Next Change");
         btnNext.addActionListener(e -> navigateToNextChange());
+
+        btnPrevious.setIcon(Icons.NAVIGATE_BEFORE);
+        btnPrevious.setToolTipText("Previous Change");
         btnPrevious.addActionListener(e -> navigateToPreviousChange());
+
+        btnUndo.setIcon(Icons.UNDO);
+        btnUndo.setToolTipText("Undo");
         btnUndo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doUndo));
+
+        btnRedo.setIcon(Icons.REDO);
+        btnRedo.setToolTipText("Redo");
         btnRedo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doRedo));
+
+        btnSaveAll.setIcon(Icons.SAVE);
+        btnSaveAll.setToolTipText("Save");
         btnSaveAll.addActionListener(e -> saveAll());
 
         // File navigation handlers
+        btnPreviousFile.setIcon(Icons.CHEVRON_LEFT);
+        btnPreviousFile.setToolTipText("Previous File");
         btnPreviousFile.addActionListener(e -> previousFile());
+
+        btnNextFile.setIcon(Icons.CHEVRON_RIGHT);
+        btnNextFile.setToolTipText("Next File");
         btnNextFile.addActionListener(e -> nextFile());
 
+        captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
+        captureDiffButton.setToolTipText("Capture Diff");
         captureDiffButton.addActionListener(e -> {
             var bufferPanel = getBufferDiffPanel();
             if (bufferPanel == null) {
@@ -638,7 +661,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         String baseSaveText = fileComparisons.size() > 1 ? "Save All" : "Save";
-        btnSaveAll.setText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
+        btnSaveAll.setToolTipText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
         btnSaveAll.setEnabled(dirtyCount > 0);
 
         // Hide save button when all sides are read-only (like PR diffs)
