@@ -421,6 +421,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 // Trigger layout and re-render so the renderer recalculates available width per row
                 list.revalidate();
                 list.repaint();
+                // Force recalculation of variable row heights and ellipsis on width change
+                TaskListPanel.this.forceRowHeightsRecalc();
             }
         });
         // Also listen on the JList itself in case LAF resizes the list directly
@@ -429,6 +431,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             public void componentResized(java.awt.event.ComponentEvent e) {
                 list.revalidate();
                 list.repaint();
+                // Force recalculation of variable row heights and ellipsis on width change
+                TaskListPanel.this.forceRowHeightsRecalc();
             }
         });
 
@@ -1429,6 +1433,34 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.repaint();
     }
 
+    /**
+     * Nudge the list to recompute per-row preferred heights when the width changes,
+     * ensuring wrapping and the third-line "....." ellipsis are recalculated for visible rows.
+     * This avoids cases where the renderer wants to draw 3 lines but the UI has not yet
+     * updated the cached row heights, which would clip the ellipsis.
+     */
+    private void forceRowHeightsRecalc() {
+        // Defer to ensure the viewport/list have the final width before we nudge rows
+        SwingUtilities.invokeLater(() -> {
+            int first = list.getFirstVisibleIndex();
+            int last = list.getLastVisibleIndex();
+            int size = model.getSize();
+            if (first == -1 || last == -1 || size == 0) {
+                list.invalidate();
+                list.revalidate();
+                list.repaint();
+                return;
+            }
+            // Fire a lightweight contentsChanged for visible rows by setting each element to itself.
+            // This forces BasicListUI to recompute row heights for just the visible range.
+            for (int i = Math.max(0, first); i <= last && i < size; i++) {
+                TaskItem it = model.get(i);
+                // set the same object to trigger a change event without altering data
+                model.set(i, it);
+            }
+        });
+    }
+
 
 
     // endregion
@@ -1612,11 +1644,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             view.setExpanded(false);
             view.setMaxVisibleLines(3);
 
-            // Set text
-            view.setText(value.text());
-            view.setVisible(true);
-
-            // Font and strike-through
+            // Font and strike-through first (affects metrics)
             Font base = list.getFont();
             view.setFont(base.deriveFont(Font.PLAIN));
             view.setStrikeThrough(value.done());
@@ -1637,8 +1665,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             int available = Math.max(1, width - checkboxRegionWidth - 8);
 
-            // Measure content height for the width and compute minHeight invariant
+            // Apply width before text so measurement uses the correct wrap width immediately
             view.setAvailableWidth(available);
+
+            // Set text after width so measure() reflects current width and font
+            view.setText(value.text());
+            view.setVisible(true);
+
+            // Measure content height for the width and compute minHeight invariant
             int contentH = view.getContentHeight();
 
             // Ensure minimum height to show full checkbox icon and preserve wrapping behavior.
