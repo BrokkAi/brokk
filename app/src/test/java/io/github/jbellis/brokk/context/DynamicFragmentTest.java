@@ -9,7 +9,7 @@ import java.util.Optional;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.Test;
 
-public class DynamicFragmentDefaultsTest {
+public class DynamicFragmentTest {
 
     private static final IContextManager CM = new IContextManager() {};
 

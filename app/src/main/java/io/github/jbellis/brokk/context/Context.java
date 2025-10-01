@@ -569,7 +569,7 @@ public class Context {
         for (var f : fragments) {
             boolean shouldRefresh = false;
 
-            if (f instanceof DynamicFragment df) {
+            if (f instanceof ContextFragment.DynamicFragment df) {
                 // Paste fragments are refreshed whenever there are external changes to re-kick their ComputedValues
                 if (f instanceof ContextFragment.PasteTextFragment
                         || f instanceof ContextFragment.AnonymousImageFragment) {

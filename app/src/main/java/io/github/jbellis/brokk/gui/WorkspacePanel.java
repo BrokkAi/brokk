@@ -29,7 +29,6 @@ import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.StackTrace;
-import io.github.jbellis.brokk.context.DynamicFragment;
 import io.github.jbellis.brokk.context.DynamicSupport;
 import io.github.jbellis.brokk.util.ComputedValue;
 import java.awt.*;
@@ -590,7 +589,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         private static String nonBlockingDescription(ContextFragment fragment) {
-            if (fragment instanceof DynamicFragment df) {
+            if (fragment instanceof ContextFragment.DynamicFragment df) {
                 return DynamicSupport.renderNowOr("(Loading...)", df.computedDescription());
             }
             return fragment.description();
@@ -1374,7 +1373,7 @@ public class WorkspacePanel extends JPanel {
 
             // Compute description non-blocking
             String desc;
-            if (frag instanceof DynamicFragment df) {
+            if (frag instanceof ContextFragment.DynamicFragment df) {
                 desc = DynamicSupport.renderNowOr("(Loading...)", df.computedDescription());
             } else {
                 desc = frag.description();
@@ -1382,7 +1381,7 @@ public class WorkspacePanel extends JPanel {
 
             // Compute LOC non-blocking for text fragments; show "..." while pending
             if (frag.isText() || frag.getType().isOutput()) {
-                if (frag instanceof DynamicFragment df) {
+                if (frag instanceof ContextFragment.DynamicFragment df) {
                     var textOpt = df.computedText().tryGet();
                     if (textOpt.isPresent()) {
                         var text = textOpt.get();
@@ -2235,7 +2234,7 @@ public class WorkspacePanel extends JPanel {
 
     // Subscribe to ComputedValue completions for this fragment; repaint/rebuild when done
     private void subscribeToFragmentComputations(Context ctx, ContextFragment frag) {
-        if (!(frag instanceof DynamicFragment df)) {
+        if (!(frag instanceof ContextFragment.DynamicFragment df)) {
             return;
         }
         // Description

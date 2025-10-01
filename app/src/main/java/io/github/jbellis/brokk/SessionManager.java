@@ -33,7 +33,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.time.Duration;
 import java.util.function.Supplier;
-import io.github.jbellis.brokk.context.DynamicFragment;
+
 import io.github.jbellis.brokk.context.DynamicSupport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -377,7 +377,7 @@ public class SessionManager implements AutoCloseable {
         private void awaitDynamicFields(ContextHistory ch) {
             for (var ctx : ch.getHistory()) {
                 for (var f : ctx.allFragments().toList()) {
-                    if (f instanceof DynamicFragment df) {
+                    if (f instanceof ContextFragment.DynamicFragment df) {
                         // best-effort bounded waits
                         DynamicSupport.await(awaitTimeout, df.computedDescription());
                         DynamicSupport.await(awaitTimeout, df.computedSyntaxStyle());

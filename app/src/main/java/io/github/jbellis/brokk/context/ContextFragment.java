@@ -1,8 +1,5 @@
 package io.github.jbellis.brokk.context;
 
-import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.AnalyzerUtil.CodeWithSource;
@@ -10,26 +7,53 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
-import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
+import io.github.jbellis.brokk.analyzer.CallSite;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.ExternalFile;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
+import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
+import io.github.jbellis.brokk.analyzer.UsagesProvider;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
-import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.ComputedValue;
+import io.github.jbellis.brokk.util.FragmentUtils;
+import io.github.jbellis.brokk.util.LoggingExecutorService;
 import io.github.jbellis.brokk.util.Messages;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Nullable;
+
 import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.Collection;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
@@ -114,6 +138,25 @@ public interface ContextFragment {
 
     // Static counter for dynamic fragments
     AtomicInteger nextId = new AtomicInteger(1);
+
+    // Dedicated executor for ContextFragment async computations (separate from ContextManager backgroundTasks)
+    Logger logger = LogManager.getLogger(ContextFragment.class);
+
+    static LoggingExecutorService getFragmentExecutor() {
+        return FragmentExecutorHolder.INSTANCE;
+    }
+
+    final class FragmentExecutorHolder {
+        static final LoggingExecutorService INSTANCE = new LoggingExecutorService(
+                new ThreadPoolExecutor(
+                        4,
+                        Runtime.getRuntime().availableProcessors(),
+                        60L,
+                        TimeUnit.SECONDS,
+                        new LinkedBlockingQueue<>(),
+                        Executors.defaultThreadFactory()),
+                th -> logger.error("Uncaught exception in ContextFragment executor", th));
+    }
 
     /**
      * Gets the current max integer fragment ID used for generating new dynamic fragment IDs. Note: This refers to the
@@ -950,7 +993,7 @@ public interface ContextFragment {
                         }
                     },
                     true,
-                    contextManager.getBackgroundTasks());
+                    ContextFragment.getFragmentExecutor());
         }
 
         // Pre-seeded constructor to avoid recomputation when loading from history
@@ -1018,7 +1061,7 @@ public interface ContextFragment {
                         }
                     },
                     true,
-                    contextManager.getBackgroundTasks());
+                    ContextFragment.getFragmentExecutor());
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1051,7 +1094,7 @@ public interface ContextFragment {
                         }
                     },
                     true,
-                    contextManager.getBackgroundTasks());
+                    ContextFragment.getFragmentExecutor());
         }
 
         // Pre-seeded constructor to avoid recomputation when loading from history
@@ -1147,7 +1190,7 @@ public interface ContextFragment {
                     "paste-image-bytes-" + id(),
                     () -> imageToBytes(image),
                     true,
-                    contextManager.getBackgroundTasks());
+                    ContextFragment.getFragmentExecutor());
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1159,7 +1202,7 @@ public interface ContextFragment {
                     "paste-image-bytes-" + id(),
                     () -> imageToBytes(image),
                     true,
-                    contextManager.getBackgroundTasks());
+                    ContextFragment.getFragmentExecutor());
         }
 
         // Pre-seeded constructor to avoid recomputation when loading from history
@@ -2098,6 +2141,32 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
+        }
+    }
+
+    /**
+     * Non-breaking dynamic accessors for fragments that may compute values asynchronously.
+     * Default adapters should provide completed values based on current state so legacy
+     * call sites keep working without changes.
+     */
+    interface DynamicFragment {
+        ComputedValue<String> computedText();
+        ComputedValue<String> computedDescription();
+        ComputedValue<String> computedSyntaxStyle();
+
+        /**
+         * Optionally provide computed image payload; default is null for non-image fragments.
+         */
+        default @Nullable ComputedValue<byte[]> computedImageBytes() {
+            return null;
+        }
+
+        /**
+         * Return a copy with cleared ComputedValues; identity (id) is preserved by default.
+         * Implementations that track external state may override to trigger recomputation.
+         */
+        default ContextFragment refreshCopy() {
+            return (ContextFragment) this;
         }
     }
 }
