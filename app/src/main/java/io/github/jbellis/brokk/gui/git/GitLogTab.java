@@ -705,16 +705,31 @@ public class GitLogTab extends JPanel {
     private void checkoutBranch(String branchName) {
         contextManager.submitExclusiveAction(() -> {
             try {
-                if (!getRepo().listLocalBranches().contains(branchName)) {
+                var localBranches = getRepo().listLocalBranches();
+                var createdTracking = false;
+                var localTrackingName = branchName;
+
+                if (!localBranches.contains(branchName)) {
                     // If it's not a known local branch, assume it's remote or needs tracking.
+                    if (branchName.contains("/")) {
+                        localTrackingName = branchName.substring(branchName.indexOf('/') + 1);
+                    }
                     getRepo().checkoutRemoteBranch(branchName);
                     chrome.systemOutput("Created local tracking branch for " + branchName);
+                    createdTracking = true;
                 } else {
                     getRepo().checkout(branchName);
                 }
 
                 // After successful checkout, update branch selector and Project Files title on EDT
-                String currentActualBranch = getRepo().getCurrentBranch();
+                var currentActualBranch = getRepo().getCurrentBranch();
+                if (createdTracking) {
+                    // If JGit reports a non-local name (e.g. remote-ref or detached), use the expected local tracking name
+                    var localsAfter = getRepo().listLocalBranches();
+                    if (!localsAfter.contains(currentActualBranch)) {
+                        currentActualBranch = localTrackingName;
+                    }
+                }
                 refreshAllGitUi(currentActualBranch);
 
                 // Refresh the log tab view
