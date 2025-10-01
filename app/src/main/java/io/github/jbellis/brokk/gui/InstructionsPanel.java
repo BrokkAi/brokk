@@ -584,11 +584,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 if (project.hasGit()) {
                     IGitRepo repo = project.getRepo();
-                    List<String> branches;
+                    List<String> localBranches;
+                    List<String> remoteBranches;
                     if (repo instanceof GitRepo gitRepo) {
-                        branches = gitRepo.listLocalBranches();
+                        localBranches = gitRepo.listLocalBranches();
+                        remoteBranches = gitRepo.listRemoteBranches();
                     } else {
-                        branches = List.of();
+                        localBranches = List.of();
+                        remoteBranches = List.of();
                     }
                     String current = repo.getCurrentBranch();
 
@@ -599,7 +602,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         menu.add(new JSeparator());
                     }
 
-                    for (var b : branches) {
+                    // Local branches
+                    for (var b : localBranches) {
                         JMenuItem item = new JMenuItem(b);
                         item.addActionListener(ev -> {
                             // Checkout in background via ContextManager to get spinner/cancel behavior
@@ -608,16 +612,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     IGitRepo r = project.getRepo();
                                     r.checkout(b);
                                     SwingUtilities.invokeLater(() -> {
-                    try {
-                        var currentBranch = r.getCurrentBranch();
-                        var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                        refreshBranchUi(displayBranch);
-                    } catch (Exception ex) {
-                        logger.debug("Error updating branch UI after checkout", ex);
-                        refreshBranchUi(b);
-                    }
-                    chrome.systemOutput("Checked out: " + b);
-                });
+                                        try {
+                                            var currentBranch = r.getCurrentBranch();
+                                            var displayBranch = currentBranch.isBlank() ? b : currentBranch;
+                                            refreshBranchUi(displayBranch);
+                                        } catch (Exception ex) {
+                                            logger.debug("Error updating branch UI after checkout", ex);
+                                            refreshBranchUi(b);
+                                        }
+                                        chrome.systemOutput("Checked out: " + b);
+                                    });
                                 } catch (Exception ex) {
                                     logger.error("Error checking out branch {}", b, ex);
                                     SwingUtilities.invokeLater(
@@ -626,6 +630,63 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             });
                         });
                         menu.add(item);
+                    }
+
+                    // Remote branches
+                    if (!remoteBranches.isEmpty()) {
+                        menu.add(new JSeparator());
+                        JMenuItem remoteHeader = new JMenuItem("Remote branches");
+                        remoteHeader.setEnabled(false);
+                        menu.add(remoteHeader);
+
+                        for (var rb : remoteBranches) {
+                            // Skip symbolic refs like: origin/HEAD -> origin/main
+                            if (rb.contains("->")) continue;
+
+                            JMenuItem item = new JMenuItem(rb);
+                            item.addActionListener(ev -> {
+                                cm.submitExclusiveAction(() -> {
+                                    try {
+                                        IGitRepo r = project.getRepo();
+                                        if (r instanceof GitRepo gr) {
+                                            var remoteBranchName = rb;
+                                            var expectedLocal = remoteBranchName.contains("/")
+                                                    ? remoteBranchName.substring(remoteBranchName.indexOf('/') + 1)
+                                                    : remoteBranchName;
+                                            try {
+                                                gr.checkoutRemoteBranch(remoteBranchName, expectedLocal);
+                                            } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
+                                                gr.checkoutRemoteBranch(remoteBranchName);
+                                            }
+                                            SwingUtilities.invokeLater(() -> {
+                                                try {
+                                                    var currentBranch = r.getCurrentBranch();
+                                                    var locals = (r instanceof GitRepo gr2)
+                                                            ? gr2.listLocalBranches()
+                                                            : List.<String>of();
+                                                    var displayBranch = currentBranch.isBlank()
+                                                            ? expectedLocal
+                                                            : (locals.contains(currentBranch) ? currentBranch : expectedLocal);
+                                                    refreshBranchUi(displayBranch);
+                                                } catch (Exception ex) {
+                                                    logger.debug("Error updating branch UI after remote checkout", ex);
+                                                    refreshBranchUi(expectedLocal);
+                                                }
+                                                chrome.systemOutput("Checked out: " + remoteBranchName + " -> " + expectedLocal);
+                                            });
+                                        } else {
+                                            throw new UnsupportedOperationException(
+                                                    "Repository implementation does not support remote branch checkout");
+                                        }
+                                    } catch (Exception ex) {
+                                        logger.error("Error checking out remote branch {}", rb, ex);
+                                        SwingUtilities.invokeLater(
+                                                () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
+                                    }
+                                });
+                            });
+                            menu.add(item);
+                        }
                     }
                 } else {
                     JMenuItem noRepo = new JMenuItem("No Git repository");
