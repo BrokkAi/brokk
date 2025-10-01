@@ -127,6 +127,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
         list.setFixedCellHeight(-1);
+        list.setToolTipText("Click to expand/collapse");
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> updateButtonStates());
@@ -1683,6 +1684,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Apply per-row expansion: show all text when expanded, otherwise collapse to two lines
             boolean expandedRow = TaskListPanel.this.isExpanded(index);
             view.setExpanded(expandedRow);
+            view.setMaxVisibleLines(2);
 
             // Set text and editing visibility
             view.setText(value.text());
