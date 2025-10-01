@@ -1648,9 +1648,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         fragment);
                 showPreviewFrame(contextManager, title, previewPanel);
             }
-        } catch (IOException ex) {
-            toolError("Error reading fragment content: " + ex.getMessage());
-            logger.error("Error reading fragment content for preview", ex);
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());

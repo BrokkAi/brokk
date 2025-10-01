@@ -104,7 +104,7 @@ public class DtoMapper {
             ContentReader contentReader) {
         if (referencedDtos.containsKey(idToResolve)) {
             var dto = referencedDtos.get(idToResolve);
-            if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
+            if (dto instanceof FrozenFragmentDto && isDeprecatedBuildFragment()) {
                 logger.info("Skipping deprecated BuildFragment during deserialization: {}", idToResolve);
                 return null;
             }
@@ -112,7 +112,7 @@ public class DtoMapper {
         }
         if (virtualDtos.containsKey(idToResolve)) {
             var dto = virtualDtos.get(idToResolve);
-            if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
+            if (dto instanceof FrozenFragmentDto && isDeprecatedBuildFragment()) {
                 logger.info("Skipping deprecated BuildFragment during deserialization: {}", idToResolve);
                 return null;
             }
@@ -139,14 +139,35 @@ public class DtoMapper {
             @Nullable Map<String, byte[]> imageBytesMap,
             ContentReader reader) {
         return switch (dto) {
-            case ProjectFileDto pfd ->
-                Fragments.ProjectPathFragment.withId(
+            case ProjectFileDto pfd -> {
+                var live = Fragments.ProjectPathFragment.withId(
                         new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
-            case ExternalFileDto efd ->
-                Fragments.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+                try {
+                    var frozen = (FrozenFragment) FrozenFragment.freeze(live, mgr);
+                    yield frozen;
+                } catch (Exception e) {
+                    // Fallback to live if freezing fails
+                    yield live;
+                }
+            }
+            case ExternalFileDto efd -> {
+                var live = Fragments.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+                try {
+                    var frozen = (FrozenFragment) FrozenFragment.freeze(live, mgr);
+                    yield frozen;
+                } catch (Exception e) {
+                    yield live;
+                }
+            }
             case ImageFileDto ifd -> {
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
-                yield Fragments.ImageFileFragment.withId(file, ifd.id(), mgr);
+                var live = Fragments.ImageFileFragment.withId(file, ifd.id(), mgr);
+                try {
+                    var frozen = (FrozenFragment) FrozenFragment.freeze(live, mgr);
+                    yield frozen;
+                } catch (Exception e) {
+                    yield live;
+                }
             }
             case GitFileFragmentDto gfd ->
                 Fragments.GitFileFragment.withId(
@@ -194,7 +215,7 @@ public class DtoMapper {
         if (dto == null) return null;
         return switch (dto) {
             case FrozenFragmentDto ffd -> {
-                if (isDeprecatedBuildFragment(ffd)) {
+                if (isDeprecatedBuildFragment()) {
                     logger.info("Skipping deprecated BuildFragment during deserialization: {}", ffd.id());
                     yield null;
                 }
@@ -545,9 +566,8 @@ public class DtoMapper {
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
     }
 
-    private static boolean isDeprecatedBuildFragment(FrozenFragmentDto ffd) {
-        return "io.github.jbellis.brokk.context.ContextFragment$BuildFragment".equals(ffd.originalClassName())
-                || "BUILD_LOG".equals(ffd.originalType());
+    private static boolean isDeprecatedBuildFragment() {
+        return false;
     }
 
     /* ───────────── entryInfos mapping ───────────── */

@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -34,6 +35,7 @@ import org.jetbrains.annotations.Nullable;
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
     private static final int MAX_DEPTH = 100;
+    private static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
 
@@ -56,9 +58,8 @@ public class ContextHistory {
     public ContextHistory(Context liveContext) {
         var fr = liveContext.freezeAndCleanup();
         this.liveContext = fr.liveContext();
-        var frozen = fr.frozenContext();
-        history.add(frozen);
-        selected = frozen;
+        history.add(fr.frozenContext());
+        selected = fr.frozenContext();
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -74,14 +75,14 @@ public class ContextHistory {
     }
 
     public ContextHistory(
-            List<Context> frozenContexts,
+            List<Context> contexts,
             List<ResetEdge> resetEdges,
             Map<UUID, GitState> gitStates,
             Map<UUID, ContextHistoryEntryInfo> entryInfos) {
-        if (frozenContexts.isEmpty()) {
+        if (contexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
-        history.addAll(frozenContexts);
+        history.addAll(contexts);
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
         this.entryInfos.putAll(entryInfos);
@@ -159,18 +160,18 @@ public class ContextHistory {
         return this.liveContext;
     }
 
-    public synchronized void pushLiveAndFrozen(Context live, Context frozen) {
+    public synchronized void pushLiveAndFrozen(Context live, Context snapshot) {
         this.liveContext = live;
-        addFrozenContextAndClearRedo(frozen);
+        addFrozenContextAndClearRedo(snapshot);
     }
 
     /** Push {@code frozen} and clear redo stack. */
-    public synchronized void addFrozenContextAndClearRedo(Context frozen) {
-        assert !frozen.containsDynamicFragments();
-        history.addLast(frozen);
+    public synchronized void addFrozenContextAndClearRedo(Context snapshot) {
+        ensureComputedSnapshot(snapshot, SNAPSHOT_AWAIT_TIMEOUT);
+        history.addLast(snapshot);
         truncateHistory();
         redo.clear();
-        selected = frozen;
+        selected = snapshot;
     }
 
     /**
@@ -178,7 +179,6 @@ public class ContextHistory {
      * coalescing rapid changes into a single history entry.
      */
     public synchronized void replaceTop(Context newLive, Context newFrozen) {
-        assert !newFrozen.containsDynamicFragments();
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
         history.addLast(newFrozen);
@@ -212,7 +212,6 @@ public class ContextHistory {
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
         var refreshedLive = liveContext.copyAndRefresh(changed);
         if (refreshedLive.equals(liveContext)) {
-            // No change detected by refresh model
             return null;
         }
 
@@ -236,16 +235,15 @@ public class ContextHistory {
             newAction = "Load external changes (%d)".formatted(newCount);
         }
 
-        // Ensure the action reflects the desired string (with counter if applicable)
         var updatedLive = refreshedLive.withAction(CompletableFuture.completedFuture(newAction));
-        var cleaned = updatedLive.freezeAndCleanup();
+        var fr = updatedLive.freezeAndCleanup();
 
         if (isContinuation) {
-            replaceTop(cleaned.liveContext(), cleaned.frozenContext());
+            replaceTop(fr.liveContext(), fr.frozenContext());
         } else {
-            pushLiveAndFrozen(cleaned.liveContext(), cleaned.frozenContext());
+            pushLiveAndFrozen(fr.liveContext(), fr.frozenContext());
         }
-        return cleaned.frozenContext();
+        return fr.frozenContext();
     }
 
     /* ─────────────── undo / redo  ────────────── */
@@ -374,6 +372,40 @@ public class ContextHistory {
 
     /* ────────────────────────── private helpers ─────────────────────────── */
 
+    /**
+     * Best-effort snapshot seeding to ensure dynamic fragment values are materialized
+     * (or at least kicked off) before we persist or use a context as a history snapshot.
+     * Bounded by the provided timeout to avoid blocking indefinitely.
+     */
+    private void ensureComputedSnapshot(Context ctx, Duration timeout) {
+        for (var fragment : ctx.allFragments().toList()) {
+            if (fragment instanceof ContextFragment.DynamicFragment df) {
+                try {
+                    // Kick off computations
+                    df.computedDescription().future();
+                    df.computedSyntaxStyle().future();
+                    df.computedText().future();
+
+                    // Await bounded for strings
+                    DynamicSupport.await(timeout, df.computedDescription());
+                    DynamicSupport.await(timeout, df.computedSyntaxStyle());
+                    DynamicSupport.await(timeout, df.computedText());
+
+                    // Optionally await image bytes if present
+                    var imgCv = df.computedImageBytes();
+                    if (imgCv != null) {
+                        imgCv.await(timeout);
+                    }
+                } catch (Exception e) {
+                    // Non-fatal: snapshot proceeds with whatever is ready
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Snapshot seed failed for fragment {}: {}", fragment.id(), e.toString());
+                    }
+                }
+            }
+        }
+    }
+
     private void truncateHistory() {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
@@ -397,7 +429,6 @@ public class ContextHistory {
     }
 
     public synchronized void addResetEdge(Context source, Context target) {
-        assert !source.containsDynamicFragments() && !target.containsDynamicFragments();
         resetEdges.add(new ResetEdge(source.id(), target.id()));
     }
 
@@ -450,7 +481,6 @@ public class ContextHistory {
             logger.warn("Attempted to apply null context to workspace");
             return;
         }
-        assert !frozenContext.containsDynamicFragments();
         frozenContext
                 .getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
@@ -459,7 +489,12 @@ public class ContextHistory {
 
                     var pf = fragment.files().iterator().next();
                     try {
-                        var newContent = fragment.text();
+                        String newContent;
+                        if (fragment instanceof ContextFragment.DynamicFragment df) {
+                            newContent = df.computedText().tryGet().orElse(fragment.text());
+                        } else {
+                            newContent = fragment.text();
+                        }
                         var currentContent = pf.exists() ? pf.read().orElse("") : "";
 
                         if (!newContent.equals(currentContent)) {
