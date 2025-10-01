@@ -140,9 +140,6 @@ python3 SWE-bench_lite/repo_setup.py --split dev --repos_dir dev_repos
 
 # Set up specific number of repositories
 python3 SWE-bench_lite/repo_setup.py --split test --max_repos 5 --repos_dir swe_bench_repos
-
-# Just demonstrate the workflow without cloning
-python3 SWE-bench_lite/repo_setup.py --demo
 ```
 
 ### Output Structure

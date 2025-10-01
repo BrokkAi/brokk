@@ -180,51 +180,6 @@ def setup_repositories_for_instances(
     return successful_repos
 
 
-def demonstrate_workflow():
-    """Demonstrate the complete workflow."""
-    print("🔍 SWE-bench-lite Repository Setup Workflow")
-    print("=" * 50)
-    
-    # Load dataset
-    dataset = load_swe_bench_lite_dataset("SWE-bench_lite")
-    
-    # Get first test instance as example
-    test_dataset = dataset["test"]
-    first_instance = list(test_dataset)[0]
-    instance_info = {
-        "instance_id": first_instance["instance_id"],
-        "repo": first_instance["repo"],
-        "base_commit": first_instance["base_commit"],
-        "problem_statement": first_instance["problem_statement"]
-    }
-    
-    print(f"\n📋 Example Instance:")
-    print(f"   Instance ID: {instance_info['instance_id']}")
-    print(f"   Repository: {instance_info['repo']}")
-    print(f"   Base Commit: {instance_info['base_commit']}")
-    print(f"   Problem: {instance_info['problem_statement'][:100]}...")
-    
-    print(f"\n🔧 Manual Setup Commands:")
-    print(f"   # 1. Create directory for repositories")
-    print(f"   mkdir -p swe_bench_repos")
-    print(f"")
-    print(f"   # 2. Clone the repository")
-    print(f"   git clone https://github.com/{instance_info['repo']}.git swe_bench_repos/{instance_info['repo'].replace('/', '__')}")
-    print(f"")
-    print(f"   # 3. Checkout the specific commit")
-    print(f"   cd swe_bench_repos/{instance_info['repo'].replace('/', '__')}")
-    print(f"   git checkout {instance_info['base_commit']}")
-    print(f"")
-    print(f"   # 4. Remove origin remote (optional)")
-    print(f"   git remote remove origin")
-    print(f"")
-    print(f"   # 5. Now you can run Brokk CLI on this repository")
-    print(f"   python brokk_wrapper.py \"{instance_info['problem_statement']}\" \\")
-    print(f"       --instance_id \"{instance_info['instance_id']}\" \\")
-    print(f"       --target_project \"$(pwd)\" \\")
-    print(f"       --output_file \"pred_{instance_info['instance_id']}.json\"")
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Set up repositories for SWE-bench-lite evaluation",
@@ -237,8 +192,8 @@ Examples:
   # Set up repositories for all dev instances
   python repo_setup.py --split dev --repos_dir dev_repos
   
-  # Just demonstrate the workflow without cloning
-  python repo_setup.py --demo
+  # Set up repositories for first 5 test instances
+  python repo_setup.py --max_repos 5 --repos_dir swe_bench_repos
         """
     )
     
@@ -268,12 +223,6 @@ Examples:
     )
     
     parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="Just demonstrate the workflow without actually cloning"
-    )
-    
-    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging"
@@ -284,10 +233,6 @@ Examples:
     # Setup logging level
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    
-    if args.demo:
-        demonstrate_workflow()
-        return
     
     # Load dataset
     dataset = load_swe_bench_lite_dataset(args.dataset_path)
