@@ -9,6 +9,8 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
+import io.github.jbellis.brokk.sessions.TaskListStore;
+import io.github.jbellis.brokk.sessions.TaskListStore.TaskListData;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
@@ -25,6 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -463,6 +466,34 @@ public class SessionManager implements AutoCloseable {
             logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
         }
         return ch;
+    }
+
+    /**
+     * Resolve the task list file path for a given session: .brokk/sessions/<sessionId>/tasklist.json
+     */
+    private Path getTaskListFilePath(UUID sessionId) {
+        return sessionsDir.resolve(sessionId.toString()).resolve("tasklist.json");
+    }
+
+    /**
+     * Asynchronously write the task list for a session, serialized per session key.
+     * Different sessions can be written in parallel.
+     */
+    public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskListData data) {
+        var file = getTaskListFilePath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            TaskListStore.write(file, data);
+            return null;
+        });
+    }
+
+    /**
+     * Asynchronously read the task list for a session, serialized per session key.
+     * Returns an empty list if none exists.
+     */
+    public CompletableFuture<TaskListData> readTaskList(UUID sessionId) {
+        var file = getTaskListFilePath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> TaskListStore.read(file));
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
