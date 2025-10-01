@@ -737,12 +737,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 }
                                 SwingUtilities.invokeLater(() -> {
                                     try {
-                                        requireNonNull(branchSplitButton).setText("branch: " + r.getCurrentBranch());
+                                        refreshBranchUi(sanitized);
                                     } catch (Exception ex) {
-                                        logger.debug("Error updating branch label after branch creation", ex);
+                                        logger.debug("Error updating branch UI after branch creation", ex);
                                     }
-                                    // Update Project Files drawer title with the new branch name
-                                    updateProjectFilesDrawerTitle(sanitized);
                                     chrome.systemOutput("Created and checked out: " + sanitized);
                                 });
                             } catch (Exception ex) {
