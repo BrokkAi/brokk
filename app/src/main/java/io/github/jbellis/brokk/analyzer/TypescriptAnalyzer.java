@@ -618,7 +618,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     public boolean isTypeAlias(CodeUnit cu) {
         // Check if this field-type CodeUnit represents a type alias
         // We can identify this by checking if there are signatures that contain "type " and " = "
-        var sigList = withSignatures(signatures -> signatures.get(cu));
+        var sigList = withCodeUnitState(signatures -> signatures.get(cu));
 
         if (sigList != null) {
             for (var sig : sigList) {
@@ -726,7 +726,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     public Optional<String> getSkeleton(String fqName) {
         // Find the CodeUnit for this FQN - optimize with early termination
         CodeUnit foundCu = null;
-        for (CodeUnit cu : withSignatures(Map::keySet)) {
+        for (CodeUnit cu : withCodeUnitState(Map::keySet)) {
             if (cu.fqName().equals(fqName)) {
                 foundCu = cu;
                 break;
