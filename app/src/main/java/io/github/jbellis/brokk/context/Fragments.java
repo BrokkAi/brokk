@@ -168,7 +168,7 @@ public class Fragments {
         }
     }
 
-    public static class AnonymousImageFragment extends ContextFragment.PasteFragment { // Non-dynamic, content-hashed
+    public static class AnonymousImageFragment extends ContextFragment.PasteFragment implements ContextFragment.ImageFragment { // Non-dynamic, content-hashed
         private final Image image;
         private final ComputedValue<byte[]> imageBytesCv;
         private final ComputedValue<String> textCv;
@@ -178,7 +178,16 @@ public class Fragments {
 
         public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(
-                    String.valueOf(nextId.getAndIncrement()),
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.PASTE_IMAGE,
+                            "(Pasting image)", // Initial description for hashing
+                            null, // No text content for image
+                            FragmentUtils.imageToBytes(image), // image bytes for hashing
+                            false, // isTextFragment = false
+                            SyntaxConstants.SYNTAX_STYLE_NONE,
+                            Set.of(), // No project files
+                            AnonymousImageFragment.class.getName(),
+                            Map.of()), // No specific meta for hashing
                     contextManager,
                     descriptionFuture);
             this.image = image;
@@ -260,6 +269,11 @@ public class Fragments {
         @Override
         public String syntaxStyle() {
             return SyntaxConstants.SYNTAX_STYLE_NONE;
+        }
+
+        @Override
+        public String contentHash() {
+            return id();
         }
 
         @Override
@@ -497,6 +511,11 @@ public class Fragments {
         public boolean includeTestFiles() {
             return includeTestFiles;
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles);
+        }
     }
 
     /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
@@ -583,6 +602,11 @@ public class Fragments {
 
         public CodeUnit getCodeUnit() {
             return unit;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new CodeFragment(id(), getContextManager(), unit);
         }
     }
 
@@ -686,6 +710,11 @@ public class Fragments {
 
         public boolean isCalleeGraph() {
             return isCalleeGraph;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new CallGraphFragment(id(), getContextManager(), methodName, depth, isCalleeGraph);
         }
     }
 
@@ -852,9 +881,14 @@ public class Fragments {
         public String toString() {
             return "SkeletonFragment('%s')".formatted(description());
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new SkeletonFragment(id(), getContextManager(), targetIdentifiers, summaryType);
+        }
     }
 
-    public static class BuildFragment extends ContextFragment.ComputedVirtualFragment {
+    public static class BuildFragment extends ContextFragment.VirtualFragment {
         private final String content;
 
         public BuildFragment(IContextManager contextManager, String buildOutput) {
@@ -1215,6 +1249,11 @@ public class Fragments {
         }
 
         @Override
+        public ContextFragment refreshCopy() {
+            return ProjectPathFragment.withId(file, id, contextManager);
+        }
+
+        @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ProjectPathFragment that)) return false;
@@ -1392,13 +1431,19 @@ public class Fragments {
         public String formatSummary() {
             return PathFragment.formatSummary(file());
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return ExternalPathFragment.withId(file, id, contextManager);
+        }
     }
 
     /** Represents an image file, either from the project or external. This is dynamic. */
-    public static final class ImageFileFragment extends ContextFragment.DynamicPathFragment implements PathFragment {
+    public static final class ImageFileFragment extends ContextFragment.DynamicPathFragment implements PathFragment, ContextFragment.ImageFragment {
         private final BrokkFile file;
         private final String id;
         private final IContextManager contextManager;
+        private transient @Nullable String contentHashCache;
 
         // Primary constructor for new dynamic fragments
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -1499,6 +1544,24 @@ public class Fragments {
         }
 
         @Override
+        public String contentHash() {
+            if (contentHashCache == null) {
+                byte[] bytes = FragmentUtils.imageToBytes(image());
+                contentHashCache = FragmentUtils.calculateContentHash(
+                        getType(),
+                        description(),
+                        null,
+                        bytes,
+                        false,
+                        SyntaxConstants.SYNTAX_STYLE_NONE,
+                        files(),
+                        ImageFileFragment.class.getName(),
+                        null);
+            }
+            return contentHashCache;
+        }
+
+        @Override
         public Set<CodeUnit> sources() {
             return Set.of();
         }
@@ -1528,6 +1591,11 @@ public class Fragments {
         @Override
         public String toString() {
             return "ImageFileFragment('%s')".formatted(file());
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return ImageFileFragment.withId(file, id, contextManager);
         }
     }
 

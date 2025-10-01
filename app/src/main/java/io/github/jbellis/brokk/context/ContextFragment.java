@@ -324,6 +324,20 @@ public interface ContextFragment {
         return this.repr().equals(other.repr());
     }
 
+    static boolean contentEquals(ContextFragment a, ContextFragment b) {
+        if (a == b) return true;
+        if (!a.getClass().getName().equals(b.getClass().getName())) {
+            return false;
+        }
+        if (a.isText() && b.isText()) {
+            return a.text().equals(b.text());
+        }
+        if (a instanceof ImageFragment ai && b instanceof ImageFragment bi) {
+            return ai.contentHash().equals(bi.contentHash());
+        }
+        throw new AssertionError(a.getClass());
+    }
+
     abstract class VirtualFragment implements ContextFragment {
         protected final String id; // Changed from int to String
         protected final transient IContextManager contextManager;
@@ -399,16 +413,8 @@ public interface ContextFragment {
 
         @Override
         public boolean equals(Object obj) {
-            if (this == obj) return true;
-            if (!(obj instanceof VirtualFragment other)) return false;
-            if (hashCode() != other.hashCode()) return false;
-            if (isText() != other.isText()) {
-                return false;
-            }
-            if (isText()) {
-                return text().equals(other.text());
-            }
-            return image().equals(other.image());
+            if (!(obj instanceof ContextFragment other)) return false;
+            return ContextFragment.contentEquals(this, other);
         }
 
         @Override
@@ -416,7 +422,10 @@ public interface ContextFragment {
             if (isText()) {
                 return text().hashCode();
             }
-            return image().hashCode();
+            if (this instanceof ImageFragment img) {
+                return img.contentHash().hashCode();
+            }
+            throw new AssertionError(getClass());
         }
     }
 
@@ -447,6 +456,20 @@ public interface ContextFragment {
          * Implementations that track external state may override to trigger recomputation.
          */
         ContextFragment refreshCopy();
+    }
+
+    /**
+     * Marker interface for fragments that provide image content.
+     * Implementations must provide a stable content hash for equality checks.
+     */
+    interface ImageFragment extends ContextFragment {
+        @Override
+        Image image() throws UncheckedIOException;
+
+        /**
+         * A stable, cached hash of the binary image content and relevant metadata.
+         */
+        String contentHash();
     }
 
     /**
@@ -545,16 +568,8 @@ public interface ContextFragment {
 
         @Override
         public boolean equals(Object obj) {
-            if (this == obj) return true;
-            if (!(obj instanceof DynamicPathFragment other)) return false;
-            if (hashCode() != other.hashCode()) return false;
-            if (isText() != other.isText()) {
-                return false;
-            }
-            if (isText()) {
-                return text().equals(other.text());
-            }
-            return image().equals(other.image());
+            if (!(obj instanceof ContextFragment other)) return false;
+            return ContextFragment.contentEquals(this, other);
         }
 
         @Override
@@ -562,7 +577,10 @@ public interface ContextFragment {
             if (isText()) {
                 return text().hashCode();
             }
-            return image().hashCode();
+            if (this instanceof ImageFragment img) {
+                return img.contentHash().hashCode();
+            }
+            throw new AssertionError(getClass());
         }
     }
 

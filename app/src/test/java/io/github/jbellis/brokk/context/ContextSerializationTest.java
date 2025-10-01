@@ -154,13 +154,13 @@ public class ContextSerializationTest {
         assertEquals(
                 originalHistory.getHistory().size(), loadedHistory.getHistory().size());
 
-        // Compare Context 1 (which will be frozen)
-        Context originalCtx1Frozen = originalHistory.getHistory().get(0); // This is already frozen by ContextHistory
+        // Compare Context 1
+        Context originalCtx1Frozen = originalHistory.getHistory().get(0);
         Context loadedCtx1 = loadedHistory.getHistory().get(0);
         assertContextsEqual(originalCtx1Frozen, loadedCtx1);
 
-        // Compare Context 2 (which will be frozen)
-        Context originalCtx2Frozen = originalHistory.getHistory().get(1); // This is already frozen by ContextHistory
+        // Compare Context 2
+        Context originalCtx2Frozen = originalHistory.getHistory().get(1);
         Context loadedCtx2 = loadedHistory.getHistory().get(1);
         assertContextsEqual(originalCtx2Frozen, loadedCtx2);
 
@@ -236,7 +236,7 @@ public class ContextSerializationTest {
         // Compare additional serialized top-level methods
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 
-        // Compare files (sources are not snapshotted into FrozenFragment directly)
+        // Compare files
         assertEquals(
                 expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
@@ -273,7 +273,6 @@ public class ContextSerializationTest {
         var sharedImage = createTestImage(Color.BLUE, 8, 8);
 
         // Create two PasteImageFragments with identical content and description
-        // This should result in the same FrozenFragment instance due to interning
         var sharedDescription = "Shared Blue Image";
         var liveImageFrag1 = new Fragments.AnonymousImageFragment(
                 mockContextManager, sharedImage, CompletableFuture.completedFuture(sharedDescription));
@@ -284,7 +283,7 @@ public class ContextSerializationTest {
         var ctx1 = new Context(mockContextManager, "Context 1 with shared image").addVirtualFragment(liveImageFrag1);
         var originalHistory = new ContextHistory(ctx1);
 
-        // Context 2 with second image fragment (same content, should intern to same FrozenFragment)
+        // Context 2 with second image fragment (same content, should intern to same Fragment)
         var ctx2 = new Context(mockContextManager, "Context 2 with shared image").addVirtualFragment(liveImageFrag2);
         originalHistory.pushAndClearRedo(ctx2);
 
