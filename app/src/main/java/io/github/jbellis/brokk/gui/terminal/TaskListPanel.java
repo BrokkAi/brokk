@@ -1721,7 +1721,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             int minHeight = Math.max(contentH, 48);
             assert minHeight == Math.max(contentH, 48)
                     : "minHeight must remain Math.max(contentH, 48) to keep wrapping stable";
-            int heightToSet = minHeight + (expandedRow ? 2 : 0);
+            // Add a descent-based buffer when expanded to ensure the bottom line is never clipped.
+            // Using the font descent gives a robust buffer across LAFs and DPI settings.
+            var fmCell = list.getFontMetrics(view.getFont());
+            int extraBuffer = expandedRow ? Math.max(2, fmCell.getDescent()) : 0;
+            int heightToSet = minHeight + extraBuffer;
             this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, heightToSet));
 
             // Vertically center the text within the row by applying top padding as a paint offset.
