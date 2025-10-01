@@ -396,17 +396,18 @@ public interface ContextFragment {
         @Override
         public abstract String text();
 
-        // Override equals and hashCode for proper comparison, especially for EMPTY
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof VirtualFragment that)) return false;
-            return Objects.equals(id(), that.id()); // Use String.equals
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(id()); // Use String's hashCode
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (obj == null || getClass() != obj.getClass()) return false;
+            VirtualFragment other = (VirtualFragment) obj;
+            if (isText() != other.isText()) {
+                return false;
+            }
+            if (isText()) {
+                return Objects.equals(text(), other.text());
+            }
+            return Objects.equals(image(), other.image());
         }
     }
 
@@ -533,6 +534,20 @@ public interface ContextFragment {
                         ContextFragment.getFragmentExecutor());
             }
             return syntaxCv;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (obj == null || getClass() != obj.getClass()) return false;
+            DynamicPathFragment other = (DynamicPathFragment) obj;
+            if (isText() != other.isText()) {
+                return false;
+            }
+            if (isText()) {
+                return Objects.equals(text(), other.text());
+            }
+            return Objects.equals(image(), other.image());
         }
     }
 }

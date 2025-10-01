@@ -29,9 +29,6 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>The newest entry is always at the tail of {@link #history}. All public methods are {@code synchronized}, so
  * callers need no extra locking.
- *
- * <p><strong>Contract:</strong> every {@code Context} handed to this class <em>must already be frozen</em> (see
- * {@link Context#freezeAndCleanup()}). This class never calls {@code freeze()} on its own.
  */
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
@@ -58,7 +55,7 @@ public class ContextHistory {
 
     public ContextHistory(Context liveContext) {
         this.liveContext = liveContext;
-        addFrozenContextAndClearRedo(liveContext);
+        pushAndClearRedo(liveContext);
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -154,36 +151,34 @@ public class ContextHistory {
         }
 
         this.liveContext = updatedLiveContext;
-        addFrozenContextAndClearRedo(updatedLiveContext);
+        pushAndClearRedo(updatedLiveContext);
         return this.liveContext;
     }
 
-    public synchronized void pushLiveAndFrozen(Context live, Context snapshot) {
+    public synchronized void pushLive(Context live) {
         this.liveContext = live;
-        addFrozenContextAndClearRedo(snapshot);
+        pushAndClearRedo(live);
     }
 
     /** Push {@code frozen} and clear redo stack. */
-    public synchronized void addFrozenContextAndClearRedo(Context snapshot) {
-        ensureComputedSnapshot(snapshot, SNAPSHOT_AWAIT_TIMEOUT);
-        var frozenSnapshot = toFrozenSnapshot(snapshot);
-        history.addLast(frozenSnapshot);
+    public synchronized void pushAndClearRedo(Context ctx) {
+        ensureComputedSnapshot(ctx, SNAPSHOT_AWAIT_TIMEOUT);
+        history.addLast(ctx);
         truncateHistory();
         redo.clear();
-        selected = frozenSnapshot;
+        selected = ctx;
     }
 
     /**
      * Replaces the most recent context in history with the provided live and frozen contexts. This is useful for
      * coalescing rapid changes into a single history entry.
      */
-    public synchronized void replaceTop(Context newLive, Context newFrozen) {
+    public synchronized void replaceTop(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
-        var frozenSnapshot = toFrozenSnapshot(newFrozen);
         history.removeLast();
-        history.addLast(frozenSnapshot);
+        history.addLast(newLive);
         redo.clear();
-        selected = frozenSnapshot;
+        selected = newLive;
         liveContext = newLive;
     }
 
@@ -225,9 +220,9 @@ public class ContextHistory {
         var updatedLive = refreshedLive.withAction(CompletableFuture.completedFuture(newAction));
 
         if (isContinuation) {
-            replaceTop(updatedLive, updatedLive);
+            replaceTop(updatedLive);
         } else {
-            pushLiveAndFrozen(updatedLive, updatedLive);
+            pushLive(updatedLive);
         }
         return updatedLive;
     }
@@ -387,37 +382,6 @@ public class ContextHistory {
                 }
             }
         }
-    }
-
-    /**
-     * Builds a snapshot Context from a live Context without converting fragments.
-     * Dynamic fields should already be seeded via ensureComputedSnapshot; we persist
-     * the same fragment instances to avoid introducing FrozenFragment into in-memory history.
-     */
-    private Context toFrozenSnapshot(Context ctx) {
-        var cm = ctx.getContextManager();
-
-        // Identity snapshot: keep the same fragment instances.
-        var fragments = ctx.allFragments().toList();
-
-        var editable = fragments.stream()
-                .filter(f -> f.getType().isPath())
-                .toList();
-
-        var virtuals = fragments.stream()
-                .filter(f -> f.getType().isVirtual())
-                .map(f -> (ContextFragment.VirtualFragment) f)
-                .toList();
-
-        return Context.createWithId(
-                ctx.id(),
-                cm,
-                editable,
-                java.util.List.of(), // readonly fragments are not used in V3 history
-                virtuals,
-                ctx.getTaskHistory(),
-                ctx.getParsedOutput(),
-                ctx.action);
     }
 
     private void truncateHistory() {

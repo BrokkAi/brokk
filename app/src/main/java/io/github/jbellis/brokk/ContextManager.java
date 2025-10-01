@@ -837,7 +837,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 var newLive = Context.createFrom(
                         targetFrozenContext, liveContext(), liveContext().getTaskHistory());
-                contextHistory.pushLiveAndFrozen(newLive, newLive);
+                contextHistory.pushLive(newLive);
                 contextHistory.addResetEdge(targetFrozenContext, newLive);
                 SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -857,7 +857,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 var newLive =
                         Context.createFrom(targetFrozenContext, liveContext(), targetFrozenContext.getTaskHistory());
-                contextHistory.pushLiveAndFrozen(newLive, newLive);
+                contextHistory.pushLive(newLive);
                 contextHistory.addResetEdge(targetFrozenContext, newLive);
                 SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);

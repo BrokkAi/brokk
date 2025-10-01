@@ -465,19 +465,6 @@ public class Context {
                 CompletableFuture.completedFuture("Reset context to historical state"));
     }
 
-    public record FreezeResult(Context liveContext, Context frozenContext) {}
-
-    /**
-     * @return a FreezeResult with the (potentially modified to exclude invalid Fragments) liveContext + frozenContext
-     */
-    @Deprecated
-    public FreezeResult freezeAndCleanup() {
-        // Temporary shim: eagerly compute dynamic fields so snapshotting callers get stable values,
-        // but do not construct FrozenFragments anymore.
-        ensureComputedSnapshot(Duration.ofSeconds(CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS));
-        return new FreezeResult(this, this);
-    }
-
     @Deprecated
     public Context freeze() {
         // Temporary shim: ensure dynamic fields are computed, then return this live context.
@@ -499,10 +486,12 @@ public class Context {
     }
 
     @Override
-    public boolean equals(@Nullable Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Context context)) return false;
-        return id.equals(context.id);
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        Context context = (Context) o;
+        return Objects.equals(fragments, context.fragments)
+               && Objects.equals(taskHistory, context.taskHistory)
+               && Objects.equals(parsedOutput, context.parsedOutput);
     }
 
     @Override
@@ -511,14 +500,7 @@ public class Context {
     }
 
     public boolean workspaceContentEquals(Context other) {
-        // assert !this.containsDynamicFragments(); // REMOVED THIS ASSERT
-        // assert !other.containsDynamicFragments(); // REMOVED THIS ASSERT
-
         return allFragments().toList().equals(other.allFragments().toList());
-    }
-
-    public boolean containsFrozenFragments() {
-        return allFragments().anyMatch(f -> f instanceof FrozenFragment);
     }
 
     public boolean containsDynamicFragments() {
@@ -630,7 +612,7 @@ public class Context {
                 .map(currentFragment -> {
                     // Find a matching fragment in 'other' based on hasSameSource
                     var matchingFragment = other.fragments.stream()
-                            .filter(otherFragment -> currentFragment.hasSameSource(otherFragment))
+                            .filter(currentFragment::hasSameSource)
                             .findFirst()
                             .orElse(null);
 

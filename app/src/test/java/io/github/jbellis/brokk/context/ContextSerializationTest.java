@@ -146,7 +146,7 @@ public class ContextSerializationTest {
                 taskFragment,
                 CompletableFuture.completedFuture("Action for task"));
 
-        originalHistory.addFrozenContextAndClearRedo(context2.freeze());
+        originalHistory.pushAndClearRedo(context2.freeze());
 
         Path zipFile = tempDir.resolve("complex_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -282,7 +282,7 @@ public class ContextSerializationTest {
 
         // Context 2 with second image fragment (same content, should intern to same FrozenFragment)
         var ctx2 = new Context(mockContextManager, "Context 2 with shared image").addVirtualFragment(liveImageFrag2);
-        originalHistory.addFrozenContextAndClearRedo(ctx2.freeze());
+        originalHistory.pushAndClearRedo(ctx2.freeze());
 
         // Write to ZIP - this should NOT throw ZipException: duplicate entry
         Path zipFile = tempDir.resolve("shared_image_history.zip");
@@ -435,7 +435,7 @@ public class ContextSerializationTest {
         });
 
         var context2 = new Context(mockContextManager, "Second context").withAction(slowFuture);
-        history.addFrozenContextAndClearRedo(context2.freeze());
+        history.pushAndClearRedo(context2.freeze());
 
         // Create context with a very slow action that should timeout
         var timeoutFuture = CompletableFuture.supplyAsync(() -> {
@@ -448,7 +448,7 @@ public class ContextSerializationTest {
         });
 
         var context3 = new Context(mockContextManager, "Third context").withAction(timeoutFuture);
-        history.addFrozenContextAndClearRedo(context3.freeze());
+        history.pushAndClearRedo(context3.freeze());
 
         // Wait for the slow future to complete before serialization
         Thread.sleep(1500);
@@ -509,7 +509,7 @@ public class ContextSerializationTest {
         var context2 = new Context(mockContextManager, "Context 2")
                 .addPathFragments(List.of(liveProjectPathFragment))
                 .addVirtualFragment(liveStringFragment);
-        history.addFrozenContextAndClearRedo(context2.freeze());
+        history.pushAndClearRedo(context2.freeze());
 
         Path zipFile = tempDir.resolve("interning_test_history.zip");
         HistoryIo.writeZip(history, zipFile);
@@ -588,7 +588,7 @@ public class ContextSerializationTest {
 
         var ctxWithTask2 = new Context(mockContextManager, "CtxTask2")
                 .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action2"));
-        origHistoryWithTask.addFrozenContextAndClearRedo(ctxWithTask2.freeze());
+        origHistoryWithTask.pushAndClearRedo(ctxWithTask2.freeze());
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
         HistoryIo.writeZip(origHistoryWithTask, taskZipFile);
@@ -1046,7 +1046,7 @@ public class ContextSerializationTest {
 
         // 2. Setup context 2 with a git state that has a null diff
         var context2 = new Context(mockContextManager, "Context with null diff git state");
-        history.addFrozenContextAndClearRedo(context2.freeze());
+        history.pushAndClearRedo(context2.freeze());
         var context2Id = context2.id();
         var gitState2 = new ContextHistory.GitState("test-commit-hash-2", null);
         history.addGitState(context2Id, gitState2);
