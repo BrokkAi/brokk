@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.IContextManager;
 
 import java.awt.image.BufferedImage;
+import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -79,15 +80,15 @@ public class PasteFragmentsComputedValueTest {
         descCF.complete("short summary");
 
         // Values should resolve
-        assertEquals("Paste of short summary", fragment.computedDescription().future().get(1, TimeUnit.SECONDS));
-        assertEquals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, fragment.computedSyntaxStyle().future().get(1, TimeUnit.SECONDS));
+        assertEquals("Paste of short summary", fragment.computedDescription().await(Duration.ofSeconds(1)).orElseThrow());
+        assertEquals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, fragment.computedSyntaxStyle().await(Duration.ofSeconds(1)).orElseThrow());
 
         // Single computation: description future get() called exactly once
         assertEquals(1, descGets.get());
     }
 
     @Test
-    public void pasteImage_eagerStart_imageBytesAndPlaceholder() throws Exception {
+    public void pasteImage_eagerStart_imageBytesAndPlaceholder() {
         var exec = new ThreadPoolExecutor(
                 1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
         var cm = cmWithExecutor(exec);
@@ -114,7 +115,7 @@ public class PasteFragmentsComputedValueTest {
         descCF.complete("image paste");
 
         // image bytes should resolve from eager computation
-        var bytes = fragment.computedImageBytes().future().get(1, TimeUnit.SECONDS);
+        var bytes = fragment.computedImageBytes().await(Duration.ofSeconds(1)).orElseThrow();
         assertNotNull(bytes);
         assertTrue(bytes.length > 0);
     }
