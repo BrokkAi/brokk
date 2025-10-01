@@ -7,6 +7,7 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -159,10 +160,10 @@ public final class FragmentUtils {
      *
      * @param image The image to convert
      * @return PNG bytes, or null if image is null
-     * @throws IOException If conversion fails
+     * @throws UncheckedIOException If conversion fails
      */
     @Nullable
-    public static byte[] imageToBytes(@Nullable Image image) throws IOException {
+    public static byte[] imageToBytes(@Nullable Image image) {
         if (image == null) {
             return null;
         }
@@ -180,6 +181,8 @@ public final class FragmentUtils {
         try (var baos = new ByteArrayOutputStream()) {
             ImageIO.write(bufferedImage, "PNG", baos);
             return baos.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 }

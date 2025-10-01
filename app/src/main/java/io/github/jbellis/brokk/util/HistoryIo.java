@@ -194,7 +194,7 @@ public final class HistoryIo {
     private static void awaitDynamicFields(ContextHistory ch, Duration awaitTimeout) {
         for (Context ctx : ch.getHistory()) {
             for (var fragment : ctx.allFragments().toList()) {
-                if (fragment instanceof ContextFragment.DynamicFragment df) {
+                if (fragment instanceof ContextFragment.ComputedFragment df) {
                     var desc = df.computedDescription().await(awaitTimeout);
                     if (desc.isEmpty()) {
                         logger.warn(

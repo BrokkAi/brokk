@@ -7,7 +7,7 @@ import java.time.Duration;
 
 import org.junit.jupiter.api.Test;
 
-public class DynamicFragmentTest {
+public class ComputedFragmentTest {
     @Test
     public void dynamicSupport_rendersPlaceholderWithoutBlocking() {
         var slow = new ComputedValue<>("slow", () -> {

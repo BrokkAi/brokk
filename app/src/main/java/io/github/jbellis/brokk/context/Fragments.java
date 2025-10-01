@@ -28,6 +28,7 @@ import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -174,28 +175,6 @@ public class Fragments {
         private final ComputedValue<String> syntaxCv;
 
         // Helper to get image bytes, might throw UncheckedIOException
-        @Nullable
-        private static byte[] imageToBytes(@Nullable Image image) {
-            if (image == null) {
-                return null;
-            }
-            java.awt.image.BufferedImage bufferedImage;
-            if (image instanceof java.awt.image.BufferedImage bi) {
-                bufferedImage = bi;
-            } else {
-                bufferedImage =
-                        new java.awt.image.BufferedImage(image.getWidth(null), image.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_ARGB);
-                var g = bufferedImage.createGraphics();
-                g.drawImage(image, 0, 0, null);
-                g.dispose();
-            }
-            try (var baos = new java.io.ByteArrayOutputStream()) {
-                ImageIO.write(bufferedImage, "PNG", baos);
-                return baos.toByteArray();
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }
 
         public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(
@@ -205,7 +184,7 @@ public class Fragments {
             this.image = image;
             this.imageBytesCv = new ComputedValue<>(
                     "paste-image-bytes-" + id(),
-                    () -> imageToBytes(image),
+                    () -> FragmentUtils.imageToBytes(image),
                     ContextFragment.getFragmentExecutor());
             this.textCv = ComputedValue.completed("paste-image-text-" + id(), text());
             this.syntaxCv = ComputedValue.completed("paste-image-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -218,7 +197,7 @@ public class Fragments {
             this.image = image;
             this.imageBytesCv = new ComputedValue<>(
                     "paste-image-bytes-" + id(),
-                    () -> imageToBytes(image),
+                    () -> FragmentUtils.imageToBytes(image),
                     ContextFragment.getFragmentExecutor());
             this.textCv = ComputedValue.completed("paste-image-text-" + id(), text());
             this.syntaxCv = ComputedValue.completed("paste-image-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -260,7 +239,7 @@ public class Fragments {
         }
 
         public @Nullable byte[] imageBytes() {
-            return imageBytesCv.tryGet().orElse(null);
+            return imageBytesCv.await(Duration.ofMinutes(1)).orElse(null);
         }
 
         @Override
@@ -302,6 +281,18 @@ public class Fragments {
         @Override
         public String shortDescription() {
             return "pasted image";
+        }
+
+        @Override
+        public int hashCode() {
+            return id().hashCode();
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof AnonymousImageFragment other)) return false;
+            return id().equals(other.id());
         }
     }
 
@@ -397,7 +388,7 @@ public class Fragments {
         }
     }
 
-    public static class UsageFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
+    public static class UsageFragment extends ContextFragment.ComputedVirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
 
@@ -509,7 +500,7 @@ public class Fragments {
     }
 
     /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
-    public static class CodeFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
+    public static class CodeFragment extends ContextFragment.ComputedVirtualFragment { // Dynamic, uses nextId
         private final CodeUnit unit;
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
@@ -595,7 +586,7 @@ public class Fragments {
         }
     }
 
-    public static class CallGraphFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
+    public static class CallGraphFragment extends ContextFragment.ComputedVirtualFragment { // Dynamic, uses nextId
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
@@ -698,7 +689,7 @@ public class Fragments {
         }
     }
 
-    public static class SkeletonFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
+    public static class SkeletonFragment extends ContextFragment.ComputedVirtualFragment { // Dynamic, uses nextId
         private final List<String> targetIdentifiers; // FQ class names or file paths/patterns
         private final SummaryType summaryType;
 
@@ -863,7 +854,7 @@ public class Fragments {
         }
     }
 
-    public static class BuildFragment extends ContextFragment.DynamicVirtualFragment {
+    public static class BuildFragment extends ContextFragment.ComputedVirtualFragment {
         private final String content;
 
         public BuildFragment(IContextManager contextManager, String buildOutput) {

@@ -22,7 +22,6 @@ import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -191,7 +190,7 @@ public interface ContextFragment {
 
     /** Indicates if the fragment's content can change based on project/file state. */
     default boolean isDynamic() {
-        return this instanceof DynamicFragment;
+        return this instanceof ComputedFragment;
     }
 
     /**
@@ -402,6 +401,7 @@ public interface ContextFragment {
         public boolean equals(Object obj) {
             if (this == obj) return true;
             if (!(obj instanceof VirtualFragment other)) return false;
+            if (hashCode() != other.hashCode()) return false;
             if (isText() != other.isText()) {
                 return false;
             }
@@ -430,7 +430,7 @@ public interface ContextFragment {
      * Default adapters should provide completed values based on current state so legacy
      * call sites keep working without changes.
      */
-    interface DynamicFragment {
+    interface ComputedFragment {
         ComputedValue<String> computedText();
         ComputedValue<String> computedDescription();
         ComputedValue<String> computedSyntaxStyle();
@@ -446,25 +446,23 @@ public interface ContextFragment {
          * Return a copy with cleared ComputedValues; identity (id) is preserved by default.
          * Implementations that track external state may override to trigger recomputation.
          */
-        default ContextFragment refreshCopy() {
-            return (ContextFragment) this;
-        }
+        ContextFragment refreshCopy();
     }
 
     /**
      * Base class for dynamic virtual fragments. Uses numeric String IDs and supports async computation via
      * ComputedValue exposed by DynamicFragment.
      */
-    abstract class DynamicVirtualFragment extends VirtualFragment implements DynamicFragment {
+    abstract class ComputedVirtualFragment extends VirtualFragment implements ComputedFragment {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
         private @Nullable ComputedValue<String> syntaxCv;
 
-        protected DynamicVirtualFragment(IContextManager contextManager) {
+        protected ComputedVirtualFragment(IContextManager contextManager) {
             super(contextManager);
         }
 
-        protected DynamicVirtualFragment(String existingId, IContextManager contextManager) {
+        protected ComputedVirtualFragment(String existingId, IContextManager contextManager) {
             super(existingId, contextManager);
         }
 
@@ -505,7 +503,7 @@ public interface ContextFragment {
     /**
      * Base class for dynamic path fragments. Marker for dynamic behavior on top of PathFragment.
      */
-    non-sealed abstract class DynamicPathFragment implements Fragments.PathFragment, DynamicFragment {
+    non-sealed abstract class DynamicPathFragment implements Fragments.PathFragment, ComputedFragment {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
         private @Nullable ComputedValue<String> syntaxCv;
@@ -549,6 +547,7 @@ public interface ContextFragment {
         public boolean equals(Object obj) {
             if (this == obj) return true;
             if (!(obj instanceof DynamicPathFragment other)) return false;
+            if (hashCode() != other.hashCode()) return false;
             if (isText() != other.isText()) {
                 return false;
             }
@@ -567,7 +566,8 @@ public interface ContextFragment {
         }
     }
 
-    abstract class PasteFragment extends DynamicVirtualFragment {
+    // PF is the rare CVF that is NOT dynamic; we want to compute its description (via slow LLM), but the actual content never changes
+    abstract class PasteFragment extends ComputedVirtualFragment {
         protected transient Future<String> descriptionFuture;
         private final ComputedValue<String> descriptionCv;
 
@@ -613,6 +613,11 @@ public interface ContextFragment {
         @Override
         public ComputedValue<String> computedDescription() {
             return descriptionCv;
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return false;
         }
 
         @Override

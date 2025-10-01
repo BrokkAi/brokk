@@ -518,7 +518,7 @@ public class Context {
         boolean anyReplaced = false;
 
         for (var f : fragments) {
-            if (f instanceof ContextFragment.DynamicFragment df) {
+            if (f instanceof ContextFragment.ComputedFragment df) {
                 // Refresh dynamic fragments whose referenced files intersect the changed set
                 if (!Collections.disjoint(f.files(), changed)) {
                     var refreshed = df.refreshCopy();

@@ -360,7 +360,7 @@ public class ContextHistory {
      */
     private void ensureComputedSnapshot(Context ctx, Duration timeout) {
         for (var fragment : ctx.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.DynamicFragment df) {
+            if (fragment instanceof ContextFragment.ComputedFragment df) {
                 try {
                     // Kick off computations
 
@@ -453,7 +453,7 @@ public class ContextHistory {
                     var pf = fragment.files().iterator().next();
                     try {
                         String newContent;
-                        if (fragment instanceof ContextFragment.DynamicFragment df) {
+                        if (fragment instanceof ContextFragment.ComputedFragment df) {
                             newContent = df.computedText().tryGet().orElse(fragment.text());
                         } else {
                             newContent = fragment.text();

@@ -376,7 +376,7 @@ public class SessionManager implements AutoCloseable {
         private void awaitDynamicFields(ContextHistory ch) {
             for (var ctx : ch.getHistory()) {
                 for (var f : ctx.allFragments().toList()) {
-                    if (f instanceof ContextFragment.DynamicFragment df) {
+                    if (f instanceof ContextFragment.ComputedFragment df) {
                         // best-effort bounded waits
                         df.computedDescription().await(awaitTimeout);
                         df.computedSyntaxStyle().await(awaitTimeout);
