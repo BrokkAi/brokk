@@ -380,7 +380,10 @@ public class SessionManager implements AutoCloseable {
                             taskListJsonSnapshot = Files.readString(tlPath);
                         }
                     } catch (IOException ioe) {
-                        logger.debug("Could not snapshot existing tasklist.json for session {}: {}", sessionId, ioe.getMessage());
+                        logger.debug(
+                                "Could not snapshot existing tasklist.json for session {}: {}",
+                                sessionId,
+                                ioe.getMessage());
                     }
                 }
 
@@ -395,12 +398,19 @@ public class SessionManager implements AutoCloseable {
                 // Restore tasklist.json if we had one
                 if (taskListJsonSnapshot != null) {
                     try (var fs = FileSystems.newFileSystem(
-                            sessionHistoryPath, Map.of("create", Files.notExists(sessionHistoryPath) ? "true" : "false"))) {
+                            sessionHistoryPath,
+                            Map.of("create", Files.notExists(sessionHistoryPath) ? "true" : "false"))) {
                         Path tlPath = fs.getPath("tasklist.json");
                         Files.writeString(
-                                tlPath, taskListJsonSnapshot, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                                tlPath,
+                                taskListJsonSnapshot,
+                                StandardOpenOption.CREATE,
+                                StandardOpenOption.TRUNCATE_EXISTING);
                     } catch (IOException ioe) {
-                        logger.warn("Failed restoring tasklist.json for session {} after history save: {}", sessionId, ioe.getMessage());
+                        logger.warn(
+                                "Failed restoring tasklist.json for session {} after history save: {}",
+                                sessionId,
+                                ioe.getMessage());
                     }
                 }
             } catch (IOException e) {
