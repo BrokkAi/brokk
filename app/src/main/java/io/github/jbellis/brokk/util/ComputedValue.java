@@ -41,8 +41,6 @@ public final class ComputedValue<T> {
     private final Supplier<T> supplier;
     private final @Nullable Executor executor;
 
-    // Guarded by 'this' during transitions
-    private volatile boolean started = false;
     private volatile CompletableFuture<T> futureRef;
 
     // listeners registered via onComplete; guarded by 'this'
@@ -50,7 +48,7 @@ public final class ComputedValue<T> {
 
     /**
      * Create the computation with a predictable name for the thread.
-     * The computation autostarts by default (lazy flag is ignored).
+     * The computation autostarts by default.
      *
      * @param name       used in the worker thread name; not null/blank
      * @param supplier   computation to run
@@ -61,7 +59,7 @@ public final class ComputedValue<T> {
 
     /**
      * Create the computation with a predictable name for the thread.
-     * The computation autostarts by default (lazy flag is ignored).
+     * The computation autostarts by default.
      *
      * @param name       used in the worker thread name; not null/blank
      * @param supplier   computation to run
@@ -77,7 +75,38 @@ public final class ComputedValue<T> {
         this.executor = executor;
         this.futureRef = new CompletableFuture<>();
         if (mode == StartMode.AUTO) {
-            ensureStarted();
+            // Start exactly once at construction time
+            var f = futureRef;
+            String threadName = "cv-" + name + "-" + SEQ.incrementAndGet();
+            Runnable task = () -> {
+                try {
+                    var value = this.supplier.get();
+                    f.complete(value);
+                    notifyComplete(value, null);
+                } catch (Throwable ex) {
+                    try {
+                        f.completeExceptionally(ex);
+                    } catch (Throwable ignore) {
+                        // ignored
+                    }
+                    notifyComplete(null, ex);
+                    logger.debug("ComputedValue supplier for {} failed: {}", name, ex.toString());
+                }
+            };
+            if (this.executor != null) {
+                try {
+                    this.executor.execute(task);
+                } catch (Throwable ex) {
+                    // Fallback to dedicated thread if executor rejects
+                    var t = new Thread(task, threadName);
+                    t.setDaemon(true);
+                    t.start();
+                }
+            } else {
+                var t = new Thread(task, threadName);
+                t.setDaemon(true);
+                t.start();
+            }
         }
     }
 
@@ -87,7 +116,6 @@ public final class ComputedValue<T> {
     public static <T> ComputedValue<T> completed(String name, @Nullable T value) {
         var cv = new ComputedValue<>(name, () -> value, null, StartMode.SUPPRESS);
         synchronized (cv) {
-            cv.started = true;
             cv.futureRef = CompletableFuture.completedFuture(value);
         }
         return cv;
@@ -108,10 +136,10 @@ public final class ComputedValue<T> {
     }
 
     /**
-     * Ensure the computation is started. Returns immediately.
+     * No-op: computations start at construction time for non-preseeded values.
      */
     public void start() {
-        ensureStarted();
+        // already started in constructor
     }
 
     /**
@@ -139,7 +167,6 @@ public final class ComputedValue<T> {
             logger.warn("ComputedValue.await() called on Swing EDT for {}", name);
             return Optional.empty();
         }
-        ensureStarted();
         var f = futureRef;
         try {
             T v = f.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
@@ -157,7 +184,6 @@ public final class ComputedValue<T> {
      * Returns a Subscription that can be disposed to remove the handler before completion.
      */
     public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {
-        ensureStarted();
         var f = futureRef;
         if (f.isDone()) {
             T v = null;
@@ -231,54 +257,9 @@ public final class ComputedValue<T> {
 
     /**
      * CompletableFuture view for async access. This never blocks the EDT by itself.
-     * The computation starts if not already started.
      */
     @VisibleForTesting
     CompletableFuture<T> future() {
-        ensureStarted();
         return futureRef;
-    }
-
-    private void ensureStarted() {
-        if (started) {
-            return;
-        }
-        synchronized (this) {
-            if (started) {
-                return;
-            }
-            started = true;
-            var f = futureRef;
-            String threadName = "cv-" + name + "-" + SEQ.incrementAndGet();
-            Runnable task = () -> {
-                try {
-                    var value = supplier.get();
-                    f.complete(value);
-                    notifyComplete(value, null);
-                } catch (Throwable ex) {
-                    try {
-                        f.completeExceptionally(ex);
-                    } catch (Throwable ignore) {
-                        // ignored
-                    }
-                    notifyComplete(null, ex);
-                    logger.debug("ComputedValue supplier for {} failed: {}", name, ex.toString());
-                }
-            };
-            if (executor != null) {
-                try {
-                    executor.execute(task);
-                } catch (Throwable ex) {
-                    // Fallback to dedicated thread if executor rejects
-                    var t = new Thread(task, threadName);
-                    t.setDaemon(true);
-                    t.start();
-                }
-            } else {
-                var t = new Thread(task, threadName);
-                t.setDaemon(true);
-                t.start();
-            }
-        }
     }
 }
