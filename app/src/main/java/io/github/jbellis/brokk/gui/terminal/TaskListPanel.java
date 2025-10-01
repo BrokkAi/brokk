@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Json;
 import java.awt.BorderLayout;
@@ -650,9 +651,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        // Modal edit dialog (multi-line) replacing inline editor/overlay
-        TaskItem current = model.get(idx);
+        // Open modal edit dialog
+        openEditDialog(idx);
+    }
+
+    private void openEditDialog(int index) {
+        TaskItem current = model.get(index);
         if (current == null) return;
+
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        javax.swing.JDialog dialog = (owner != null)
+                ? new javax.swing.JDialog(owner, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL)
+                : new javax.swing.JDialog((java.awt.Window) null, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
 
         javax.swing.JTextArea ta = new javax.swing.JTextArea(current.text());
         ta.setLineWrap(true);
@@ -663,24 +673,44 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 ta, javax.swing.JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         sp.setPreferredSize(new java.awt.Dimension(520, 220));
 
-        javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.BorderLayout(6, 6));
-        panel.add(new javax.swing.JLabel("Edit task:"), java.awt.BorderLayout.NORTH);
-        panel.add(sp, java.awt.BorderLayout.CENTER);
+        javax.swing.JPanel content = new javax.swing.JPanel(new java.awt.BorderLayout(6, 6));
+        content.add(new javax.swing.JLabel("Edit task:"), java.awt.BorderLayout.NORTH);
+        content.add(sp, java.awt.BorderLayout.CENTER);
 
-        int result = JOptionPane.showConfirmDialog(
-                this, panel, "Edit Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (result == JOptionPane.OK_OPTION) {
+        javax.swing.JPanel buttons = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT));
+        MaterialButton saveBtn = new MaterialButton("Save");
+        SwingUtil.applyPrimaryButtonStyle(saveBtn);
+        MaterialButton cancelBtn = new MaterialButton("Cancel");
+
+        saveBtn.addActionListener(e -> {
             String newText = ta.getText();
             if (newText != null) {
                 newText = newText.strip();
                 if (!newText.isEmpty() && !newText.equals(current.text())) {
-                    model.set(idx, new TaskItem(newText, current.done()));
+                    model.set(index, new TaskItem(newText, current.done()));
                     saveTasksForCurrentSession();
                     list.revalidate();
                     list.repaint();
                 }
             }
-        }
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> dialog.dispose());
+
+        buttons.add(saveBtn);
+        buttons.add(cancelBtn);
+        content.add(buttons, java.awt.BorderLayout.SOUTH);
+
+        dialog.setContentPane(content);
+        dialog.setResizable(true);
+        dialog.getRootPane().setDefaultButton(saveBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+
+        ta.requestFocusInWindow();
+        ta.selectAll();
+
+        dialog.setVisible(true);
     }
 
 
