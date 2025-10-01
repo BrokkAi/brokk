@@ -1036,9 +1036,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (!chrome.getProject().hasGit()) {
                 return;
             }
-            if (branchSplitButton != null) {
-                branchSplitButton.setText("branch: " + branchName);
+            if (branchSplitButton == null) {
+                // Selector not initialized (e.g., no Git or UI not yet built) -> no-op
+                return;
             }
+            branchSplitButton.setText("branch: " + branchName);
             updateProjectFilesDrawerTitle(branchName);
         };
         if (SwingUtilities.isEventDispatchThread()) {
