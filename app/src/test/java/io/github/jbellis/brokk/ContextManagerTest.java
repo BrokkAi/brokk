@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
+
 import java.nio.file.Files;
 import java.util.List;
+
+import io.github.jbellis.brokk.context.Fragments;
 import org.junit.jupiter.api.Test;
 
 /** Unit tests for {@link ContextManager#TEST_FILE_PATTERN}. */
@@ -94,8 +96,8 @@ class ContextManagerTest {
         List<ChatMessage> msgs1 = List.of(UserMessage.from("first"));
         List<ChatMessage> msgs2 = List.of(UserMessage.from("second"));
 
-        var tf1 = new ContextFragment.TaskFragment(cm, msgs1, "First Task");
-        var tf2 = new ContextFragment.TaskFragment(cm, msgs2, "Second Task");
+        var tf1 = new Fragments.TaskFragment(cm, msgs1, "First Task");
+        var tf2 = new Fragments.TaskFragment(cm, msgs2, "Second Task");
 
         var entry1 = new TaskEntry(101, tf1, null);
         var entry2 = new TaskEntry(202, tf2, null);

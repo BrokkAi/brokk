@@ -3,9 +3,8 @@ package io.github.jbellis.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.util.ComputedValue;
+
 import java.awt.image.BufferedImage;
-import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -55,7 +54,7 @@ public class PasteFragmentsComputedValueTest {
 
         var cm = cmWithExecutor(exec);
 
-        var fragment = new ContextFragment.PasteTextFragment(
+        var fragment = new Fragments.PasteTextFragment(
                 "hash-text-1",
                 cm,
                 "some text",
@@ -96,7 +95,7 @@ public class PasteFragmentsComputedValueTest {
         var descCF = new CompletableFuture<String>();
         var img = new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB);
 
-        var fragment = new ContextFragment.AnonymousImageFragment(
+        var fragment = new Fragments.AnonymousImageFragment(
                 "hash-img-1",
                 cm,
                 img,

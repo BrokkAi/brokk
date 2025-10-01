@@ -9,7 +9,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -209,7 +209,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void setText(ContextFragment.TaskFragment newOutput) {
+    public void setText(Fragments.TaskFragment newOutput) {
         setText(newOutput.messages());
     }
 

@@ -10,8 +10,8 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
-import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
+import io.github.jbellis.brokk.context.Fragments.HistoryFragment;
+import io.github.jbellis.brokk.context.Fragments.SkeletonFragment;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
@@ -59,7 +59,7 @@ public class Context {
 
     /** LLM output or other parsed content, with optional fragment. May be null */
     @Nullable
-    final transient ContextFragment.TaskFragment parsedOutput;
+    final transient Fragments.TaskFragment parsedOutput;
 
     /** description of the action that created this context, can be a future (like PasteFragment) */
     public final transient Future<String> action;
@@ -80,7 +80,7 @@ public class Context {
             IContextManager contextManager,
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
-            @Nullable ContextFragment.TaskFragment parsedOutput,
+            @Nullable Fragments.TaskFragment parsedOutput,
             Future<String> action) {
         this.id = id;
         this.contextManager = contextManager;
@@ -94,7 +94,7 @@ public class Context {
             IContextManager contextManager,
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
-            @Nullable ContextFragment.TaskFragment parsedOutput,
+            @Nullable Fragments.TaskFragment parsedOutput,
             Future<String> action) {
         this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
     }
@@ -143,7 +143,7 @@ public class Context {
         return getReadOnlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining(", "));
     }
 
-    public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
+    public Context addPathFragments(Collection<? extends Fragments.PathFragment> paths) {
         var toAdd = paths.stream().filter(p -> !fragments.contains(p)).toList();
         if (toAdd.isEmpty()) {
             return this;
@@ -262,11 +262,11 @@ public class Context {
     /** Returns file fragments and editable virtual fragments (usage), ordered with most-recently-modified last */
     public Stream<ContextFragment> getEditableFragments() {
         // Helper record for associating a fragment with its mtime for safe sorting and filtering
-        record EditableFileWithMtime(ContextFragment.ProjectPathFragment fragment, long mtime) {}
+        record EditableFileWithMtime(Fragments.ProjectPathFragment fragment, long mtime) {}
 
-        Stream<ContextFragment.ProjectPathFragment> sortedProjectFiles = fragments.stream()
-                .filter(ContextFragment.ProjectPathFragment.class::isInstance)
-                .map(ContextFragment.ProjectPathFragment.class::cast)
+        Stream<Fragments.ProjectPathFragment> sortedProjectFiles = fragments.stream()
+                .filter(Fragments.ProjectPathFragment.class::isInstance)
+                .map(Fragments.ProjectPathFragment.class::cast)
                 .map(pf -> {
                     try {
                         return new EditableFileWithMtime(pf, pf.file().mtime());
@@ -283,7 +283,7 @@ public class Context {
                 .map(EditableFileWithMtime::fragment);
 
         Stream<ContextFragment> otherEditablePathFragments = fragments.stream()
-                .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
+                .filter(f -> f.getType().isPath() && !(f instanceof Fragments.ProjectPathFragment));
 
         Stream<ContextFragment> editableVirtuals = fragments.stream()
                 .filter(f -> f.getType().isVirtual() && f.getType().isEditable())
@@ -330,7 +330,7 @@ public class Context {
     }
 
     public Context addHistoryEntry(
-            TaskEntry taskEntry, @Nullable ContextFragment.TaskFragment parsed, Future<String> action) {
+            TaskEntry taskEntry, @Nullable Fragments.TaskFragment parsed, Future<String> action) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         return new Context(newContextId(), contextManager, fragments, newTaskHistory, parsed, action);
@@ -385,11 +385,11 @@ public class Context {
         return result;
     }
 
-    public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
+    public Context withParsedOutput(@Nullable Fragments.TaskFragment parsedOutput, Future<String> action) {
         return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action);
     }
 
-    public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
+    public Context withParsedOutput(@Nullable Fragments.TaskFragment parsedOutput, String action) {
         return new Context(
                 newContextId(),
                 contextManager,
@@ -410,7 +410,7 @@ public class Context {
             List<ContextFragment> readonly,
             List<ContextFragment.VirtualFragment> virtuals,
             List<TaskEntry> history,
-            @Nullable ContextFragment.TaskFragment parsed,
+            @Nullable Fragments.TaskFragment parsed,
             java.util.concurrent.Future<String> action) {
         var combined = Streams.concat(
                         Streams.concat(editable.stream(), readonly.stream()),
@@ -434,7 +434,7 @@ public class Context {
     }
 
     @Nullable
-    public ContextFragment.TaskFragment getParsedOutput() {
+    public Fragments.TaskFragment getParsedOutput() {
         return parsedOutput;
     }
 
@@ -571,8 +571,8 @@ public class Context {
 
             if (f instanceof ContextFragment.DynamicFragment df) {
                 // Paste fragments are refreshed whenever there are external changes to re-kick their ComputedValues
-                if (f instanceof ContextFragment.PasteTextFragment
-                        || f instanceof ContextFragment.AnonymousImageFragment) {
+                if (f instanceof Fragments.PasteTextFragment
+                        || f instanceof Fragments.AnonymousImageFragment) {
                     shouldRefresh = true;
                 } else {
                     // Refresh dynamic fragments whose referenced files intersect the changed set

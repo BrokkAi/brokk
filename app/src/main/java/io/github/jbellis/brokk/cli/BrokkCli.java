@@ -17,6 +17,7 @@ import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -325,7 +326,7 @@ public final class BrokkCli implements Callable<Integer> {
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
-                            cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
+                            cm.addVirtualFragment((Fragments.SkeletonFragment) fragment);
                             io.systemOutput("Added " + fragment);
                         }
                         default -> cm.addSummaries(fragment.files(), Set.of());

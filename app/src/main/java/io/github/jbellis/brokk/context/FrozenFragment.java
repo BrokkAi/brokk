@@ -321,13 +321,13 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
             var meta = new HashMap<String, String>();
             switch (liveFragment) {
-                case ProjectPathFragment pf -> {
+                case Fragments.ProjectPathFragment pf -> {
                     meta.put("repoRoot", pf.file().getRoot().toString());
                     meta.put("relPath", pf.file().getRelPath().toString());
                 }
-                case ExternalPathFragment ef ->
+                case Fragments.ExternalPathFragment ef ->
                     meta.put("absPath", ef.file().absPath().toString());
-                case ImageFileFragment iff -> {
+                case Fragments.ImageFileFragment iff -> {
                     meta.put("absPath", iff.file().absPath().toString());
                     if (iff.file() instanceof ProjectFile pf) {
                         meta.put("isProjectFile", "true");
@@ -335,22 +335,22 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                         meta.put("relPath", pf.getRelPath().toString());
                     }
                 }
-                case GitFileFragment gff -> {
+                case Fragments.GitFileFragment gff -> {
                     meta.put("repoRoot", gff.file().getRoot().toString());
                     meta.put("relPath", gff.file().getRelPath().toString());
                     meta.put("revision", gff.revision());
                 }
-                case SkeletonFragment skelf -> {
+                case Fragments.SkeletonFragment skelf -> {
                     meta.put("targetIdentifiers", String.join(";", skelf.getTargetIdentifiers()));
                     meta.put("summaryType", skelf.getSummaryType().name());
                 }
-                case UsageFragment uf -> meta.put("targetIdentifier", uf.targetIdentifier());
-                case CallGraphFragment cgf -> {
+                case Fragments.UsageFragment uf -> meta.put("targetIdentifier", uf.targetIdentifier());
+                case Fragments.CallGraphFragment cgf -> {
                     meta.put("methodName", cgf.getMethodName());
                     meta.put("depth", String.valueOf(cgf.getDepth()));
                     meta.put("isCalleeGraph", String.valueOf(cgf.isCalleeGraph()));
                 }
-                case CodeFragment cf -> {
+                case Fragments.CodeFragment cf -> {
                     var unit = cf.getCodeUnit();
                     meta.put("fqName", unit.fqName());
                     var source = unit.source();
@@ -429,7 +429,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     throw new IllegalArgumentException("Missing metadata for ProjectPathFragment");
                 }
                 var file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
-                yield new ContextFragment.ProjectPathFragment(file, cm);
+                yield new Fragments.ProjectPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment" -> {
                 var absPath = meta.get("absPath");
@@ -437,7 +437,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     throw new IllegalArgumentException("Missing metadata for ExternalPathFragment");
                 }
                 var file = new ExternalFile(Path.of(absPath));
-                yield new ContextFragment.ExternalPathFragment(file, cm);
+                yield new Fragments.ExternalPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment" -> {
                 var absPath = meta.get("absPath");
@@ -456,7 +456,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 } else {
                     file = new ExternalFile(Path.of(absPath));
                 }
-                yield new ContextFragment.ImageFileFragment(file, cm);
+                yield new Fragments.ImageFileFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment" -> {
                 var targetIdentifiersStr = meta.get("targetIdentifiers");
@@ -466,14 +466,14 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 }
                 var targetIdentifiers = Arrays.asList(targetIdentifiersStr.split(";"));
                 var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                yield new ContextFragment.SkeletonFragment(cm, targetIdentifiers, summaryType);
+                yield new Fragments.SkeletonFragment(cm, targetIdentifiers, summaryType);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment" -> {
                 var targetIdentifier = meta.get("targetIdentifier");
                 if (targetIdentifier == null) {
                     throw new IllegalArgumentException("Missing metadata for UsageFragment");
                 }
-                yield new ContextFragment.UsageFragment(cm, targetIdentifier);
+                yield new Fragments.UsageFragment(cm, targetIdentifier);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment" -> {
                 var methodName = meta.get("methodName");
@@ -484,7 +484,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 }
                 var depth = Integer.parseInt(depthStr);
                 var isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                yield new ContextFragment.CallGraphFragment(cm, methodName, depth, isCalleeGraph);
+                yield new Fragments.CallGraphFragment(cm, methodName, depth, isCalleeGraph);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment" -> {
                 var repoRoot = meta.get("repoRoot");
@@ -511,7 +511,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                             .orElseThrow(() ->
                                     new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
                 }
-                yield new ContextFragment.CodeFragment(cm, unit);
+                yield new Fragments.CodeFragment(cm, unit);
             }
             default -> {
                 throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName

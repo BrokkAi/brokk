@@ -3,8 +3,8 @@ package io.github.jbellis.brokk.gui.git;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -629,11 +629,11 @@ public class GitCommitTab extends JPanel {
                         .liveContext()
                         .fileFragments()
                         .filter(f ->
-                                f instanceof ContextFragment.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
+                                        f instanceof Fragments.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
                         .toList();
                 var deletedFilesInfo = fragmentsForNewFiles.stream()
                         .map(f -> {
-                            var ppf = (ContextFragment.ProjectPathFragment) f;
+                            var ppf = (Fragments.ProjectPathFragment) f;
                             try {
                                 return new ContextHistory.DeletedFile(ppf.file(), ppf.text(), true);
                             } catch (java.io.UncheckedIOException e) {
@@ -664,7 +664,7 @@ public class GitCommitTab extends JPanel {
                         otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
                 var taskResult = new TaskResult(
                         rollbackDescription,
-                        new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
+                        new Fragments.TaskFragment(contextManager, List.of(), rollbackDescription),
                         new HashSet<>(selectedFiles),
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 
@@ -692,7 +692,7 @@ public class GitCommitTab extends JPanel {
                     var fragmentsToDrop = contextManager
                             .liveContext()
                             .fileFragments()
-                            .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                            .filter(f -> f instanceof Fragments.ProjectPathFragment ppf
                                     && otherFilesToDrop.contains(ppf.file()))
                             .toList();
                     if (!fragmentsToDrop.isEmpty()) {

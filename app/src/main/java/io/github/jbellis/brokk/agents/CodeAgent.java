@@ -13,7 +13,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
@@ -250,7 +250,7 @@ public class CodeAgent {
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
         return new TaskResult(
                 "Code: " + finalActionDescription,
-                new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
+                new Fragments.TaskFragment(contextManager, finalMessages, userInput),
                 es.changedFiles(),
                 stopDetails);
     }
@@ -379,7 +379,7 @@ public class CodeAgent {
 
         return new TaskResult(
                 "Code: " + finalAction,
-                new ContextFragment.TaskFragment(contextManager, finalMessages, instructions),
+                new Fragments.TaskFragment(contextManager, finalMessages, instructions),
                 editState.changedFiles(),
                 stopDetails);
     }
@@ -559,7 +559,7 @@ public class CodeAgent {
         // Return TaskResult containing conversation and original content
         return new TaskResult(
                 "Quick Edit: " + file.getFileName(),
-                new ContextFragment.TaskFragment(contextManager, pendingHistory, "Quick Edit: " + file.getFileName()),
+                new Fragments.TaskFragment(contextManager, pendingHistory, "Quick Edit: " + file.getFileName()),
                 Set.of(file),
                 stopDetails);
     }

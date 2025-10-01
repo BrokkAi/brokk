@@ -8,7 +8,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -539,7 +539,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 }
             }
 
-            var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
+            var fragment = new Fragments.StringFragment(contextManager, diffText, description, syntaxStyle);
             contextManager.submitContextTask(() -> {
                 contextManager.addVirtualFragment(fragment);
                 contextManager.getIo().systemOutput("Added captured diff to context: " + description);
@@ -727,7 +727,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     // Check if this file is already in the current workspace context
                     var editableFilesList = currentContext.fileFragments().toList();
                     boolean inWorkspace = editableFilesList.stream()
-                            .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                            .anyMatch(f -> f instanceof Fragments.ProjectPathFragment ppf
                                     && ppf.file().equals(file));
                     if (!inWorkspace) {
                         externalFiles.add(file);

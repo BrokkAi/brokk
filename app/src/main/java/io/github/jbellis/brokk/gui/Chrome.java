@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
@@ -1508,7 +1509,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // 2. Output-only fragments (Task / History / Search)
             if (workingFragment.getType().isOutput()) {
-                var outputFragment = (ContextFragment.OutputFragment) workingFragment;
+                var outputFragment = (Fragments.OutputFragment) workingFragment;
                 // var escapeHtml = outputFragment.isEscapeHtml();
                 var combinedMessages = new ArrayList<ChatMessage>();
 
@@ -1536,14 +1537,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 3. Image fragments (clipboard image or image file)
             if (!workingFragment.isText()) {
                 if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                    var pif = (ContextFragment.AnonymousImageFragment) workingFragment;
+                    var pif = (Fragments.AnonymousImageFragment) workingFragment;
                     var imagePanel = new PreviewImagePanel(null);
                     imagePanel.setImage(pif.image());
                     showPreviewFrame(contextManager, title, imagePanel);
                     return;
                 }
                 if (workingFragment.getType() == ContextFragment.FragmentType.IMAGE_FILE) {
-                    var iff = (ContextFragment.ImageFileFragment) workingFragment;
+                    var iff = (Fragments.ImageFileFragment) workingFragment;
                     PreviewImagePanel.showInFrame(frame, contextManager, iff.file());
                     return;
                 }
@@ -1551,7 +1552,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // 4. Specific handling for Git-history snapshots
             if (workingFragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
-                var ghf = (ContextFragment.GitFileFragment) workingFragment;
+                var ghf = (Fragments.GitFileFragment) workingFragment;
                 // pass the actual ProjectFile so dynamic menu items can be built
                 var previewPanel = new PreviewTextPanel(
                         contextManager, ghf.file(), ghf.text(), ghf.syntaxStyle(), themeManager, ghf);
@@ -1563,7 +1564,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (workingFragment.getType().isPath()) {
                 // If we were able to unfreeze to a real PathFragment AND it belongs to the
                 // current context, show the live file so the user can edit/save.
-                if (isCurrentContext && workingFragment instanceof ContextFragment.PathFragment pf) {
+                if (isCurrentContext && workingFragment instanceof Fragments.PathFragment pf) {
                     var brokkFile = pf.file();
                     if (brokkFile instanceof ProjectFile projectFile) {
                         // Live ProjectFile – delegate to helper that sets up edit/save UI.
@@ -1596,7 +1597,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 // Otherwise – fall back to showing the frozen snapshot.
                 ProjectFile srcFile = null;
-                if (workingFragment instanceof ContextFragment.PathFragment pfFrag
+                if (workingFragment instanceof Fragments.PathFragment pfFrag
                         && pfFrag.file() instanceof ProjectFile p) {
                     srcFile = p; // supply the ProjectFile if we have one
                 }

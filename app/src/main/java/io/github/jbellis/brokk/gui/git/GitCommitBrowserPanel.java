@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
@@ -655,7 +655,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 for (var pf : selectedFiles) {
                     try {
                         final String content = getRepo().getFileContent(commitId, pf);
-                        var fragment = new ContextFragment.GitFileFragment(pf, shortId, content);
+                        var fragment = new Fragments.GitFileFragment(pf, shortId, content);
                         contextManager.addPathFragmentAsync(fragment);
                         success++;
                     } catch (GitAPIException ex) {

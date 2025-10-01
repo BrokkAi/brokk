@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -46,20 +47,20 @@ public class WorkspaceTools {
 
         // Process ProjectPathFragments
         var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
-                .map(ContextFragment.ProjectPathFragment.class::cast)
+                .map(Fragments.ProjectPathFragment.class::cast)
                 .toList();
         if (!pathFragments.isEmpty()) {
             logger.debug(
                     "Adding selected ProjectPathFragments: {}",
                     pathFragments.stream()
-                            .map(ContextFragment.ProjectPathFragment::shortDescription)
+                            .map(Fragments.ProjectPathFragment::shortDescription)
                             .collect(Collectors.joining(", ")));
             contextManager.addPathFragments(pathFragments);
         }
 
         // Process SkeletonFragments
         var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
-                .map(ContextFragment.SkeletonFragment.class::cast)
+                .map(Fragments.SkeletonFragment.class::cast)
                 .toList();
 
         if (!skeletonFragments.isEmpty()) {
@@ -80,12 +81,12 @@ public class WorkspaceTools {
 
             if (!classTargetFqns.isEmpty()) {
                 logger.debug("Adding combined SkeletonFragment for classes: {}", classTargetFqns);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(
+                contextManager.addVirtualFragment(new Fragments.SkeletonFragment(
                         contextManager, classTargetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON));
             }
             if (!fileTargetPaths.isEmpty()) {
                 logger.debug("Adding combined SkeletonFragment for files: {}", fileTargetPaths);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(
+                contextManager.addVirtualFragment(new Fragments.SkeletonFragment(
                         contextManager, fileTargetPaths, ContextFragment.SummaryType.FILE_SKELETONS));
             }
         }
@@ -156,7 +157,7 @@ public class WorkspaceTools {
             }
             var defOpt = analyzer.getDefinition(className);
             if (defOpt.isPresent()) {
-                var fragment = new ContextFragment.CodeFragment(contextManager, defOpt.get());
+                var fragment = new Fragments.CodeFragment(contextManager, defOpt.get());
                 contextManager.addVirtualFragment(fragment);
                 addedCount++;
             } else {
@@ -211,7 +212,7 @@ public class WorkspaceTools {
         // Use the ContextManager's method to add the string fragment
         String description = "Content from " + urlString;
         // ContextManager handles pushing the context update
-        var fragment = new ContextFragment.StringFragment(
+        var fragment = new Fragments.StringFragment(
                 contextManager, content, description, SyntaxConstants.SYNTAX_STYLE_NONE); // Pass contextManager
         contextManager.pushContext(ctx -> ctx.addVirtualFragment(fragment));
 
@@ -232,7 +233,7 @@ public class WorkspaceTools {
         }
 
         // Use the ContextManager's method to add the string fragment
-        var fragment = new ContextFragment.StringFragment(
+        var fragment = new Fragments.StringFragment(
                 contextManager, content, description, SyntaxConstants.SYNTAX_STYLE_NONE); // Pass contextManager
         contextManager.pushContext(ctx -> ctx.addVirtualFragment(fragment));
 
@@ -282,7 +283,7 @@ public class WorkspaceTools {
 
         // Create UsageFragment with only the target symbol.
         // The fragment itself will compute the usages when its text() or sources() is called.
-        var fragment = new ContextFragment.UsageFragment(contextManager, symbol); // Pass contextManager
+        var fragment = new Fragments.UsageFragment(contextManager, symbol); // Pass contextManager
         contextManager.addVirtualFragment(fragment);
 
         // The message indicates addition; actual fetching confirmation happens when fragment is rendered/used.
@@ -313,7 +314,7 @@ public class WorkspaceTools {
             return "Cannot add summary: class names list resolved to empty";
         }
 
-        var fragment = new ContextFragment.SkeletonFragment(
+        var fragment = new Fragments.SkeletonFragment(
                 contextManager,
                 distinctClassNames,
                 ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass contextManager
@@ -351,7 +352,7 @@ public class WorkspaceTools {
             return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
         }
 
-        var fragment = new ContextFragment.SkeletonFragment(
+        var fragment = new Fragments.SkeletonFragment(
                 contextManager, resolvedFilePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass contextManager
         contextManager.addVirtualFragment(fragment);
 
@@ -384,7 +385,7 @@ public class WorkspaceTools {
             }
             var cuOpt = analyzer.getDefinition(methodName);
             if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
-                var fragment = new ContextFragment.CodeFragment(contextManager, cuOpt.get());
+                var fragment = new Fragments.CodeFragment(contextManager, cuOpt.get());
                 contextManager.addVirtualFragment(fragment);
                 count++;
             } else {
@@ -465,7 +466,7 @@ public class WorkspaceTools {
             return "Cannot add call graph: depth must be positive";
         }
 
-        var fragment = new ContextFragment.CallGraphFragment(
+        var fragment = new Fragments.CallGraphFragment(
                 contextManager, methodName, depth, false); // false for callers, pass contextManager
         contextManager.addVirtualFragment(fragment);
 
@@ -491,7 +492,7 @@ public class WorkspaceTools {
             return "Cannot add call graph: depth must be positive";
         }
 
-        var fragment = new ContextFragment.CallGraphFragment(
+        var fragment = new Fragments.CallGraphFragment(
                 contextManager, methodName, depth, true); // true for callees, pass contextManager
         contextManager.addVirtualFragment(fragment);
 

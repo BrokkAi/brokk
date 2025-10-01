@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
@@ -179,7 +180,7 @@ public class WorkspacePanel extends JPanel {
                         .ifPresent(projectFile ->
                                 actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, projectFile)));
             } else if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-                var cf = (ContextFragment.HistoryFragment) fragment;
+                var cf = (Fragments.HistoryFragment) fragment;
                 var uncompressedExists = cf.entries().stream().anyMatch(entry -> !entry.isCompressed());
                 if (uncompressedExists) {
                     actions.add(WorkspaceAction.COMPRESS_HISTORY.createAction(panel));
@@ -340,7 +341,7 @@ public class WorkspacePanel extends JPanel {
                     switch (WorkspaceAction.this) {
                         case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
                         case VIEW_FILE -> {
-                            var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
+                            var fragment = new Fragments.ProjectPathFragment(file, panel.contextManager);
                             panel.showFragmentPreview(fragment);
                         }
                         case VIEW_HISTORY -> panel.chrome.addFileHistoryTab(file);
@@ -368,7 +369,7 @@ public class WorkspacePanel extends JPanel {
                                                 "File ref action not implemented: " + WorkspaceAction.this);
                                 };
                         var fragment =
-                                new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
+                                new Fragments.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
                         panel.performContextActionAsync(contextAction, List.of(fragment));
                     } else {
                         panel.chrome.toolError("Cannot " + label.toLowerCase(Locale.ROOT) + ": " + fileRef.getFullPath()
@@ -2077,7 +2078,7 @@ public class WorkspacePanel extends JPanel {
                         contextManager.addSummaries(files, Collections.emptySet());
                     }
                     case CODE -> {
-                        var cf = (ContextFragment.CodeFragment) fragment;
+                        var cf = (Fragments.CodeFragment) fragment;
                         var cu = cf.getCodeUnit();
                         if (cu.isClass()) {
                             contextManager.addSummaries(Collections.emptySet(), java.util.Set.of(cu));
@@ -2087,7 +2088,7 @@ public class WorkspacePanel extends JPanel {
                                     .as(SkeletonProvider.class)
                                     .orElseThrow();
                             analyzer.getSkeleton(cu.fqName()).ifPresent(st -> {
-                                var summary = new ContextFragment.StringFragment(
+                                var summary = new Fragments.StringFragment(
                                         contextManager,
                                         st,
                                         "Summary of " + cu.fqName(),
@@ -2110,7 +2111,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Non-summarize path: attach fragments directly
-            if (fragment instanceof ContextFragment.ProjectPathFragment ppf) {
+            if (fragment instanceof Fragments.ProjectPathFragment ppf) {
                 contextManager.addPathFragments(java.util.List.of(ppf));
             } else if (fragment instanceof ContextFragment.VirtualFragment vf) {
                 contextManager.addVirtualFragment(vf);

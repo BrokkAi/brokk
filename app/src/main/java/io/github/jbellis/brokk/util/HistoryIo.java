@@ -234,7 +234,7 @@ public final class HistoryIo {
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
         var imageDomainFragments = new HashSet<FrozenFragment>();
-        var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
+        var pastedImageFragments = new HashSet<Fragments.AnonymousImageFragment>();
 
         // Best-effort: await dynamic fields within the provided timeout to avoid persisting placeholders.
         awaitDynamicFields(ch, awaitTimeout);
@@ -249,8 +249,8 @@ public final class HistoryIo {
                 }
             });
             ctx.virtualFragments().forEach(vf -> {
-                if (vf instanceof ContextFragment.TaskFragment taskFragment
-                        && !(vf instanceof ContextFragment.SearchFragment)) {
+                if (vf instanceof Fragments.TaskFragment taskFragment
+                        && !(vf instanceof Fragments.SearchFragment)) {
                     if (!collectedTaskDtos.containsKey(taskFragment.id())) {
                         collectedTaskDtos.put(taskFragment.id(), DtoMapper.toTaskFragmentDto(taskFragment, writer));
                     }
@@ -259,10 +259,10 @@ public final class HistoryIo {
                     if (vf instanceof FrozenFragment ff && !ff.isText()) {
                         imageDomainFragments.add(ff);
                     }
-                    if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
+                    if (vf instanceof Fragments.AnonymousImageFragment aif) {
                         pastedImageFragments.add(aif);
                     }
-                    if (vf instanceof ContextFragment.HistoryFragment hf) {
+                    if (vf instanceof Fragments.HistoryFragment hf) {
                         hf.entries().stream()
                                 .map(TaskEntry::log)
                                 .filter(Objects::nonNull)

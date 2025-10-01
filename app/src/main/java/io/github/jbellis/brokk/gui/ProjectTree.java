@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.FileSystemEventListener;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -30,6 +29,8 @@ import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeWillExpandListener;
 import javax.swing.tree.*;
+
+import io.github.jbellis.brokk.context.Fragments;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -186,7 +187,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     && treeNode.getFile().isFile()) {
                 ProjectFile projectFile = getProjectFileFromNode(node);
                 if (projectFile != null) {
-                    var fragment = new io.github.jbellis.brokk.context.ContextFragment.ProjectPathFragment(
+                    var fragment = new Fragments.ProjectPathFragment(
                             projectFile, contextManager);
                     chrome.openFragmentPreview(fragment);
                 }
@@ -387,7 +388,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     var description = "Deleted " + fileList;
                     var taskResult = new TaskResult(
                             description,
-                            new ContextFragment.TaskFragment(contextManager, List.of(), description),
+                            new Fragments.TaskFragment(contextManager, List.of(), description),
                             new HashSet<>(filesToDelete),
                             new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 

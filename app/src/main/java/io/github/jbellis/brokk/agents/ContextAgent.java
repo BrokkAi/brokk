@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
@@ -155,7 +156,7 @@ public class ContextAgent {
                             fragment.description());
                 }
             } else if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-                var skeletonFragment = (ContextFragment.SkeletonFragment) fragment;
+                var skeletonFragment = (Fragments.SkeletonFragment) fragment;
                 // SkeletonFragment.text() computes the combined skeletons.
                 // This might re-fetch if called multiple times, but for token calculation it's acceptable once.
                 // ContextFragment.SkeletonFragment.text() does not throw IOException or InterruptedException
@@ -427,7 +428,7 @@ public class ContextAgent {
         // Create fragments
         var skeletonFragments = skeletonPerSummary(cm, recommendedSummaries);
         var pathFragments = filteredFiles.stream()
-                .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
+                .map(f -> (ContextFragment) new Fragments.ProjectPathFragment(f, cm))
                 .toList();
         var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream())
                 .toList();
@@ -439,7 +440,7 @@ public class ContextAgent {
     private static List<ContextFragment> skeletonPerSummary(
             IContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
         return relevantSummaries.keySet().stream()
-                .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(
+                .map(s -> (ContextFragment) new Fragments.SkeletonFragment(
                         contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .toList();
     }

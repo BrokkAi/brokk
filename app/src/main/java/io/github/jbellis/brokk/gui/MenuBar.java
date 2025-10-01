@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
@@ -247,7 +248,7 @@ public class MenuBar {
                         }
 
                         var projectRoot = project.getRoot();
-                        List<ContextFragment.PathFragment> fragments = new ArrayList<>();
+                        List<Fragments.PathFragment> fragments = new ArrayList<>();
                         for (Path p : pathsToAttach) {
                             BrokkFile bf = Completions.maybeExternalFile(
                                     projectRoot, p.toAbsolutePath().normalize().toString());

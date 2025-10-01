@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import dev.langchain4j.data.message.AiMessage;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.BorderUtils;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
@@ -32,7 +32,7 @@ public final class AskHumanDialog {
                     /* --------- Question (Markdown) ---------------------------------- */
                     var questionPanel = new MarkdownOutputPanel(true);
                     questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-                    var fragment = new ContextFragment.TaskFragment(
+                    var fragment = new Fragments.TaskFragment(
                             chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
                     questionPanel.setText(fragment);
                     questionPanel.applyTheme(chrome.getTheme());

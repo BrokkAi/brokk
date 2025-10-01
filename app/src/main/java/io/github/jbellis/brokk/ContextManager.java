@@ -13,10 +13,11 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.context.ContextFragment.PathFragment;
+import io.github.jbellis.brokk.context.Fragments.PathFragment;
 import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -707,12 +708,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var binaryFiles = castNonNull(filesByType.get(false));
 
         var textFragments = textFiles.stream()
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
+                .map(pf -> new Fragments.ProjectPathFragment(pf, this))
                 .toList();
         addPathFragments(textFragments);
 
         var binaryFragments = binaryFiles.stream()
-                .map(pf -> new ContextFragment.ImageFileFragment(pf, this))
+                .map(pf -> new Fragments.ImageFileFragment(pf, this))
                 .toList();
         addPathFragments(binaryFragments);
     }
@@ -871,7 +872,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Appends selected fragments from a historical (frozen) context to the current live context. If a
-     * {@link ContextFragment.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also appended to
+     * {@link Fragments.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also appended to
      * the current live context's history. A new state representing this action is pushed to the context history.
      *
      * @param sourceFrozenContext The historical context to source fragments and history from.
@@ -888,9 +889,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 List<TaskEntry> finalHistory = new ArrayList<>(liveContext().getTaskHistory());
                 Set<TaskEntry> existingEntries = new HashSet<>(finalHistory);
 
-                Optional<ContextFragment.HistoryFragment> selectedHistoryFragmentOpt = fragmentsToKeep.stream()
-                        .filter(ContextFragment.HistoryFragment.class::isInstance)
-                        .map(ContextFragment.HistoryFragment.class::cast)
+                Optional<Fragments.HistoryFragment> selectedHistoryFragmentOpt = fragmentsToKeep.stream()
+                        .filter(Fragments.HistoryFragment.class::isInstance)
+                        .map(Fragments.HistoryFragment.class::cast)
                         .findFirst();
 
                 if (selectedHistoryFragmentOpt.isPresent()) {
@@ -906,7 +907,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 List<TaskEntry> newHistory = List.copyOf(finalHistory);
 
                 // Categorize fragments to add after unfreezing
-                List<ContextFragment.ProjectPathFragment> pathsToAdd = new ArrayList<>();
+                List<Fragments.ProjectPathFragment> pathsToAdd = new ArrayList<>();
                 List<VirtualFragment> virtualFragmentsToAdd = new ArrayList<>();
 
                 Set<String> sourceEditableIds = sourceFrozenContext
@@ -922,14 +923,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     ContextFragment unfrozen = Context.unfreezeFragmentIfNeeded(fragmentFromKeeperList, this);
 
                     if (sourceEditableIds.contains(fragmentFromKeeperList.id())
-                            && unfrozen instanceof ContextFragment.ProjectPathFragment ppf) {
+                            && unfrozen instanceof Fragments.ProjectPathFragment ppf) {
                         pathsToAdd.add(ppf);
                     } else if (sourceVirtualIds.contains(fragmentFromKeeperList.id())
                             && unfrozen instanceof VirtualFragment vf) {
-                        if (!(vf instanceof ContextFragment.HistoryFragment)) {
+                        if (!(vf instanceof Fragments.HistoryFragment)) {
                             virtualFragmentsToAdd.add(vf);
                         }
-                    } else if (unfrozen instanceof ContextFragment.HistoryFragment) {
+                    } else if (unfrozen instanceof Fragments.HistoryFragment) {
                         // Handled by selectedHistoryFragmentOpt
                     } else {
                         logger.warn(
@@ -990,7 +991,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        var bf = new ContextFragment.BuildFragment(this, buildOutput);
+        var bf = new Fragments.BuildFragment(this, buildOutput);
         addVirtualFragment(bf);
     }
 
@@ -1001,7 +1002,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
                 .findFirst()
                 .map(f -> {
-                    var bf = (ContextFragment.BuildFragment) f;
+                    var bf = (Fragments.BuildFragment) f;
                     // Extract content without the "# CURRENT BUILD STATUS\n\n" header
                     String fullText = bf.text();
                     String header = "# CURRENT BUILD STATUS\n\n";
@@ -1019,7 +1020,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param image The java.awt.Image pasted from the clipboard.
      */
-    public ContextFragment.AnonymousImageFragment addPastedImageFragment(
+    public Fragments.AnonymousImageFragment addPastedImageFragment(
             java.awt.Image image, @Nullable String descriptionOverride) {
         Future<String> descriptionFuture;
         if (descriptionOverride != null && !descriptionOverride.isBlank()) {
@@ -1029,7 +1030,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Must be final for lambda capture in pushContext
-        final var fragment = new ContextFragment.AnonymousImageFragment(this, image, descriptionFuture);
+        final var fragment = new Fragments.AnonymousImageFragment(this, image, descriptionFuture);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
         return fragment;
     }
@@ -1075,7 +1076,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 },
                 contextActionExecutor);
 
-        var fragment = new ContextFragment.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
+        var fragment = new Fragments.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
         addVirtualFragment(fragment);
     }
 
@@ -1108,7 +1109,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
-        var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
+        var fragment = new Fragments.UsageFragment(this, identifier, includeTestFiles);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
         io.systemOutput("Added uses of " + identifier + (includeTestFiles ? " (including tests)" : ""));
     }
@@ -1125,7 +1126,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         if (sourceCode != null) {
-            var fragment = new ContextFragment.StringFragment(
+            var fragment = new Fragments.StringFragment(
                     this,
                     sourceCode,
                     "Source code for " + codeUnit.fqName(),
@@ -1149,7 +1150,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.systemOutput("No callers found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, false);
+        var fragment = new Fragments.CallGraphFragment(this, methodName, depth, false);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
         io.systemOutput("Add call graph for callers of " + methodName + " with depth " + depth);
     }
@@ -1160,7 +1161,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.systemOutput("No callees found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, true);
+        var fragment = new Fragments.CallGraphFragment(this, methodName, depth, true);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
         io.systemOutput("Add call graph for methods called by " + methodName + " with depth " + depth);
     }
@@ -1192,7 +1193,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.debug("No relevant methods found in stacktrace -- adding as text");
             return false;
         }
-        var fragment = new ContextFragment.StacktraceFragment(
+        var fragment = new Fragments.StacktraceFragment(
                 this, sources, stacktrace.getOriginalText(), exception, content.toString());
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
         return true;
@@ -1219,7 +1220,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         boolean summariesAdded = false;
         if (!files.isEmpty()) {
             List<String> filePaths = files.stream().map(ProjectFile::toString).collect(Collectors.toList());
-            var fileSummaryFragment = new ContextFragment.SkeletonFragment(
+            var fileSummaryFragment = new Fragments.SkeletonFragment(
                     this, filePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass IContextManager
             addVirtualFragment(fileSummaryFragment);
             io.systemOutput("Summarize " + joinFilesForOutput(files));
@@ -1228,7 +1229,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         if (!classes.isEmpty()) {
             List<String> classFqns = classes.stream().map(CodeUnit::fqName).collect(Collectors.toList());
-            var classSummaryFragment = new ContextFragment.SkeletonFragment(
+            var classSummaryFragment = new Fragments.SkeletonFragment(
                     this, classFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass IContextManager
             addVirtualFragment(classSummaryFragment);
             io.systemOutput("Summarize " + joinClassesForOutput(classFqns));
@@ -1389,7 +1390,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Check conversation history length on the new live context
         if (!newLiveContext.getTaskHistory().isEmpty()) {
-            var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
+            var cf = new Fragments.HistoryFragment(this, newLiveContext.getTaskHistory());
             int tokenCount = Messages.getApproximateTokens(cf.format());
             if (tokenCount > 32 * 1024) {
                 SwingUtilities.invokeLater(() -> {
@@ -1821,7 +1822,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public TaskScope beginTask(String input, boolean compressAtCommit) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
+        var currentTaskFragment = new Fragments.TaskFragment(this, messages, input);
         var history = topContext().getTaskHistory();
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 
@@ -1938,15 +1939,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (!result.changedFiles().isEmpty()) {
                 // Capture current editable files once to keep the lambda valid
                 var existingEditableFiles = updated.fileFragments()
-                        .filter(ContextFragment.ProjectPathFragment.class::isInstance)
-                        .map(ContextFragment.ProjectPathFragment.class::cast)
-                        .map(ContextFragment.ProjectPathFragment::file)
+                        .filter(Fragments.ProjectPathFragment.class::isInstance)
+                        .map(Fragments.ProjectPathFragment.class::cast)
+                        .map(Fragments.ProjectPathFragment::file)
                         .collect(Collectors.toSet());
 
                 var fragmentsToAdd = result.changedFiles().stream()
                         // avoid duplicates – only add if not already editable
                         .filter(pf -> !existingEditableFiles.contains(pf))
-                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
+                        .map(pf -> new Fragments.ProjectPathFragment(pf, this))
                         .toList();
 
                 if (!fragmentsToAdd.isEmpty()) {
@@ -2126,7 +2127,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private Context newContextFrom(Context sourceFrozenContext) {
         var newActionDescription = "New session (from: " + sourceFrozenContext.getAction() + ")";
         var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
-        var newParsedOutputFragment = new ContextFragment.TaskFragment(
+        var newParsedOutputFragment = new Fragments.TaskFragment(
                 this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
         return sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
     }

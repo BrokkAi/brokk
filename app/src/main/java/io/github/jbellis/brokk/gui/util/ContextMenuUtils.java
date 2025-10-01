@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui.util;
 
 import io.github.jbellis.brokk.AnalyzerWrapper;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
@@ -208,7 +208,7 @@ public final class ContextMenuUtils {
         JMenuItem showContentsItem = new JMenuItem("Show Contents");
         showContentsItem.addActionListener(e1 -> {
             if (targetRef.getRepoFile() != null) {
-                chrome.openFragmentPreview(new ContextFragment.ProjectPathFragment(targetRef.getRepoFile(), cm));
+                chrome.openFragmentPreview(new Fragments.ProjectPathFragment(targetRef.getRepoFile(), cm));
             }
         });
         menu.add(showContentsItem);

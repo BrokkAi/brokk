@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
@@ -2160,7 +2161,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                 if (totalTokens > finalBudget) {
                     var summary = ContextFragment.getSummary(recommendation.fragments());
-                    cm.addVirtualFragment(new ContextFragment.StringFragment(
+                    cm.addVirtualFragment(new Fragments.StringFragment(
                             cm,
                             summary,
                             "Summary of Project Scan",

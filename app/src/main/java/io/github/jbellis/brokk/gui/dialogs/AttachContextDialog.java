@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
 import io.github.jbellis.brokk.analyzer.UsagesProvider;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
@@ -409,7 +410,7 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
+        var frag = new Fragments.ProjectPathFragment(chosen, cm);
         selection = new Result(frag, summarizeCheck.isSelected());
         dispose();
     }
@@ -436,7 +437,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-        var frag = new ContextFragment.CodeFragment(cm, cu);
+        var frag = new Fragments.CodeFragment(cm, cu);
         selection = new Result(frag, summarizeCheck.isSelected());
         dispose();
     }
@@ -463,7 +464,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-        var frag = new ContextFragment.CodeFragment(cm, cu);
+        var frag = new Fragments.CodeFragment(cm, cu);
         // Summarize is a no-op for methods per spec; caller will treat summarize flag as no special behavior
         selection = new Result(frag, summarizeCheck.isSelected());
         dispose();
@@ -487,7 +488,7 @@ public class AttachContextDialog extends JDialog {
         if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
             // For Usages with Summarize: create callers call graph with depth=1
             var methodFqn = any.get().fqName();
-            var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
+            var frag = new Fragments.CallGraphFragment(cm, methodFqn, 1, false);
             selection = new Result(frag, true);
             dispose();
             return;
@@ -495,7 +496,7 @@ public class AttachContextDialog extends JDialog {
 
         // Default: plain usage
         var target = any.map(CodeUnit::fqName).orElse(input);
-        var frag = new ContextFragment.UsageFragment(cm, target);
+        var frag = new Fragments.UsageFragment(cm, target);
         selection = new Result(frag, summarizeCheck.isSelected());
         dispose();
     }

@@ -59,7 +59,7 @@ public class DtoMapper {
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
                     if (taskRefDto.logId() != null) {
-                        var logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                        var logFragment = (Fragments.TaskFragment) fragmentCache.get(taskRefDto.logId());
                         if (logFragment != null) {
                             return new TaskEntry(taskRefDto.sequence(), logFragment, null);
                         }
@@ -73,7 +73,7 @@ public class DtoMapper {
                 .collect(Collectors.toCollection(ArrayList::new));
 
         var parsedOutputFragment = dto.parsedOutputId() != null
-                ? (ContextFragment.TaskFragment) fragmentCache.get(dto.parsedOutputId())
+                ? (Fragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
                 : null;
 
         var actionFuture = CompletableFuture.completedFuture(dto.action());
@@ -140,16 +140,16 @@ public class DtoMapper {
             ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd ->
-                ContextFragment.ProjectPathFragment.withId(
+                Fragments.ProjectPathFragment.withId(
                         new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
             case ExternalFileDto efd ->
-                ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+                Fragments.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case ImageFileDto ifd -> {
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
-                yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
+                yield Fragments.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
             case GitFileFragmentDto gfd ->
-                ContextFragment.GitFileFragment.withId(
+                Fragments.GitFileFragment.withId(
                         new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
                         gfd.revision(),
                         reader.readContent(gfd.contentId()),
@@ -173,13 +173,13 @@ public class DtoMapper {
         };
     }
 
-    private static @Nullable ContextFragment.TaskFragment _buildTaskFragment(
+    private static @Nullable Fragments.TaskFragment _buildTaskFragment(
             @Nullable TaskFragmentDto dto, IContextManager mgr, ContentReader reader) {
         if (dto == null) return null;
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragment.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
+        return new Fragments.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
     }
 
     private static @Nullable ContextFragment.VirtualFragment _buildVirtualFragment(
@@ -207,29 +207,29 @@ public class DtoMapper {
                 var messages = searchDto.messages().stream()
                         .map(msgDto -> fromChatMessageDto(msgDto, reader))
                         .toList();
-                yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
+                yield new Fragments.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
             }
             case TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, mgr, reader);
             case StringFragmentDto stringDto ->
-                new ContextFragment.StringFragment(
+                new Fragments.StringFragment(
                         stringDto.id(),
                         mgr,
                         reader.readContent(stringDto.contentId()),
                         stringDto.description(),
                         stringDto.syntaxStyle());
             case SkeletonFragmentDto skeletonDto ->
-                new ContextFragment.SkeletonFragment(
+                new Fragments.SkeletonFragment(
                         skeletonDto.id(),
                         mgr,
                         skeletonDto.targetIdentifiers(),
                         ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
             case UsageFragmentDto usageDto ->
-                new ContextFragment.UsageFragment(
+                new Fragments.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
             case PasteTextFragmentDto pasteTextDto -> {
                 String text = reader.readContent(pasteTextDto.contentId());
                 String syntax = requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-                yield new ContextFragment.PasteTextFragment(
+                yield new Fragments.PasteTextFragment(
                         pasteTextDto.id(),
                         mgr,
                         text,
@@ -248,7 +248,7 @@ public class DtoMapper {
                         yield null;
                     }
                     var image = FrozenFragment.bytesToImage(imageBytes);
-                    yield new ContextFragment.AnonymousImageFragment(
+                    yield new Fragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,
                             image,
@@ -261,7 +261,7 @@ public class DtoMapper {
             case StacktraceFragmentDto stDto -> {
                 var sources =
                         stDto.sources().stream().map(DtoMapper::fromCodeUnitDto).collect(Collectors.toSet());
-                yield new ContextFragment.StacktraceFragment(
+                yield new Fragments.StacktraceFragment(
                         stDto.id(),
                         mgr,
                         sources,
@@ -270,16 +270,16 @@ public class DtoMapper {
                         reader.readContent(stDto.codeContentId()));
             }
             case CallGraphFragmentDto callGraphDto ->
-                new ContextFragment.CallGraphFragment(
+                new Fragments.CallGraphFragment(
                         callGraphDto.id(),
                         mgr,
                         callGraphDto.methodName(),
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
+                new Fragments.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
             case BuildFragmentDto bfDto ->
-                new ContextFragment.BuildFragment(mgr, reader.readContent(bfDto.contentId()));
+                new Fragments.BuildFragment(mgr, reader.readContent(bfDto.contentId()));
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()
                         .map(taskEntryDto -> _fromTaskEntryDto(
@@ -291,7 +291,7 @@ public class DtoMapper {
                                 allTaskDtos,
                                 reader))
                         .toList();
-                yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
+                yield new Fragments.HistoryFragment(historyDto.id(), mgr, historyEntries);
             }
         };
     }
@@ -331,8 +331,8 @@ public class DtoMapper {
             return toFrozenFragmentDto(ff, writer);
         }
         return switch (fragment) {
-            case ContextFragment.ProjectPathFragment pf -> toProjectFileDto(pf);
-            case ContextFragment.GitFileFragment gf -> {
+            case Fragments.ProjectPathFragment pf -> toProjectFileDto(pf);
+            case Fragments.GitFileFragment gf -> {
                 var file = gf.file();
                 var fileKey =
                         file.getRoot().toString() + ":" + file.getRelPath().toString();
@@ -340,9 +340,9 @@ public class DtoMapper {
                 yield new GitFileFragmentDto(
                         gf.id(), file.getRoot().toString(), file.getRelPath().toString(), gf.revision(), contentId);
             }
-            case ContextFragment.ExternalPathFragment ef ->
+            case Fragments.ExternalPathFragment ef ->
                 new ExternalFileDto(ef.id(), ef.file().getPath().toString());
-            case ContextFragment.ImageFileFragment imf -> {
+            case Fragments.ImageFileFragment imf -> {
                 var file = imf.file();
                 String absPath = file.absPath().toString();
                 String fileName = file.getFileName().toLowerCase(java.util.Locale.ROOT);
@@ -372,7 +372,7 @@ public class DtoMapper {
         return new ExternalFile(path);
     }
 
-    private static ProjectFileDto toProjectFileDto(ContextFragment.ProjectPathFragment fragment) {
+    private static ProjectFileDto toProjectFileDto(Fragments.ProjectPathFragment fragment) {
         var file = fragment.file();
         return new ProjectFileDto(
                 fragment.id(), file.getRoot().toString(), file.getRelPath().toString());
@@ -389,7 +389,7 @@ public class DtoMapper {
         }
 
         return switch (fragment) {
-            case ContextFragment.SearchFragment searchFragment -> {
+            case Fragments.SearchFragment searchFragment -> {
                 var sourcesDto = searchFragment.sources().stream()
                         .map(DtoMapper::toCodeUnitDto)
                         .collect(Collectors.toSet());
@@ -399,28 +399,28 @@ public class DtoMapper {
                 yield new SearchFragmentDto(
                         searchFragment.id(), searchFragment.description(), "", sourcesDto, messagesDto);
             }
-            case ContextFragment.TaskFragment tf -> toTaskFragmentDto(tf, writer);
-            case ContextFragment.StringFragment sf ->
+            case Fragments.TaskFragment tf -> toTaskFragmentDto(tf, writer);
+            case Fragments.StringFragment sf ->
                 new StringFragmentDto(
                         sf.id(), writer.writeContent(sf.text(), null), sf.description(), sf.syntaxStyle());
-            case ContextFragment.SkeletonFragment skf ->
+            case Fragments.SkeletonFragment skf ->
                 new SkeletonFragmentDto(
                         skf.id(),
                         skf.getTargetIdentifiers(),
                         skf.getSummaryType().name());
-            case ContextFragment.UsageFragment uf ->
+            case Fragments.UsageFragment uf ->
                 new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
-            case ContextFragment.PasteTextFragment ptf -> {
+            case Fragments.PasteTextFragment ptf -> {
                 String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
                 String contentId = writer.writeContent(ptf.text(), null);
                 String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
                 yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
-            case ContextFragment.AnonymousImageFragment aif -> {
+            case Fragments.AnonymousImageFragment aif -> {
                 String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
                 yield new PasteImageFragmentDto(aif.id(), description);
             }
-            case ContextFragment.StacktraceFragment stf -> {
+            case Fragments.StacktraceFragment stf -> {
                 var sourcesDto =
                         stf.sources().stream().map(DtoMapper::toCodeUnitDto).collect(Collectors.toSet());
                 String originalContentId = writer.writeContent(stf.getOriginal(), null);
@@ -428,12 +428,12 @@ public class DtoMapper {
                 yield new StacktraceFragmentDto(
                         stf.id(), sourcesDto, originalContentId, stf.getException(), codeContentId);
             }
-            case ContextFragment.CallGraphFragment cgf ->
+            case Fragments.CallGraphFragment cgf ->
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
-            case ContextFragment.CodeFragment cf -> new CodeFragmentDto(cf.id(), toCodeUnitDto(cf.getCodeUnit()));
-            case ContextFragment.BuildFragment bf ->
+            case Fragments.CodeFragment cf -> new CodeFragmentDto(cf.id(), toCodeUnitDto(cf.getCodeUnit()));
+            case Fragments.BuildFragment bf ->
                 new BuildFragmentDto(bf.id(), writer.writeContent(bf.text(), null));
-            case ContextFragment.HistoryFragment hf -> {
+            case Fragments.HistoryFragment hf -> {
                 var historyDto = hf.entries().stream()
                         .map(te -> toTaskEntryDto(te, writer))
                         .toList();
@@ -477,7 +477,7 @@ public class DtoMapper {
         return new TaskEntryDto(entry.sequence(), logDto, summaryContentId);
     }
 
-    public static TaskFragmentDto toTaskFragmentDto(ContextFragment.TaskFragment fragment, ContentWriter writer) {
+    public static TaskFragmentDto toTaskFragmentDto(Fragments.TaskFragment fragment, ContentWriter writer) {
         var messagesDto = fragment.messages().stream()
                 .map(m -> toChatMessageDto(m, writer))
                 .toList();
@@ -519,7 +519,7 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> allTaskDtos,
             ContentReader reader) {
         if (dto.log() != null) {
-            var taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
+            var taskFragment = (Fragments.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
                     dto.log().id(),
                     id -> resolveAndBuildFragment(
                             id,

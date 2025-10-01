@@ -6,7 +6,7 @@ import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import java.nio.file.Path;
@@ -416,7 +416,7 @@ public class SearchTools {
             if (cuOpt.isPresent() && cuOpt.get().isClass()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                    var fragment = new Fragments.CodeFragment(contextManager, cu);
                     var text = fragment.text();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {
@@ -462,7 +462,7 @@ public class SearchTools {
             if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                    var fragment = new Fragments.CodeFragment(contextManager, cu);
                     var text = fragment.text();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {

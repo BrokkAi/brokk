@@ -2,7 +2,8 @@ package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
+
 import java.util.List;
 import java.util.Set;
 
@@ -11,7 +12,7 @@ import java.util.Set;
  */
 public record TaskResult(
         String actionDescription,
-        ContextFragment.TaskFragment output,
+        Fragments.TaskFragment output,
         Set<ProjectFile> changedFiles,
         StopDetails stopDetails) {
     public TaskResult(
@@ -22,7 +23,7 @@ public record TaskResult(
             StopDetails stopDetails) {
         this(
                 actionDescription,
-                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                new Fragments.TaskFragment(contextManager, uiMessages, actionDescription),
                 changedFiles,
                 stopDetails);
     }
@@ -35,7 +36,7 @@ public record TaskResult(
             StopReason simpleReason) {
         this(
                 actionDescription,
-                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                new Fragments.TaskFragment(contextManager, uiMessages, actionDescription),
                 changedFiles,
                 new StopDetails(simpleReason));
     }
@@ -44,7 +45,7 @@ public record TaskResult(
     public TaskResult(TaskResult base, List<ChatMessage> newMessages, IContextManager contextManager) {
         this(
                 base.actionDescription(),
-                new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
+                new Fragments.TaskFragment(contextManager, newMessages, base.actionDescription()),
                 base.changedFiles(),
                 base.stopDetails());
     }

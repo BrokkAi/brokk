@@ -10,8 +10,8 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
@@ -992,7 +992,7 @@ public class HistoryOutputPanel extends JPanel {
     private void openOutputWindowStreaming() {
         // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var tempFragment = new Fragments.TaskFragment(contextManager, currentMessages, "Streaming Output...");
         var history = contextManager.topContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;

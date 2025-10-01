@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.VoiceInputButton;
@@ -136,7 +137,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Capture button (conditionally added for GitHistoryFragment)
         if (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
-            var ghf = (ContextFragment.GitFileFragment) fragment;
+            var ghf = (Fragments.GitFileFragment) fragment;
             captureButton = new MaterialButton("Capture this Revision");
             SwingUtilities.invokeLater(() -> requireNonNull(captureButton).setIcon(Icons.CONTENT_CAPTURE));
             var finalCaptureButton = captureButton; // Final reference for lambda

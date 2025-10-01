@@ -4,7 +4,8 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,7 +22,7 @@ public final class QuickEditPrompts {
      * search/replace blocks; we simply ask for the new text (fenced with triple backticks).
      */
     public List<ChatMessage> collectMessages(
-            String fileContents, ContextFragment.SkeletonFragment relatedCode, String styleGuide) {
+            String fileContents, Fragments.SkeletonFragment relatedCode, String styleGuide) {
         var messages = new ArrayList<ChatMessage>();
         // A system message containing the workspace/style guide info and instructions:
         messages.add(systemMessage(quickEditIntro(), styleGuide));
@@ -32,7 +33,7 @@ public final class QuickEditPrompts {
         return messages;
     }
 
-    private List<ChatMessage> contentMessages(String fileContents, ContextFragment.SkeletonFragment relatedCode) {
+    private List<ChatMessage> contentMessages(String fileContents, Fragments.SkeletonFragment relatedCode) {
         var um = new UserMessage(
                 """
         Here is a summary of related code that you may need to reference:
@@ -52,7 +53,7 @@ public final class QuickEditPrompts {
                 um, new AiMessage("I will update the target code in the source file to implement your instructions."));
     }
 
-    private String formatRelatedCode(ContextFragment.SkeletonFragment relatedCode) {
+    private String formatRelatedCode(Fragments.SkeletonFragment relatedCode) {
         return relatedCode.format();
     }
 

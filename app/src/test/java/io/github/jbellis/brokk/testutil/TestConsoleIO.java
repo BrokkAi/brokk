@@ -4,7 +4,8 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -45,7 +46,7 @@ public class TestConsoleIO implements IConsoleIO {
         }
     }
 
-    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
+    public void setLlmOutput(Fragments.TaskFragment newOutput) {
         finishStreamingAiMessage();
         llmRawMessages.addAll(newOutput.messages());
     }

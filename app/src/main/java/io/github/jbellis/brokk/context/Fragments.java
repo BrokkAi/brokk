@@ -1,0 +1,1629 @@
+package io.github.jbellis.brokk.context;
+
+import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.TaskEntry;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
+import io.github.jbellis.brokk.analyzer.CallSite;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.ExternalFile;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
+import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
+import io.github.jbellis.brokk.analyzer.UsagesProvider;
+import io.github.jbellis.brokk.prompts.EditBlockParser;
+import io.github.jbellis.brokk.util.ComputedValue;
+import io.github.jbellis.brokk.util.FragmentUtils;
+import io.github.jbellis.brokk.util.Messages;
+import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Nullable;
+
+import java.awt.*;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
+public class Fragments {
+    public interface OutputFragment {
+        List<TaskEntry> entries();
+        /** Should raw HTML inside markdown be escaped before rendering? */
+        default boolean isEscapeHtml() {
+            return true;
+        }
+    }
+
+    sealed public interface PathFragment extends ContextFragment
+            permits ContextFragment.ProjectPathFragment, ContextFragment.GitFileFragment, ContextFragment.ExternalPathFragment, ContextFragment.ImageFileFragment {
+        BrokkFile file();
+
+        @Override
+        default Set<ProjectFile> files() {
+            BrokkFile bf = file();
+            if (bf instanceof ProjectFile pf) {
+                return Set.of(pf);
+            }
+            return Set.of();
+        }
+
+        @Override
+        default String text() throws UncheckedIOException {
+            return file().read().orElse("");
+        }
+
+        @Override
+        default String syntaxStyle() {
+            return FileTypeUtil.get().guessContentType(file().absPath().toFile());
+        }
+
+        @Override
+        default String format() {
+            return """
+                   <file path="%s" fragmentid="%s">
+                   %s
+                   </file>
+                   """
+                    .stripIndent()
+                    .formatted(file().toString(), id(), text());
+        }
+
+        static String formatSummary(BrokkFile file) {
+            return "<file source=\"%s\" />".formatted(file);
+        }
+    }
+
+    public abstract static class PasteFragment extends ContextFragment.VirtualFragment {
+        protected transient Future<String> descriptionFuture;
+        private final ComputedValue<String> descriptionCv;
+
+        // PasteFragments are non-dynamic (content-hashed)
+        // The hash will be based on the initial text/image data, not the future description.
+        public PasteFragment(String id, IContextManager contextManager, Future<String> descriptionFuture) {
+            super(id, contextManager);
+            this.descriptionFuture = descriptionFuture;
+            // eagerly compute description using background executor
+            this.descriptionCv = new ComputedValue<>(
+                    "paste-desc-" + id,
+                    () -> {
+                        try {
+                            return "Paste of " + descriptionFuture.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    true,
+                    ContextFragment.getFragmentExecutor());
+        }
+
+        // Pre-seeded constructor to avoid recomputation when loading from history
+        public PasteFragment(String id, IContextManager contextManager, String precomputedDescription) {
+            super(id, contextManager);
+            this.descriptionFuture = CompletableFuture.completedFuture(precomputedDescription);
+            this.descriptionCv = ComputedValue.completed("paste-desc-" + id, "Paste of " + precomputedDescription);
+        }
+
+        @Override
+        public String description() {
+            return DynamicSupport.renderNowOr("(Loading...)", computedDescription());
+        }
+
+        @Override
+        public String toString() {
+            return "PasteFragment('%s')".formatted(description());
+        }
+    }
+
+    public static class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
+        private final ComputedValue<String> textCv;
+        private final ComputedValue<String> syntaxCv;
+        protected transient Future<String> syntaxStyleFuture;
+
+        public PasteTextFragment(
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
+            super(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.PASTE_TEXT,
+                            "(Pasting text)", // Initial description for hashing before future completes
+                            text,
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // Default syntax style for hashing
+                            PasteTextFragment.class.getName()),
+                    contextManager,
+                    descriptionFuture);
+            this.syntaxStyleFuture = syntaxStyleFuture;
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.syntaxCv = new ComputedValue<>(
+                    "paste-syntax-" + id(),
+                    () -> {
+                        try {
+                            return syntaxStyleFuture.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    true,
+                    ContextFragment.getFragmentExecutor());
+        }
+
+        public PasteTextFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
+            super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
+            this.syntaxStyleFuture = syntaxStyleFuture;
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.syntaxCv = new ComputedValue<>(
+                    "paste-syntax-" + id(),
+                    () -> {
+                        try {
+                            return syntaxStyleFuture.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    true,
+                    ContextFragment.getFragmentExecutor());
+        }
+
+        // Pre-seeded constructor to avoid recomputation when loading from history
+        public PasteTextFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                String text,
+                String precomputedDescription,
+                String precomputedSyntaxStyle) {
+            super(existingHashId, contextManager, precomputedDescription);
+            this.syntaxStyleFuture = CompletableFuture.completedFuture(precomputedSyntaxStyle);
+            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.syntaxCv = ComputedValue.completed("paste-syntax-" + id(), precomputedSyntaxStyle);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.PASTE_TEXT;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return DynamicSupport.renderNowOr(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, computedSyntaxStyle());
+        }
+
+        @Override
+        public String shortDescription() {
+            return "pasted text";
+        }
+    }
+
+    public static class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
+        private final Image image;
+        private final ComputedValue<byte[]> imageBytesCv;
+
+        // Helper to get image bytes, might throw UncheckedIOException
+        @Nullable
+        private static byte[] imageToBytes(@Nullable Image image) {
+            try {
+                // Assuming FrozenFragment.imageToBytes will be made public
+                return FrozenFragment.imageToBytes(image);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+            super(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.PASTE_IMAGE,
+                            "(Pasting image)", // Initial description for hashing
+                            null, // No text content for image
+                            imageToBytes(image), // image bytes for hashing
+                            false, // isTextFragment = false
+                            SyntaxConstants.SYNTAX_STYLE_NONE,
+                            Set.of(), // No project files
+                            AnonymousImageFragment.class.getName(),
+                            Map.of()), // No specific meta for hashing
+                    contextManager,
+                    descriptionFuture);
+            this.image = image;
+            this.imageBytesCv = new ComputedValue<>(
+                    "paste-image-bytes-" + id(),
+                    () -> imageToBytes(image),
+                    true,
+                    ContextFragment.getFragmentExecutor());
+        }
+
+        // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
+        public AnonymousImageFragment(
+                String existingHashId, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+            super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
+            this.image = image;
+            this.imageBytesCv = new ComputedValue<>(
+                    "paste-image-bytes-" + id(),
+                    () -> imageToBytes(image),
+                    true,
+                    ContextFragment.getFragmentExecutor());
+        }
+
+        // Pre-seeded constructor to avoid recomputation when loading from history
+        public AnonymousImageFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                Image image,
+                String precomputedDescription,
+                @Nullable byte[] precomputedImageBytes) {
+            super(existingHashId, contextManager, precomputedDescription);
+            this.image = image;
+            this.imageBytesCv = ComputedValue.completed("paste-image-bytes-" + id(), precomputedImageBytes);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.PASTE_IMAGE;
+        }
+
+        @Override
+        public boolean isText() {
+            return false;
+        }
+
+        @Override
+        public String text() {
+            // return this text tu support ContextMenu Fragment > Copy
+            return "[Image content provided out of band]";
+        }
+
+        @Override
+        public Image image() {
+            return image;
+        }
+
+        public @Nullable byte[] imageBytes() {
+            return imageBytesCv.tryGet().orElse(null);
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return SyntaxConstants.SYNTAX_STYLE_NONE;
+        }
+
+        @Override
+        public String format() {
+            return """
+                   <fragment description="%s" fragmentid="%s">
+                   %s
+                   </fragment>
+                   """
+                    .stripIndent()
+                    .formatted(description(), id(), text());
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return Set.of();
+        }
+
+        @Override
+        public String shortDescription() {
+            return "pasted image";
+        }
+    }
+
+    public static class StacktraceFragment extends ContextFragment.VirtualFragment { // Non-dynamic, content-hashed
+        private final Set<CodeUnit> sources; // Pre-computed, so not dynamic in content
+        private final String original;
+        private final String exception;
+        private final String code; // Pre-computed code parts
+
+        public StacktraceFragment(
+                IContextManager contextManager, Set<CodeUnit> sources, String original, String exception, String code) {
+            super(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STACKTRACE,
+                            "stacktrace of " + exception,
+                            original + "\n\nStacktrace methods in this project:\n\n" + code, // Full text for hash
+                            sources.isEmpty()
+                                    ? SyntaxConstants.SYNTAX_STYLE_NONE
+                                    : sources.iterator().next().source().getSyntaxStyle(),
+                            StacktraceFragment.class.getName()),
+                    contextManager);
+            this.sources = sources;
+            this.original = original;
+            this.exception = exception;
+            this.code = code;
+        }
+
+        // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
+        public StacktraceFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                Set<CodeUnit> sources,
+                String original,
+                String exception,
+                String code) {
+            super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            this.sources = sources;
+            this.original = original;
+            this.exception = exception;
+            this.code = code;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.STACKTRACE;
+        }
+
+        @Override
+        public String text() {
+            return original + "\n\nStacktrace methods in this project:\n\n" + code;
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return sources; // Return pre-computed sources
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            // StacktraceFragment sources are pre-computed
+            return sources().stream().map(CodeUnit::source).collect(java.util.stream.Collectors.toSet());
+        }
+
+        @Override
+        public String description() {
+            return "stacktrace of " + exception;
+        }
+
+        @Override
+        public String formatSummary() {
+            return format(); // full source
+        }
+
+        @Override
+        public String syntaxStyle() {
+            if (sources.isEmpty()) {
+                return SyntaxConstants.SYNTAX_STYLE_NONE;
+            }
+            var firstClass = sources.iterator().next();
+            return firstClass.source().getSyntaxStyle();
+        }
+
+        public String getOriginal() {
+            return original;
+        }
+
+        public String getException() {
+            return exception;
+        }
+
+        public String getCode() {
+            return code;
+        }
+    }
+
+    public static class UsageFragment extends ContextFragment.VirtualFragment { // Dynamic, uses nextId
+        private final String targetIdentifier;
+        private final boolean includeTestFiles;
+
+        public UsageFragment(IContextManager contextManager, String targetIdentifier) {
+            this(contextManager, targetIdentifier, false);
+        }
+
+        public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            super(contextManager); // Assigns dynamic numeric String ID
+            assert !targetIdentifier.isBlank();
+            this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
+        }
+
+        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
+        public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
+            this(existingId, contextManager, targetIdentifier, false);
+        }
+
+        public UsageFragment(
+                String existingId, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            super(existingId, contextManager); // Handles numeric ID parsing for nextId
+            assert !targetIdentifier.isBlank();
+            this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.USAGE;
+        }
+
+        @Override
+        public String text() {
+            var analyzer = getAnalyzer();
+            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
+            if (maybeUsagesProvider.isEmpty()) {
+                return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
+            }
+            var up = maybeUsagesProvider.get();
+
+            java.util.List<CodeUnit> uses = up.getUses(targetIdentifier);
+            if (!includeTestFiles) {
+                uses = uses.stream()
+                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                        .toList();
+            }
+            var parts = AnalyzerUtil.processUsages(analyzer, uses);
+            var formatted = AnalyzerUtil.CodeWithSource.text(parts);
+            return formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            var analyzer = getAnalyzer();
+            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
+            if (maybeUsagesProvider.isEmpty()) {
+                return Set.of(); // If no provider, no sources can be found.
+            }
+            var up = maybeUsagesProvider.get();
+
+            List<CodeUnit> uses = up.getUses(targetIdentifier);
+            if (!includeTestFiles) {
+                uses = uses.stream()
+                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                        .toList();
+            }
+            var parts = AnalyzerUtil.processUsages(analyzer, uses);
+            return parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            final var allSources = sources().stream().map(CodeUnit::source);
+            if (!includeTestFiles) {
+                return allSources
+                        .filter(source -> !ContextManager.isTestFile(source))
+                        .collect(Collectors.toSet());
+            } else {
+                return allSources.collect(Collectors.toSet());
+            }
+        }
+
+        @Override
+        public String repr() {
+            return "SymbolUsages('%s')".formatted(targetIdentifier);
+        }
+
+        @Override
+        public String description() {
+            return "Uses of %s".formatted(targetIdentifier);
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return sources().stream()
+                    .findFirst()
+                    .map(s -> s.source().getSyntaxStyle())
+                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
+        }
+
+        public String targetIdentifier() {
+            return targetIdentifier;
+        }
+
+        public boolean includeTestFiles() {
+            return includeTestFiles;
+        }
+    }
+
+    /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
+    public static class CodeFragment extends ContextFragment.VirtualFragment { // Dynamic, uses nextId
+        private final CodeUnit unit;
+
+        public CodeFragment(IContextManager contextManager, CodeUnit unit) {
+            super(contextManager);
+            validateCodeUnit(unit);
+            this.unit = unit;
+        }
+
+        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
+        public CodeFragment(String existingId, IContextManager contextManager, CodeUnit unit) {
+            super(existingId, contextManager);
+            validateCodeUnit(unit);
+            this.unit = unit;
+        }
+
+        private static void validateCodeUnit(CodeUnit unit) {
+            if (!(unit.isClass() || unit.isFunction())) {
+                throw new IllegalArgumentException(unit.toString());
+            }
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.CODE;
+        }
+
+        @Override
+        public String description() {
+            return "Source for " + unit.fqName();
+        }
+
+        @Override
+        public String text() {
+            var analyzer = getAnalyzer();
+
+            var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
+            if (maybeSourceCodeProvider.isEmpty()) {
+                return "Code Intelligence cannot extract source for: " + unit.fqName();
+            }
+            var scp = maybeSourceCodeProvider.get();
+
+            if (unit.isFunction()) {
+                var code = scp.getMethodSource(unit.fqName(), true).orElse("");
+                if (!code.isEmpty()) {
+                    return new AnalyzerUtil.CodeWithSource(code, unit).text();
+                }
+                return "No source found for method: " + unit.fqName();
+            } else {
+                var code = scp.getClassSource(unit.fqName(), true).orElse("");
+                if (!code.isEmpty()) {
+                    return new AnalyzerUtil.CodeWithSource(code, unit).text();
+                }
+                return "No source found for class: " + unit.fqName();
+            }
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return unit.classUnit().map(Set::of).orElseThrow();
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public String repr() {
+            if (unit.isFunction()) {
+                return "Methods(['%s'])".formatted(unit.fqName());
+            } else {
+                return "Classes(['%s'])".formatted(unit.fqName());
+            }
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return unit.source().getSyntaxStyle();
+        }
+
+        public CodeUnit getCodeUnit() {
+            return unit;
+        }
+    }
+
+    public static class CallGraphFragment extends ContextFragment.VirtualFragment { // Dynamic, uses nextId
+        private final String methodName;
+        private final int depth;
+        private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
+
+        public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
+            super(contextManager); // Assigns dynamic numeric String ID
+            assert !methodName.isBlank();
+            assert depth > 0;
+            this.methodName = methodName;
+            this.depth = depth;
+            this.isCalleeGraph = isCalleeGraph;
+        }
+
+        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
+        public CallGraphFragment(
+                String existingId,
+                IContextManager contextManager,
+                String methodName,
+                int depth,
+                boolean isCalleeGraph) {
+            super(existingId, contextManager); // Handles numeric ID parsing for nextId
+            assert !methodName.isBlank();
+            assert depth > 0;
+            this.methodName = methodName;
+            this.depth = depth;
+            this.isCalleeGraph = isCalleeGraph;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.CALL_GRAPH;
+        }
+
+        @Override
+        public String text() {
+            var analyzer = getAnalyzer();
+            final Map<String, List<CallSite>> graphData = new HashMap<>();
+            final var maybeCallGraphProvider = analyzer.as(CallGraphProvider.class);
+
+            if (maybeCallGraphProvider.isPresent()) {
+                maybeCallGraphProvider.ifPresent(cpg -> {
+                    if (isCalleeGraph) {
+                        graphData.putAll(cpg.getCallgraphFrom(methodName, depth));
+                    } else {
+                        graphData.putAll(cpg.getCallgraphTo(methodName, depth));
+                    }
+                });
+            } else {
+                return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
+            }
+
+            if (graphData.isEmpty()) {
+                return "No call graph available for " + methodName;
+            }
+            return AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            IAnalyzer analyzer = getAnalyzer();
+            return analyzer.getDefinition(methodName)
+                    .flatMap(CodeUnit::classUnit) // Get the containing class CodeUnit
+                    .map(Set::of)
+                    .orElse(Set.of());
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public String repr() {
+            return isCalleeGraph
+                    ? "CallGraphOut('%s', %d)".formatted(methodName, depth)
+                    : "CallGraphIn('%s', %d)".formatted(methodName, depth);
+        }
+
+        @Override
+        public String description() {
+            String type = isCalleeGraph ? "Callees" : "Callers";
+            return "%s of %s (depth %d)".formatted(type, methodName, depth);
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return SyntaxConstants.SYNTAX_STYLE_NONE; // Call graph is textual, not specific code language
+        }
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public int getDepth() {
+            return depth;
+        }
+
+        public boolean isCalleeGraph() {
+            return isCalleeGraph;
+        }
+    }
+
+    public static class SkeletonFragment extends ContextFragment.VirtualFragment, ContextFragment.DynamicFragment { // Dynamic, uses nextId
+        private final List<String> targetIdentifiers; // FQ class names or file paths/patterns
+        private final SummaryType summaryType;
+
+        public SkeletonFragment(
+                IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
+            super(contextManager); // Assigns dynamic numeric String ID
+            this.targetIdentifiers = List.copyOf(targetIdentifiers);
+            this.summaryType = summaryType;
+        }
+
+        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
+        public SkeletonFragment(
+                String existingId,
+                IContextManager contextManager,
+                List<String> targetIdentifiers,
+                SummaryType summaryType) {
+            super(existingId, contextManager); // Handles numeric ID parsing for nextId
+            assert !targetIdentifiers.isEmpty();
+            this.targetIdentifiers = List.copyOf(targetIdentifiers);
+            this.summaryType = summaryType;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.SKELETON;
+        }
+
+        private Map<CodeUnit, String> fetchSkeletons() {
+            IAnalyzer analyzer = getAnalyzer();
+            Map<CodeUnit, String> skeletonsMap = new HashMap<>();
+            analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
+                switch (summaryType) {
+                    case CODEUNIT_SKELETON -> {
+                        for (String className : targetIdentifiers) {
+                            analyzer.getDefinition(className).ifPresent(cu -> {
+                                skeletonProvider.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
+                            });
+                        }
+                    }
+                    case FILE_SKELETONS -> {
+                        // This assumes targetIdentifiers are file paths. Expansion of globs should happen before
+                        // fragment
+                        // creation.
+                        for (String filePath : targetIdentifiers) {
+                            IContextManager cm = getContextManager();
+                            ProjectFile projectFile = cm.toFile(filePath);
+                            skeletonsMap.putAll(skeletonProvider.getSkeletons(projectFile));
+                        }
+                    }
+                }
+            });
+            return skeletonsMap;
+        }
+
+        @Override
+        public String text() {
+            Map<CodeUnit, String> skeletons = fetchSkeletons();
+            if (skeletons.isEmpty()) {
+                return "No summaries found for: " + String.join(", ", targetIdentifiers);
+            }
+
+            // Group by package, then format
+            var skeletonsByPackage = skeletons.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> e.getKey().packageName().isEmpty()
+                                    ? "(default package)"
+                                    : e.getKey().packageName(),
+                            Collectors.toMap(
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            return skeletonsByPackage.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(pkgEntry -> {
+                        String packageHeader = "package " + pkgEntry.getKey() + ";";
+                        String pkgCode = String.join("\n\n", pkgEntry.getValue().values());
+                        return packageHeader + "\n\n" + pkgCode;
+                    })
+                    .collect(Collectors.joining("\n\n"));
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return fetchSkeletons().keySet();
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return switch (summaryType) {
+                case CODEUNIT_SKELETON ->
+                    sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+                case FILE_SKELETONS ->
+                    targetIdentifiers.stream().map(contextManager::toFile).collect(Collectors.toSet());
+            };
+        }
+
+        @Override
+        public String repr() {
+            return switch (summaryType) {
+                case CODEUNIT_SKELETON ->
+                    "ClassSummaries([%s])"
+                            .formatted(targetIdentifiers.stream()
+                                    .map(s -> "'" + s + "'")
+                                    .collect(Collectors.joining(", ")));
+                case FILE_SKELETONS ->
+                    "FileSummaries([%s])"
+                            .formatted(targetIdentifiers.stream()
+                                    .map(s -> "'" + s + "'")
+                                    .collect(Collectors.joining(", ")));
+            };
+        }
+
+        @Override
+        public String description() {
+            return "Summary of %s".formatted(String.join(", ", targetIdentifiers));
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            // If it's an auto-context fragment itself, it shouldn't contribute to seeding a new auto-context.
+            // User-added summaries are fine.
+            // This needs a way to distinguish. For now, assume all are eligible if user-added.
+            // AutoContext itself isn't represented by a SkeletonFragment that users add via tools.
+            return summaryType
+                    != SummaryType
+                            .CODEUNIT_SKELETON; // A heuristic: auto-context typically CLASS_SKELETON of many classes
+        }
+
+        @Override
+        public String format() {
+            return """
+                   <summary targets="%s" type="%s" fragmentid="%s">
+                   %s
+                   </summary>
+                   """
+                    .stripIndent()
+                    .formatted(String.join(", ", targetIdentifiers), summaryType.name(), id(), text());
+        }
+
+        @Override
+        public String formatSummary() {
+            return format();
+        }
+
+        public List<String> getTargetIdentifiers() {
+            return targetIdentifiers;
+        }
+
+        public SummaryType getSummaryType() {
+            return summaryType;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            // Skeletons are usually in the language of the summarized code.
+            // Default to Java or try to infer from a source CodeUnit if available.
+            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+        }
+
+        @Override
+        public String toString() {
+            return "SkeletonFragment('%s')".formatted(description());
+        }
+    }
+
+    public static class BuildFragment extends ContextFragment.VirtualFragment {
+        private final String content;
+
+        public BuildFragment(IContextManager contextManager, String buildOutput) {
+            super(contextManager);
+            this.content = buildOutput;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.BUILD_LOG;
+        }
+
+        @Override
+        public String description() {
+            return "Latest build results";
+        }
+
+        @Override
+        public String text() {
+            return "# CURRENT BUILD STATUS\n\n" + content;
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            // Do not seed auto-context from build output
+            return false;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            // Build output may contain Markdown formatting
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        }
+
+        @Override
+        public String toString() {
+            return "BuildFragment('%s')".formatted(description());
+        }
+    }
+
+    /** represents the entire Task History */
+    public static class HistoryFragment extends ContextFragment.VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
+        private final List<TaskEntry> history; // Content is fixed once created
+
+        public HistoryFragment(IContextManager contextManager, List<TaskEntry> history) {
+            super(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.HISTORY,
+                            "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
+                            TaskEntry.formatMessages(history.stream()
+                                    .flatMap(e -> e.isCompressed()
+                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                                            : castNonNull(e.log()).messages().stream())
+                                    .toList()),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            HistoryFragment.class.getName()),
+                    contextManager);
+            this.history = List.copyOf(history);
+        }
+
+        // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
+        public HistoryFragment(String existingHashId, IContextManager contextManager, List<TaskEntry> history) {
+            super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            this.history = List.copyOf(history);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.HISTORY;
+        }
+
+        @Override
+        public List<TaskEntry> entries() {
+            return history;
+        }
+
+        @Override
+        public String text() {
+            // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
+            // but lots of stuff breaks without text(), so I am putting that off for another refactor
+            return TaskEntry.formatMessages(history.stream()
+                    .flatMap(e -> e.isCompressed()
+                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                            : castNonNull(e.log()).messages().stream())
+                    .toList());
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return Set.of();
+        }
+
+        @Override
+        public String description() {
+            return "Task History (" + history.size() + " task%s)".formatted(history.size() > 1 ? "s" : "");
+        }
+
+        @Override
+        public String format() {
+            return """
+                   <taskhistory fragmentid="%s">
+                   %s
+                   </taskhistory>
+                   """
+                    .stripIndent()
+                    .formatted(id(), text()); // Analyzer not used by its text()
+        }
+
+        @Override
+        public String formatSummary() {
+            return "";
+        }
+
+        @Override
+        public String toString() {
+            return "ConversationFragment(" + history.size() + " tasks)";
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        }
+    }
+
+    /** represents a single session's Task History */
+    public static class TaskFragment extends ContextFragment.VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
+        private final List<ChatMessage> messages; // Content is fixed once created
+
+        @SuppressWarnings({"unused", "UnusedVariable"})
+        private final EditBlockParser parser;
+
+        private final String description;
+        private final boolean escapeHtml;
+
+        private static String calculateId(String sessionName, List<ChatMessage> messages) {
+            return FragmentUtils.calculateContentHash(
+                    FragmentType.TASK, // Or SEARCH if SearchFragment calls this path
+                    sessionName,
+                    TaskEntry.formatMessages(messages),
+                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                    TaskFragment.class
+                            .getName() // Note: SearchFragment might want its own class name if it were hashing
+                    // independently
+                    );
+        }
+
+        public TaskFragment(
+                IContextManager contextManager,
+                EditBlockParser parser,
+                List<ChatMessage> messages,
+                String description,
+                boolean escapeHtml) {
+            super(calculateId(description, messages), contextManager); // ID is content hash
+            this.parser = parser;
+            this.messages = List.copyOf(messages);
+            this.description = description;
+            this.escapeHtml = escapeHtml;
+        }
+
+        public TaskFragment(
+                IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
+            this(contextManager, EditBlockParser.instance, messages, description, escapeHtml);
+        }
+
+        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
+            this(contextManager, EditBlockParser.instance, messages, description, true);
+        }
+
+        // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
+        public TaskFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                EditBlockParser parser,
+                List<ChatMessage> messages,
+                String description,
+                boolean escapeHtml) {
+            super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            this.parser = parser;
+            this.messages = List.copyOf(messages);
+            this.description = description;
+            this.escapeHtml = escapeHtml;
+        }
+
+        public TaskFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                EditBlockParser parser,
+                List<ChatMessage> messages,
+                String description) {
+            this(existingHashId, contextManager, parser, messages, description, true);
+        }
+
+        public TaskFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                List<ChatMessage> messages,
+                String description,
+                boolean escapeHtml) {
+            this(existingHashId, contextManager, EditBlockParser.instance, messages, description, escapeHtml);
+        }
+
+        public TaskFragment(
+                String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String description) {
+            this(existingHashId, contextManager, EditBlockParser.instance, messages, description, true);
+        }
+
+        @Override
+        public boolean isEscapeHtml() {
+            return escapeHtml;
+        }
+
+        @Override
+        public FragmentType getType() {
+            // SearchFragment overrides this to return FragmentType.SEARCH
+            return FragmentType.TASK;
+        }
+
+        @Override
+        public String description() {
+            return description;
+        }
+
+        @Override
+        public String text() {
+            // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
+            // but lots of stuff breaks without text(), so I am putting that off for another refactor
+            return TaskEntry.formatMessages(messages);
+        }
+
+        @Override
+        public String formatSummary() {
+            return format(); // if it's explicitly added to the workspace it's probably important
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        }
+
+        public List<ChatMessage> messages() {
+            return messages;
+        }
+
+        @Override
+        public List<TaskEntry> entries() {
+            return List.of(new TaskEntry(-1, this, null));
+        }
+    }
+
+    public static final record ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) implements PathFragment {
+        // Primary constructor for new dynamic fragments
+        public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.PROJECT_PATH;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
+            try {
+                int numericId = Integer.parseInt(existingId);
+                setMinimumId(numericId + 1);
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
+            return new ProjectPathFragment(file, existingId, contextManager);
+        }
+
+        @Override
+        public String shortDescription() {
+            return file().getFileName();
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return Set.of(file);
+        }
+
+        @Override
+        public String description() {
+            if (file.getParent().equals(Path.of(""))) {
+                return file.getFileName();
+            }
+            return "%s [%s]".formatted(file.getFileName(), file.getParent());
+        }
+
+        @Override
+        public String formatSummary() {
+            IAnalyzer analyzer = getAnalyzer();
+            if (!analyzer.isEmpty()) {
+                var summary = analyzer.as(SkeletonProvider.class)
+                        .map(skp -> skp.getSkeletons(file).entrySet().stream())
+                        .orElse(Stream.empty())
+                        .sorted(Map.Entry.comparingByKey())
+                        .map(Map.Entry::getValue)
+                        .collect(Collectors.joining("\n"));
+
+                return """
+                   <file source="%s" summarized=true>
+                   %s
+                   </file>
+                   """
+                        .formatted(file, summary);
+            } else {
+                return PathFragment.formatSummary(file); // Fallback if analyzer not ready, empty, or inappropriate
+            }
+        }
+
+        @Override
+        public String repr() {
+            return "File(['%s'])".formatted(file.toString());
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            IAnalyzer analyzer = getAnalyzer();
+            return analyzer.getDeclarationsInFile(file);
+        }
+
+        @Override
+        public String toString() {
+            return "ProjectPathFragment('%s')".formatted(file);
+        }
+
+        @Override
+        public boolean isEligibleForAutoContext() {
+            return false;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ProjectPathFragment that)) return false;
+            return file.equals(that.file());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(file);
+        }
+    }
+
+    /** Represents a specific revision of a ProjectFile from Git history. This is non-dynamic. */
+    public static final record GitFileFragment(ProjectFile file, String revision, String content, String id) implements PathFragment {
+        public GitFileFragment(ProjectFile file, String revision, String content) {
+            this(
+                    file,
+                    revision,
+                    content,
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.GIT_FILE,
+                            String.format("%s @%s", file.getFileName(), revision),
+                            content, // text content for hash
+                            FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
+                            GitFileFragment.class.getName() // original class name for hash
+                            ));
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.GIT_FILE;
+        }
+
+        @Override
+        public @Nullable IContextManager getContextManager() {
+            return null; // GitFileFragment does not have a context manager
+        }
+
+        // Constructor for use with DTOs where ID is already known (expected to be a hash)
+        public static GitFileFragment withId(ProjectFile file, String revision, String content, String existingId) {
+            // For GitFileFragment, existingId is expected to be the content hash.
+            // No need to update ContextFragment.nextId.
+            return new GitFileFragment(file, revision, content, existingId);
+        }
+
+        @Override
+        public String shortDescription() {
+            return "%s @%s".formatted(file().getFileName(), id);
+        }
+
+        @Override
+        public String description() {
+            var parentDir = file.getParent();
+            return parentDir.equals(Path.of(""))
+                    ? shortDescription()
+                    : "%s [%s]".formatted(shortDescription(), parentDir);
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            // Treat historical content as potentially different from current; don't claim sources
+            return Set.of();
+        }
+
+        @Override
+        public String text() {
+            return content;
+        }
+
+        @Override
+        public String format() throws UncheckedIOException {
+            // Note: fragmentid attribute is not typically added to GitFileFragment in this specific format,
+            // but if it were, it should use %s for the ID.
+            // Keeping existing format which doesn't include fragmentid.
+            return """
+                   <file path="%s" revision="%s">
+                   %s
+                   </file>
+                   """
+                    .stripIndent()
+                    .formatted(file().toString(), revision(), text());
+        }
+
+        @Override
+        public String formatSummary() {
+            return PathFragment.formatSummary(file);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof GitFileFragment that)) return false;
+            return file.equals(that.file()) && revision.equals(that.revision());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(file, revision);
+        }
+
+        @Override
+        public String toString() {
+            return "GitFileFragment('%s' @%s)".formatted(file, id);
+        }
+    }
+
+    public static final record ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) implements PathFragment {
+        // Primary constructor for new dynamic fragments
+        public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.EXTERNAL_PATH;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        public static ExternalPathFragment withId(
+                ExternalFile file, String existingId, IContextManager contextManager) {
+            try {
+                int numericId = Integer.parseInt(existingId);
+                if (numericId >= ContextFragment.nextId.get()) {
+                    ContextFragment.nextId.set(numericId + 1);
+                }
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
+            return new ExternalPathFragment(file, existingId, contextManager);
+        }
+
+        @Override
+        public String shortDescription() {
+            return description();
+        }
+
+        @Override
+        public String description() {
+            return file.toString();
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return Set.of();
+        }
+
+        @Override
+        public String formatSummary() {
+            return PathFragment.formatSummary(file);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ExternalPathFragment that)) return false;
+            return file.equals(that.file());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(file);
+        }
+    }
+
+    /** Represents an image file, either from the project or external. This is dynamic. */
+    public static final record ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) implements PathFragment {
+        // Primary constructor for new dynamic fragments
+        public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        // Record canonical constructor
+        public ImageFileFragment {
+            assert !file.isText() : "ImageFileFragment should only be used for non-text files";
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.IMAGE_FILE;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
+            assert !file.isText() : "ImageFileFragment should only be used for non-text files";
+            try {
+                int numericId = Integer.parseInt(existingId);
+                if (numericId >= ContextFragment.nextId.get()) {
+                    ContextFragment.nextId.set(numericId + 1);
+                }
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
+            return new ImageFileFragment(file, existingId, contextManager);
+        }
+
+        @Override
+        public String shortDescription() {
+            return file().getFileName();
+        }
+
+        @Override
+        public String description() {
+            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
+                return "%s [%s]".formatted(file.getFileName(), pf.getParent());
+            }
+            return file.toString(); // For ExternalFile or root ProjectFile
+        }
+
+        @Override
+        public boolean isText() {
+            return false;
+        }
+
+        @Override
+        public String text() {
+            // return this text tu support ContextMenu Fragment > Copy
+            return "[Image content provided out of band]";
+        }
+
+        @Override
+        public Image image() throws UncheckedIOException {
+            try {
+                var imageFile = file.absPath().toFile();
+                if (!imageFile.exists()) {
+                    throw new UncheckedIOException(new IOException("Image file does not exist: " + file.absPath()));
+                }
+                if (!imageFile.canRead()) {
+                    throw new UncheckedIOException(
+                            new IOException("Cannot read image file (permission denied): " + file.absPath()));
+                }
+
+                Image result = javax.imageio.ImageIO.read(imageFile);
+                if (result == null) {
+                    // ImageIO.read() returns null if no registered ImageReader can read the file
+                    // This can happen for unsupported formats, corrupted files, or non-image files
+                    throw new UncheckedIOException(new IOException(
+                            "Unable to read image file (unsupported format or corrupted): " + file.absPath()));
+                }
+                return result;
+            } catch (IOException e) {
+                throw new UncheckedIOException(new IOException("Failed to read image file: " + file.absPath(), e));
+            }
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return Set.of();
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            return (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of();
+        }
+
+        @Override
+        public String format() {
+            // Format for LLM, indicating image content (similar to PasteImageFragment)
+            return """
+                   <file path="%s" fragmentid="%s">
+                   [Image content provided out of band]
+                   </file>
+                   """
+                    .stripIndent()
+                    .formatted(file().toString(), id());
+        }
+
+        @Override
+        public String formatSummary() {
+            return PathFragment.formatSummary(file);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ImageFileFragment that)) return false;
+            return file.equals(that.file());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(file);
+        }
+
+        @Override
+        public String toString() {
+            return "ImageFileFragment('%s')".formatted(file);
+        }
+    }
+
+    public static class StringFragment extends ContextFragment.VirtualFragment { // Non-dynamic, uses content hash
+        private final String text;
+        private final String description;
+        private final String syntaxStyle;
+
+        public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
+            super(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
+                    contextManager);
+            this.syntaxStyle = syntaxStyle;
+            this.text = text;
+            this.description = description;
+        }
+
+        // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
+        public StringFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle) {
+            super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            this.syntaxStyle = syntaxStyle;
+            this.text = text;
+            this.description = description;
+            // No need to call ContextFragment.setNextId() as hash IDs are not numeric.
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.STRING;
+        }
+
+        @Override
+        public String text() {
+            return text;
+        }
+
+        @Override
+        public String description() {
+            return description;
+        }
+
+        @Override
+        public String syntaxStyle() {
+            return syntaxStyle;
+        }
+
+        @Override
+        public String toString() {
+            return "StringFragment('%s')".formatted(description);
+        }
+    }
+
+    // FIXME SearchFragment does not preserve the tool calls output that the user sees during
+    // the search, I think we need to add a messages parameter and pass them to super();
+    // then we'd also want to override format() to keep it out of what the LLM sees
+    public static class SearchFragment extends TaskFragment { // Non-dynamic (content-hashed via TaskFragment)
+        private final Set<CodeUnit> sources; // This is pre-computed, so SearchFragment is not dynamic in content
+
+        public SearchFragment(
+                IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
+            // The ID (hash) is calculated by the TaskFragment constructor based on sessionName and messages.
+            super(contextManager, messages, sessionName, true);
+            this.sources = sources;
+        }
+
+        // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
+        public SearchFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                String sessionName,
+                List<ChatMessage> messages,
+                Set<CodeUnit> sources) {
+            super(
+                    existingHashId,
+                    contextManager,
+                    EditBlockParser.instance,
+                    messages,
+                    sessionName,
+                    true); // existingHashId is expected to be a content hash
+            this.sources = sources;
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.SEARCH;
+        }
+
+        @Override
+        public Set<CodeUnit> sources() {
+            return sources; // Return pre-computed sources
+        }
+
+        @Override
+        public Set<ProjectFile> files() {
+            // SearchFragment sources are pre-computed
+            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public String formatSummary() {
+            return format(); // full search result
+        }
+    }
+}

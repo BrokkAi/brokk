@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -109,9 +110,9 @@ public class SessionManagerTest {
 
         // Populate originalHistory
 
-        ContextFragment.StringFragment sf = new ContextFragment.StringFragment(
+        Fragments.StringFragment sf = new Fragments.StringFragment(
                 mockContextManager, "Test string fragment content", "TestSF", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
+        Fragments.ProjectPathFragment pf = new Fragments.ProjectPathFragment(dummyFile, mockContextManager);
         Context context2 = new Context(mockContextManager, "Second context with fragments")
                 .addVirtualFragment(sf)
                 .addPathFragments(List.of(pf));

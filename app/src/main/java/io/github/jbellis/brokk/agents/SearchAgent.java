@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -505,7 +506,7 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.getSummary(recommendation.fragments());
-            cm.addVirtualFragment(new ContextFragment.StringFragment(
+            cm.addVirtualFragment(new Fragments.StringFragment(
                     cm,
                     summaries,
                     "Summary of Scan Results",
@@ -599,7 +600,7 @@ public class SearchAgent {
         String action = "Search: " + goal;
 
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-        var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
+        var fragment = new Fragments.TaskFragment(cm, finalMessages, goal);
 
         return new TaskResult(action, fragment, Set.of(), stopDetails);
     }
@@ -612,7 +613,7 @@ public class SearchAgent {
         }
 
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
-        var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
+        var fragment = new Fragments.TaskFragment(cm, finalMessages, goal);
 
         return new TaskResult(action, fragment, Set.of(), details);
     }

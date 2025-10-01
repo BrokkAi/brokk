@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import java.awt.*;
 import java.io.File;
@@ -315,10 +316,10 @@ public final class ContextExplorer extends JFrame {
                         // FrozenFragment is the common type coming from history for images
                         if (fragment instanceof FrozenFragment ff) {
                             imageContent = ff.image();
-                        } else if (fragment instanceof ContextFragment.ImageFileFragment ifd) {
+                        } else if (fragment instanceof Fragments.ImageFileFragment ifd) {
                             // If it's a live ImageFileFragment, try its image() method
                             imageContent = ifd.image();
-                        } else if (fragment instanceof ContextFragment.AnonymousImageFragment aif) {
+                        } else if (fragment instanceof Fragments.AnonymousImageFragment aif) {
                             imageContent = aif.image();
                         } else {
                             // If it's another non-text type, we can't display it directly as image or text

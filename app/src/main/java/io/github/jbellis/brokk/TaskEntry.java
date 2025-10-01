@@ -3,7 +3,7 @@ package io.github.jbellis.brokk;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.ChatMessage;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.List;
 import java.util.Locale;
@@ -18,7 +18,7 @@ import org.jetbrains.annotations.Nullable;
  * @param log The uncompressed list of chat messages for this task. Null if compressed.
  * @param summary The compressed representation of the chat messages (summary). Null if uncompressed.
  */
-public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
+public record TaskEntry(int sequence, @Nullable Fragments.TaskFragment log, @Nullable String summary) {
 
     /** Enforce that exactly one of log or summary is non-null */
     public TaskEntry {

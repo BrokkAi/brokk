@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Fragments;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -1560,7 +1560,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                     if (!descriptionText.isBlank()) {
                         try {
-                            var descriptionFragment = new ContextFragment.StringFragment(
+                            var descriptionFragment = new Fragments.StringFragment(
                                     contextManager,
                                     descriptionText,
                                     PrTitleFormatter.formatDescriptionTitle(prNumber),
