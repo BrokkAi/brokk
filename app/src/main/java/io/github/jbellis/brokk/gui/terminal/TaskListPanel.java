@@ -101,10 +101,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Timer runningFadeTimer;
     private long runningAnimStartMs = 0L;
 
-    private @Nullable JTextArea inlineEditor = null;
-    private int editingIndex = -1;
-    private @Nullable JTextArea readOnlyViewer = null;
-    private int viewingIndex = -1;
     private @Nullable Integer runningIndex = null;
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
@@ -127,17 +123,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
         list.setFixedCellHeight(-1);
-        list.setToolTipText("Single-click to preview full text; double-click to edit");
+        list.setToolTipText("Double-click to edit");
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        // Update button states based on selection, and refresh overlay coloring if present
+        // Update button states based on selection
         list.addListSelectionListener(e -> {
             updateButtonStates();
-            if (inlineEditor != null && editingIndex >= 0) {
-                applyOverlayColors(inlineEditor, editingIndex);
-            }
-            if (readOnlyViewer != null && viewingIndex >= 0) {
-                applyOverlayColors(readOnlyViewer, viewingIndex);
-            }
         });
 
         // Enable drag-and-drop reordering
@@ -435,27 +425,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Single left-click previews the full text in a read-only overlay (sized like the inline editor).
-        // Double-click still starts inline edit.
+        // Double‑click to edit via modal dialog (no inline editor/overlay)
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 if (!javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
 
-                int index = list.locationToIndex(e.getPoint());
-                if (index < 0) return;
-
-                // Guard: ensure the click is within the actual cell bounds (avoid background clicks).
-                java.awt.Rectangle cell = list.getCellBounds(index, index);
-                if (cell == null || !cell.contains(e.getPoint())) {
-                    return;
-                }
-
                 if (e.getClickCount() == 2) {
-                    stopReadOnlyView();
-                    startInlineEdit(index);
-                } else if (e.getClickCount() == 1) {
-                    startReadOnlyView(index);
+                    int index = list.locationToIndex(e.getPoint());
+                    if (index < 0) return;
+                    java.awt.Rectangle cell = list.getCellBounds(index, index);
+                    if (cell == null || !cell.contains(e.getPoint())) return;
+                    list.setSelectedIndex(index);
+                    editSelected();
                 }
             }
         });
@@ -667,229 +649,43 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        startInlineEdit(idx);
-    }
 
-    private void startInlineEdit(int index) {
-        if (runningIndex != null && index == runningIndex.intValue()) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Cannot edit a task that is currently running.",
-                    "Edit Disabled",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        if (pendingQueue.contains(index)) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Cannot edit a task that is queued for running.",
-                    "Edit Disabled",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        if (index < 0 || index >= model.size()) return;
+        // Modal edit dialog (multi-line) replacing inline editor/overlay
+        TaskItem current = model.get(idx);
+        if (current == null) return;
 
-        // Commit any existing editor first
-        if (inlineEditor != null) {
-            stopInlineEdit(true);
-        }
+        javax.swing.JTextArea ta = new javax.swing.JTextArea(current.text());
+        ta.setLineWrap(true);
+        ta.setWrapStyleWord(true);
+        ta.setFont(list.getFont());
 
-        editingIndex = index;
-        var item = model.get(index);
+        javax.swing.JScrollPane sp = new javax.swing.JScrollPane(
+                ta, javax.swing.JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        sp.setPreferredSize(new java.awt.Dimension(520, 220));
 
-        // Use a wrapped JTextArea so the inline editor preserves word-wrap like the renderer.
-        inlineEditor = new JTextArea(item.text());
-        inlineEditor.setLineWrap(true);
-        inlineEditor.setWrapStyleWord(true);
-        inlineEditor.setEditable(true);
-        inlineEditor.setBorder(BorderFactory.createEmptyBorder());
-        inlineEditor.setFont(list.getFont());
-        applyOverlayColors(inlineEditor, index);
+        javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.BorderLayout(6, 6));
+        panel.add(new javax.swing.JLabel("Edit task:"), java.awt.BorderLayout.NORTH);
+        panel.add(sp, java.awt.BorderLayout.CENTER);
 
-        // Position editor over the cell (to the right of the checkbox area)
-        java.awt.Rectangle cell = list.getCellBounds(index, index);
-        int checkboxRegionWidth = 28;
-        int editorX = cell.x + checkboxRegionWidth;
-        int editorY = cell.y;
-
-        int availableWidth = Math.max(10, cell.width - checkboxRegionWidth - 4);
-        // Size the text area to compute wrapped preferred height so the editor shows multiple lines if needed.
-        inlineEditor.setSize(availableWidth, Short.MAX_VALUE);
-        int prefH = inlineEditor.getPreferredSize().height;
-        int editorH = Math.max(cell.height - 2, prefH);
-
-        // Ensure list can host an overlay component
-        if (list.getLayout() != null) {
-            list.setLayout(null);
-        }
-
-        inlineEditor.setBounds(editorX, editorY, availableWidth, editorH);
-        list.add(inlineEditor);
-        inlineEditor.requestFocusInWindow();
-        inlineEditor.selectAll();
-
-        // Key bindings for commit/cancel
-        // Map Enter (and platform menu shortcut + Enter) to commitEdit so Enter does NOT insert a newline.
-        inlineEditor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "commitEdit");
-        inlineEditor
-                .getInputMap()
-                .put(
-                        KeyStroke.getKeyStroke(
-                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                        "commitEdit");
-        inlineEditor.getActionMap().put("commitEdit", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                stopInlineEdit(true);
-            }
-        });
-        inlineEditor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancelEdit");
-        inlineEditor.getActionMap().put("cancelEdit", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                stopInlineEdit(false);
-            }
-        });
-
-        // Commit on focus loss
-        inlineEditor.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                stopInlineEdit(true);
-            }
-        });
-
-        list.repaint(cell);
-    }
-
-    private void stopInlineEdit(boolean commit) {
-        if (inlineEditor == null) return;
-        int index = editingIndex;
-        var editor = inlineEditor;
-
-        if (commit && index >= 0 && index < model.size()) {
-            var cur = model.get(index);
-            String newText = editor.getText();
+        int result = JOptionPane.showConfirmDialog(
+                this, panel, "Edit Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) {
+            String newText = ta.getText();
             if (newText != null) {
                 newText = newText.strip();
-                if (!newText.isEmpty() && !newText.equals(cur.text())) {
-                    model.set(index, new TaskItem(newText, cur.done()));
+                if (!newText.isEmpty() && !newText.equals(current.text())) {
+                    model.set(idx, new TaskItem(newText, current.done()));
                     saveTasksForCurrentSession();
+                    list.revalidate();
+                    list.repaint();
                 }
             }
         }
-
-        list.remove(editor);
-        inlineEditor = null;
-        editingIndex = -1;
-        list.revalidate();
-        list.repaint();
-        input.requestFocusInWindow();
     }
 
-    private void startReadOnlyView(int index) {
-        if (index < 0 || index >= model.size()) return;
 
-        // Toggle off if already showing for this index
-        if (readOnlyViewer != null && viewingIndex == index) {
-            stopReadOnlyView();
-            return;
-        }
 
-        // Close any existing viewer/editor
-        stopReadOnlyView();
-        stopInlineEdit(true);
 
-        viewingIndex = index;
-        var item = model.get(index);
-
-        JTextArea viewer = new JTextArea(item.text());
-        viewer.setLineWrap(true);
-        viewer.setWrapStyleWord(true);
-        viewer.setEditable(false);
-        applyOverlayColors(viewer, index);
-        viewer.setBorder(BorderFactory.createEmptyBorder());
-        viewer.setFont(list.getFont());
-
-        // Position viewer over the cell (to the right of the checkbox area)
-        java.awt.Rectangle cell = list.getCellBounds(index, index);
-        int checkboxRegionWidth = 28;
-        int x = cell.x + checkboxRegionWidth;
-        int y = cell.y;
-
-        int availableWidth = Math.max(10, cell.width - checkboxRegionWidth - 4);
-        // Size the text area to compute wrapped preferred height so the viewer shows multiple lines if needed.
-        viewer.setSize(availableWidth, Short.MAX_VALUE);
-        int prefH = viewer.getPreferredSize().height;
-        int h = Math.max(cell.height - 2, prefH);
-
-        // Ensure list can host an overlay component
-        if (list.getLayout() != null) {
-            list.setLayout(null);
-        }
-
-        viewer.setBounds(x, y, availableWidth, h);
-        list.add(viewer);
-        readOnlyViewer = viewer;
-
-        // Key bindings: Escape closes the viewer
-        // Close with Escape
-        viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeView");
-        viewer.getActionMap().put("closeView", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                stopReadOnlyView();
-            }
-        });
-
-        // Start editing via keyboard (Ctrl/Cmd+E, F2, or Enter)
-        viewer.getInputMap()
-                .put(
-                        KeyStroke.getKeyStroke(
-                                KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                        "startEdit");
-        viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "startEdit");
-        viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "startEdit");
-        viewer.getActionMap().put("startEdit", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                stopReadOnlyView();
-                startInlineEdit(index);
-            }
-        });
-
-        // Double‑click in the overlay switches to edit
-        viewer.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (javax.swing.SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
-                    stopReadOnlyView();
-                    startInlineEdit(index);
-                }
-            }
-        });
-
-        // Close when focus is lost
-        viewer.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                stopReadOnlyView();
-            }
-        });
-
-        viewer.requestFocusInWindow();
-        list.repaint(cell);
-    }
-
-    private void stopReadOnlyView() {
-        if (readOnlyViewer == null) return;
-        var v = readOnlyViewer;
-        list.remove(v);
-        readOnlyViewer = null;
-        viewingIndex = -1;
-        list.revalidate();
-        list.repaint();
-    }
 
     private void updateButtonStates() {
         boolean hasSelection = list.getSelectedIndex() >= 0;
@@ -1253,14 +1049,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setSelectionBackground(selBg);
         list.setSelectionForeground(selFg);
 
-        // Re-apply overlay colors for any active editor/viewer so they reflect the new theme
-        if (inlineEditor != null && editingIndex >= 0) {
-            applyOverlayColors(inlineEditor, editingIndex);
-        }
-        if (readOnlyViewer != null && viewingIndex >= 0) {
-            applyOverlayColors(readOnlyViewer, viewingIndex);
-        }
-
         revalidate();
         repaint();
     }
@@ -1290,9 +1078,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         protected @Nullable Transferable createTransferable(JComponent c) {
-            // Commit any inline edit before starting a drag
-            stopInlineEdit(true);
-
             indices = list.getSelectedIndices();
 
             // Disallow dragging if selection includes the running task
@@ -1527,8 +1312,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        stopInlineEdit(true);
-
         if (idx < 0 || idx >= model.size()) {
             return;
         }
@@ -1586,53 +1369,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Apply consistent overlay colors for inline editor and read-only viewer. Ensures opacity and uses selection-aware
-     * colors with safe fallbacks. For read-only overlay, always use unselected colors so it visually pops on a selected
-     * row.
-     */
-    private void applyOverlayColors(JTextArea ta, int rowIndex) {
-        assert SwingUtilities.isEventDispatchThread();
-        boolean isSelectedRow = list.isSelectedIndex(rowIndex);
-        boolean isReadOnlyOverlay = (ta == readOnlyViewer);
-
-        Color bg;
-        Color fg;
-
-        if (isReadOnlyOverlay) {
-            // Force unselected list colors so the read-only overlay stands out over selected rows.
-            bg = list.getBackground();
-            fg = list.getForeground();
-        } else if (isSelectedRow) {
-            Color selBg = list.getSelectionBackground();
-            Color selFg = list.getSelectionForeground();
-
-            if (selBg == null) selBg = UIManager.getColor("List.selectionBackground");
-            if (selFg == null) selFg = UIManager.getColor("List.selectionForeground");
-
-            if (selBg == null || selFg == null) {
-                // Derive sensible defaults similar to TaskListPanel.applyTheme
-                Color baseBg = list.getBackground();
-                int r = baseBg.getRed();
-                int g = baseBg.getGreen();
-                int b = baseBg.getBlue();
-                double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-                boolean dark = luminance < 128.0;
-                if (selBg == null) selBg = dark ? new Color(60, 90, 140) : new Color(200, 220, 255);
-                if (selFg == null) selFg = dark ? Color.WHITE : Color.BLACK;
-            }
-
-            bg = selBg != null ? selBg : list.getBackground();
-            fg = selFg != null ? selFg : list.getForeground();
-        } else {
-            bg = list.getBackground();
-            fg = list.getForeground();
-        }
-
-        ta.setOpaque(true);
-        ta.setBackground(bg);
-        ta.setForeground(fg);
-    }
 
     /**
      * Clears all per-row expansion state. Call this after structural changes that may affect row indices (e.g.,
@@ -1640,7 +1376,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      */
     private void clearExpansionOnStructureChange() {
         assert SwingUtilities.isEventDispatchThread();
-        stopReadOnlyView();
         if (expandedIndices.isEmpty()) return;
         expandedIndices.clear();
         list.revalidate();
@@ -1769,7 +1504,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         llmStateTimer.stop();
         runningFadeTimer.stop();
-        stopReadOnlyView();
         super.removeNotify();
     }
 
@@ -1831,13 +1565,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             view.setExpanded(false);
             view.setMaxVisibleLines(2);
 
-            // Set text and overlay visibility
+            // Set text
             view.setText(value.text());
-            boolean isEditingRow =
-                    (TaskListPanel.this.inlineEditor != null && TaskListPanel.this.editingIndex == index);
-            boolean isViewingRow =
-                    (TaskListPanel.this.readOnlyViewer != null && TaskListPanel.this.viewingIndex == index);
-            view.setVisible(!isEditingRow && !isViewingRow);
+            view.setVisible(true);
 
             // Font and strike-through
             Font base = list.getFont();
@@ -1880,9 +1610,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // and rendering stays lightweight. The paint offset gives the same visual effect as a dynamic
             // EmptyBorder without incurring layout churn.
             Insets pad = verticalPaddingForCell(contentH, minHeight);
-            if (isEditingRow) {
-                pad = new Insets(0, 0, 0, 0);
-            }
             view.setTopPadding(pad.top);
 
             // State coloring and subtle running animation
