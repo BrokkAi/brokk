@@ -693,10 +693,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         inlineEditor = new JTextArea(item.text());
         inlineEditor.setLineWrap(true);
         inlineEditor.setWrapStyleWord(true);
-        inlineEditor.setOpaque(false);
+        inlineEditor.setOpaque(true);
         inlineEditor.setEditable(true);
         inlineEditor.setBorder(BorderFactory.createEmptyBorder());
         inlineEditor.setFont(list.getFont());
+        boolean isSelectedRow = list.isSelectedIndex(index);
+        java.awt.Color bg = isSelectedRow ? list.getSelectionBackground() : list.getBackground();
+        java.awt.Color fg = isSelectedRow ? list.getSelectionForeground() : list.getForeground();
+        inlineEditor.setBackground(bg);
+        inlineEditor.setForeground(fg);
 
         // Position editor over the cell (to the right of the checkbox area)
         java.awt.Rectangle cell = list.getCellBounds(index, index);
