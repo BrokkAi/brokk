@@ -56,10 +56,8 @@ public class ContextHistory {
     private @Nullable Context selected;
 
     public ContextHistory(Context liveContext) {
-        var fr = liveContext.freezeAndCleanup();
-        this.liveContext = fr.liveContext();
-        history.add(fr.frozenContext());
-        selected = fr.frozenContext();
+        this.liveContext = liveContext;
+        addFrozenContextAndClearRedo(liveContext);
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -154,9 +152,8 @@ public class ContextHistory {
             return this.liveContext;
         }
 
-        var fr = updatedLiveContext.freezeAndCleanup();
-        this.liveContext = fr.liveContext();
-        addFrozenContextAndClearRedo(fr.frozenContext());
+        this.liveContext = updatedLiveContext;
+        addFrozenContextAndClearRedo(updatedLiveContext);
         return this.liveContext;
     }
 
@@ -168,10 +165,11 @@ public class ContextHistory {
     /** Push {@code frozen} and clear redo stack. */
     public synchronized void addFrozenContextAndClearRedo(Context snapshot) {
         ensureComputedSnapshot(snapshot, SNAPSHOT_AWAIT_TIMEOUT);
-        history.addLast(snapshot);
+        var frozenSnapshot = toFrozenSnapshot(snapshot);
+        history.addLast(frozenSnapshot);
         truncateHistory();
         redo.clear();
-        selected = snapshot;
+        selected = frozenSnapshot;
     }
 
     /**
@@ -180,10 +178,11 @@ public class ContextHistory {
      */
     public synchronized void replaceTop(Context newLive, Context newFrozen) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
+        var frozenSnapshot = toFrozenSnapshot(newFrozen);
         history.removeLast();
-        history.addLast(newFrozen);
+        history.addLast(frozenSnapshot);
         redo.clear();
-        selected = newFrozen;
+        selected = frozenSnapshot;
         liveContext = newLive;
     }
 
@@ -236,14 +235,13 @@ public class ContextHistory {
         }
 
         var updatedLive = refreshedLive.withAction(CompletableFuture.completedFuture(newAction));
-        var fr = updatedLive.freezeAndCleanup();
 
         if (isContinuation) {
-            replaceTop(fr.liveContext(), fr.frozenContext());
+            replaceTop(updatedLive, updatedLive);
         } else {
-            pushLiveAndFrozen(fr.liveContext(), fr.frozenContext());
+            pushLiveAndFrozen(updatedLive, updatedLive);
         }
-        return fr.frozenContext();
+        return updatedLive;
     }
 
     /* ─────────────── undo / redo  ────────────── */
@@ -404,6 +402,55 @@ public class ContextHistory {
                 }
             }
         }
+    }
+
+    /**
+     * Builds a frozen snapshot Context from a live Context by converting dynamic fragments
+     * to FrozenFragment while preserving the original context ID, task history, parsedOutput,
+     * and action. Non-dynamic fragments are retained as-is.
+     */
+    private Context toFrozenSnapshot(Context ctx) {
+        var cm = ctx.getContextManager();
+
+        var frozenFragments = new java.util.ArrayList<ContextFragment>();
+        for (var fragment : ctx.allFragments().toList()) {
+            if (fragment instanceof FrozenFragment) {
+                frozenFragments.add(fragment);
+                continue;
+            }
+
+            if (fragment.isDynamic()) {
+                try {
+                    var ff = FrozenFragment.freeze(fragment, cm);
+                    frozenFragments.add(ff);
+                } catch (Exception e) {
+                    // On failure, fall back to keeping the original fragment
+                    logger.warn("Failed to freeze fragment {}: {}", fragment.id(), e.toString());
+                    frozenFragments.add(fragment);
+                }
+            } else {
+                frozenFragments.add(fragment);
+            }
+        }
+
+        var editable = frozenFragments.stream()
+                .filter(f -> f.getType().isPath())
+                .toList();
+
+        var virtuals = frozenFragments.stream()
+                .filter(f -> f.getType().isVirtual())
+                .map(f -> (ContextFragment.VirtualFragment) f)
+                .toList();
+
+        return Context.createWithId(
+                ctx.id(),
+                cm,
+                editable,
+                java.util.List.of(), // readonly fragments are not used in V3 history
+                virtuals,
+                ctx.getTaskHistory(),
+                ctx.getParsedOutput(),
+                ctx.action);
     }
 
     private void truncateHistory() {

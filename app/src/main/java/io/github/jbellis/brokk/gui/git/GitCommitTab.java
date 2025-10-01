@@ -719,8 +719,8 @@ public class GitCommitTab extends JPanel {
         assert !SwingUtilities.isEventDispatchThread();
 
         // Take a snapshot before mutating the working tree so the user can undo the stash
-        var frozen = contextManager.liveContext().freezeAndCleanup();
-        contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
+        var live = contextManager.liveContext();
+        contextManager.getContextHistory().addFrozenContextAndClearRedo(live);
 
         RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {

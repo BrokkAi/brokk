@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -468,43 +469,19 @@ public class Context {
     /**
      * @return a FreezeResult with the (potentially modified to exclude invalid Fragments) liveContext + frozenContext
      */
+    @Deprecated
     public FreezeResult freezeAndCleanup() {
-        assert !containsFrozenFragments();
-
-        var liveFragments = new ArrayList<ContextFragment>();
-        var frozenFragments = new ArrayList<ContextFragment>();
-
-        for (var fragment : this.fragments) {
-            try {
-                var frozen = FrozenFragment.freeze(fragment, contextManager);
-                liveFragments.add(fragment);
-                frozenFragments.add(frozen);
-            } catch (IOException e) {
-                logger.warn("Failed to freeze fragment {}: {}", fragment.description(), e.getMessage());
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        Context liveContext;
-        if (!liveFragments.equals(fragments)) {
-            liveContext =
-                    new Context(this.contextManager, liveFragments, this.taskHistory, this.parsedOutput, this.action);
-        } else {
-            liveContext = this;
-        }
-
-        var frozenContext = new Context(
-                this.id, this.contextManager, frozenFragments, this.taskHistory, this.parsedOutput, this.action);
-
-        return new FreezeResult(liveContext, frozenContext);
+        // Temporary shim: eagerly compute dynamic fields so snapshotting callers get stable values,
+        // but do not construct FrozenFragments anymore.
+        ensureComputedSnapshot(Duration.ofSeconds(CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS));
+        return new FreezeResult(this, this);
     }
 
+    @Deprecated
     public Context freeze() {
-        if (!containsDynamicFragments()) {
-            return this;
-        }
-        return freezeAndCleanup().frozenContext;
+        // Temporary shim: ensure dynamic fields are computed, then return this live context.
+        ensureComputedSnapshot(Duration.ofSeconds(CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS));
+        return this;
     }
 
     @SuppressWarnings("unchecked")
@@ -611,6 +588,38 @@ public class Context {
                 taskHistory,
                 parsedOutput,
                 CompletableFuture.completedFuture("Load external changes"));
+    }
+
+    // Eagerly compute dynamic fields for a transient snapshot without creating FrozenFragments.
+    private void ensureComputedSnapshot(Duration timeout) {
+        for (var fragment : this.allFragments().toList()) {
+            if (fragment instanceof ContextFragment.DynamicFragment df) {
+                try {
+                    // Kick off computations
+                    df.computedDescription().future();
+                    df.computedSyntaxStyle().future();
+                    df.computedText().future();
+
+                    // Await bounded for strings
+                    DynamicSupport.await(timeout, df.computedDescription());
+                    DynamicSupport.await(timeout, df.computedSyntaxStyle());
+                    DynamicSupport.await(timeout, df.computedText());
+
+                    // Optionally await image bytes if present
+                    var imgCv = df.computedImageBytes();
+                    if (imgCv != null) {
+                        imgCv.await(timeout);
+                    }
+                } catch (Exception e) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug(
+                                "Snapshot seed failed for fragment {}: {}",
+                                fragment.id(),
+                                e.toString());
+                    }
+                }
+            }
+        }
     }
 
     private boolean isNewFileInGit(FrozenFragment ff) {

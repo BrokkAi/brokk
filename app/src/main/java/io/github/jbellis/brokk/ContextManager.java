@@ -837,10 +837,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 var newLive = Context.createFrom(
                         targetFrozenContext, liveContext(), liveContext().getTaskHistory());
-                var fr = newLive.freezeAndCleanup();
-                contextHistory.pushLiveAndFrozen(fr.liveContext(), fr.frozenContext());
-                contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
-                SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
+                contextHistory.pushLiveAndFrozen(newLive, newLive);
+                contextHistory.addResetEdge(targetFrozenContext, newLive);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace to historical state");
             } catch (CancellationException cex) {
@@ -858,10 +857,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 var newLive =
                         Context.createFrom(targetFrozenContext, liveContext(), targetFrozenContext.getTaskHistory());
-                var fr = newLive.freezeAndCleanup();
-                contextHistory.pushLiveAndFrozen(fr.liveContext(), fr.frozenContext());
-                contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
-                SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
+                contextHistory.pushLiveAndFrozen(newLive, newLive);
+                contextHistory.addResetEdge(targetFrozenContext, newLive);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace and history to historical state");
             } catch (CancellationException cex) {
