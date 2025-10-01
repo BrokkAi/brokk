@@ -17,14 +17,12 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
-import io.github.jbellis.brokk.gui.terminal.WrappedTextView;
 import io.github.jbellis.brokk.util.Json;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.FontMetrics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -843,9 +841,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
 
         // Start editing via keyboard (Ctrl/Cmd+E, F2, or Enter)
-        viewer.getInputMap().put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                "startEdit");
+        viewer.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "startEdit");
         viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "startEdit");
         viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "startEdit");
         viewer.getActionMap().put("startEdit", new AbstractAction() {
@@ -1574,10 +1574,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
     }
-    
+
     /**
-     * Ensures an expanded row is fully visible. Retries a few times to allow the list layout to
-     * recompute the new cell height after expansion before attempting to resize the window.
+     * Ensures an expanded row is fully visible. Retries a few times to allow the list layout to recompute the new cell
+     * height after expansion before attempting to resize the window.
      */
     private void ensureExpandedRowFullyVisible(int index, int attempt) {
         assert SwingUtilities.isEventDispatchThread();
@@ -1630,8 +1630,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Clears all per-row expansion state. Call this after structural changes
-     * that may affect row indices (e.g., reorders) to avoid stale mappings.
+     * Clears all per-row expansion state. Call this after structural changes that may affect row indices (e.g.,
+     * reorders) to avoid stale mappings.
      */
     private void clearExpansionOnStructureChange() {
         assert SwingUtilities.isEventDispatchThread();
@@ -1918,7 +1918,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return this;
         }
     }
-
 
     private static final class TaskListData {
         public List<TaskEntryDto> tasks = new ArrayList<>();

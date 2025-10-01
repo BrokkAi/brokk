@@ -5,7 +5,6 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.Insets;
 import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,11 +12,10 @@ import javax.swing.JComponent;
 import javax.swing.JTextArea;
 
 /**
- * Lightweight wrapped text painter used in the renderer (no JTextArea).
- * - Measures wrapped content height for a given available width.
- * - Applies vertical centering by honoring a top padding paint offset.
- * - Keeps rendering fast and stable; avoids layout churn and preserves wrap behavior
- *   consistent with the inline editor (which uses JTextArea only while editing).
+ * Lightweight wrapped text painter used in the renderer (no JTextArea). - Measures wrapped content height for a given
+ * available width. - Applies vertical centering by honoring a top padding paint offset. - Keeps rendering fast and
+ * stable; avoids layout churn and preserves wrap behavior consistent with the inline editor (which uses JTextArea only
+ * while editing).
  */
 public class WrappedTextView extends JComponent {
     private String text = "";
@@ -262,11 +260,10 @@ public class WrappedTextView extends JComponent {
         return i;
     }
 
-
     /**
-     * Returns a version of the given line that fits within availableWidth. If the line
-     * would overflow, it is truncated and suffixed with "...". If even the suffix does
-     * not fit, returns an empty string. Uses binary search for predictable performance.
+     * Returns a version of the given line that fits within availableWidth. If the line would overflow, it is truncated
+     * and suffixed with "...". If even the suffix does not fit, returns an empty string. Uses binary search for
+     * predictable performance.
      */
     public static String addEllipsisToFit(String line, FontMetrics fm, int availableWidth) {
         if (availableWidth <= 0) return "";

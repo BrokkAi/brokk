@@ -33,7 +33,8 @@ public class WrappedTextViewEllipsisFitTest {
 
             // 2) A line that does not fit is truncated and ends with "..."
             int longWidth = fm.stringWidth(longLine);
-            int halfWidth = Math.max(ellipsisWidth + 1, longWidth / 2); // ensure smaller than full width, larger than ellipsis
+            int halfWidth =
+                    Math.max(ellipsisWidth + 1, longWidth / 2); // ensure smaller than full width, larger than ellipsis
             String truncated = WrappedTextView.addEllipsisToFit(longLine, fm, halfWidth);
             Assertions.assertNotEquals(longLine, truncated, "Non-fitting line should be truncated");
             Assertions.assertTrue(truncated.endsWith(ellipsis), "Truncated line should end with ellipsis");
@@ -64,8 +65,7 @@ public class WrappedTextViewEllipsisFitTest {
                     aboveEllipsis.equals(ellipsis) || aboveEllipsis.endsWith(ellipsis),
                     "Width slightly above ellipsis should return ellipsis or very short prefix plus ellipsis");
             Assertions.assertTrue(
-                    fm.stringWidth(aboveEllipsis) <= justAboveEllipsis,
-                    "Result must fit within the provided width");
+                    fm.stringWidth(aboveEllipsis) <= justAboveEllipsis, "Result must fit within the provided width");
         } finally {
             g.dispose();
         }

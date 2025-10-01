@@ -22,11 +22,11 @@ public class WrappedTextViewBehaviorTest {
             view.setMaxVisibleLines(1);
 
             // A line long enough to require truncation with ellipsis when collapsed to 1 line
-            String longSingleLine =
-                    "ThisIsASingleReallyLongWordThatShouldBeTruncatedWhenSpaceIsLimitedForOneLineOnly";
+            String longSingleLine = "ThisIsASingleReallyLongWordThatShouldBeTruncatedWhenSpaceIsLimitedForOneLineOnly";
             view.setText(longSingleLine);
 
-            Assertions.assertEquals(lineHeight, view.getContentHeight(), "Collapsed one-line height should equal one line");
+            Assertions.assertEquals(
+                    lineHeight, view.getContentHeight(), "Collapsed one-line height should equal one line");
         } finally {
             g.dispose();
         }
@@ -45,7 +45,7 @@ public class WrappedTextViewBehaviorTest {
             var view = new WrappedTextView();
             view.setFont(font);
             view.setAvailableWidth(200); // Reasonable width that will wrap a long paragraph
-            view.setExpanded(true);      // Expanded: should render full height (more than 2 lines if needed)
+            view.setExpanded(true); // Expanded: should render full height (more than 2 lines if needed)
             view.setMaxVisibleLines(2);
 
             String longText =
@@ -54,9 +54,7 @@ public class WrappedTextViewBehaviorTest {
             view.setText(longText);
 
             int contentHeight = view.getContentHeight();
-            Assertions.assertTrue(
-                    contentHeight > 2 * lineHeight,
-                    "Expanded view should render more than two lines");
+            Assertions.assertTrue(contentHeight > 2 * lineHeight, "Expanded view should render more than two lines");
         } finally {
             g.dispose();
         }

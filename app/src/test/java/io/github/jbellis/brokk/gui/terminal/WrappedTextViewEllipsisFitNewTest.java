@@ -1,11 +1,10 @@
 package io.github.jbellis.brokk.gui.terminal;
 
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.image.BufferedImage;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class WrappedTextViewEllipsisFitNewTest {
 
