@@ -1052,13 +1052,23 @@ public class FuzzyMatcher {
         return true;
     }
 
-    /** Checks whether the final matched fragment ends right before a '.' in the name. */
+    /**
+     * Checks whether the final matched fragment ends right before a hierarchy separator in the name that denotes
+     * nested code units (e.g., '.', followed by an uppercase letter). This should not trigger for filename
+     * extensions like ".java" or ".ts".
+     */
     private static boolean endsBeforeDollar(String name, FList<TextRange> fragments) {
         var last = fragments.getLast();
-        if (last == null) {
+        int end = last.getEndOffset();
+        if (end >= name.length()) {
             return false;
         }
-        int end = last.getEndOffset();
-        return end < name.length() && name.charAt(end) == '.';
+        if (name.charAt(end) != '.') {
+            return false;
+        }
+        // Heuristic: treat dot before an Uppercase letter as nested-code separator,
+        // but ignore dot before a lowercase extension (e.g., ".java").
+        int next = end + 1;
+        return next < name.length() && Character.isUpperCase(name.charAt(next));
     }
 }
