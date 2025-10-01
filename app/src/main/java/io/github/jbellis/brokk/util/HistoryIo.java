@@ -232,7 +232,6 @@ public final class HistoryIo {
         var collectedReferencedDtos = new HashMap<String, ReferencedFragmentDto>();
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
-        var imageDomainFragments = new HashSet<FrozenFragment>();
         var pastedImageFragments = new HashSet<Fragments.AnonymousImageFragment>();
 
         // Best-effort: await dynamic fields within the provided timeout to avoid persisting placeholders.
@@ -242,9 +241,6 @@ public final class HistoryIo {
             ctx.fileFragments().forEach(fragment -> {
                 if (!collectedReferencedDtos.containsKey(fragment.id())) {
                     collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
-                    if (fragment instanceof FrozenFragment ff && !ff.isText()) {
-                        imageDomainFragments.add(ff);
-                    }
                 }
             });
             ctx.virtualFragments().forEach(vf -> {
@@ -255,9 +251,6 @@ public final class HistoryIo {
                     }
                 } else if (!collectedVirtualDtos.containsKey(vf.id())) {
                     collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
-                    if (vf instanceof FrozenFragment ff && !ff.isText()) {
-                        imageDomainFragments.add(ff);
-                    }
                     if (vf instanceof Fragments.AnonymousImageFragment aif) {
                         pastedImageFragments.add(aif);
                     }
@@ -391,22 +384,6 @@ public final class HistoryIo {
                     zos.closeEntry();
                 }
 
-                for (FrozenFragment ff : imageDomainFragments) {
-                    byte[] imageBytes = ff.imageBytesContent();
-                    if (imageBytes != null) {
-                        ZipEntry entry = new ZipEntry(
-                                IMAGES_DIR_PREFIX + ff.id() + ".png"); // Assumes PNG, consider content type if varied
-                        entry.setMethod(ZipEntry.STORED); // For uncompressed images, or DEFLATED if compression desired
-                        entry.setSize(imageBytes.length);
-                        entry.setCompressedSize(imageBytes.length); // If STORED
-                        var crc = new CRC32();
-                        crc.update(imageBytes);
-                        entry.setCrc(crc.getValue());
-                        zos.putNextEntry(entry);
-                        zos.write(imageBytes);
-                        zos.closeEntry();
-                    }
-                }
 
                 for (var aif : pastedImageFragments) {
                     try {

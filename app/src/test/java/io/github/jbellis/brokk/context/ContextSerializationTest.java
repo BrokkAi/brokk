@@ -751,13 +751,7 @@ public class ContextSerializationTest {
         assertNotNull(loadedAbsPath, "absPath not found in FrozenFragment meta for ImageFileFragment");
         assertEquals(imageFilePath.toString(), loadedAbsPath);
 
-        // Check image content from bytes
-        byte[] imageBytes = loadedFrozenFragment.imageBytesContent();
-        assertNotNull(imageBytes, "Image bytes not found in FrozenFragment for ImageFileFragment");
-        Image loadedImageFromBytes = ImageIO.read(new java.io.ByteArrayInputStream(imageBytes));
-        assertNotNull(loadedImageFromBytes);
-        assertEquals(20, loadedImageFromBytes.getWidth(null));
-        assertEquals(20, loadedImageFromBytes.getHeight(null));
+        // Image file content is referenced by path; no embedded image bytes are required for round-trip.
     }
 
     @Test
