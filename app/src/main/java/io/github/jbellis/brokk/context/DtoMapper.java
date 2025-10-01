@@ -155,8 +155,8 @@ public class DtoMapper {
                         reader.readContent(gfd.contentId()),
                         gfd.id());
             case FrozenFragmentDto ffd -> {
-                // Legacy: materialize FrozenFragment from DTO
-                yield FrozenFragment.fromDto(
+                // Legacy: materialize FrozenFragment from DTO, then immediately unfreeze to a live fragment
+                var ff = FrozenFragment.fromDto(
                         ffd.id(),
                         mgr,
                         ContextFragment.FragmentType.valueOf(ffd.originalType()),
@@ -170,6 +170,11 @@ public class DtoMapper {
                         ffd.originalClassName(),
                         ffd.meta(),
                         ffd.repr());
+                try {
+                    yield ff.unfreeze(mgr);
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to unfreeze legacy FrozenFragment: " + ffd.id(), e);
+                }
             }
         };
     }
@@ -199,7 +204,11 @@ public class DtoMapper {
                     logger.info("Skipping deprecated BuildFragment during deserialization: {}", ffd.id());
                     yield null;
                 }
-                yield (FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
+                var cf = _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
+                if (!(cf instanceof ContextFragment.VirtualFragment vf)) {
+                    throw new IllegalStateException("Expected a VirtualFragment when resolving FrozenFragmentDto: " + ffd.id());
+                }
+                yield vf;
             }
             case SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
