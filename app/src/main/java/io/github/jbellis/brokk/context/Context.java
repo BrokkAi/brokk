@@ -117,7 +117,7 @@ public class Context {
     }
 
     public Context addPathFragments(Collection<? extends Fragments.PathFragment> paths) {
-        var toAdd = paths.stream().filter(p -> !fragments.contains(p)).toList();
+        var toAdd = paths.stream().filter(fragment -> fragments.stream().noneMatch(f -> f.hasSameSource(fragment))).toList();
         if (toAdd.isEmpty()) {
             return this;
         }
@@ -131,17 +131,7 @@ public class Context {
     }
 
     public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
-        // Deduplicate among existing virtual fragments only
-        boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
-                ? fragments.stream()
-                        .filter(f -> f.getType().isVirtual())
-                        .anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
-                : fragments.stream()
-                        .filter(f -> f.getType().isVirtual())
-                        .map(f -> (ContextFragment.VirtualFragment) f)
-                        .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
-
-        if (isDuplicate) {
+        if (fragments.stream().anyMatch(f -> f.hasSameSource(fragment))) {
             return this;
         }
 
