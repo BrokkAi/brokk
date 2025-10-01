@@ -5,8 +5,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
@@ -35,13 +37,11 @@ public final class ComputedValue<T> {
     private static final Logger logger = LogManager.getLogger(ComputedValue.class);
     private static final AtomicLong SEQ = new AtomicLong(0);
 
-    private enum StartMode { AUTO, SUPPRESS }
 
     private final String name;
     private final Supplier<T> supplier;
-    private final @Nullable Executor executor;
 
-    private volatile CompletableFuture<T> futureRef;
+    private final CompletableFuture<T> futureRef;
 
     // listeners registered via onComplete; guarded by 'this'
     private final List<BiConsumer<? super T, ? super Throwable>> listeners = new ArrayList<>();
@@ -54,7 +54,7 @@ public final class ComputedValue<T> {
      * @param supplier   computation to run
      */
     public ComputedValue(String name, Supplier<T> supplier) {
-        this(name, supplier, null);
+        this(name, supplier, (Executor) null);
     }
 
     /**
@@ -66,59 +66,41 @@ public final class ComputedValue<T> {
      * @param executor   optional executor on which to run the supplier; if null, a dedicated daemon thread is used
      */
     public ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor) {
-        this(name, supplier, executor, StartMode.AUTO);
+        this(name, supplier, new CompletableFuture<>());
+        // Start exactly once at construction time
+        var f = futureRef;
+        String threadName = "cv-" + this.name + "-" + SEQ.incrementAndGet();
+        Runnable task = () -> {
+            try {
+                var value = this.supplier.get();
+                f.complete(value);
+                notifyComplete(value, null);
+            } catch (Throwable ex) {
+                f.completeExceptionally(ex);
+                notifyComplete(null, ex);
+                logger.debug("ComputedValue supplier for {} failed: {}", this.name, ex.toString());
+            }
+        };
+        if (executor == null) {
+            var t = new Thread(task, threadName);
+            t.setDaemon(true);
+            t.start();
+        } else {
+            executor.execute(task);
+        }
     }
 
-    private ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor, StartMode mode) {
+    private ComputedValue(String name, Supplier<T> supplier, CompletableFuture<T> future) {
         this.name = name.isBlank() ? "value" : name;
         this.supplier = supplier;
-        this.executor = executor;
-        this.futureRef = new CompletableFuture<>();
-        if (mode == StartMode.AUTO) {
-            // Start exactly once at construction time
-            var f = futureRef;
-            String threadName = "cv-" + name + "-" + SEQ.incrementAndGet();
-            Runnable task = () -> {
-                try {
-                    var value = this.supplier.get();
-                    f.complete(value);
-                    notifyComplete(value, null);
-                } catch (Throwable ex) {
-                    try {
-                        f.completeExceptionally(ex);
-                    } catch (Throwable ignore) {
-                        // ignored
-                    }
-                    notifyComplete(null, ex);
-                    logger.debug("ComputedValue supplier for {} failed: {}", name, ex.toString());
-                }
-            };
-            if (this.executor != null) {
-                try {
-                    this.executor.execute(task);
-                } catch (Throwable ex) {
-                    // Fallback to dedicated thread if executor rejects
-                    var t = new Thread(task, threadName);
-                    t.setDaemon(true);
-                    t.start();
-                }
-            } else {
-                var t = new Thread(task, threadName);
-                t.setDaemon(true);
-                t.start();
-            }
-        }
+        this.futureRef = future;
     }
 
     /**
      * Create an already-completed ComputedValue with a custom name. No worker thread is started.
      */
     public static <T> ComputedValue<T> completed(String name, @Nullable T value) {
-        var cv = new ComputedValue<>(name, () -> value, null, StartMode.SUPPRESS);
-        synchronized (cv) {
-            cv.futureRef = CompletableFuture.completedFuture(value);
-        }
-        return cv;
+        return new ComputedValue<>(name, () -> value, CompletableFuture.completedFuture(value));
     }
 
     /**
@@ -150,12 +132,7 @@ public final class ComputedValue<T> {
         if (!f.isDone()) {
             return Optional.empty();
         }
-        try {
-            return Optional.ofNullable(f.join());
-        } catch (Throwable t) {
-            // includes CompletionException for exceptional completion
-            return Optional.empty();
-        }
+        return Optional.ofNullable(f.join());
     }
 
     /**
@@ -167,12 +144,13 @@ public final class ComputedValue<T> {
             logger.warn("ComputedValue.await() called on Swing EDT for {}", name);
             return Optional.empty();
         }
-        var f = futureRef;
         try {
-            T v = f.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
+            T v = futureRef.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
             return Optional.ofNullable(v);
-        } catch (Exception e) {
+        } catch (TimeoutException e) {
             return Optional.empty();
+        } catch (ExecutionException | InterruptedException e) {
+            throw new RuntimeException(e);
         }
     }
 
