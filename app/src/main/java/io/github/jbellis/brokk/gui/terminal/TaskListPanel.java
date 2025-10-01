@@ -1587,17 +1587,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Apply consistent overlay colors for inline editor and read-only viewer.
-     * Ensures opacity and uses selection-aware colors with safe fallbacks.
+     * Apply consistent overlay colors for inline editor and read-only viewer. Ensures opacity and uses selection-aware
+     * colors with safe fallbacks. For read-only overlay, always use unselected colors so it visually pops on a selected
+     * row.
      */
     private void applyOverlayColors(JTextArea ta, int rowIndex) {
         assert SwingUtilities.isEventDispatchThread();
         boolean isSelectedRow = list.isSelectedIndex(rowIndex);
+        boolean isReadOnlyOverlay = (ta == readOnlyViewer);
 
         Color bg;
         Color fg;
 
-        if (isSelectedRow) {
+        if (isReadOnlyOverlay) {
+            // Force unselected list colors so the read-only overlay stands out over selected rows.
+            bg = list.getBackground();
+            fg = list.getForeground();
+        } else if (isSelectedRow) {
             Color selBg = list.getSelectionBackground();
             Color selFg = list.getSelectionForeground();
 
