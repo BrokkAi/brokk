@@ -468,32 +468,50 @@ public class SessionManager implements AutoCloseable {
         return ch;
     }
 
-    /**
-     * Resolve the task list file path for a given session: .brokk/sessions/<sessionId>/tasklist.json
-     */
-    private Path getTaskListFilePath(UUID sessionId) {
-        return sessionsDir.resolve(sessionId.toString()).resolve("tasklist.json");
-    }
 
     /**
      * Asynchronously write the task list for a session, serialized per session key.
-     * Different sessions can be written in parallel.
+     * Stores tasklist.json inside the session's zip file.
      */
     public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskListData data) {
-        var file = getTaskListFilePath(sessionId);
+        Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            TaskListStore.write(file, data);
+            try (var fs = FileSystems.newFileSystem(
+                    zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+                Path taskListPath = fs.getPath("tasklist.json");
+                var normalized = new TaskListData(List.copyOf(data.tasks()));
+                String json = AbstractProject.objectMapper.writeValueAsString(normalized);
+                Files.writeString(taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to write task list for session " + sessionId, e);
+            }
             return null;
         });
     }
 
     /**
      * Asynchronously read the task list for a session, serialized per session key.
-     * Returns an empty list if none exists.
+     * Reads tasklist.json from the session's zip file. Returns an empty list if not present.
      */
     public CompletableFuture<TaskListData> readTaskList(UUID sessionId) {
-        var file = getTaskListFilePath(sessionId);
-        return sessionExecutorByKey.submit(sessionId.toString(), () -> TaskListStore.read(file));
+        Path zipPath = getSessionHistoryPath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            if (!Files.exists(zipPath)) {
+                return new TaskListData(List.of());
+            }
+            try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+                Path taskListPath = fs.getPath("tasklist.json");
+                if (!Files.exists(taskListPath)) {
+                    return new TaskListData(List.of());
+                }
+                String json = Files.readString(taskListPath);
+                var loaded = AbstractProject.objectMapper.readValue(json, TaskListData.class);
+                return new TaskListData(List.copyOf(loaded.tasks()));
+            } catch (IOException e) {
+                logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
+                return new TaskListData(List.of());
+            }
+        });
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
