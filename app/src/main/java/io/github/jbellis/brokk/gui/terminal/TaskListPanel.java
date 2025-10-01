@@ -109,6 +109,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
+    // Tracks which task rows are expanded to show full text; collapsed by default to two lines.
+    private final LinkedHashSet<Integer> expandedIndices = new LinkedHashSet<>();
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 4));
@@ -428,10 +430,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2 && javax.swing.SwingUtilities.isLeftMouseButton(e)) {
+                if (javax.swing.SwingUtilities.isLeftMouseButton(e)) {
                     int index = list.locationToIndex(e.getPoint());
                     if (index < 0) return;
-                    startInlineEdit(index);
+                    if (e.getClickCount() == 2) {
+                        startInlineEdit(index);
+                    } else if (e.getClickCount() == 1) {
+                        toggleExpandedAt(index);
+                    }
                 }
             }
         });
@@ -534,6 +540,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (added > 0) {
             input.setText("");
             input.requestFocusInWindow();
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
         }
     }
@@ -589,6 +596,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
             if (removedAny) {
+                clearExpansionOnStructureChange();
                 updateButtonStates();
                 saveTasksForCurrentSession();
             } else {
@@ -856,6 +864,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             logger.debug("Failed loading tasks for session {} from {}", sid, file, e);
         } finally {
             isLoadingTasks = false;
+            clearExpansionOnStructureChange();
             updateButtonStates();
         }
     }
@@ -896,6 +905,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
         if (added) {
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
             updateButtonStates();
         }
@@ -1279,6 +1289,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             indices = null;
             addIndex = -1;
             addCount = 0;
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
         }
     }
@@ -1344,6 +1355,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Select the combined task
         list.setSelectedIndex(firstIdx);
 
+        clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
     }
@@ -1428,6 +1440,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Select the new block
         list.setSelectionInterval(idx, idx + lines.size() - 1);
 
+        clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
         list.revalidate();
@@ -1441,6 +1454,46 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
     }
+
+    // region Row expansion helpers
+
+    /** Returns true if the given row index is expanded (shows full text). Out of bounds returns false. */
+    private boolean isExpanded(int index) {
+        if (index < 0 || index >= model.getSize()) return false;
+        return expandedIndices.contains(index);
+    }
+
+    /**
+     * Toggles expanded state for the given row and repaints just that cell if visible.
+     * No-op for out of bounds indices.
+     */
+    private void toggleExpandedAt(int index) {
+        assert SwingUtilities.isEventDispatchThread();
+        if (index < 0 || index >= model.getSize()) return;
+        if (expandedIndices.contains(index)) {
+            expandedIndices.remove(index);
+        } else {
+            expandedIndices.add(index);
+        }
+        var rect = list.getCellBounds(index, index);
+        if (rect != null) list.repaint(rect);
+        else list.repaint();
+        list.revalidate();
+    }
+
+    /**
+     * Clears all per-row expansion state. Call this after structural changes
+     * that may affect row indices (e.g., reorders) to avoid stale mappings.
+     */
+    private void clearExpansionOnStructureChange() {
+        assert SwingUtilities.isEventDispatchThread();
+        if (expandedIndices.isEmpty()) return;
+        expandedIndices.clear();
+        list.revalidate();
+        list.repaint();
+    }
+
+    // endregion
 
     /**
      * Compute vertical padding to center content within a cell of a given minimum height. If contentHeight >=
@@ -1514,6 +1567,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         if (removedAny) {
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
         }
         updateButtonStates();
@@ -1616,6 +1670,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
+            // Apply per-row expansion: show all text when expanded, otherwise collapse to two lines
+            boolean expandedRow = TaskListPanel.this.isExpanded(index);
+            view.setExpanded(expandedRow);
 
             // Set text and editing visibility
             view.setText(value.text());
@@ -1714,6 +1771,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         private int availableWidth = 0;
         private int contentHeight = 0;
         private boolean strikeThrough = false;
+        private boolean expanded = false;
         private int topPadding = 0;
 
         void setText(String text) {
@@ -1736,6 +1794,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         void setStrikeThrough(boolean on) {
             if (this.strikeThrough != on) {
                 this.strikeThrough = on;
+                repaint();
+            }
+        }
+
+        void setExpanded(boolean expanded) {
+            if (this.expanded != expanded) {
+                this.expanded = expanded;
+                measure();
+                revalidate();
                 repaint();
             }
         }
@@ -1771,7 +1838,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             var lines = wrapLines(text, fm, availableWidth);
-            contentHeight = Math.max(lineHeight, lines.size() * lineHeight);
+            int visibleLines = expanded ? lines.size() : Math.min(lines.size(), 2);
+            contentHeight = Math.max(lineHeight, visibleLines * lineHeight);
         }
 
         @Override
@@ -1794,7 +1862,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 int y = topPadding + fm.getAscent();
 
                 var lines = wrapLines(text, fm, availableWidth);
-                for (var line : lines) {
+                java.util.List<String> renderLines = lines;
+                if (!expanded && lines.size() > 2) {
+                    String first = lines.get(0);
+                    String second = truncateWithEllipsis(lines.get(1), fm, availableWidth);
+                    renderLines = java.util.List.of(first, second);
+                }
+
+                for (var line : renderLines) {
                     g2.drawString(line, 0, y);
                     if (strikeThrough) {
                         int yStrike = y - Math.round(fm.getAscent() * 0.4f);
@@ -1893,6 +1968,35 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 out.add(sb.toString());
             }
             return i;
+        }
+
+        private String truncateWithEllipsis(String line, FontMetrics fm, int maxWidth) {
+            String ellipsis = "...";
+            int ellipsisW = fm.stringWidth(ellipsis);
+            if (ellipsisW > maxWidth) {
+                return "";
+            }
+            int lineW = fm.stringWidth(line);
+            if (lineW + ellipsisW <= maxWidth) {
+                return line + ellipsis;
+            }
+            int low = 0;
+            int high = line.length();
+            int best = -1;
+            while (low <= high) {
+                int mid = (low + high) >>> 1;
+                int w = fm.stringWidth(line.substring(0, mid)) + ellipsisW;
+                if (w <= maxWidth) {
+                    best = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            if (best <= 0) {
+                return ellipsis;
+            }
+            return line.substring(0, best) + ellipsis;
         }
     }
 
