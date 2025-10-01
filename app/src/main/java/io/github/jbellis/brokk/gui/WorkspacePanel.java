@@ -2261,7 +2261,7 @@ public class WorkspacePanel extends JPanel {
         if (!cvSubscriptions.add(key)) {
             return; // already subscribed
         }
-        cv.future().whenComplete((v, ex) -> {
+        cv.onComplete((v, ex) -> {
             javax.swing.SwingUtilities.invokeLater(() -> {
                 // Rebuild current context table if still showing this context; otherwise just repaint
                 if (java.util.Objects.equals(currentContext, ctx)) {

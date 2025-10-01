@@ -3,16 +3,20 @@ package io.github.jbellis.brokk.util;
 import static java.util.Objects.requireNonNull;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * One-shot, self-materializing computed value.
@@ -41,16 +45,8 @@ public final class ComputedValue<T> {
     // Guarded by 'this' during transitions
     private volatile boolean started = false;
     private volatile @Nullable CompletableFuture<T> futureRef = null;
-
-    /**
-     * Create and optionally eager-start the computation with a default name.
-     *
-     * @param supplier   computation to run
-     * @param eagerStart if true, start immediately
-     */
-    public ComputedValue(Supplier<T> supplier, boolean eagerStart) {
-        this("value", supplier, eagerStart, null);
-    }
+    // listeners registered via onComplete; guarded by 'this'
+    private volatile @Nullable List<BiConsumer<? super T, ? super Throwable>> listeners = null;
 
     /**
      * Create and optionally eager-start the computation with a predictable name for the thread.
@@ -107,6 +103,13 @@ public final class ComputedValue<T> {
     }
 
     /**
+     * Ensure the computation is started. Returns immediately.
+     */
+    public void start() {
+        ensureStarted();
+    }
+
+    /**
      * Non-blocking probe. Empty if not completed, or if completed exceptionally.
      */
     public Optional<T> tryGet() {
@@ -145,10 +148,103 @@ public final class ComputedValue<T> {
     }
 
     /**
+     * Register a completion callback. The handler is invoked exactly once, with either the computed value
+     * (and null throwable) or with a throwable (and null value) if the computation failed.
+     * If the value is already available at registration time, the handler is invoked immediately.
+     *
+     * Returns a Subscription that can be disposed to remove the handler before completion.
+     */
+    public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {
+        ensureStarted();
+        var f = futureRef;
+        if (f != null && f.isDone()) {
+            T v = null;
+            Throwable ex = null;
+            try {
+                v = f.join();
+            } catch (Throwable t) {
+                ex = t.getCause() != null ? t.getCause() : t;
+            }
+            try {
+                handler.accept(v, ex);
+            } catch (Throwable t) {
+                logger.debug("onComplete handler for {} raised: {}", name, t.toString());
+            }
+            return () -> { /* no-op */ };
+        }
+
+        synchronized (this) {
+            // double-check after acquiring the lock
+            f = futureRef;
+            if (f != null && f.isDone()) {
+                T v = null;
+                Throwable ex = null;
+                try {
+                    v = f.join();
+                } catch (Throwable t) {
+                    ex = t.getCause() != null ? t.getCause() : t;
+                }
+                try {
+                    handler.accept(v, ex);
+                } catch (Throwable t) {
+                    logger.debug("onComplete handler for {} raised: {}", name, t.toString());
+                }
+                return () -> { /* no-op */ };
+            }
+
+            var list = listeners;
+            if (list == null) {
+                list = new ArrayList<>();
+                listeners = list;
+            }
+            list.add(handler);
+            return () -> {
+                synchronized (ComputedValue.this) {
+                    var l = listeners;
+                    if (l != null) {
+                        l.remove(handler);
+                        if (l.isEmpty()) {
+                            listeners = null;
+                        }
+                    }
+                }
+            };
+        }
+    }
+
+    /**
+     * Disposable token for onComplete registrations.
+     */
+    public interface Subscription {
+        void dispose();
+    }
+
+    private void notifyComplete(@Nullable T value, @Nullable Throwable ex) {
+        List<BiConsumer<? super T, ? super Throwable>> toNotify = null;
+        synchronized (this) {
+            var l = listeners;
+            if (l != null && !l.isEmpty()) {
+                toNotify = List.copyOf(l);
+            }
+            listeners = null;
+        }
+        if (toNotify != null) {
+            for (var h : toNotify) {
+                try {
+                    h.accept(value, ex);
+                } catch (Throwable t) {
+                    logger.debug("onComplete handler for {} raised: {}", name, t.toString());
+                }
+            }
+        }
+    }
+
+    /**
      * CompletableFuture view for async access. This never blocks the EDT by itself.
      * The computation starts if not already started.
      */
-    public CompletableFuture<T> future() {
+    @VisibleForTesting
+    CompletableFuture<T> future() {
         ensureStarted();
         return requireNonNull(futureRef);
     }
@@ -177,12 +273,14 @@ public final class ComputedValue<T> {
                 try {
                     var value = supplier.get();
                     f.complete(value);
+                    notifyComplete(value, null);
                 } catch (Throwable ex) {
                     try {
                         f.completeExceptionally(ex);
                     } catch (Throwable ignore) {
                         // ignored
                     }
+                    notifyComplete(null, ex);
                     logger.debug("ComputedValue supplier for {} failed: {}", name, ex.toString());
                 }
             };

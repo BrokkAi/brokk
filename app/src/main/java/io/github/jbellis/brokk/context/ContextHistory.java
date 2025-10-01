@@ -368,9 +368,6 @@ public class ContextHistory {
             if (fragment instanceof ContextFragment.DynamicFragment df) {
                 try {
                     // Kick off computations
-                    df.computedDescription().future();
-                    df.computedSyntaxStyle().future();
-                    df.computedText().future();
 
                     // Await bounded for strings
                     df.computedDescription().await(timeout);
