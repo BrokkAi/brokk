@@ -88,7 +88,7 @@ public class Fragments {
         }
     }
 
-    public abstract static class PasteFragment extends ContextFragment.VirtualFragment {
+    public abstract static class PasteFragment extends ContextFragment.DynamicVirtualFragment {
         protected transient Future<String> descriptionFuture;
         private final ComputedValue<String> descriptionCv;
 
@@ -132,8 +132,16 @@ public class Fragments {
             return descriptionFuture;
         }
 
+        @Override
         public ComputedValue<String> computedDescription() {
             return descriptionCv;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            // Paste fragments are self-freezing; we don't need to recompute or clone.
+            // Keeping the same instance preserves the content-hash id and ComputedValues.
+            return this;
         }
     }
 
@@ -224,10 +232,12 @@ public class Fragments {
             return syntaxStyleFuture;
         }
 
+        @Override
         public ComputedValue<String> computedSyntaxStyle() {
             return syntaxCv;
         }
 
+        @Override
         public ComputedValue<String> computedText() {
             return textCv;
         }
@@ -350,14 +360,17 @@ public class Fragments {
             return imageBytesCv.tryGet().orElse(null);
         }
 
+        @Override
         public ComputedValue<byte[]> computedImageBytes() {
             return imageBytesCv;
         }
 
+        @Override
         public ComputedValue<String> computedText() {
             return textCv;
         }
 
+        @Override
         public ComputedValue<String> computedSyntaxStyle() {
             return syntaxCv;
         }
