@@ -693,15 +693,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         inlineEditor = new JTextArea(item.text());
         inlineEditor.setLineWrap(true);
         inlineEditor.setWrapStyleWord(true);
-        inlineEditor.setOpaque(true);
         inlineEditor.setEditable(true);
         inlineEditor.setBorder(BorderFactory.createEmptyBorder());
         inlineEditor.setFont(list.getFont());
-        boolean isSelectedRow = list.isSelectedIndex(index);
-        java.awt.Color bg = isSelectedRow ? list.getSelectionBackground() : list.getBackground();
-        java.awt.Color fg = isSelectedRow ? list.getSelectionForeground() : list.getForeground();
-        inlineEditor.setBackground(bg);
-        inlineEditor.setForeground(fg);
+        applyOverlayColors(inlineEditor, index);
 
         // Position editor over the cell (to the right of the checkbox area)
         java.awt.Rectangle cell = list.getCellBounds(index, index);
@@ -804,13 +799,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         viewer.setLineWrap(true);
         viewer.setWrapStyleWord(true);
         viewer.setEditable(false);
-        // Make overlay opaque and match the row's colors (selected vs normal)
-        boolean isSelectedRow = list.isSelectedIndex(index);
-        java.awt.Color bg = isSelectedRow ? list.getSelectionBackground() : list.getBackground();
-        java.awt.Color fg = isSelectedRow ? list.getSelectionForeground() : list.getForeground();
-        viewer.setOpaque(true);
-        viewer.setBackground(bg);
-        viewer.setForeground(fg);
+        applyOverlayColors(viewer, index);
         viewer.setBorder(BorderFactory.createEmptyBorder());
         viewer.setFont(list.getFont());
 
@@ -1578,6 +1567,31 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Apply consistent overlay colors for inline editor and read-only viewer.
+     * Ensures opacity and uses selection-aware colors with safe fallbacks.
+     */
+    private void applyOverlayColors(JTextArea ta, int rowIndex) {
+        assert SwingUtilities.isEventDispatchThread();
+        boolean isSelectedRow = list.isSelectedIndex(rowIndex);
+
+        Color bg;
+        Color fg;
+        if (isSelectedRow) {
+            Color selBg = list.getSelectionBackground();
+            Color selFg = list.getSelectionForeground();
+            bg = selBg != null ? selBg : list.getBackground();
+            fg = selFg != null ? selFg : list.getForeground();
+        } else {
+            bg = list.getBackground();
+            fg = list.getForeground();
+        }
+
+        ta.setOpaque(true);
+        ta.setBackground(bg);
+        ta.setForeground(fg);
     }
 
     /**
