@@ -8,6 +8,7 @@
     import { rendererPlugins } from '../lib/renderer-plugins';
     import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
     import { deleteHistoryTaskByThreadId } from '../stores/historyStore';
+    import ThreadMeta from './ThreadMeta.svelte';
 
     export let threadId: number;
     export let bubbles: BubbleState[];
@@ -76,25 +77,15 @@
                 <span>...</span>
             {/if}
         </div>
-        <span class="thread-meta">
-            {#if showEdits}
-                <span class="adds">+{threadTotals.adds}</span>
-                <span class="dels">-{threadTotals.dels}</span>
-                <span class="sep">•</span>
-            {/if}
-            {msgLabel} • {totalLinesAll} lines
-        </span>
-        {#if taskSequence !== undefined}
-            <button
-                type="button"
-                class="delete-btn"
-                on:click|stopPropagation|preventDefault={handleDelete}
-                aria-label="Delete history task"
-                title="Delete history task"
-            >
-                <Icon icon="mdi:delete-outline" style="color: var(--diff-del);" />
-            </button>
-        {/if}
+        <ThreadMeta
+            adds={threadTotals.adds}
+            dels={threadTotals.dels}
+            showEdits={showEdits}
+            msgLabel={msgLabel}
+            totalLines={totalLinesAll}
+            {taskSequence}
+            onDelete={handleDelete}
+        />
     </header>
 
     <!-- Thread body (always rendered; visually collapsed via CSS when data-collapsed="true") -->
@@ -116,6 +107,19 @@
                 />
             </button>
             <div class="bubble-container">
+                {#if !collapsed}
+                    <div class="thread-meta-inline">
+                        <ThreadMeta
+                            adds={threadTotals.adds}
+                            dels={threadTotals.dels}
+                            showEdits={showEdits}
+                            msgLabel={msgLabel}
+                            totalLines={totalLinesAll}
+                            {taskSequence}
+                            onDelete={handleDelete}
+                        />
+                    </div>
+                {/if}
                 {#if !collapsed}
                     <div
                         class="first-line-hit-area"
@@ -194,43 +198,6 @@
         margin: 0;
         font-weight: normal;
     }
-    .thread-meta {
-        font-size: 0.9em;
-        color: var(--badge-foreground);
-        white-space: nowrap;
-    }
-    .thread-meta .adds {
-        color: var(--diff-add);
-        margin-right: 0.25em;
-    }
-    .thread-meta .dels {
-        color: var(--diff-del);
-        margin-right: 0.45em;
-    }
-    .thread-meta .sep {
-        color: var(--badge-foreground);
-        margin-right: 0.45em;
-    }
-
-    /* Delete button */
-    .delete-btn {
-        background: transparent;
-        border: none;
-        padding: 0.25em;
-        color: var(--chat-text);
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 0.35em;
-    }
-    .delete-btn:hover {
-        background: color-mix(in srgb, var(--chat-background) 70%, var(--message-background));
-    }
-    .delete-btn:focus-visible {
-        outline: 2px solid var(--focus-ring, #5b9dd9);
-        outline-offset: 2px;
-    }
 
     /* --- Expanded View --- */
     .first-bubble-wrapper {
@@ -303,5 +270,25 @@
         overflow: hidden;
         padding: 0;
         margin: 0;
+    }
+
+    /* Expanded inline metadata overlay aligned with the first line (tag row) */
+    .thread-meta-inline {
+        position: absolute;
+        top: -5px;
+        right: 40px;
+        z-index: 3; /* Above the first-line hit area (z-index:1) so delete is clickable */
+        height: var(--thread-first-line-hit-height, 2.25em);
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-left: 0.5em;
+        padding-right: 0.2em;
+        pointer-events: none; /* Let clicks fall through except on the delete button */
+    }
+
+
+    .thread-meta-inline .delete-btn {
+        pointer-events: auto; /* Make delete button clickable */
     }
 </style>
