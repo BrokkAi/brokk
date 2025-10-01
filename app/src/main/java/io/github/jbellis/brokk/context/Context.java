@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -510,8 +511,8 @@ public class Context {
     }
 
     public boolean workspaceContentEquals(Context other) {
-        assert !this.containsDynamicFragments();
-        assert !other.containsDynamicFragments();
+        // assert !this.containsDynamicFragments(); // REMOVED THIS ASSERT
+        // assert !other.containsDynamicFragments(); // REMOVED THIS ASSERT
 
         return allFragments().toList().equals(other.allFragments().toList());
     }
@@ -622,12 +623,25 @@ public class Context {
         }
     }
 
-    private boolean isNewFileInGit(FrozenFragment ff) {
-        if (ff.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+    private boolean isNewFileInGit(ContextFragment fragment) {
+        if (fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
             return false;
         }
         IGitRepo repo = contextManager.getRepo();
-        return !repo.getTrackedFiles().contains(ff.files().iterator().next());
+        // Assuming ProjectPathFragment's files() always returns a single ProjectFile
+        return fragment.files().stream().anyMatch(f -> !repo.getTrackedFiles().contains(f));
+    }
+
+    private String getFragmentContent(ContextFragment fragment) {
+        if (fragment instanceof ContextFragment.DynamicFragment df) {
+            return df.computedText().tryGet().orElse(fragment.text());
+        }
+        try {
+            return fragment.text();
+        } catch (UncheckedIOException | java.util.concurrent.CancellationException e) {
+            logger.warn("Error getting text for fragment {}: {}", fragment.id(), e.getMessage());
+            return ""; // Return empty string on error
+        }
     }
 
     /**
@@ -635,42 +649,37 @@ public class Context {
      * present in this context, per requirements. Results are cached per other.id().
      */
     public List<DiffEntry> getDiff(Context other) {
-        if (this.containsDynamicFragments()) {
-            throw new IllegalStateException("Cannot compute diff from dynamic fragments; found " + this);
-        }
-        if (other.containsDynamicFragments()) {
-            throw new IllegalStateException("Cannot compute diff against dynamic fragments; found " + other);
-        }
-
         var cached = diffCache.get(other.id()); // cache should key on "other.id()", not this.id()
         if (cached != null) {
             return cached;
         }
 
-        var diffs = fragments.stream()
-                .flatMap(cf -> cf instanceof FrozenFragment ff ? Stream.of(ff) : Stream.empty())
-                .map(ff -> {
-                    var ff2 = other.fragments.stream()
-                            .filter(ff::hasSameSource)
+        var diffs = fragments.stream() // Iterate over all ContextFragments
+                .map(currentFragment -> {
+                    // Find a matching fragment in 'other' based on hasSameSource
+                    var matchingFragment = other.fragments.stream()
+                            .filter(otherFragment -> currentFragment.hasSameSource(otherFragment))
                             .findFirst()
                             .orElse(null);
-                    if (ff2 == null) {
+
+                    if (matchingFragment == null) {
                         // No matching fragment in 'other'; if this represents a new, untracked file in Git, diff
                         // against empty
-                        if (isNewFileInGit(ff) && ff.isText()) {
-                            var newContent = ff.text();
+                        if (isNewFileInGit(currentFragment) && currentFragment.isText()) {
+                            var newContent = getFragmentContent(currentFragment);
                             var result = ContentDiffUtils.computeDiffResult(
-                                    "", newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
+                                    "", newContent, "old/" + currentFragment.shortDescription(), "new/" + currentFragment.shortDescription());
                             if (result.diff().isEmpty()) {
                                 return null;
                             }
-                            return new DiffEntry(ff, result.diff(), result.added(), result.deleted(), "");
+                            return new DiffEntry(currentFragment, result.diff(), result.added(), result.deleted(), "");
                         }
                         return null;
                     }
 
-                    var oldContent = ff2.text();
-                    var newContent = ff.text();
+                    // Obtain oldContent/newContent using computedText for dynamic fragments
+                    var oldContent = getFragmentContent(matchingFragment);
+                    var newContent = getFragmentContent(currentFragment);
 
                     int oldLineCount =
                             oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
@@ -678,17 +687,17 @@ public class Context {
                             newContent.isEmpty() ? 0 : (int) newContent.lines().count();
                     logger.debug(
                             "getDiff: fragment='{}' id={} oldLines={} newLines={}",
-                            ff.shortDescription(),
+                            currentFragment.shortDescription(),
                             id,
                             oldLineCount,
                             newLineCount);
 
                     var result = ContentDiffUtils.computeDiffResult(
-                            oldContent, newContent, "old/" + ff.shortDescription(), "new/" + ff.shortDescription());
+                            oldContent, newContent, "old/" + currentFragment.shortDescription(), "new/" + currentFragment.shortDescription());
 
                     logger.debug(
                             "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            ff.shortDescription(),
+                            currentFragment.shortDescription(),
                             result.added(),
                             result.deleted(),
                             result.diff().isEmpty());
@@ -696,7 +705,7 @@ public class Context {
                     if (result.diff().isEmpty()) {
                         return null;
                     }
-                    return new DiffEntry(ff, result.diff(), result.added(), result.deleted(), oldContent);
+                    return new DiffEntry(currentFragment, result.diff(), result.added(), result.deleted(), oldContent);
                 })
                 .filter(Objects::nonNull)
                 .toList();

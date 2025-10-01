@@ -302,6 +302,27 @@ public interface ContextFragment {
                 "Unsupported BrokkFile subtype: " + bf.getClass().getName());
     }
 
+    /**
+     * Compares the source of this fragment with another fragment to determine if they represent
+     * the "same source," allowing for content differences.
+     * The comparison is based on the class name, associated files, and the fragment's representation (`repr()`).
+     *
+     * @param other The other ContextFragment to compare against.
+     * @return true if the fragments are considered to originate from the same source, false otherwise.
+     */
+    default boolean hasSameSource(ContextFragment other) {
+        // Compare class names
+        if (!this.getClass().getName().equals(other.getClass().getName())) {
+            return false;
+        }
+        // Compare associated files (assuming Set.equals performs content-based comparison)
+        if (!this.files().equals(other.files())) {
+            return false;
+        }
+        // Compare representation string
+        return this.repr().equals(other.repr());
+    }
+
     abstract class VirtualFragment implements ContextFragment {
         protected final String id; // Changed from int to String
         protected final transient IContextManager contextManager;
