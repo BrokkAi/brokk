@@ -419,4 +419,105 @@ public interface ContextFragment {
             return (ContextFragment) this;
         }
     }
+
+    /**
+     * Base class for dynamic virtual fragments. Uses numeric String IDs and supports async computation via
+     * ComputedValue exposed by DynamicFragment.
+     */
+    abstract class DynamicVirtualFragment extends VirtualFragment implements DynamicFragment {
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<String> descCv;
+        private @Nullable ComputedValue<String> syntaxCv;
+
+        protected DynamicVirtualFragment(IContextManager contextManager) {
+            super(contextManager);
+        }
+
+        protected DynamicVirtualFragment(String existingId, IContextManager contextManager) {
+            super(existingId, contextManager);
+        }
+
+        @Override
+        public ComputedValue<String> computedText() {
+            if (textCv == null) {
+                textCv = new ComputedValue<>(
+                        "dvf-text-" + id(),
+                        this::text,
+                        false,
+                        ContextFragment.getFragmentExecutor());
+            }
+            return textCv;
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            if (descCv == null) {
+                descCv = new ComputedValue<>(
+                        "dvf-desc-" + id(),
+                        this::description,
+                        false,
+                        ContextFragment.getFragmentExecutor());
+            }
+            return descCv;
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            if (syntaxCv == null) {
+                syntaxCv = new ComputedValue<>(
+                        "dvf-syntax-" + id(),
+                        this::syntaxStyle,
+                        false,
+                        ContextFragment.getFragmentExecutor());
+            }
+            return syntaxCv;
+        }
+    }
+
+    /**
+     * Base class for dynamic path fragments. Marker for dynamic behavior on top of PathFragment.
+     */
+    non-sealed abstract class DynamicPathFragment implements Fragments.PathFragment, DynamicFragment {
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<String> descCv;
+        private @Nullable ComputedValue<String> syntaxCv;
+
+        protected DynamicPathFragment() {}
+
+        @Override
+        public ComputedValue<String> computedText() {
+            if (textCv == null) {
+                textCv = new ComputedValue<>(
+                        "dpf-text-" + id(),
+                        this::text,
+                        false,
+                        ContextFragment.getFragmentExecutor());
+            }
+            return textCv;
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            if (descCv == null) {
+                descCv = new ComputedValue<>(
+                        "dpf-desc-" + id(),
+                        this::description,
+                        false,
+                        ContextFragment.getFragmentExecutor());
+            }
+            return descCv;
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            if (syntaxCv == null) {
+                syntaxCv = new ComputedValue<>(
+                        "dpf-syntax-" + id(),
+                        this::syntaxStyle,
+                        false,
+                        ContextFragment.getFragmentExecutor());
+            }
+            return syntaxCv;
+        }
+    }
 }

@@ -50,7 +50,7 @@ public class Fragments {
     }
 
     sealed public interface PathFragment extends ContextFragment
-            permits ContextFragment.ProjectPathFragment, ContextFragment.GitFileFragment, ContextFragment.ExternalPathFragment, ContextFragment.ImageFileFragment {
+            permits ContextFragment.DynamicPathFragment, Fragments.ProjectPathFragment, Fragments.GitFileFragment, Fragments.ExternalPathFragment, Fragments.ImageFileFragment {
         BrokkFile file();
 
         @Override
@@ -120,17 +120,25 @@ public class Fragments {
 
         @Override
         public String description() {
-            return DynamicSupport.renderNowOr("(Loading...)", computedDescription());
+            return DynamicSupport.renderNowOr("(Loading...)", descriptionCv);
         }
 
         @Override
         public String toString() {
             return "PasteFragment('%s')".formatted(description());
         }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
+        }
+
+        public ComputedValue<String> computedDescription() {
+            return descriptionCv;
+        }
     }
 
     public static class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
-        private final ComputedValue<String> textCv;
+        private final String text;
         private final ComputedValue<String> syntaxCv;
         protected transient Future<String> syntaxStyleFuture;
 
@@ -149,7 +157,7 @@ public class Fragments {
                     contextManager,
                     descriptionFuture);
             this.syntaxStyleFuture = syntaxStyleFuture;
-            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.text = text;
             this.syntaxCv = new ComputedValue<>(
                     "paste-syntax-" + id(),
                     () -> {
@@ -171,7 +179,7 @@ public class Fragments {
                 Future<String> syntaxStyleFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
             this.syntaxStyleFuture = syntaxStyleFuture;
-            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.text = text;
             this.syntaxCv = new ComputedValue<>(
                     "paste-syntax-" + id(),
                     () -> {
@@ -194,7 +202,7 @@ public class Fragments {
                 String precomputedSyntaxStyle) {
             super(existingHashId, contextManager, precomputedDescription);
             this.syntaxStyleFuture = CompletableFuture.completedFuture(precomputedSyntaxStyle);
-            this.textCv = ComputedValue.completed("paste-text-" + id(), text);
+            this.text = text;
             this.syntaxCv = ComputedValue.completed("paste-syntax-" + id(), precomputedSyntaxStyle);
         }
 
@@ -205,7 +213,20 @@ public class Fragments {
 
         @Override
         public String syntaxStyle() {
-            return DynamicSupport.renderNowOr(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, computedSyntaxStyle());
+            return DynamicSupport.renderNowOr(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, syntaxCv);
+        }
+
+        public Future<String> getSyntaxStyleFuture() {
+            return syntaxStyleFuture;
+        }
+
+        public ComputedValue<String> computedSyntaxStyle() {
+            return syntaxCv;
+        }
+
+        @Override
+        public String text() {
+            return text;
         }
 
         @Override
@@ -298,6 +319,10 @@ public class Fragments {
 
         public @Nullable byte[] imageBytes() {
             return imageBytesCv.tryGet().orElse(null);
+        }
+
+        public ComputedValue<byte[]> computedImageBytes() {
+            return imageBytesCv;
         }
 
         @Override
@@ -419,7 +444,7 @@ public class Fragments {
         }
     }
 
-    public static class UsageFragment extends ContextFragment.VirtualFragment { // Dynamic, uses nextId
+    public static class UsageFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
 
@@ -531,7 +556,7 @@ public class Fragments {
     }
 
     /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
-    public static class CodeFragment extends ContextFragment.VirtualFragment { // Dynamic, uses nextId
+    public static class CodeFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
         private final CodeUnit unit;
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
@@ -617,7 +642,7 @@ public class Fragments {
         }
     }
 
-    public static class CallGraphFragment extends ContextFragment.VirtualFragment { // Dynamic, uses nextId
+    public static class CallGraphFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
@@ -720,7 +745,7 @@ public class Fragments {
         }
     }
 
-    public static class SkeletonFragment extends ContextFragment.VirtualFragment, ContextFragment.DynamicFragment { // Dynamic, uses nextId
+    public static class SkeletonFragment extends ContextFragment.DynamicVirtualFragment { // Dynamic, uses nextId
         private final List<String> targetIdentifiers; // FQ class names or file paths/patterns
         private final SummaryType summaryType;
 
@@ -885,7 +910,7 @@ public class Fragments {
         }
     }
 
-    public static class BuildFragment extends ContextFragment.VirtualFragment {
+    public static class BuildFragment extends ContextFragment.DynamicVirtualFragment {
         private final String content;
 
         public BuildFragment(IContextManager contextManager, String buildOutput) {
@@ -1135,10 +1160,33 @@ public class Fragments {
         }
     }
 
-    public static final record ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) implements PathFragment {
+    public static final class ProjectPathFragment extends ContextFragment.DynamicPathFragment implements PathFragment {
+        private final ProjectFile file;
+        private final String id;
+        private final IContextManager contextManager;
+
         // Primary constructor for new dynamic fragments
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            this.file = file;
+            this.id = String.valueOf(ContextFragment.nextId.getAndIncrement());
+            this.contextManager = contextManager;
+        }
+
+        // Secondary constructor with explicit ID (e.g., when unfreezing or DTO)
+        public ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) {
+            this.file = file;
+            this.id = id;
+            this.contextManager = contextManager;
+        }
+
+        public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
+            try {
+                int numericId = Integer.parseInt(existingId);
+                ContextFragment.setMinimumId(numericId + 1);
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
+            return new ProjectPathFragment(file, existingId, contextManager);
         }
 
         @Override
@@ -1147,18 +1195,18 @@ public class Fragments {
         }
 
         @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
         public IContextManager getContextManager() {
             return contextManager;
         }
 
-        public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
-            try {
-                int numericId = Integer.parseInt(existingId);
-                setMinimumId(numericId + 1);
-            } catch (NumberFormatException e) {
-                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
-            }
-            return new ProjectPathFragment(file, existingId, contextManager);
+        @Override
+        public ProjectFile file() {
+            return file;
         }
 
         @Override
@@ -1168,15 +1216,15 @@ public class Fragments {
 
         @Override
         public Set<ProjectFile> files() {
-            return Set.of(file);
+            return Set.of(file());
         }
 
         @Override
         public String description() {
-            if (file.getParent().equals(Path.of(""))) {
-                return file.getFileName();
+            if (file().getParent().equals(Path.of(""))) {
+                return file().getFileName();
             }
-            return "%s [%s]".formatted(file.getFileName(), file.getParent());
+            return "%s [%s]".formatted(file().getFileName(), file().getParent());
         }
 
         @Override
@@ -1184,7 +1232,7 @@ public class Fragments {
             IAnalyzer analyzer = getAnalyzer();
             if (!analyzer.isEmpty()) {
                 var summary = analyzer.as(SkeletonProvider.class)
-                        .map(skp -> skp.getSkeletons(file).entrySet().stream())
+                        .map(skp -> skp.getSkeletons(file()).entrySet().stream())
                         .orElse(Stream.empty())
                         .sorted(Map.Entry.comparingByKey())
                         .map(Map.Entry::getValue)
@@ -1195,26 +1243,26 @@ public class Fragments {
                    %s
                    </file>
                    """
-                        .formatted(file, summary);
+                        .formatted(file(), summary);
             } else {
-                return PathFragment.formatSummary(file); // Fallback if analyzer not ready, empty, or inappropriate
+                return PathFragment.formatSummary(file()); // Fallback if analyzer not ready, empty, or inappropriate
             }
         }
 
         @Override
         public String repr() {
-            return "File(['%s'])".formatted(file.toString());
+            return "File(['%s'])".formatted(file().toString());
         }
 
         @Override
         public Set<CodeUnit> sources() {
             IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDeclarationsInFile(file);
+            return analyzer.getDeclarationsInFile(file());
         }
 
         @Override
         public String toString() {
-            return "ProjectPathFragment('%s')".formatted(file);
+            return "ProjectPathFragment('%s')".formatted(file());
         }
 
         @Override
@@ -1226,12 +1274,12 @@ public class Fragments {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ProjectPathFragment that)) return false;
-            return file.equals(that.file());
+            return file().equals(that.file());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(file);
+            return Objects.hash(file());
         }
     }
 
@@ -1329,20 +1377,23 @@ public class Fragments {
         }
     }
 
-    public static final record ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) implements PathFragment {
+    public static final class ExternalPathFragment extends ContextFragment.DynamicPathFragment implements PathFragment {
+        private final ExternalFile file;
+        private final String id;
+        private final IContextManager contextManager;
+
         // Primary constructor for new dynamic fragments
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            this.file = file;
+            this.id = String.valueOf(ContextFragment.nextId.getAndIncrement());
+            this.contextManager = contextManager;
         }
 
-        @Override
-        public FragmentType getType() {
-            return FragmentType.EXTERNAL_PATH;
-        }
-
-        @Override
-        public IContextManager getContextManager() {
-            return contextManager;
+        // Secondary constructor with explicit ID
+        public ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) {
+            this.file = file;
+            this.id = id;
+            this.contextManager = contextManager;
         }
 
         public static ExternalPathFragment withId(
@@ -1359,13 +1410,33 @@ public class Fragments {
         }
 
         @Override
+        public FragmentType getType() {
+            return FragmentType.EXTERNAL_PATH;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        @Override
+        public ExternalFile file() {
+            return file;
+        }
+
+        @Override
         public String shortDescription() {
             return description();
         }
 
         @Override
         public String description() {
-            return file.toString();
+            return file().toString();
         }
 
         @Override
@@ -1375,42 +1446,42 @@ public class Fragments {
 
         @Override
         public String formatSummary() {
-            return PathFragment.formatSummary(file);
+            return PathFragment.formatSummary(file());
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ExternalPathFragment that)) return false;
-            return file.equals(that.file());
+            return file().equals(that.file());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(file);
+            return Objects.hash(file());
         }
     }
 
     /** Represents an image file, either from the project or external. This is dynamic. */
-    public static final record ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) implements PathFragment {
+    public static final class ImageFileFragment extends ContextFragment.DynamicPathFragment implements PathFragment {
+        private final BrokkFile file;
+        private final String id;
+        private final IContextManager contextManager;
+
         // Primary constructor for new dynamic fragments
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
-        }
-
-        // Record canonical constructor
-        public ImageFileFragment {
             assert !file.isText() : "ImageFileFragment should only be used for non-text files";
+            this.file = file;
+            this.id = String.valueOf(ContextFragment.nextId.getAndIncrement());
+            this.contextManager = contextManager;
         }
 
-        @Override
-        public FragmentType getType() {
-            return FragmentType.IMAGE_FILE;
-        }
-
-        @Override
-        public IContextManager getContextManager() {
-            return contextManager;
+        // Secondary constructor with explicit ID
+        public ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
+            assert !file.isText() : "ImageFileFragment should only be used for non-text files";
+            this.file = file;
+            this.id = id;
+            this.contextManager = contextManager;
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
@@ -1427,16 +1498,36 @@ public class Fragments {
         }
 
         @Override
+        public FragmentType getType() {
+            return FragmentType.IMAGE_FILE;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        @Override
+        public BrokkFile file() {
+            return file;
+        }
+
+        @Override
         public String shortDescription() {
             return file().getFileName();
         }
 
         @Override
         public String description() {
-            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
-                return "%s [%s]".formatted(file.getFileName(), pf.getParent());
+            if (file() instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
+                return "%s [%s]".formatted(file().getFileName(), pf.getParent());
             }
-            return file.toString(); // For ExternalFile or root ProjectFile
+            return file().toString(); // For ExternalFile or root ProjectFile
         }
 
         @Override
@@ -1453,13 +1544,13 @@ public class Fragments {
         @Override
         public Image image() throws UncheckedIOException {
             try {
-                var imageFile = file.absPath().toFile();
+                var imageFile = file().absPath().toFile();
                 if (!imageFile.exists()) {
-                    throw new UncheckedIOException(new IOException("Image file does not exist: " + file.absPath()));
+                    throw new UncheckedIOException(new IOException("Image file does not exist: " + file().absPath()));
                 }
                 if (!imageFile.canRead()) {
                     throw new UncheckedIOException(
-                            new IOException("Cannot read image file (permission denied): " + file.absPath()));
+                            new IOException("Cannot read image file (permission denied): " + file().absPath()));
                 }
 
                 Image result = javax.imageio.ImageIO.read(imageFile);
@@ -1467,11 +1558,11 @@ public class Fragments {
                     // ImageIO.read() returns null if no registered ImageReader can read the file
                     // This can happen for unsupported formats, corrupted files, or non-image files
                     throw new UncheckedIOException(new IOException(
-                            "Unable to read image file (unsupported format or corrupted): " + file.absPath()));
+                            "Unable to read image file (unsupported format or corrupted): " + file().absPath()));
                 }
                 return result;
             } catch (IOException e) {
-                throw new UncheckedIOException(new IOException("Failed to read image file: " + file.absPath(), e));
+                throw new UncheckedIOException(new IOException("Failed to read image file: " + file().absPath(), e));
             }
         }
 
@@ -1482,7 +1573,7 @@ public class Fragments {
 
         @Override
         public Set<ProjectFile> files() {
-            return (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of();
+            return (file() instanceof ProjectFile pf) ? Set.of(pf) : Set.of();
         }
 
         @Override
@@ -1499,24 +1590,24 @@ public class Fragments {
 
         @Override
         public String formatSummary() {
-            return PathFragment.formatSummary(file);
+            return PathFragment.formatSummary(file());
         }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ImageFileFragment that)) return false;
-            return file.equals(that.file());
+            return file().equals(that.file());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(file);
+            return Objects.hash(file());
         }
 
         @Override
         public String toString() {
-            return "ImageFileFragment('%s')".formatted(file);
+            return "ImageFileFragment('%s')".formatted(file());
         }
     }
 

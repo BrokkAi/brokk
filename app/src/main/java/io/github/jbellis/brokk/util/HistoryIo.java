@@ -36,7 +36,6 @@ public final class HistoryIo {
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    private static final String V1_FRAGMENTS_FILENAME = "fragments-v1.json";
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String CONTEXTS_FILENAME = "contexts.jsonl";
     private static final String CONTENT_FILENAME = "content_metadata.json";
