@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 import org.apache.logging.log4j.LogManager;
@@ -48,14 +49,12 @@ public class ContextHistory {
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
-    private Context liveContext;
 
     /** UI-selection; never {@code null} once an initial context is set. */
     private @Nullable Context selected;
 
     public ContextHistory(Context liveContext) {
-        this.liveContext = liveContext;
-        pushAndClearRedo(liveContext);
+        pushLive(liveContext);
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -82,7 +81,6 @@ public class ContextHistory {
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
         this.entryInfos.putAll(entryInfos);
-        this.liveContext = Context.unfreeze(castNonNull(history.peekLast()));
         selected = history.peekLast();
     }
 
@@ -96,10 +94,6 @@ public class ContextHistory {
     /** Latest context or {@code null} when uninitialised. */
     public synchronized Context topContext() {
         return castNonNull(history.peekLast());
-    }
-
-    public synchronized Context getLiveContext() {
-        return liveContext;
     }
 
     public synchronized boolean hasUndoStates() {
@@ -144,25 +138,21 @@ public class ContextHistory {
      * @param contextGenerator a function to apply to the live context
      * @return the new live context
      */
+    @SuppressWarnings("ReferenceEquality")
     public synchronized Context push(java.util.function.Function<Context, Context> contextGenerator) {
-        var updatedLiveContext = contextGenerator.apply(this.liveContext);
-        if (this.liveContext.equals(updatedLiveContext)) {
-            return this.liveContext;
+        var updatedLiveContext = contextGenerator.apply(topContext());
+        // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to materialize
+        if (topContext() == updatedLiveContext) {
+            return topContext();
         }
 
-        this.liveContext = updatedLiveContext;
-        pushAndClearRedo(updatedLiveContext);
-        return this.liveContext;
+        pushLive(updatedLiveContext);
+        return topContext();
     }
 
-    public synchronized void pushLive(Context live) {
-        this.liveContext = live;
-        pushAndClearRedo(live);
-    }
-
-    /** Push {@code frozen} and clear redo stack. */
-    public synchronized void pushAndClearRedo(Context ctx) {
-        ensureComputedSnapshot(ctx, SNAPSHOT_AWAIT_TIMEOUT);
+    /** Push {@code ctx}, select it, and clear redo stack. */
+    public synchronized void pushLive(Context ctx) {
+        ensureFilesSnapshot(ctx, SNAPSHOT_AWAIT_TIMEOUT);
         history.addLast(ctx);
         truncateHistory();
         redo.clear();
@@ -175,11 +165,11 @@ public class ContextHistory {
      */
     public synchronized void replaceTop(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
+        ensureFilesSnapshot(newLive, SNAPSHOT_AWAIT_TIMEOUT);
         history.removeLast();
         history.addLast(newLive);
         redo.clear();
         selected = newLive;
-        liveContext = newLive;
     }
 
     /**
@@ -192,8 +182,8 @@ public class ContextHistory {
      * @return The new frozen context if a change was made, otherwise null.
      */
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
-        var refreshedLive = liveContext.copyAndRefresh(changed);
-        if (refreshedLive.equals(liveContext)) {
+        var refreshedLive = topContext().copyAndRefresh(changed);
+        if (refreshedLive.equals(topContext())) {
             return null;
         }
 
@@ -251,9 +241,7 @@ public class ContextHistory {
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
         }
-        var newTop = history.peekLast();
-        applySnapshotToWorkspace(newTop, io);
-        liveContext = Context.unfreeze(castNonNull(newTop));
+        applySnapshotToWorkspace(topContext(), io);
         selected = topContext();
         return UndoResult.success(toUndo);
     }
@@ -319,7 +307,6 @@ public class ContextHistory {
         var popped = redo.removeLast();
         history.addLast(popped);
         truncateHistory();
-        liveContext = Context.unfreeze(castNonNull(popped));
         selected = topContext();
         applySnapshotToWorkspace(history.peekLast(), io);
         redoFileDeletions(io, project, popped);
@@ -354,31 +341,17 @@ public class ContextHistory {
     /* ────────────────────────── private helpers ─────────────────────────── */
 
     /**
-     * Best-effort snapshot seeding to ensure dynamic fragment values are materialized
-     * (or at least kicked off) before we persist or use a context as a history snapshot.
-     * Bounded by the provided timeout to avoid blocking indefinitely.
+     * Best-effort snapshot seeding to ensure file contents are materialized
      */
-    private void ensureComputedSnapshot(Context ctx, Duration timeout) {
+    private void ensureFilesSnapshot(Context ctx, Duration timeout) {
         for (var fragment : ctx.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.ComputedFragment df) {
-                try {
-                    // Kick off computations
-
-                    // Await bounded for strings
-                    df.computedDescription().await(timeout);
-                    df.computedSyntaxStyle().await(timeout);
-                    df.computedText().await(timeout);
-
-                    // Optionally await image bytes if present
-                    var imgCv = df.computedImageBytes();
-                    if (imgCv != null) {
-                        imgCv.await(timeout);
-                    }
-                } catch (Exception e) {
-                    // Non-fatal: snapshot proceeds with whatever is ready
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Snapshot seed failed for fragment {}: {}", fragment.id(), e.toString());
-                    }
+            if (fragment instanceof ContextFragment.DynamicPathFragment df) {
+                df.computedDescription().await(timeout);
+                df.computedSyntaxStyle().await(timeout);
+                df.computedText().await(timeout);
+                var imgCv = df.computedImageBytes();
+                if (imgCv != null) {
+                    imgCv.await(timeout);
                 }
             }
         }

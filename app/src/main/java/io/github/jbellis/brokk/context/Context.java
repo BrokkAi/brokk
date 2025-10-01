@@ -104,34 +104,6 @@ public class Context {
     public record DiffEntry(
             ContextFragment fragment, String diff, int linesAdded, int linesDeleted, String oldContent) {}
 
-    /** Produces a live context whose fragments are un-frozen versions of those in {@code frozen}. */
-    public static Context unfreeze(Context frozen) {
-        var cm = frozen.getContextManager();
-
-        var newFragments = new ArrayList<ContextFragment>();
-
-        frozen.allFragments().forEach(f -> {
-            if (f instanceof FrozenFragment ff) {
-                try {
-                    newFragments.add(ff.unfreeze(cm));
-                } catch (IOException e) {
-                    logger.warn("Unable to unfreeze fragment {}: {}", ff.description(), e.getMessage());
-                    newFragments.add(ff); // fall back to frozen
-                }
-            } else {
-                newFragments.add(f); // Already live or non-dynamic
-            }
-        });
-
-        return new Context(
-                frozen.id(),
-                cm,
-                List.copyOf(newFragments),
-                frozen.getTaskHistory(),
-                frozen.getParsedOutput(),
-                frozen.action);
-    }
-
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
     }
@@ -450,31 +422,13 @@ public class Context {
 
     /** Creates a new (live) Context that copies specific elements from the provided context. */
     public static Context createFrom(Context sourceContext, Context currentContext, List<TaskEntry> newHistory) {
-        var unfrozenFragments = sourceContext
-                .allFragments()
-                .map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager))
-                .toList();
-
         return new Context(
                 newContextId(),
                 currentContext.contextManager,
-                unfrozenFragments,
+                List.copyOf(sourceContext.fragments),
                 newHistory,
                 null,
                 CompletableFuture.completedFuture("Reset context to historical state"));
-    }
-
-    @SuppressWarnings("unchecked")
-    public static <T extends ContextFragment> T unfreezeFragmentIfNeeded(T fragment, IContextManager contextManager) {
-        if (fragment instanceof FrozenFragment frozen) {
-            try {
-                return (T) frozen.unfreeze(contextManager);
-            } catch (IOException e) {
-                logger.warn("Failed to unfreeze fragment {}: {}", frozen.description(), e.getMessage());
-                return fragment;
-            }
-        }
-        return fragment;
     }
 
     @Override

@@ -1190,8 +1190,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private boolean contextHasImages() {
         var contextManager = chrome.getContextManager();
-        return contextManager
-                .topContext()
+        return contextManager.liveContext()
                 .allFragments()
                 .anyMatch(f -> !f.isText() && !f.getType().isOutput());
     }
@@ -1702,7 +1701,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 new Brokk.OpenProjectBuilder(newWorktreePath)
                         .parent(mainProject)
                         .initialTask(initialArchitectTask)
-                        .sourceContextForSession(cm.topContext())
+                        .sourceContextForSession(cm.liveContext())
                         .open()
                         .thenAccept(success -> {
                             if (Boolean.TRUE.equals(success)) {
@@ -1795,7 +1794,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // If Workspace is empty, ask the user how to proceed
-        if (chrome.getContextManager().topContext().isEmpty()) {
+        if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
                     "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
             Object[] options = {"Code", "Search", "Cancel"};

@@ -272,7 +272,7 @@ public abstract class CodePrompts {
 
         messages.add(systemMessage(cm, askReminder(cm, model)));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
-        messages.addAll(getHistoryMessages(cm.topContext()));
+        messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
         return messages;
@@ -285,7 +285,7 @@ public abstract class CodePrompts {
      * @return A string summarizing editable files, read-only snippets, etc.
      */
     public static String formatWorkspaceToc(IContextManager cm) {
-        var ctx = cm.topContext();
+        var ctx = cm.liveContext();
         var editableContents = ctx.getEditableToc();
         var readOnlyContents = ctx.getReadOnlyToc();
         var workspaceBuilder = new StringBuilder();

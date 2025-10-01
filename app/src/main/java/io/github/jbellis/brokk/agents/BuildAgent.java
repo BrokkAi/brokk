@@ -420,7 +420,7 @@ public class BuildAgent {
         logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
 
         // Get ProjectFiles from editable and read-only fragments
-        var topContext = cm.topContext();
+        var topContext = cm.liveContext();
         var projectFilesFromEditableOrReadOnly =
                 topContext.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
 
@@ -440,7 +440,7 @@ public class BuildAgent {
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
-            var summaries = ContextFragment.getSummary(cm.topContext().allFragments());
+            var summaries = ContextFragment.getSummary(cm.liveContext().allFragments());
             logger.debug(
                     "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
                     cm.getProject().getRoot(),

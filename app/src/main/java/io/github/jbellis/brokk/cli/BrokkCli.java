@@ -306,7 +306,7 @@ public final class BrokkCli implements Callable<Integer> {
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
             io.systemOutput("# Workspace (pre-scan)");
-            io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+            io.systemOutput(ContextFragment.getSummary(cm.liveContext().allFragments()));
 
             String goalForScan = Stream.of(
                             architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, searchTasksPrompt)
@@ -339,7 +339,7 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Run Action ---
         io.systemOutput("# Workspace (pre-task)");
-        io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+        io.systemOutput(ContextFragment.getSummary(cm.liveContext().allFragments()));
 
         TaskResult result = null;
         // Decide scope action/input

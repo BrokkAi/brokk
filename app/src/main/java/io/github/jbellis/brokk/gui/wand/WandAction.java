@@ -82,7 +82,7 @@ public class WandAction {
                 """
                         .formatted(
                                 ContextFragment.getSummary(
-                                        contextManager.topContext().allFragments()),
+                                        contextManager.liveContext().allFragments()),
                                 originalPrompt);
 
         Llm llm = contextManager.getLlm(model, "Refine Prompt", false);

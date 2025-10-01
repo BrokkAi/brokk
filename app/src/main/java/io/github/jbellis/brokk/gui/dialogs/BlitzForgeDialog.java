@@ -874,11 +874,10 @@ public class BlitzForgeDialog extends JDialog {
         long tokensFiles = files.parallelStream().mapToLong(this::getTokenCount).sum();
         double avgTokens = tokensFiles / (double) n;
 
-        long workspaceTokens = includeWorkspaceCheckbox.isSelected()
-                ? Messages.getApproximateTokens(
-                        io.github.jbellis.brokk.prompts.CodePrompts.instance.getWorkspaceContentsMessages(
-                                cm.topContext()))
-                : 0;
+        long workspaceTokens;
+        workspaceTokens = includeWorkspaceCheckbox.isSelected() ? Messages.getApproximateTokens(
+                CodePrompts.instance.getWorkspaceContentsMessages(
+                        cm.liveContext())) : 0;
         long workspaceAdd = includeWorkspaceCheckbox.isSelected() ? workspaceTokens * n : 0;
 
         int relatedK = 0;
@@ -954,7 +953,7 @@ public class BlitzForgeDialog extends JDialog {
         var maxTokens = service.getMaxInputTokens(model);
 
         var workspaceTokens =
-                Messages.getApproximateTokens(CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()));
+                Messages.getApproximateTokens(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
         var historyTokens = Messages.getApproximateTokens(cm.getHistoryMessages());
 
         long remaining = (long) maxTokens - workspaceTokens - historyTokens;

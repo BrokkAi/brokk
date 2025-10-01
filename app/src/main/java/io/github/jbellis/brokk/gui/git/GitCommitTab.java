@@ -720,7 +720,7 @@ public class GitCommitTab extends JPanel {
 
         // Take a snapshot before mutating the working tree so the user can undo the stash
         var live = contextManager.liveContext();
-        contextManager.getContextHistory().pushAndClearRedo(live);
+        contextManager.getContextHistory().pushLive(live);
 
         RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {

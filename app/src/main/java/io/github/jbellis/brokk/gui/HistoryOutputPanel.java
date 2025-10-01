@@ -270,7 +270,7 @@ public class HistoryOutputPanel extends JPanel {
             var copyWorkspaceItem = new JMenuItem("New + Copy Workspace");
             copyWorkspaceItem.addActionListener(ev -> {
                 contextManager
-                        .createSessionFromContextAsync(contextManager.topContext(), ContextManager.DEFAULT_SESSION_NAME)
+                        .createSessionFromContextAsync(contextManager.liveContext(), ContextManager.DEFAULT_SESSION_NAME)
                         .thenRun(() ->
                                 contextManager.getProject().getMainProject().sessionsListChanged());
             });
@@ -993,7 +993,7 @@ public class HistoryOutputPanel extends JPanel {
         // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
         var tempFragment = new Fragments.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-        var history = contextManager.topContext().getTaskHistory();
+        var history = contextManager.liveContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
         OutputWindow newStreamingWindow =

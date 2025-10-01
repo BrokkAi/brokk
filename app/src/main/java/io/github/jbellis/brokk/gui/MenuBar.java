@@ -300,7 +300,7 @@ public class MenuBar {
         newSessionCopyWorkspaceItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager()
                     .createSessionFromContextAsync(
-                            chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
+                            chrome.getContextManager().liveContext(), ContextManager.DEFAULT_SESSION_NAME)
                     .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
         }));
         contextMenu.add(newSessionCopyWorkspaceItem);

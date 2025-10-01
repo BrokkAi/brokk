@@ -1614,7 +1614,7 @@ public class WorkspacePanel extends JPanel {
      * historical context and should be read-only.
      */
     private boolean isOnLatestContext() {
-        return Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        return Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
     }
 
     /** Classifies the popup scenario based on the mouse event and table state */
@@ -2017,11 +2017,11 @@ public class WorkspacePanel extends JPanel {
 
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
-            if (contextManager.topContext().isEmpty()) {
+            if (contextManager.liveContext().isEmpty()) {
                 return;
             }
             contextManager.dropAll();
-            contextManager.setSelectedContext(contextManager.topContext());
+            contextManager.setSelectedContext(contextManager.liveContext());
         } else {
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {

@@ -25,7 +25,7 @@ public class GitStashSnapshotTest {
         int sizeBefore = history.getHistory().size();
 
         // Simulate pre-stash snapshot (with no changes)
-        history.pushAndClearRedo(cm.liveContext());
+        history.pushLive(cm.liveContext());
         int sizeAfter = history.getHistory().size();
 
         assertEquals(sizeBefore + 1, sizeAfter, "History should add a snapshot entry");

@@ -325,7 +325,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                 var analyzerWrapper = cm.getAnalyzerWrapper();
                 analyzerWrapper.pause();
                 try {
-                    var frozenContext = cm.topContext();
+                    var frozenContext = cm.liveContext();
                     List<FileProcessingResult> results = new ArrayList<>();
 
                     // ---- 1.  Sort by on-disk size, smallest first ----
