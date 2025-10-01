@@ -16,26 +16,26 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Verifies that tasklist.json life cycle follows session ZIP operations:
- * - copySession: copied zip contains the same tasklist.json
- * - deleteSession: deleting zip removes tasklist.json
- * - moveSessionToUnreadable: moved zip still contains tasklist.json
+ * Verifies that tasklist.json life cycle follows session ZIP operations: - copySession: copied zip contains the same
+ * tasklist.json - deleteSession: deleting zip removes tasklist.json - moveSessionToUnreadable: moved zip still contains
+ * tasklist.json
  */
 class SessionManagerTaskListLifecycleTest {
 
-    @TempDir Path tempDir;
+    @TempDir
+    Path tempDir;
 
     @BeforeEach
     void cleanSessionsDir() throws IOException {
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
         if (Files.exists(sessionsDir)) {
             try (var walk = Files.walk(sessionsDir)) {
-                walk.sorted(java.util.Comparator.reverseOrder())
-                    .forEach(p -> {
-                        try {
-                            Files.deleteIfExists(p);
-                        } catch (IOException ignored) {}
-                    });
+                walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (IOException ignored) {
+                    }
+                });
             }
         }
     }
@@ -46,10 +46,7 @@ class SessionManagerTaskListLifecycleTest {
         SessionManager sm = project.getSessionManager();
 
         // Prepare a canonical task list payload
-        TaskListData data = new TaskListData(List.of(
-            new TaskEntryDto("do A", false),
-            new TaskEntryDto("do B", true)
-        ));
+        TaskListData data = new TaskListData(List.of(new TaskEntryDto("do A", false), new TaskEntryDto("do B", true)));
 
         // 1) Create original session and write a tasklist.json inside its zip
         SessionManager.SessionInfo s1 = sm.newSession("Origin");
@@ -131,9 +128,7 @@ class SessionManagerTaskListLifecycleTest {
         throw new AssertionError("Condition not met within timeout");
     }
 
-    /**
-     * Low-level helper: read tasklist.json directly from a given session zip path.
-     */
+    /** Low-level helper: read tasklist.json directly from a given session zip path. */
     private static TaskListData readTaskListDirect(Path zipPath) throws IOException {
         try (var fs = FileSystems.newFileSystem(zipPath, java.util.Map.of())) {
             Path tasklist = fs.getPath("tasklist.json");

@@ -7,10 +7,9 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.sessions.TaskListStore.TaskListData;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
-import io.github.jbellis.brokk.sessions.TaskListStore;
-import io.github.jbellis.brokk.sessions.TaskListStore.TaskListData;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
@@ -26,8 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -468,14 +467,13 @@ public class SessionManager implements AutoCloseable {
         return ch;
     }
 
-
     /**
-     * Asynchronously write the task list for a session, serialized per session key.
-     * Stores tasklist.json inside the session's zip file.
+     * Asynchronously write the task list for a session, serialized per session key. Stores tasklist.json inside the
+     * session's zip file.
      *
-     * <p>Concurrency: this uses {@link SerialByKeyExecutor} with the session UUID string as the key:
-     * calls for the same session are executed in submission order, while calls for different sessions
-     * run in parallel. This mirrors how manifest/history writes are handled elsewhere in this class.
+     * <p>Concurrency: this uses {@link SerialByKeyExecutor} with the session UUID string as the key: calls for the same
+     * session are executed in submission order, while calls for different sessions run in parallel. This mirrors how
+     * manifest/history writes are handled elsewhere in this class.
      *
      * <pre>{@code
      * // All I/O for a given sessionId runs serially with respect to that same sessionId:
@@ -494,8 +492,8 @@ public class SessionManager implements AutoCloseable {
     public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskListData data) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try (var fs = FileSystems.newFileSystem(
-                    zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+            try (var fs =
+                    FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
                 Path taskListPath = fs.getPath("tasklist.json");
                 var normalized = new TaskListData(List.copyOf(data.tasks()));
                 String json = AbstractProject.objectMapper.writeValueAsString(normalized);
@@ -508,12 +506,12 @@ public class SessionManager implements AutoCloseable {
     }
 
     /**
-     * Asynchronously read the task list for a session, serialized per session key.
-     * Reads tasklist.json from the session's zip file. Returns an empty list if not present.
+     * Asynchronously read the task list for a session, serialized per session key. Reads tasklist.json from the
+     * session's zip file. Returns an empty list if not present.
      *
-     * <p>Concurrency: submitted via {@link SerialByKeyExecutor} using {@code sessionId.toString()} so
-     * reads of the same session are ordered with respect to writes/reads for that session, while reads
-     * on different sessions may run in parallel.
+     * <p>Concurrency: submitted via {@link SerialByKeyExecutor} using {@code sessionId.toString()} so reads of the same
+     * session are ordered with respect to writes/reads for that session, while reads on different sessions may run in
+     * parallel.
      *
      * <pre>{@code
      * // Serialized with other work for the same session:

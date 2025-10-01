@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.sessions;
 
 import java.util.List;
 
-/**
- * Container DTOs for session task lists.
- */
+/** Container DTOs for session task lists. */
 public final class TaskListStore {
 
     private TaskListStore() {}

@@ -32,7 +32,6 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -796,7 +795,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return chrome.getContextManager().getCurrentSessionId();
     }
 
-
     private void loadTasksForCurrentSession() {
         var sid = getCurrentSessionId();
         this.sessionIdAtLoad = sid;
@@ -805,44 +803,43 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var sessionManager = chrome.getContextManager().getProject().getSessionManager();
         Executor edt = SwingUtilities::invokeLater;
 
-        sessionManager.readTaskList(sid)
-                .whenComplete((data, ex) -> {
-                    if (ex != null) {
-                        logger.debug("Failed loading tasks for session {}", sid, ex);
-                        edt.execute(() -> {
-                            try {
-                                if (!sid.equals(this.sessionIdAtLoad)) {
-                                    return;
-                                }
-                                model.clear();
-                                clearExpansionOnStructureChange();
-                                updateButtonStates();
-                                chrome.toolError("Unable to load task list: " + ex.getMessage(), "Task List");
-                            } finally {
-                                isLoadingTasks = false;
-                            }
-                        });
-                    } else {
-                        edt.execute(() -> {
-                            try {
-                                // Ignore stale results if the session has changed since this request started
-                                if (!sid.equals(this.sessionIdAtLoad)) {
-                                    return;
-                                }
-                                model.clear();
-                                for (io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto dto : data.tasks()) {
-                                    if (!dto.text().isBlank()) {
-                                        model.addElement(new TaskItem(dto.text(), dto.done()));
-                                    }
-                                }
-                                clearExpansionOnStructureChange();
-                                updateButtonStates();
-                            } finally {
-                                isLoadingTasks = false;
-                            }
-                        });
+        sessionManager.readTaskList(sid).whenComplete((data, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed loading tasks for session {}", sid, ex);
+                edt.execute(() -> {
+                    try {
+                        if (!sid.equals(this.sessionIdAtLoad)) {
+                            return;
+                        }
+                        model.clear();
+                        clearExpansionOnStructureChange();
+                        updateButtonStates();
+                        chrome.toolError("Unable to load task list: " + ex.getMessage(), "Task List");
+                    } finally {
+                        isLoadingTasks = false;
                     }
                 });
+            } else {
+                edt.execute(() -> {
+                    try {
+                        // Ignore stale results if the session has changed since this request started
+                        if (!sid.equals(this.sessionIdAtLoad)) {
+                            return;
+                        }
+                        model.clear();
+                        for (io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto dto : data.tasks()) {
+                            if (!dto.text().isBlank()) {
+                                model.addElement(new TaskItem(dto.text(), dto.done()));
+                            }
+                        }
+                        clearExpansionOnStructureChange();
+                        updateButtonStates();
+                    } finally {
+                        isLoadingTasks = false;
+                    }
+                });
+            }
+        });
     }
 
     private void saveTasksForCurrentSession() {
@@ -866,13 +863,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         final UUID sidFinal = sid;
         Executor edt = SwingUtilities::invokeLater;
-        sessionManager.writeTaskList(sidFinal, data)
-                .whenComplete((ignored, ex) -> {
-                    if (ex != null) {
-                        logger.debug("Failed saving tasks for session {}", sidFinal, ex);
-                        edt.execute(() -> chrome.toolError("Unable to save task list: " + ex.getMessage(), "Task List"));
-                    }
-                });
+        sessionManager.writeTaskList(sidFinal, data).whenComplete((ignored, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed saving tasks for session {}", sidFinal, ex);
+                edt.execute(() -> chrome.toolError("Unable to save task list: " + ex.getMessage(), "Task List"));
+            }
+        });
     }
 
     /** Append a collection of tasks to the end of the current list and persist them for the active session. */
@@ -1739,5 +1735,4 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return this;
         }
     }
-
 }
