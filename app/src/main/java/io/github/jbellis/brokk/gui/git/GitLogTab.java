@@ -724,7 +724,8 @@ public class GitLogTab extends JPanel {
                 // After successful checkout, update branch selector and Project Files title on EDT
                 var currentActualBranch = getRepo().getCurrentBranch();
                 if (createdTracking) {
-                    // If JGit reports a non-local name (e.g. remote-ref or detached), use the expected local tracking name
+                    // If JGit reports a non-local name (e.g. remote-ref or detached), use the expected local tracking
+                    // name
                     var localsAfter = getRepo().listLocalBranches();
                     if (!localsAfter.contains(currentActualBranch)) {
                         currentActualBranch = localTrackingName;

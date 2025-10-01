@@ -1029,8 +1029,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Public hook to refresh branch UI (branch selector label and Project Files drawer title).
-     * Ensures EDT compliance and no-ops if not a git project or selector not initialized.
+     * Public hook to refresh branch UI (branch selector label and Project Files drawer title). Ensures EDT compliance
+     * and no-ops if not a git project or selector not initialized.
      */
     public void refreshBranchUi(String branchName) {
         Runnable task = () -> {
