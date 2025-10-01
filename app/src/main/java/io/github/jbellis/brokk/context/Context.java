@@ -16,7 +16,6 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -620,18 +619,6 @@ public class Context {
         return fragment.files().stream().anyMatch(f -> !repo.getTrackedFiles().contains(f));
     }
 
-    private String getFragmentContent(ContextFragment fragment) {
-        if (fragment instanceof ContextFragment.DynamicFragment df) {
-            return df.computedText().tryGet().orElse(fragment.text());
-        }
-        try {
-            return fragment.text();
-        } catch (UncheckedIOException | java.util.concurrent.CancellationException e) {
-            logger.warn("Error getting text for fragment {}: {}", fragment.id(), e.getMessage());
-            return ""; // Return empty string on error
-        }
-    }
-
     /**
      * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Only considers fragments
      * present in this context, per requirements. Results are cached per other.id().
@@ -654,7 +641,7 @@ public class Context {
                         // No matching fragment in 'other'; if this represents a new, untracked file in Git, diff
                         // against empty
                         if (isNewFileInGit(currentFragment) && currentFragment.isText()) {
-                            var newContent = getFragmentContent(currentFragment);
+                            var newContent = currentFragment.text();
                             var result = ContentDiffUtils.computeDiffResult(
                                     "", newContent, "old/" + currentFragment.shortDescription(), "new/" + currentFragment.shortDescription());
                             if (result.diff().isEmpty()) {
@@ -666,8 +653,8 @@ public class Context {
                     }
 
                     // Obtain oldContent/newContent using computedText for dynamic fragments
-                    var oldContent = getFragmentContent(matchingFragment);
-                    var newContent = getFragmentContent(currentFragment);
+                    var oldContent = matchingFragment.text();
+                    var newContent = currentFragment.text();
 
                     int oldLineCount =
                             oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
