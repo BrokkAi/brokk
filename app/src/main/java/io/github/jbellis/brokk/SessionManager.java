@@ -370,9 +370,38 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+
+                // Snapshot current tasklist.json (if present) before we rewrite the zip
+                String taskListJsonSnapshot = null;
+                if (Files.exists(sessionHistoryPath)) {
+                    try (var fs = FileSystems.newFileSystem(sessionHistoryPath, Map.of())) {
+                        Path tlPath = fs.getPath("tasklist.json");
+                        if (Files.exists(tlPath)) {
+                            taskListJsonSnapshot = Files.readString(tlPath);
+                        }
+                    } catch (IOException ioe) {
+                        logger.debug("Could not snapshot existing tasklist.json for session {}: {}", sessionId, ioe.getMessage());
+                    }
+                }
+
+                // Rewrite history zip
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
+
+                // Write manifest after the rewrite
                 if (finalInfoToSave != null) {
                     writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
+                }
+
+                // Restore tasklist.json if we had one
+                if (taskListJsonSnapshot != null) {
+                    try (var fs = FileSystems.newFileSystem(
+                            sessionHistoryPath, Map.of("create", Files.notExists(sessionHistoryPath) ? "true" : "false"))) {
+                        Path tlPath = fs.getPath("tasklist.json");
+                        Files.writeString(
+                                tlPath, taskListJsonSnapshot, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                    } catch (IOException ioe) {
+                        logger.warn("Failed restoring tasklist.json for session {} after history save: {}", sessionId, ioe.getMessage());
+                    }
                 }
             } catch (IOException e) {
                 logger.error(
