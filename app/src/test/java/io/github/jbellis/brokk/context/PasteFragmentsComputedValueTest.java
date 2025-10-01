@@ -68,10 +68,12 @@ public class PasteFragmentsComputedValueTest {
         assertEquals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN, fragment.syntaxStyle());
         assertEquals("some text", fragment.text()); // text is available immediately
 
-        // Eager start: task should be queued/running even before completing futures
-        // Give it a moment to dispatch
-        Thread.sleep(50);
-        assertTrue(exec.getActiveCount() >= 1 || !exec.getQueue().isEmpty());
+        // Eager start: the description supplier should already be blocking on the future
+        // Wait briefly for the worker to invoke get() exactly once
+        for (int i = 0; i < 100 && descGets.get() == 0; i++) {
+            Thread.sleep(10);
+        }
+        assertEquals(1, descGets.get());
 
         // Complete the futures
         syntaxCF.complete(SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
@@ -103,7 +105,11 @@ public class PasteFragmentsComputedValueTest {
 
         // Initially, description shows placeholder, image bytes may or may not be ready
         assertEquals("(Loading...)", fragment.description());
-        assertTrue(fragment.computedImageBytes().tryGet().isEmpty());
+        var maybeBytes = fragment.computedImageBytes().tryGet();
+        maybeBytes.ifPresent(bytes -> {
+            assertNotNull(bytes);
+            assertTrue(bytes.length > 0);
+        });
 
         // complete description
         descCF.complete("image paste");

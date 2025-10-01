@@ -167,11 +167,12 @@ public class ContextSerializationTest {
         assertContextsEqual(originalCtx2Frozen, loadedCtx2);
 
         // Verify image content from the image fragment in loadedCtx2
+        var targetId = pasteImageFragment1.id();
         var loadedImageFragmentOpt = loadedCtx2
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Pasted Red Image".equals(f.description()))
+                .filter(f -> !f.isText() && targetId.equals(f.id()))
                 .findFirst();
-        assertTrue(loadedImageFragmentOpt.isPresent(), "Pasted Red Image fragment not found in loaded context 2");
+        assertTrue(loadedImageFragmentOpt.isPresent(), "Pasted image fragment (by id) not found in loaded context 2");
         var loadedImageFragment = loadedImageFragmentOpt.get();
 
         byte[] imageBytesContent;
@@ -322,15 +323,16 @@ public class ContextSerializationTest {
         var loadedCtx2 = loadedHistory.getHistory().get(1);
 
         // Find the image fragments in each context
+        var targetId = liveImageFrag1.id();
         var fragment1 = loadedCtx1
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
+                .filter(f -> !f.isText() && targetId.equals(f.id()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 1"));
 
         var fragment2 = loadedCtx2
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
+                .filter(f -> !f.isText() && targetId.equals(f.id()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 2"));
 
@@ -367,9 +369,11 @@ public class ContextSerializationTest {
         assertEquals(8, reconstructedImage2.getWidth());
         assertEquals(8, reconstructedImage2.getHeight());
 
-        // Verify descriptions
-        assertEquals(sharedDescription, fragment1.description());
-        assertEquals(sharedDescription, fragment2.description());
+        // Verify descriptions have standardized prefix and suffix
+        assertTrue(fragment1.description().startsWith("Paste of "));
+        assertTrue(fragment1.description().endsWith(sharedDescription));
+        assertTrue(fragment2.description().startsWith("Paste of "));
+        assertTrue(fragment2.description().endsWith(sharedDescription));
     }
 
     @Test

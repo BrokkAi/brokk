@@ -27,6 +27,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.awt.*;
 import java.io.IOException;
@@ -142,6 +143,7 @@ public interface ContextFragment {
     // Dedicated executor for ContextFragment async computations (separate from ContextManager backgroundTasks)
     Logger logger = LogManager.getLogger(ContextFragment.class);
 
+    @VisibleForTesting
     static LoggingExecutorService getFragmentExecutor() {
         return FragmentExecutorHolder.INSTANCE;
     }
