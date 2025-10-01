@@ -426,18 +426,27 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Edit on double-click only to avoid interfering with multi-select
+        // Single left-click toggles expand/collapse for the clicked row (only if within cell bounds).
+        // Double-click still starts inline edit. Expansion is allowed even if a task is running or queued
+        // since it is a purely visual state and does not mutate the model.
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (javax.swing.SwingUtilities.isLeftMouseButton(e)) {
-                    int index = list.locationToIndex(e.getPoint());
-                    if (index < 0) return;
-                    if (e.getClickCount() == 2) {
-                        startInlineEdit(index);
-                    } else if (e.getClickCount() == 1) {
-                        toggleExpandedAt(index);
-                    }
+                if (!javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
+
+                int index = list.locationToIndex(e.getPoint());
+                if (index < 0) return;
+
+                // Guard: ensure the click is within the actual cell bounds (avoid background clicks).
+                java.awt.Rectangle cell = list.getCellBounds(index, index);
+                if (cell == null || !cell.contains(e.getPoint())) {
+                    return;
+                }
+
+                if (e.getClickCount() == 2) {
+                    startInlineEdit(index);
+                } else if (e.getClickCount() == 1) {
+                    toggleExpandedAt(index); // repaint is scoped to this cell inside the method
                 }
             }
         });
