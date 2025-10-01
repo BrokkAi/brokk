@@ -56,6 +56,16 @@ public class Fragments {
         BrokkFile file();
 
         @Override
+        default boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
+        }
+
+        @Override
         default Set<ProjectFile> files() {
             BrokkFile bf = file();
             if (bf instanceof ProjectFile pf) {
@@ -145,6 +155,14 @@ public class Fragments {
 
         public Future<String> getSyntaxStyleFuture() {
             return syntaxStyleFuture;
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (other instanceof PasteTextFragment pt) {
+                return this.text.equals(pt.text);
+            }
+            return false;
         }
 
         @Override

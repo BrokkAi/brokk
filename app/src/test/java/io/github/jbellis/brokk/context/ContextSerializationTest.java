@@ -999,12 +999,12 @@ public class ContextSerializationTest {
         var vf4_duplicate_of_vf2 = new Fragments.StringFragment(
                 mockContextManager,
                 "duplicateText",
-                "Description for duplicateText (second, different desc)",
+                "Description for duplicateText (first)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf5_duplicate_of_vf1 = new Fragments.StringFragment(
                 mockContextManager,
                 "uniqueText1",
-                "Description for uniqueText1 (second, different desc)",
+                "Description for uniqueText1 (first)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
 
         context = context.addVirtualFragment(vf1);

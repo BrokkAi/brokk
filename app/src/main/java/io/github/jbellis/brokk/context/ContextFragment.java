@@ -304,25 +304,12 @@ public interface ContextFragment {
     }
 
     /**
-     * Compares the source of this fragment with another fragment to determine if they represent
-     * the "same source," allowing for content differences.
-     * The comparison is based on the class name, associated files, and the fragment's representation (`repr()`).
-     *
-     * @param other The other ContextFragment to compare against.
-     * @return true if the fragments are considered to originate from the same source, false otherwise.
+     * Compares whether two fragments originate from the same "source" (file/symbol/session),
+     * ignoring view parameters and content differences when that makes sense.
      */
-    default boolean hasSameSource(ContextFragment other) {
-        // Compare class names
-        if (!this.getClass().getName().equals(other.getClass().getName())) {
-            return false;
-        }
-        // Compare associated files (assuming Set.equals performs content-based comparison)
-        if (!this.files().equals(other.files())) {
-            return false;
-        }
-        // Compare representation string
-        return this.repr().equals(other.repr());
-    }
+    boolean hasSameSource(ContextFragment other);
+
+    // --- helpers (kept small and local) ---
 
     static boolean contentEquals(ContextFragment a, ContextFragment b) {
         if (a == b) return true;
@@ -426,6 +413,33 @@ public interface ContextFragment {
                 return img.contentHash().hashCode();
             }
             throw new AssertionError(getClass());
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+
+            if (this.getClass() != other.getClass()) {
+                return false;
+            }
+
+            // Non-dynamic (content-hashed) fragments: stable identity via ID
+            if (!this.isDynamic() && !other.isDynamic()) {
+                return this.id().equals(other.id());
+            }
+
+            // Images: compare stable content identity
+            if (this instanceof ImageFragment ai && other instanceof ImageFragment bi) {
+                return ai.contentHash().equals(bi.contentHash());
+            }
+
+            // For everything else, repr-equality
+            var ra = this.repr();
+            assert !ra.isEmpty();
+            var rb = other.repr();
+            assert !rb.isEmpty();
+
+            return ra.equals(rb);
         }
     }
 
