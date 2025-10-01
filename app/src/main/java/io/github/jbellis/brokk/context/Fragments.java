@@ -1319,7 +1319,7 @@ public class Fragments {
 
         @Override
         public String shortDescription() {
-            return "%s @%s".formatted(file().getFileName(), id);
+            return "%s @%s".formatted(file().getFileName(), revision);
         }
 
         @Override
@@ -1374,7 +1374,7 @@ public class Fragments {
 
         @Override
         public String toString() {
-            return "GitFileFragment('%s' @%s)".formatted(file, id);
+            return "GitFileFragment('%s' @%s)".formatted(file, revision);
         }
     }
 

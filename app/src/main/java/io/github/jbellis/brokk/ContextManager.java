@@ -1450,10 +1450,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Updates the selected FROZEN context in history from the UI. Called by Chrome when the user selects a row in the
      * history table.
      *
-     * @param frozenContextFromHistory The FROZEN context selected in the UI.
+     * @param contextFromHistory The FROZEN context selected in the UI.
      */
-    public void setSelectedContext(Context frozenContextFromHistory) {
-        contextHistory.setSelectedContext(frozenContextFromHistory);
+    public void setSelectedContext(Context contextFromHistory) {
+        contextHistory.setSelectedContext(contextFromHistory);
     }
 
     /**

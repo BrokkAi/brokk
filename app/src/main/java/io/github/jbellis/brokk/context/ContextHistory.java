@@ -18,11 +18,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -105,7 +106,7 @@ public class ContextHistory {
     }
 
     public synchronized @Nullable Context getSelectedContext() {
-        if (selected == null || !history.contains(selected)) {
+        if (selected == null || !getContextIds().contains(selected.id())) {
             selected = topContext();
         }
         return selected;
@@ -118,7 +119,7 @@ public class ContextHistory {
      * @return {@code true} iff {@code ctx} is present in history.
      */
     public synchronized boolean setSelectedContext(@Nullable Context ctx) {
-        if (ctx != null && history.contains(ctx)) {
+        if (ctx != null && getContextIds().contains(ctx.id())) {
             selected = ctx;
             return true;
         }
@@ -127,7 +128,7 @@ public class ContextHistory {
                     "Attempted to select context {} not present in history (history size: {}, available contexts: {})",
                     ctx == null ? "null" : ctx,
                     history.size(),
-                    history.stream().map(Context::toString).collect(java.util.stream.Collectors.joining(", ")));
+                    history.stream().map(Context::toString).collect(Collectors.joining(", ")));
         }
         return false;
     }
@@ -362,12 +363,16 @@ public class ContextHistory {
             var removed = history.removeFirst();
             gitStates.remove(removed.id());
             entryInfos.remove(removed.id());
-            var historyIds = history.stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
+            var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }
         }
+    }
+
+    private Set<UUID> getContextIds() {
+        return history.stream().map(Context::id).collect(Collectors.toSet());
     }
 
     private int indexOf(Context ctx) {
