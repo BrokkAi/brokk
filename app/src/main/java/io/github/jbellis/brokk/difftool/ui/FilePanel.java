@@ -411,7 +411,43 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     /** Fallback method to paint all deltas (original behavior). */
     private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch, boolean isOriginal) {
+        // Highlight text area
         patch.getDeltas().forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
+
+        // Build gutter highlights to match text area
+        var gutterHighlights = new java.util.ArrayList<DiffGutterComponent.DiffHighlightInfo>();
+        boolean isDark = diffPanel.isDarkTheme();
+
+        for (var delta : patch.getDeltas()) {
+            var chunk = DiffHighlightUtil.getChunkForHighlight(delta, isOriginal);
+            if (chunk == null) {
+                continue;
+            }
+
+            // Get color based on delta type
+            var color = switch (delta.getType()) {
+                case INSERT -> io.github.jbellis.brokk.difftool.utils.Colors.getAdded(isDark);
+                case DELETE -> io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(isDark);
+                case CHANGE -> io.github.jbellis.brokk.difftool.utils.Colors.getChanged(isDark);
+                case EQUAL -> null; // Should not happen
+            };
+
+            if (color == null) {
+                continue;
+            }
+
+            // Add highlight for each line in the chunk
+            int startLine = chunk.getPosition();
+            int endLine = startLine + Math.max(chunk.size(), 1); // At least one line for empty chunks
+
+            for (int line = startLine; line < endLine; line++) {
+                // Convert to 1-based line number for gutter display
+                gutterHighlights.add(new DiffGutterComponent.DiffHighlightInfo(line + 1, color));
+            }
+        }
+
+        // Update gutter component with highlights
+        gutterComponent.setDiffHighlights(gutterHighlights);
     }
 
     /** Cached viewport calculation to avoid expensive repeated calls. */
@@ -747,6 +783,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         jmhl.removeHighlights(JMHighlighter.LAYER0);
         jmhl.removeHighlights(JMHighlighter.LAYER1);
         jmhl.removeHighlights(JMHighlighter.LAYER2);
+        // Also clear gutter highlights
+        gutterComponent.setDiffHighlights(null);
     }
 
     private void setHighlight(Integer layer, int offset, int size, Highlighter.HighlightPainter highlight) {
