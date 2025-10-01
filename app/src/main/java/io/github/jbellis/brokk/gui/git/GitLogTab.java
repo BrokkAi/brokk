@@ -873,6 +873,7 @@ public class GitLogTab extends JPanel {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
                     refreshAllGitUi(newName);
+                    update();
                     chrome.systemOutput(
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
