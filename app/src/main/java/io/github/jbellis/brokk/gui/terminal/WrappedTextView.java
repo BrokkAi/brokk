@@ -10,6 +10,7 @@ import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.JComponent;
+import javax.swing.JTextArea;
 
 /**
  * Lightweight wrapped text painter used in the renderer (no JTextArea).
@@ -100,9 +101,22 @@ public class WrappedTextView extends JComponent {
             return;
         }
 
-        var lines = wrapLines(text, fm, availableWidth);
-        int visibleLines = expanded ? lines.size() : Math.min(lines.size(), maxVisibleLines);
-        contentHeight = Math.max(lineHeight, visibleLines * lineHeight);
+        if (expanded) {
+            // Use a JTextArea to compute the preferred wrapped height identical to the inline editor.
+            JTextArea ta = new JTextArea(text);
+            ta.setLineWrap(true);
+            ta.setWrapStyleWord(true);
+            ta.setFont(f);
+            ta.setOpaque(false);
+            ta.setBorder(null);
+            ta.setSize(Math.max(1, availableWidth), Short.MAX_VALUE);
+            int pref = ta.getPreferredSize().height;
+            contentHeight = Math.max(lineHeight, pref);
+        } else {
+            var lines = wrapLines(text, fm, availableWidth);
+            int visibleLines = Math.min(lines.size(), maxVisibleLines);
+            contentHeight = Math.max(lineHeight, visibleLines * lineHeight);
+        }
     }
 
     @Override

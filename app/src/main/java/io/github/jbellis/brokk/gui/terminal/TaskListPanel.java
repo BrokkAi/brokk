@@ -105,6 +105,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private @Nullable JTextArea inlineEditor = null;
     private int editingIndex = -1;
+    private @Nullable JTextArea readOnlyViewer = null;
+    private int viewingIndex = -1;
     private @Nullable Integer runningIndex = null;
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
@@ -127,7 +129,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
         list.setFixedCellHeight(-1);
-        list.setToolTipText("Click to expand/collapse");
+        list.setToolTipText("Single-click to preview full text; double-click to edit");
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> updateButtonStates());
@@ -427,9 +429,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Single left-click toggles expand/collapse for the clicked row (only if within cell bounds).
-        // Double-click still starts inline edit. Expansion is allowed even if a task is running or queued
-        // since it is a purely visual state and does not mutate the model.
+        // Single left-click previews the full text in a read-only overlay (sized like the inline editor).
+        // Double-click still starts inline edit.
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -445,9 +446,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
 
                 if (e.getClickCount() == 2) {
+                    stopReadOnlyView();
                     startInlineEdit(index);
                 } else if (e.getClickCount() == 1) {
-                    toggleExpandedAt(index); // repaint is scoped to this cell inside the method
+                    startReadOnlyView(index);
                 }
             }
         });
@@ -777,6 +779,114 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.revalidate();
         list.repaint();
         input.requestFocusInWindow();
+    }
+
+    private void startReadOnlyView(int index) {
+        if (index < 0 || index >= model.size()) return;
+
+        // Toggle off if already showing for this index
+        if (readOnlyViewer != null && viewingIndex == index) {
+            stopReadOnlyView();
+            return;
+        }
+
+        // Close any existing viewer/editor
+        stopReadOnlyView();
+        stopInlineEdit(true);
+
+        viewingIndex = index;
+        var item = model.get(index);
+
+        JTextArea viewer = new JTextArea(item.text());
+        viewer.setLineWrap(true);
+        viewer.setWrapStyleWord(true);
+        viewer.setEditable(false);
+        // Make overlay opaque and match the row's colors (selected vs normal)
+        boolean isSelectedRow = list.isSelectedIndex(index);
+        java.awt.Color bg = isSelectedRow ? list.getSelectionBackground() : list.getBackground();
+        java.awt.Color fg = isSelectedRow ? list.getSelectionForeground() : list.getForeground();
+        viewer.setOpaque(true);
+        viewer.setBackground(bg);
+        viewer.setForeground(fg);
+        viewer.setBorder(BorderFactory.createEmptyBorder());
+        viewer.setFont(list.getFont());
+
+        // Position viewer over the cell (to the right of the checkbox area)
+        java.awt.Rectangle cell = list.getCellBounds(index, index);
+        int checkboxRegionWidth = 28;
+        int x = cell.x + checkboxRegionWidth;
+        int y = cell.y;
+
+        int availableWidth = Math.max(10, cell.width - checkboxRegionWidth - 4);
+        // Size the text area to compute wrapped preferred height so the viewer shows multiple lines if needed.
+        viewer.setSize(availableWidth, Short.MAX_VALUE);
+        int prefH = viewer.getPreferredSize().height;
+        int h = Math.max(cell.height - 2, prefH);
+
+        // Ensure list can host an overlay component
+        if (list.getLayout() != null) {
+            list.setLayout(null);
+        }
+
+        viewer.setBounds(x, y, availableWidth, h);
+        list.add(viewer);
+        readOnlyViewer = viewer;
+
+        // Key bindings: Escape closes the viewer
+        // Close with Escape
+        viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeView");
+        viewer.getActionMap().put("closeView", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                stopReadOnlyView();
+            }
+        });
+
+        // Start editing via keyboard (Ctrl/Cmd+E, F2, or Enter)
+        viewer.getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                "startEdit");
+        viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "startEdit");
+        viewer.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "startEdit");
+        viewer.getActionMap().put("startEdit", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                stopReadOnlyView();
+                startInlineEdit(index);
+            }
+        });
+
+        // Double‑click in the overlay switches to edit
+        viewer.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (javax.swing.SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2) {
+                    stopReadOnlyView();
+                    startInlineEdit(index);
+                }
+            }
+        });
+
+        // Close when focus is lost
+        viewer.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                stopReadOnlyView();
+            }
+        });
+
+        viewer.requestFocusInWindow();
+        list.repaint(cell);
+    }
+
+    private void stopReadOnlyView() {
+        if (readOnlyViewer == null) return;
+        var v = readOnlyViewer;
+        list.remove(v);
+        readOnlyViewer = null;
+        viewingIndex = -1;
+        list.revalidate();
+        list.repaint();
     }
 
     private void updateButtonStates() {
@@ -1464,31 +1574,59 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
     }
-
-    // region Row expansion helpers
-
-    /** Returns true if the given row index is expanded (shows full text). Out of bounds returns false. */
-    private boolean isExpanded(int index) {
-        if (index < 0 || index >= model.getSize()) return false;
-        return expandedIndices.contains(index);
-    }
-
+    
     /**
-     * Toggles expanded state for the given row and repaints just that cell if visible.
-     * No-op for out of bounds indices.
+     * Ensures an expanded row is fully visible. Retries a few times to allow the list layout to
+     * recompute the new cell height after expansion before attempting to resize the window.
      */
-    private void toggleExpandedAt(int index) {
+    private void ensureExpandedRowFullyVisible(int index, int attempt) {
         assert SwingUtilities.isEventDispatchThread();
         if (index < 0 || index >= model.getSize()) return;
-        if (expandedIndices.contains(index)) {
-            expandedIndices.remove(index);
-        } else {
-            expandedIndices.add(index);
+
+        boolean expanded = expandedIndices.contains(index);
+        var cell = list.getCellBounds(index, index);
+        if (cell == null) return;
+
+        var parent = list.getParent();
+        if (!(parent instanceof javax.swing.JViewport vp)) {
+            // Fallback: best we can do is scroll to it.
+            list.scrollRectToVisible(cell);
+            return;
         }
-        var rect = list.getCellBounds(index, index);
-        if (rect != null) list.repaint(rect);
-        else list.repaint();
-        list.revalidate();
+
+        int viewportHeight = vp.getExtentSize().height;
+
+        // Give BasicListUI a few chances to recompute the larger preferred height after expansion.
+        if (expanded && attempt < 5) {
+            // If the cell still does not exceed the viewport (common before re-layout), try again.
+            if (cell.height <= viewportHeight) {
+                SwingUtilities.invokeLater(() -> ensureExpandedRowFullyVisible(index, attempt + 1));
+                // Still make sure the row is visible in case it was near the edge.
+                list.scrollRectToVisible(cell);
+                return;
+            }
+        }
+
+        if (expanded && cell.height > viewportHeight) {
+            var window = SwingUtilities.getWindowAncestor(TaskListPanel.this);
+            if (window != null) {
+                int delta = cell.height - viewportHeight + 16; // small margin
+                int currentHeight = window.getHeight();
+                int desired = currentHeight + delta;
+
+                var screen = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
+                int maxHeight = Math.max(100, screen.height - 32); // keep some screen margin
+                int newHeight = Math.min(desired, maxHeight);
+
+                if (newHeight > currentHeight) {
+                    window.setSize(window.getWidth(), newHeight);
+                    window.validate();
+                }
+            }
+        }
+
+        // Ensure the (now expanded) row is visible.
+        list.scrollRectToVisible(cell);
     }
 
     /**
@@ -1497,6 +1635,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      */
     private void clearExpansionOnStructureChange() {
         assert SwingUtilities.isEventDispatchThread();
+        stopReadOnlyView();
         if (expandedIndices.isEmpty()) return;
         expandedIndices.clear();
         list.revalidate();
@@ -1625,6 +1764,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         llmStateTimer.stop();
         runningFadeTimer.stop();
+        stopReadOnlyView();
         super.removeNotify();
     }
 
@@ -1681,16 +1821,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
-            // Apply per-row expansion: show all text when expanded, otherwise collapse to two lines
-            boolean expandedRow = TaskListPanel.this.isExpanded(index);
-            view.setExpanded(expandedRow);
+            // Always render collapsed; full preview is handled by a read-only overlay
+            boolean expandedRow = false;
+            view.setExpanded(false);
             view.setMaxVisibleLines(2);
 
-            // Set text and editing visibility
+            // Set text and overlay visibility
             view.setText(value.text());
             boolean isEditingRow =
                     (TaskListPanel.this.inlineEditor != null && TaskListPanel.this.editingIndex == index);
-            view.setVisible(!isEditingRow);
+            boolean isViewingRow =
+                    (TaskListPanel.this.readOnlyViewer != null && TaskListPanel.this.viewingIndex == index);
+            view.setVisible(!isEditingRow && !isViewingRow);
 
             // Font and strike-through
             Font base = list.getFont();
