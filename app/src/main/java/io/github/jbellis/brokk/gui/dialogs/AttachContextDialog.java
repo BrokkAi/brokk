@@ -115,6 +115,7 @@ public class AttachContextDialog extends JDialog {
                 Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() == KeyEvent.CTRL_DOWN_MASK ? "Ctrl" : "⌘";
 
         setLayout(new BorderLayout(8, 8));
+        setResizable(false);
 
         // Segmented control (replaces JTabbedPane)
         tabBar.setLayout(new BoxLayout(tabBar, BoxLayout.X_AXIS));
