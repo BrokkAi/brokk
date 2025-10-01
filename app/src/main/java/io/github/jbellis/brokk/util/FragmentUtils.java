@@ -2,6 +2,11 @@ package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -10,6 +15,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
+
+import javax.imageio.ImageIO;
 
 public final class FragmentUtils {
 
@@ -145,5 +152,34 @@ public final class FragmentUtils {
                 files,
                 originalClassName,
                 meta);
+    }
+
+    /**
+     * Converts an Image to a byte array in PNG format.
+     *
+     * @param image The image to convert
+     * @return PNG bytes, or null if image is null
+     * @throws IOException If conversion fails
+     */
+    @Nullable
+    public static byte[] imageToBytes(@Nullable Image image) throws IOException {
+        if (image == null) {
+            return null;
+        }
+
+        BufferedImage bufferedImage;
+        if (image instanceof BufferedImage bi) {
+            bufferedImage = bi;
+        } else {
+            bufferedImage = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+            var g = bufferedImage.createGraphics();
+            g.drawImage(image, 0, 0, null);
+            g.dispose();
+        }
+
+        try (var baos = new ByteArrayOutputStream()) {
+            ImageIO.write(bufferedImage, "PNG", baos);
+            return baos.toByteArray();
+        }
     }
 }

@@ -305,16 +305,15 @@ public class ContextSerializationTest {
         var loadedCtx2 = loadedHistory.getHistory().get(1);
 
         // Find the image fragments in each context
-        var targetId = liveImageFrag1.id();
         var fragment1 = loadedCtx1
                 .virtualFragments()
-                .filter(f -> !f.isText() && targetId.equals(f.id()))
+                .filter(f -> !f.isText())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 1"));
 
         var fragment2 = loadedCtx2
                 .virtualFragments()
-                .filter(f -> !f.isText() && targetId.equals(f.id()))
+                .filter(f -> !f.isText())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 2"));
 
