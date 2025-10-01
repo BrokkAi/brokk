@@ -182,7 +182,7 @@ public class FuzzyMatcher {
         // Exclude matches that finish immediately before a '$' when the pattern is simple
         // (all-lowercase without separators). This prevents queries like "do" from matching
         // the outer part of "Do$Re".
-        if (isSimpleLowercasePattern() && endsBeforeDollar(name, fragments)) {
+        if (isSimpleLowercasePattern() && endsBeforeSeparator(name, fragments)) {
             return Integer.MAX_VALUE;
         }
 
@@ -1053,11 +1053,11 @@ public class FuzzyMatcher {
     }
 
     /**
-     * Checks whether the final matched fragment ends right before a hierarchy separator in the name that denotes
-     * nested code units (e.g., '.', followed by an uppercase letter). This should not trigger for filename
-     * extensions like ".java" or ".ts".
+     * Checks whether the final matched fragment ends right before a hierarchy separator in the name that denotes nested
+     * code units (e.g., '.', followed by an uppercase letter). This should not trigger for filename extensions like
+     * ".java" or ".ts".
      */
-    private static boolean endsBeforeDollar(String name, FList<TextRange> fragments) {
+    private static boolean endsBeforeSeparator(String name, FList<TextRange> fragments) {
         var last = fragments.getLast();
         int end = last.getEndOffset();
         if (end >= name.length()) {
