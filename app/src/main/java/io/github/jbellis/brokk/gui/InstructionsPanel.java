@@ -1042,6 +1042,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
             branchSplitButton.setText("branch: " + branchName);
             updateProjectFilesDrawerTitle(branchName);
+
+            // Also notify the Git Log tab to refresh and select the current branch
+            chrome.updateLogTab();
+            chrome.selectCurrentBranchInLogTab();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             task.run();
