@@ -118,6 +118,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent inputLayeredPane;
     private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
+    private @Nullable SplitButton branchSplitButton;
 
     // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
     private @Nullable JPanel optionsPanel;
@@ -567,7 +568,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var cm = chrome.getContextManager();
         var project = chrome.getProject();
-        var branchSplitButton = new SplitButton("No Git");
+        this.branchSplitButton = new SplitButton("No Git");
         branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
 
         int branchWidth = 210;
@@ -608,7 +609,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     r.checkout(b);
                                     SwingUtilities.invokeLater(() -> {
                     try {
-                        branchSplitButton.setText("branch: " + r.getCurrentBranch());
+                        requireNonNull(branchSplitButton).setText("branch: " + r.getCurrentBranch());
                     } catch (Exception ex) {
                         logger.debug("Error updating branch label after checkout", ex);
                     }
@@ -674,7 +675,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 }
                                 SwingUtilities.invokeLater(() -> {
                                     try {
-                                        branchSplitButton.setText("branch: " + r.getCurrentBranch());
+                                        requireNonNull(branchSplitButton).setText("branch: " + r.getCurrentBranch());
                                     } catch (Exception ex) {
                                         logger.debug("Error updating branch label after branch creation", ex);
                                     }
@@ -714,7 +715,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 } catch (Exception e) {
                     logger.debug("Error registering popup menu", e);
                 }
-                menu.show(branchSplitButton, 0, branchSplitButton.getHeight());
+                var bsb = requireNonNull(branchSplitButton);
+                menu.show(bsb, 0, bsb.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing branch dropdown", ex);
             }
@@ -1022,6 +1024,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName);
         } else {
             SwingUtilities.invokeLater(() -> GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName));
+        }
+    }
+
+    /**
+     * Public hook to refresh branch UI (branch selector label and Project Files drawer title).
+     * Ensures EDT compliance and no-ops if not a git project or selector not initialized.
+     */
+    public void refreshBranchUi(String branchName) {
+        Runnable task = () -> {
+            if (!chrome.getProject().hasGit()) {
+                return;
+            }
+            if (branchSplitButton != null) {
+                branchSplitButton.setText("branch: " + branchName);
+            }
+            updateProjectFilesDrawerTitle(branchName);
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
         }
     }
 
