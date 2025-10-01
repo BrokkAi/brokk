@@ -129,8 +129,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setFixedCellHeight(-1);
         list.setToolTipText("Single-click to preview full text; double-click to edit");
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        // Update button states based on selection
-        list.addListSelectionListener(e -> updateButtonStates());
+        // Update button states based on selection, and refresh overlay coloring if present
+        list.addListSelectionListener(e -> {
+            updateButtonStates();
+            if (inlineEditor != null && editingIndex >= 0) {
+                applyOverlayColors(inlineEditor, editingIndex);
+            }
+            if (readOnlyViewer != null && viewingIndex >= 0) {
+                applyOverlayColors(readOnlyViewer, viewingIndex);
+            }
+        });
 
         // Enable drag-and-drop reordering
         list.setDragEnabled(true);
@@ -1244,6 +1252,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (selFg == null) selFg = dark ? Color.WHITE : Color.BLACK;
         list.setSelectionBackground(selBg);
         list.setSelectionForeground(selFg);
+
+        // Re-apply overlay colors for any active editor/viewer so they reflect the new theme
+        if (inlineEditor != null && editingIndex >= 0) {
+            applyOverlayColors(inlineEditor, editingIndex);
+        }
+        if (readOnlyViewer != null && viewingIndex >= 0) {
+            applyOverlayColors(readOnlyViewer, viewingIndex);
+        }
+
         revalidate();
         repaint();
     }
