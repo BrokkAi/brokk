@@ -57,14 +57,20 @@ public final class FuzzyUsageAnalyzer {
         final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
                 List.of(searchPattern), analyzer.getProject().getAllFiles());
 
+        if (maxCallsites < candidateFiles.size()) {
+            // Case 1: Too many call sites
+            return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxCallsites);
+        }
+
         if (isUnique) {
-            // Case 1: This is a uniquely named code unit, no need to check with LLM.
+            // Case 2: This is a uniquely named code unit, no need to check with LLM.
         }
 
         if (llm != null) {
-            // TODO: Consult LLM if ambiguous
+            // Case 3: This symbol is not unique among code units, disambiguate with LLM if possible
         }
 
+        // Case 4: If still ambiguous, return result describing it as such
         return new FuzzyResult.Ambiguous(target.shortName(), List.of());
     }
 
