@@ -103,7 +103,6 @@ public class HistoryOutputPanel extends JPanel {
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
-    private int unreadNotificationCount = 0;
     private final Path notificationsFile;
 
     public static enum NotificationRole {
@@ -949,13 +948,11 @@ public class HistoryOutputPanel extends JPanel {
     // Notification API
     public void showNotification(NotificationRole role, String message) {
         Runnable r = () -> {
-            // Track and increment unread count
-            notifications.add(new NotificationEntry(role, message, System.currentTimeMillis(), false));
-            unreadNotificationCount++;
+            notifications.add(new NotificationEntry(role, message, System.currentTimeMillis()));
             updateNotificationsButton();
 
             // Always show only the latest notification in the toolbar
-            refreshLatestUnreadNotificationCard();
+            refreshLatestNotificationCard();
 
             persistNotificationsAsync();
         };
@@ -968,10 +965,7 @@ public class HistoryOutputPanel extends JPanel {
 
     public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
         Runnable r = () -> {
-            // Track and increment unread count
-            notifications.add(
-                    new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis(), false));
-            unreadNotificationCount++;
+            notifications.add(new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis()));
             updateNotificationsButton();
 
             // Always show only the latest notification in the toolbar; for fresh CONFIRM, keep actions
@@ -1001,15 +995,13 @@ public class HistoryOutputPanel extends JPanel {
     }
 
 
-    // Show only the latest unread notification in the toolbar
-    private void refreshLatestUnreadNotificationCard() {
-        // Find the latest unread notification by timestamp
+    // Show only the latest notification in the toolbar
+    private void refreshLatestNotificationCard() {
+        // Find the latest notification by timestamp
         NotificationEntry latest = null;
         for (var n : notifications) {
-            if (!n.read) {
-                if (latest == null || n.timestamp > latest.timestamp) {
-                    latest = n;
-                }
+            if (latest == null || n.timestamp > latest.timestamp) {
+                latest = n;
             }
         }
 
@@ -1074,26 +1066,6 @@ public class HistoryOutputPanel extends JPanel {
         
         timerHolder[0] = timer;
         timer.start();
-    }
-
-    // Marks the latest unread notification as read (used on dismiss) and updates counters
-    private void markLatestUnreadAsRead() {
-        int latestIdx = -1;
-        long latestTs = Long.MIN_VALUE;
-        for (int i = 0; i < notifications.size(); i++) {
-            var n = notifications.get(i);
-            if (!n.read && n.timestamp > latestTs) {
-                latestTs = n.timestamp;
-                latestIdx = i;
-            }
-        }
-        if (latestIdx >= 0) {
-            var entry = notifications.get(latestIdx);
-            notifications.set(latestIdx, new NotificationEntry(entry.role, entry.message, entry.timestamp, true));
-            if (unreadNotificationCount > 0) {
-                unreadNotificationCount--;
-            }
-        }
     }
 
     private JPanel createNotificationCard(
@@ -1209,8 +1181,9 @@ public class HistoryOutputPanel extends JPanel {
 
     // Update the notifications counter button (icon text and enabled state)
     private void updateNotificationsButton() {
-        if (unreadNotificationCount > 0) {
-            notificationsButton.setText(String.valueOf(unreadNotificationCount));
+        int count = notifications.size();
+        if (count > 0) {
+            notificationsButton.setText(String.valueOf(count));
         } else {
             notificationsButton.setText("");
         }
@@ -1239,8 +1212,7 @@ public class HistoryOutputPanel extends JPanel {
             var lines = notifications.stream()
                     .map(n -> {
                         var msgB64 = Base64.getEncoder().encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
-                        var readFlag = n.read ? "1" : "0";
-                        return "1|" + n.role.name() + "|" + n.timestamp + "|" + readFlag + "|" + msgB64;
+                        return "2|" + n.role.name() + "|" + n.timestamp + "|" + msgB64;
                     })
                     .toList();
             Files.write(notificationsFile, lines, StandardCharsets.UTF_8);
@@ -1257,9 +1229,12 @@ public class HistoryOutputPanel extends JPanel {
             var lines = Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
             for (var line : lines) {
                 if (line == null || line.isBlank()) continue;
-                var parts = line.split("\\|", 5);
-                if (parts.length < 5) continue;
-                if (!"1".equals(parts[0])) continue;
+                var parts = line.split("\\|", 4);
+                if (parts.length < 4) continue;
+                
+                // Skip old format (version 1)
+                if ("1".equals(parts[0])) continue;
+                if (!"2".equals(parts[0])) continue;
 
                 NotificationRole role;
                 try {
@@ -1275,49 +1250,28 @@ public class HistoryOutputPanel extends JPanel {
                     ts = System.currentTimeMillis();
                 }
 
-                boolean read = "1".equals(parts[3]);
-
                 String message;
                 try {
-                    var bytes = Base64.getDecoder().decode(parts[4]);
+                    var bytes = Base64.getDecoder().decode(parts[3]);
                     message = new String(bytes, StandardCharsets.UTF_8);
                 } catch (IllegalArgumentException iae) {
-                    message = parts[4];
+                    message = parts[3];
                 }
 
-                notifications.add(new NotificationEntry(role, message, ts, read));
+                notifications.add(new NotificationEntry(role, message, ts));
             }
 
-            // Rebuild toolbar with only the latest unread item (no stacking)
             SwingUtilities.invokeLater(() -> {
-                // Recompute unread count
-                unreadNotificationCount = 0;
-                for (var n : notifications) {
-                    if (!n.read) unreadNotificationCount++;
-                }
                 updateNotificationsButton();
-
-                // Show only the latest unread in the toolbar
-                refreshLatestUnreadNotificationCard();
+                refreshLatestNotificationCard();
             });
         } catch (Exception e) {
             logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
         }
     }
 
-    // Dialog showing a list of all notifications (marks all as read)
+    // Dialog showing a list of all notifications
     private void showNotificationsDialog() {
-        // Mark all as read and reset counter
-        for (int i = 0; i < notifications.size(); i++) {
-            var entry = notifications.get(i);
-            if (!entry.read) {
-                notifications.set(i, new NotificationEntry(entry.role, entry.message, entry.timestamp, true));
-            }
-        }
-        unreadNotificationCount = 0;
-        updateNotificationsButton();
-        persistNotificationsAsync();
-
         var dialog = new JDialog(chrome.getFrame(), "Notifications", true);
         dialog.setLayout(new BorderLayout(8, 8));
 
@@ -1352,14 +1306,6 @@ public class HistoryOutputPanel extends JPanel {
                 var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
                 leftPanel.setOpaque(false);
 
-                if (!n.read) {
-                    var unreadIcon = Icons.NOTIFICATIONS_UNREAD;
-                    if (unreadIcon instanceof SwingUtil.ThemedIcon themedIcon) {
-                        unreadIcon = themedIcon.withSize(6);
-                    }
-                    var unreadLabel = new JLabel(unreadIcon);
-                    leftPanel.add(unreadLabel);
-                }
                 String timeStr = formatModified(n.timestamp);
                 String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
                 var msgLabel = new JLabel("<html><div style='width:100%; word-wrap: break-word; white-space: normal;'>"
@@ -1387,10 +1333,7 @@ public class HistoryOutputPanel extends JPanel {
                 });
                 closeBtn.addActionListener(e -> {
                     notifications.remove(originalIndex);
-                    if (!n.read && unreadNotificationCount > 0) {
-                        unreadNotificationCount--;
-                        updateNotificationsButton();
-                    }
+                    updateNotificationsButton();
                     persistNotificationsAsync();
                     dialog.dispose();
                     showNotificationsDialog();
@@ -1416,14 +1359,14 @@ public class HistoryOutputPanel extends JPanel {
         closeBtn.addActionListener(e -> dialog.dispose());
         footer.add(closeBtn);
 
-        var clearReadBtn = new MaterialButton("Clear Read");
-        clearReadBtn.addActionListener(e -> {
-            notifications.removeIf(n -> n.read);
+        var clearAllBtn = new MaterialButton("Clear All");
+        clearAllBtn.addActionListener(e -> {
+            notifications.clear();
+            updateNotificationsButton();
             persistNotificationsAsync();
             dialog.dispose();
-            showNotificationsDialog();
         });
-        footer.add(clearReadBtn);
+        footer.add(clearAllBtn);
 
         dialog.add(scroll, BorderLayout.CENTER);
         dialog.add(footer, BorderLayout.SOUTH);
@@ -1438,13 +1381,11 @@ public class HistoryOutputPanel extends JPanel {
         final NotificationRole role;
         final String message;
         final long timestamp;
-        final boolean read;
 
-        NotificationEntry(NotificationRole role, String message, long timestamp, boolean read) {
+        NotificationEntry(NotificationRole role, String message, long timestamp) {
             this.role = role;
             this.message = message;
             this.timestamp = timestamp;
-            this.read = read;
         }
     }
 
@@ -1454,13 +1395,7 @@ public class HistoryOutputPanel extends JPanel {
 
     private void removeNotificationCard() {
         Runnable r = () -> {
-            // Dismissing the visible card: mark the latest unread as read
-            markLatestUnreadAsRead();
-
-            // Refresh toolbar to show the next latest unread (or nothing)
-            refreshLatestUnreadNotificationCard();
-
-            // Update counter and persist
+            refreshLatestNotificationCard();
             updateNotificationsButton();
             persistNotificationsAsync();
         };
