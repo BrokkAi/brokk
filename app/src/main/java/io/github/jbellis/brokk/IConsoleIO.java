@@ -3,8 +3,8 @@ package io.github.jbellis.brokk;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
+import io.github.jbellis.brokk.gui.InstructionsPanel;
 import java.awt.*;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
@@ -68,8 +68,8 @@ public interface IConsoleIO {
     }
 
     /**
-     * Generic, non-blocking notifications for output panels or headless use.
-     * Default implementation forwards to systemOutput.
+     * Generic, non-blocking notifications for output panels or headless use. Default implementation forwards to
+     * systemOutput.
      */
     default void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
         systemOutput(message);

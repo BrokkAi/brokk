@@ -67,12 +67,13 @@ public final class HeadlessConsole implements IConsoleIO {
 
     @Override
     public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
-        String prefix = switch (role) {
-            case ERROR -> "[ERROR] ";
-            case CONFIRM -> "[CONFIRM] ";
-            case COST -> "[COST] ";
-            case INFO -> "[INFO] ";
-        };
+        String prefix =
+                switch (role) {
+                    case ERROR -> "[ERROR] ";
+                    case CONFIRM -> "[CONFIRM] ";
+                    case COST -> "[COST] ";
+                    case INFO -> "[INFO] ";
+                };
         if (role == HistoryOutputPanel.NotificationRole.ERROR) {
             System.err.println(prefix + message);
         } else {

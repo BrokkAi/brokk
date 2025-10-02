@@ -38,10 +38,16 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,12 +56,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Base64;
-import java.io.IOException;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -100,36 +100,47 @@ public class HistoryOutputPanel extends JPanel {
 
     private final MaterialButton copyButton;
     private final JPanel notificationAreaPanel;
+
     @Nullable
     private JScrollPane notificationScrollPane;
+
     private final MaterialButton notificationsButton = new MaterialButton();
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
     private int unreadNotificationCount = 0;
     private final Path notificationsFile;
 
-    public static enum NotificationRole { ERROR, CONFIRM, COST, INFO }
+    public static enum NotificationRole {
+        ERROR,
+        CONFIRM,
+        COST,
+        INFO
+    }
 
     // Resolve notification colors from ThemeColors for current theme.
     // Returns a list of [background, foreground, border] colors.
     private java.util.List<Color> resolveNotificationColors(NotificationRole role) {
         boolean isDark = chrome.themeManager.isDarkTheme();
         return switch (role) {
-            case ERROR -> java.util.List.of(
-                    ThemeColors.getColor(isDark, "notif_error_bg"),
-                    ThemeColors.getColor(isDark, "notif_error_fg"),
-                    ThemeColors.getColor(isDark, "notif_error_border"));
-            case CONFIRM -> java.util.List.of(
-                    ThemeColors.getColor(isDark, "notif_confirm_bg"),
-                    ThemeColors.getColor(isDark, "notif_confirm_fg"),
-                    ThemeColors.getColor(isDark, "notif_confirm_border"));
-            case COST -> java.util.List.of(
-                    ThemeColors.getColor(isDark, "notif_cost_bg"),
-                    ThemeColors.getColor(isDark, "notif_cost_fg"),
-                    ThemeColors.getColor(isDark, "notif_cost_border"));
-            case INFO -> java.util.List.of(
-                    ThemeColors.getColor(isDark, "notif_info_bg"),
-                    ThemeColors.getColor(isDark, "notif_info_fg"),
-                    ThemeColors.getColor(isDark, "notif_info_border"));
+            case ERROR ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_error_bg"),
+                        ThemeColors.getColor(isDark, "notif_error_fg"),
+                        ThemeColors.getColor(isDark, "notif_error_border"));
+            case CONFIRM ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_confirm_bg"),
+                        ThemeColors.getColor(isDark, "notif_confirm_fg"),
+                        ThemeColors.getColor(isDark, "notif_confirm_border"));
+            case COST ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_cost_bg"),
+                        ThemeColors.getColor(isDark, "notif_cost_fg"),
+                        ThemeColors.getColor(isDark, "notif_cost_border"));
+            case INFO ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_info_bg"),
+                        ThemeColors.getColor(isDark, "notif_info_fg"),
+                        ThemeColors.getColor(isDark, "notif_info_border"));
         };
     }
 
@@ -969,7 +980,8 @@ public class HistoryOutputPanel extends JPanel {
     public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
         Runnable r = () -> {
             // Track and increment unread count
-            notifications.add(new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis(), false));
+            notifications.add(
+                    new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis(), false));
             unreadNotificationCount++;
             updateNotificationsButton();
 
@@ -1064,7 +1076,8 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
-    private JPanel createNotificationCard(NotificationRole role, String message, @Nullable Runnable onAccept, @Nullable Runnable onReject) {
+    private JPanel createNotificationCard(
+            NotificationRole role, String message, @Nullable Runnable onAccept, @Nullable Runnable onReject) {
         var colors = resolveNotificationColors(role);
         Color bg = colors.get(0);
         Color fg = colors.get(1);
@@ -1077,7 +1090,8 @@ public class HistoryOutputPanel extends JPanel {
 
         // Center: show full message (including full cost details for COST)
         String display = compactMessageForToolbar(role, message);
-        var msg = new JLabel("<html><div style='width:480px; word-wrap: break-word; white-space: normal;'>" + escapeHtml(display) + "</div></html>");
+        var msg = new JLabel("<html><div style='width:480px; word-wrap: break-word; white-space: normal;'>"
+                + escapeHtml(display) + "</div></html>");
         msg.setForeground(fg);
         msg.setVerticalAlignment(JLabel.CENTER);
         msg.setHorizontalAlignment(JLabel.CENTER);
@@ -1127,8 +1141,6 @@ public class HistoryOutputPanel extends JPanel {
         if (message.length() <= max) return message;
         return message.substring(0, max - 3) + "...";
     }
-
-
 
     private static class RoundedPanel extends JPanel {
         private final int radius;
@@ -1192,8 +1204,7 @@ public class HistoryOutputPanel extends JPanel {
         try {
             var lines = notifications.stream()
                     .map(n -> {
-                        var msgB64 = Base64.getEncoder()
-                                .encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
+                        var msgB64 = Base64.getEncoder().encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
                         var readFlag = n.read ? "1" : "0";
                         return "1|" + n.role.name() + "|" + n.timestamp + "|" + readFlag + "|" + msgB64;
                     })
@@ -1286,8 +1297,9 @@ public class HistoryOutputPanel extends JPanel {
         } else {
             // Sort by timestamp descending (newest first)
             var sortedNotifications = new ArrayList<>(notifications);
-            sortedNotifications.sort(Comparator.comparingLong((NotificationEntry n) -> n.timestamp).reversed());
-            
+            sortedNotifications.sort(Comparator.comparingLong((NotificationEntry n) -> n.timestamp)
+                    .reversed());
+
             for (int i = 0; i < sortedNotifications.size(); i++) {
                 var n = sortedNotifications.get(i);
                 final int originalIndex = notifications.indexOf(n);
@@ -1299,7 +1311,7 @@ public class HistoryOutputPanel extends JPanel {
                 var card = new RoundedPanel(12, bg, border);
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
-                
+
                 // Apply visual indication for read messages
                 if (n.read) {
                     card.setOpaque(true);
@@ -1311,7 +1323,8 @@ public class HistoryOutputPanel extends JPanel {
                 // Left: message with bold timestamp at end
                 String timeStr = formatModified(n.timestamp);
                 String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
-                var msgLabel = new JLabel("<html><div style='width:500px; word-wrap: break-word; white-space: normal;'>" + combined + "</div></html>");
+                var msgLabel = new JLabel("<html><div style='width:500px; word-wrap: break-word; white-space: normal;'>"
+                        + combined + "</div></html>");
                 msgLabel.setForeground(fg);
                 msgLabel.setHorizontalAlignment(JLabel.LEFT);
                 msgLabel.setVerticalAlignment(JLabel.CENTER);
@@ -1357,12 +1370,12 @@ public class HistoryOutputPanel extends JPanel {
 
         // Footer with Ok and Clear Read buttons
         var footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        
+
         var closeBtn = new MaterialButton("Ok");
         SwingUtil.applyPrimaryButtonStyle(closeBtn);
         closeBtn.addActionListener(e -> dialog.dispose());
         footer.add(closeBtn);
-        
+
         var clearReadBtn = new MaterialButton("Clear Read");
         clearReadBtn.addActionListener(e -> {
             notifications.removeIf(n -> n.read);

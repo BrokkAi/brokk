@@ -35,11 +35,11 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
+import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
-import io.github.jbellis.brokk.gui.HistoryOutputPanel;
-import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -1302,7 +1302,8 @@ public class Llm {
                     var service = contextManager.getService();
                     var modelName = service.nameOf(model);
                     // Filter out cost notifications for Gemini Flash Lite unless explicitly enabled
-                    boolean isGeminiLite = "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.5-flash-light".equals(modelName);
+                    boolean isGeminiLite =
+                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.5-flash-light".equals(modelName);
                     if (isGeminiLite && !GlobalUiSettings.isShowGeminiLiteCostNotifications()) {
                         logger.debug("Skipping cost notification for {} (user preference for Gemini Lite)", modelName);
                         return;
@@ -1326,12 +1327,13 @@ public class Llm {
                                 .formatted(modelName, uncached, cached, output, think);
                     } else {
                         double cost = pricing.estimateCost(uncached, cached, output);
-                        java.text.DecimalFormat df = (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
+                        java.text.DecimalFormat df =
+                                (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
                         df.applyPattern("#,##0.0000");
                         String costStr = df.format(cost);
                         message = "$" + costStr + " for " + modelName
                                 + " (in %,d uncached, %,d cached, out %,d, think %,d)"
-                                .formatted(uncached, cached, output, think);
+                                        .formatted(uncached, cached, output, think);
                     }
 
                     try {
