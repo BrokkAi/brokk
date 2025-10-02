@@ -19,29 +19,25 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * FuzzyUsageAnalyzer
- *
- * <p>A lightweight, standalone usage finder that relies on analyzer metadata (when available) and can later fall back
- * to text search and LLM-based disambiguation for ambiguous short names.
- *
- * <p>POC scope: - API only: result types and entry points - Behavior for empty projects: return an empty Success result
+ * A lightweight, standalone usage finder that relies on analyzer metadata (when available) and can later fall back to
+ * text search and LLM-based disambiguation for ambiguous short names.
  */
-public final class FuzzyUsageAnalyzer {
+public final class FuzzyUsageFinder {
 
-    private static final Logger logger = LogManager.getLogger(FuzzyUsageAnalyzer.class);
+    private static final Logger logger = LogManager.getLogger(FuzzyUsageFinder.class);
 
     private final IProject project;
     private final TreeSitterAnalyzer analyzer;
     private final @Nullable Llm llm;
 
     /**
-     * Construct a FuzzyUsageAnalyzer.
+     * Construct a FuzzyUsageFinder.
      *
      * @param project the project providing files and configuration
      * @param analyzer the analyzer providing declarations/definitions
      * @param llm optional LLM for future disambiguation
      */
-    public FuzzyUsageAnalyzer(IProject project, TreeSitterAnalyzer analyzer, @Nullable Llm llm) {
+    public FuzzyUsageFinder(IProject project, TreeSitterAnalyzer analyzer, @Nullable Llm llm) {
         this.project = requireNonNull(project, "project");
         this.analyzer = requireNonNull(analyzer, "analyzer");
         this.llm = llm; // optional
