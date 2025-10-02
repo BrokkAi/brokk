@@ -954,11 +954,9 @@ public class HistoryOutputPanel extends JPanel {
             unreadNotificationCount++;
             updateNotificationsButton();
 
-            JPanel card = createNotificationCard(role, message, null, null);
-            notificationAreaPanel.add(card);
-            notificationAreaPanel.revalidate();
-            notificationAreaPanel.repaint();
-            updateNotificationScrollSize();
+            // Always show only the latest notification in the toolbar
+            refreshLatestUnreadNotificationCard();
+
             persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
@@ -975,11 +973,14 @@ public class HistoryOutputPanel extends JPanel {
             unreadNotificationCount++;
             updateNotificationsButton();
 
+            // Always show only the latest notification in the toolbar; for fresh CONFIRM, keep actions
+            notificationAreaPanel.removeAll();
             JPanel card = createNotificationCard(NotificationRole.CONFIRM, message, onAccept, onReject);
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
             updateNotificationScrollSize();
+
             persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
@@ -1021,6 +1022,48 @@ public class HistoryOutputPanel extends JPanel {
         notificationScrollPane.revalidate();
     }
 
+    // Show only the latest unread notification in the toolbar
+    private void refreshLatestUnreadNotificationCard() {
+        // Find the latest unread notification by timestamp
+        NotificationEntry latest = null;
+        for (var n : notifications) {
+            if (!n.read) {
+                if (latest == null || n.timestamp > latest.timestamp) {
+                    latest = n;
+                }
+            }
+        }
+
+        notificationAreaPanel.removeAll();
+        if (latest != null) {
+            JPanel card = createNotificationCard(latest.role, latest.message, null, null);
+            notificationAreaPanel.add(card);
+        }
+        notificationAreaPanel.revalidate();
+        notificationAreaPanel.repaint();
+        updateNotificationScrollSize();
+    }
+
+    // Marks the latest unread notification as read (used on dismiss) and updates counters
+    private void markLatestUnreadAsRead() {
+        int latestIdx = -1;
+        long latestTs = Long.MIN_VALUE;
+        for (int i = 0; i < notifications.size(); i++) {
+            var n = notifications.get(i);
+            if (!n.read && n.timestamp > latestTs) {
+                latestTs = n.timestamp;
+                latestIdx = i;
+            }
+        }
+        if (latestIdx >= 0) {
+            var entry = notifications.get(latestIdx);
+            notifications.set(latestIdx, new NotificationEntry(entry.role, entry.message, entry.timestamp, true));
+            if (unreadNotificationCount > 0) {
+                unreadNotificationCount--;
+            }
+        }
+    }
+
     private JPanel createNotificationCard(NotificationRole role, String message, @Nullable Runnable onAccept, @Nullable Runnable onReject) {
         var colors = resolveNotificationColors(role);
         Color bg = colors.get(0);
@@ -1032,22 +1075,9 @@ public class HistoryOutputPanel extends JPanel {
         card.setLayout(new BorderLayout(10, 6));
         card.setBorder(new EmptyBorder(6, 10, 6, 10));
 
-        // Left: icon or cost text
-        var iconLabel = new JLabel();
-        iconLabel.setForeground(fg);
-        if (role == NotificationRole.COST) {
-            String costText = extractCostText(message);
-            iconLabel.setText(costText);
-            iconLabel.setFont(iconLabel.getFont().deriveFont(Font.BOLD));
-        } else {
-            SwingUtilities.invokeLater(() -> iconLabel.setIcon(getNotificationIcon(role)));
-        }
-        iconLabel.setBorder(new EmptyBorder(0, 0, 0, 2));
-        card.add(iconLabel, BorderLayout.WEST);
-
-        // Center: compact message (cost is condensed in toolbar)
-        String compact = compactMessageForToolbar(role, message);
-        var msg = new JLabel("<html><div style='width:280px;'>" + escapeHtml(compact) + "</div></html>");
+        // Center: show full message (including full cost details for COST)
+        String display = compactMessageForToolbar(role, message);
+        var msg = new JLabel("<html><div style='width:280px;'>" + escapeHtml(display) + "</div></html>");
         msg.setForeground(fg);
         card.add(msg, BorderLayout.CENTER);
 
@@ -1056,36 +1086,28 @@ public class HistoryOutputPanel extends JPanel {
         actions.setOpaque(false);
 
         if (role == NotificationRole.CONFIRM) {
-            var acceptBtn = new MaterialButton();
+            var acceptBtn = new MaterialButton("Accept");
             acceptBtn.setToolTipText("Accept");
-            SwingUtilities.invokeLater(() -> acceptBtn.setIcon(Icons.CHECK));
             acceptBtn.addActionListener(e -> {
                 if (onAccept != null) onAccept.run();
-                removeNotificationCard(card);
+                removeNotificationCard();
             });
             actions.add(acceptBtn);
 
-            var rejectBtn = new MaterialButton();
+            var rejectBtn = new MaterialButton("Reject");
             rejectBtn.setToolTipText("Reject");
-            SwingUtilities.invokeLater(() -> rejectBtn.setIcon(Icons.REMOVE));
             rejectBtn.addActionListener(e -> {
                 if (onReject != null) onReject.run();
-                removeNotificationCard(card);
+                removeNotificationCard();
             });
             actions.add(rejectBtn);
-        } else if (role == NotificationRole.COST) {
-            // Keep toolbar compact: provide a shortcut to open the dialog for full details
-            var detailsBtn = new MaterialButton();
-            detailsBtn.setToolTipText("Open cost details");
-            SwingUtilities.invokeLater(() -> detailsBtn.setIcon(Icons.LIST));
-            detailsBtn.addActionListener(e -> showNotificationsDialog());
-            actions.add(detailsBtn);
         }
+        // No extra "details" button for COST; full details are already shown.
 
         var dismissBtn = new MaterialButton();
         dismissBtn.setToolTipText("Dismiss");
         SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLEAR_ALL));
-        dismissBtn.addActionListener(e -> removeNotificationCard(card));
+        dismissBtn.addActionListener(e -> removeNotificationCard());
         actions.add(dismissBtn);
 
         card.add(actions, BorderLayout.EAST);
@@ -1095,48 +1117,16 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private static String compactMessageForToolbar(NotificationRole role, String message) {
-        // Cost details are verbose; keep toolbar concise and let the dialog show full content
+        // Show full details for COST; compact other long messages to keep the toolbar tidy
         if (role == NotificationRole.COST) {
-            return "Cost details available";
+            return message;
         }
-        // Trim overly long messages to avoid a tall toolbar
         int max = 160;
         if (message.length() <= max) return message;
         return message.substring(0, max - 3) + "...";
     }
 
-    private static Icon getNotificationIcon(NotificationRole role) {
-        // Reuse existing icons to avoid new dependencies
-        return switch (role) {
-            case ERROR -> Icons.REMOVE;
-            case CONFIRM -> Icons.CHECK;
-            case COST -> Icons.LIST;
-            case INFO -> Icons.CHAT_BUBBLE;
-        };
-    }
 
-    // Extracts a cost token (e.g., "$0.0123") from a cost message.
-    private static String extractCostText(String message) {
-        message = message.trim();
-        // Typical format: "$0.0123 for <model> (details...)"
-        if (message.startsWith("$")) {
-            int space = message.indexOf(' ');
-            if (space > 0) return message.substring(0, space);
-            return message; // If there's no space, use the full message
-        }
-        // Fallback: find first '$' and read number-like characters after it
-        int dollar = message.indexOf('$');
-        if (dollar >= 0) {
-            int end = dollar + 1;
-            while (end < message.length()) {
-                char ch = message.charAt(end);
-                if (!(Character.isDigit(ch) || ch == '.' || ch == ',')) break;
-                end++;
-            }
-            return message.substring(dollar, Math.max(dollar + 1, end));
-        }
-        return "N/A";
-    }
 
     private static class RoundedPanel extends JPanel {
         private final int radius;
@@ -1253,21 +1243,17 @@ public class HistoryOutputPanel extends JPanel {
                 notifications.add(new NotificationEntry(role, message, ts, read));
             }
 
-            // Rebuild toolbar with unread items only
+            // Rebuild toolbar with only the latest unread item (no stacking)
             SwingUtilities.invokeLater(() -> {
-                notificationAreaPanel.removeAll();
+                // Recompute unread count
                 unreadNotificationCount = 0;
                 for (var n : notifications) {
-                    if (!n.read) {
-                        unreadNotificationCount++;
-                        var card = createNotificationCard(n.role, n.message, null, null);
-                        notificationAreaPanel.add(card);
-                    }
+                    if (!n.read) unreadNotificationCount++;
                 }
                 updateNotificationsButton();
-                updateNotificationScrollSize();
-                notificationAreaPanel.revalidate();
-                notificationAreaPanel.repaint();
+
+                // Show only the latest unread in the toolbar
+                refreshLatestUnreadNotificationCard();
             });
         } catch (Exception e) {
             logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
@@ -1355,12 +1341,17 @@ public class HistoryOutputPanel extends JPanel {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private void removeNotificationCard(JPanel card) {
+    private void removeNotificationCard() {
         Runnable r = () -> {
-            notificationAreaPanel.remove(card);
-            notificationAreaPanel.revalidate();
-            notificationAreaPanel.repaint();
-            updateNotificationScrollSize();
+            // Dismissing the visible card: mark the latest unread as read
+            markLatestUnreadAsRead();
+
+            // Refresh toolbar to show the next latest unread (or nothing)
+            refreshLatestUnreadNotificationCard();
+
+            // Update counter and persist
+            updateNotificationsButton();
+            persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
