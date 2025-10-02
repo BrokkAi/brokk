@@ -188,7 +188,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         // Create navigator with defensive checks
-        if (plainTextContent != null && textArea != null) {
+        if (plainTextContent != null) {
             this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
         } else {
             this.navigator = null;
@@ -237,13 +237,10 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         // Create navigator with defensive checks
-        if (plainTextContent != null && textArea != null) {
+        if (plainTextContent != null) {
             this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
         } else {
-            logger.warn(
-                    "Cannot create navigator: plainTextContent={}, textArea={}",
-                    plainTextContent != null ? "valid" : "null",
-                    textArea != null ? "valid" : "null");
+            logger.warn("Cannot create navigator: plainTextContent is null");
             this.navigator = null;
         }
 
@@ -449,7 +446,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         var diffNode = getDiffNode();
         if (diffNode != null) {
             var nodeName = diffNode.getName();
-            if (nodeName != null && !nodeName.isEmpty()) {
+            if (!nodeName.isEmpty()) {
                 // Extract filename from path for display
                 var lastSlash = nodeName.lastIndexOf('/');
                 var displayName = lastSlash >= 0 && lastSlash < nodeName.length() - 1
@@ -536,14 +533,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             public void componentResized(java.awt.event.ComponentEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     // Force revalidation of scroll pane and text area
-                    if (scrollPane != null) {
-                        scrollPane.revalidate();
-                        scrollPane.repaint();
-                    }
-                    if (textArea != null) {
-                        textArea.revalidate();
-                        textArea.repaint();
-                    }
+                    scrollPane.revalidate();
+                    scrollPane.repaint();
+                    textArea.revalidate();
+                    textArea.repaint();
+
                     // Force revalidation of custom line number list
                     if (customLineNumberList != null) {
                         customLineNumberList.revalidate();
@@ -578,9 +572,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             updateSyntaxStyle();
 
             // Apply theme to the composite highlighter (which will forward to JMHighlighter)
-            if (compositeHighlighter != null) {
-                compositeHighlighter.applyTheme(guiTheme);
-            }
+            compositeHighlighter.applyTheme(guiTheme);
 
             // Apply RSyntax theme
             theme.apply(textArea);

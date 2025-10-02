@@ -123,11 +123,9 @@ public final class UnifiedDiffHighlighter {
      * @param highlighter The JMHighlighter to clear
      */
     public static void removeHighlights(JMHighlighter highlighter) {
-        if (highlighter != null) {
-            highlighter.removeHighlights(JMHighlighter.LAYER0);
-            highlighter.removeHighlights(JMHighlighter.LAYER1);
-            highlighter.removeHighlights(JMHighlighter.LAYER2);
-        }
+        highlighter.removeHighlights(JMHighlighter.LAYER0);
+        highlighter.removeHighlights(JMHighlighter.LAYER1);
+        highlighter.removeHighlights(JMHighlighter.LAYER2);
     }
 
     /**

@@ -542,7 +542,7 @@ public class UnifiedDiffGenerator {
 
     /** Split content into lines, handling different line endings. */
     private static List<String> splitIntoLines(String content) {
-        if (content == null || content.isEmpty()) {
+        if (content.isEmpty()) {
             return new ArrayList<>();
         }
 
@@ -558,9 +558,6 @@ public class UnifiedDiffGenerator {
      * @return The line with all line endings stripped
      */
     private static String normalizeLineEndings(String line) {
-        if (line == null) {
-            return "";
-        }
         // Use \R to match any Unicode line break sequence
         return line.replaceAll("\\R", "");
     }

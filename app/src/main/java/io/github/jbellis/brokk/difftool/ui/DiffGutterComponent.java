@@ -236,7 +236,7 @@ public class DiffGutterComponent extends JComponent {
                 startLine = Math.max(0, startLine);
                 endLine = Math.min(textArea.getLineCount() - 1, endLine);
 
-                if (unifiedDocument != null && unifiedDocument.getFilteredLines() != null) {
+                if (unifiedDocument != null) {
                     int diffDocumentLines = unifiedDocument.getFilteredLines().size();
                     endLine = Math.min(endLine, diffDocumentLines - 1);
                 }
@@ -465,7 +465,7 @@ public class DiffGutterComponent extends JComponent {
         }
 
         var filteredLines = unifiedDocument.getFilteredLines();
-        if (filteredLines == null || filteredLines.isEmpty()) {
+        if (filteredLines.isEmpty()) {
             return null;
         }
 
