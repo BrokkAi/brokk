@@ -27,6 +27,7 @@ import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -929,15 +930,14 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
-        // Notifications counter button
-        SwingUtilities.invokeLater(() -> {
-            notificationsButton.setIcon(Icons.NOTIFICATIONS);
-        });
+        // Notifications button
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
-        notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+        SwingUtilities.invokeLater(() -> {
+            notificationsButton.setIcon(Icons.NOTIFICATIONS);
+            notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+        });
         buttonsPanel.add(notificationsButton);
-        updateNotificationsButton();
 
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
@@ -1175,16 +1175,41 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
-    // Update the notifications counter button (icon text and enabled state)
-    private void updateNotificationsButton() {
-        int count = notifications.size();
-        if (count > 0) {
-            notificationsButton.setText(String.valueOf(count));
-        } else {
-            notificationsButton.setText("");
+    private static class ScrollableWidthPanel extends JPanel implements Scrollable {
+        ScrollableWidthPanel(LayoutManager layout) {
+            super(layout);
+            setOpaque(false);
         }
-        notificationsButton.revalidate();
-        notificationsButton.repaint();
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 64;
+        }
+    }
+
+    // Update the notifications button (removed count display)
+    private void updateNotificationsButton() {
+        // No-op: button just shows icon without count
     }
 
     // Notification persistence
@@ -1205,13 +1230,15 @@ public class HistoryOutputPanel extends JPanel {
 
     private void persistNotifications() {
         try {
-            var lines = notifications.stream()
+            var linesToPersist = notifications.stream()
+                    .sorted(Comparator.comparingLong((NotificationEntry n) -> n.timestamp).reversed())
+                    .limit(100)
                     .map(n -> {
                         var msgB64 = Base64.getEncoder().encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
                         return "2|" + n.role.name() + "|" + n.timestamp + "|" + msgB64;
                     })
                     .toList();
-            Files.write(notificationsFile, lines, StandardCharsets.UTF_8);
+            Files.write(notificationsFile, linesToPersist, StandardCharsets.UTF_8);
         } catch (Exception e) {
             logger.warn("Failed to persist notifications to {}", notificationsFile, e);
         }
@@ -1267,16 +1294,21 @@ public class HistoryOutputPanel extends JPanel {
 
     // Dialog showing a list of all notifications
     private void showNotificationsDialog() {
-        var dialog = new JDialog(chrome.getFrame(), "Notifications", true);
+        var dialog = new JDialog(chrome.getFrame(), "Notifications (" + notifications.size() + ")", true);
         dialog.setLayout(new BorderLayout(8, 8));
 
         // Build list panel
-        var listPanel = new JPanel();
-        listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
-        listPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
+        var listPanel = new JPanel(new GridBagLayout());
+        listPanel.setOpaque(false);
+        listPanel.setBorder(new EmptyBorder(0, 8, 0, 8));
 
         if (notifications.isEmpty()) {
-            listPanel.add(new JLabel("No notifications."));
+            GridBagConstraints gbcEmpty = new GridBagConstraints();
+            gbcEmpty.gridx = 0;
+            gbcEmpty.gridy = 0;
+            gbcEmpty.weightx = 1.0;
+            gbcEmpty.fill = GridBagConstraints.HORIZONTAL;
+            listPanel.add(new JLabel("No notifications."), gbcEmpty);
         } else {
             // Sort by timestamp descending (newest first)
             var sortedNotifications = new ArrayList<>(notifications);
@@ -1294,7 +1326,6 @@ public class HistoryOutputPanel extends JPanel {
                 var card = new RoundedPanel(12, bg, border);
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
-                card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
                 card.setMinimumSize(new Dimension(0, 30));
 
                 // Left: unread indicator (if unread) + message with bold timestamp at end
@@ -1339,21 +1370,39 @@ public class HistoryOutputPanel extends JPanel {
 
                 card.add(actions, BorderLayout.EAST);
 
-                listPanel.add(card);
-                listPanel.add(Box.createVerticalStrut(6));
+                GridBagConstraints gbc = new GridBagConstraints();
+                gbc.gridx = 0;
+                gbc.gridy = i;
+                gbc.weightx = 1.0;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                int bottomInset = (i == sortedNotifications.size() - 1) ? 0 : 6;
+                gbc.insets = new Insets(0, 0, bottomInset, 0);
+                listPanel.add(card, gbc);
             }
+
         }
 
-        var scroll = new JScrollPane(listPanel);
+        var listContainer = new ScrollableWidthPanel(new BorderLayout());
+        listContainer.add(listPanel, BorderLayout.NORTH);
+        var scroll = new JScrollPane(listContainer);
         scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
-        // Footer with Ok and Clear Read buttons
-        var footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        // Footer with limit note and buttons
+        var footer = new JPanel(new BorderLayout());
+        footer.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        var noteLabel = new JLabel("The most recent 100 notifications are retained.");
+        noteLabel.setFont(noteLabel.getFont().deriveFont(Font.ITALIC));
+        noteLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        footer.add(noteLabel, BorderLayout.WEST);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 
         var closeBtn = new MaterialButton("Ok");
         SwingUtil.applyPrimaryButtonStyle(closeBtn);
         closeBtn.addActionListener(e -> dialog.dispose());
-        footer.add(closeBtn);
+        buttonPanel.add(closeBtn);
 
         var clearAllBtn = new MaterialButton("Clear All");
         clearAllBtn.addActionListener(e -> {
@@ -1363,7 +1412,9 @@ public class HistoryOutputPanel extends JPanel {
             persistNotificationsAsync();
             dialog.dispose();
         });
-        footer.add(clearAllBtn);
+        buttonPanel.add(clearAllBtn);
+
+        footer.add(buttonPanel, BorderLayout.EAST);
 
         dialog.add(scroll, BorderLayout.CENTER);
         dialog.add(footer, BorderLayout.SOUTH);
