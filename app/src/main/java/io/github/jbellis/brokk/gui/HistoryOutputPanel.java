@@ -1165,10 +1165,8 @@ public class HistoryOutputPanel extends JPanel {
     private void updateNotificationsButton() {
         if (unreadNotificationCount > 0) {
             notificationsButton.setText(String.valueOf(unreadNotificationCount));
-            notificationsButton.setEnabled(true);
         } else {
             notificationsButton.setText("");
-            notificationsButton.setEnabled(false);
         }
         notificationsButton.revalidate();
         notificationsButton.repaint();
@@ -1286,8 +1284,13 @@ public class HistoryOutputPanel extends JPanel {
         if (notifications.isEmpty()) {
             listPanel.add(new JLabel("No notifications."));
         } else {
-            for (int i = 0; i < notifications.size(); i++) {
-                var n = notifications.get(i);
+            // Sort by timestamp descending (newest first)
+            var sortedNotifications = new ArrayList<>(notifications);
+            sortedNotifications.sort(Comparator.comparingLong((NotificationEntry n) -> n.timestamp).reversed());
+            
+            for (int i = 0; i < sortedNotifications.size(); i++) {
+                var n = sortedNotifications.get(i);
+                final int originalIndex = notifications.indexOf(n);
                 var colors = resolveNotificationColors(n.role);
                 Color bg = colors.get(0);
                 Color fg = colors.get(1);
@@ -1311,12 +1314,11 @@ public class HistoryOutputPanel extends JPanel {
                 var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
                 actions.setOpaque(false);
 
-                final int index = i;
                 var dismissBtn = new MaterialButton();
                 dismissBtn.setToolTipText("Dismiss");
                 SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLOSE));
                 dismissBtn.addActionListener(e -> {
-                    notifications.remove(index);
+                    notifications.remove(originalIndex);
                     persistNotificationsAsync();
                     dialog.dispose();
                     showNotificationsDialog();
@@ -1333,8 +1335,18 @@ public class HistoryOutputPanel extends JPanel {
         var scroll = new JScrollPane(listPanel);
         scroll.setBorder(BorderFactory.createEmptyBorder());
 
-        // Footer with Close button
+        // Footer with Clear Read and Close buttons
         var footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        
+        var clearReadBtn = new MaterialButton("Clear Read");
+        clearReadBtn.addActionListener(e -> {
+            notifications.removeIf(n -> n.read);
+            persistNotificationsAsync();
+            dialog.dispose();
+            showNotificationsDialog();
+        });
+        footer.add(clearReadBtn);
+        
         var closeBtn = new MaterialButton("Close");
         closeBtn.addActionListener(e -> dialog.dispose());
         footer.add(closeBtn);
