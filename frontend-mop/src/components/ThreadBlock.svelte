@@ -54,6 +54,41 @@
         e.preventDefault();
         deleteHistoryTaskByThreadId(threadId);
     }
+
+    async function handleCopy(event: CustomEvent<{ threadId: number | undefined }>) {
+        // Only act if the event is for this thread (when provided)
+        const detailThreadId = event?.detail?.threadId;
+        if (detailThreadId !== undefined && detailThreadId !== threadId) {
+            return;
+        }
+
+        const xmlMessages = bubbles
+            .map(b => {
+                const t = b.type.toLowerCase();
+                return `  <message type="${t}">${b.markdown}</message>`;
+            })
+            .join('\n');
+
+        const xml = `<thread>\n${xmlMessages}\n</thread>`;
+
+        try {
+            await navigator.clipboard.writeText(xml);
+        } catch (err) {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = xml;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'absolute';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+            } catch {
+                // no-op
+            }
+        }
+    }
 </script>
 
 <div class="thread-block" data-thread-id={threadId} data-collapsed={collapsed}>
@@ -86,6 +121,7 @@
             threadId={threadId}
             {taskSequence}
             onDelete={handleDelete}
+            on:copy-thread={handleCopy}
         />
     </header>
 
@@ -119,6 +155,7 @@
                             threadId={threadId}
                             {taskSequence}
                             onDelete={handleDelete}
+                            on:copy-thread={handleCopy}
                         />
                     </div>
                 {/if}
