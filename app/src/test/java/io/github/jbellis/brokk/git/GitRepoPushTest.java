@@ -132,6 +132,35 @@ public class GitRepoPushTest {
     }
 
     @Test
+    void testPushAndSetRemoteTracking_SshUrlDoesNotRequireToken() throws Exception {
+        // Create a new branch with a commit
+        localGit.checkout().setCreateBranch(true).setName("feature").call();
+        Path featureFile = tempDir.resolve("feature.txt");
+        Files.writeString(featureFile, "feature content\n", StandardCharsets.UTF_8);
+        localGit.add().addFilepattern("feature.txt").call();
+        localGit.commit().setMessage("Add feature").call();
+
+        // Change the remote URL to SSH format
+        var config = localGit.getRepository().getConfig();
+        config.setString("remote", "origin", "url", "git@github.com:test/repo.git");
+        config.save();
+
+        // Verify the remote URL was changed
+        assertEquals("git@github.com:test/repo.git", localRepo.getRemoteUrl("origin"));
+
+        // The push will fail (no SSH keys/invalid URL), but it should NOT throw
+        // the "token required" error - SSH URLs should use JGit's default handling
+        var exception = assertThrows(Exception.class, () -> {
+            localRepo.pushAndSetRemoteTracking("feature", "origin");
+        });
+
+        // Verify it's NOT the token required error
+        assertFalse(
+                exception.getMessage().contains("GitHub token is required"),
+                "SSH URLs should not require GitHub token. Got: " + exception.getMessage());
+    }
+
+    @Test
     void testPushAndSetRemoteTracking_FileProtocolSucceeds() throws Exception {
         // Create a new branch with a commit
         localGit.checkout().setCreateBranch(true).setName("feature").call();
