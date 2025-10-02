@@ -1090,11 +1090,11 @@ public class HistoryOutputPanel extends JPanel {
 
         // Center: show full message (including full cost details for COST)
         String display = compactMessageForToolbar(role, message);
-        var msg = new JLabel("<html><div style='width:480px; word-wrap: break-word; white-space: normal;'>"
+        var msg = new JLabel("<html><div style='width:100%; word-wrap: break-word; white-space: normal;'>"
                 + escapeHtml(display) + "</div></html>");
         msg.setForeground(fg);
         msg.setVerticalAlignment(JLabel.CENTER);
-        msg.setHorizontalAlignment(JLabel.CENTER);
+        msg.setHorizontalAlignment(JLabel.LEFT);
         card.add(msg, BorderLayout.CENTER);
 
         // Right: actions
