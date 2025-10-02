@@ -2860,19 +2860,25 @@ public abstract class TreeSitterAnalyzer
         if (range.isEmpty()) return null;
 
         for (var declaration : getDeclarationsInFile(file)) {
-            if (rangesOf(declaration).stream().anyMatch(o -> o.isContainedWithin(range))) {
-                return enclosingCodeUnit(declaration, range);
+            // Check if the provided range lies within this declaration's range
+            if (rangesOf(declaration).stream().anyMatch(declRange -> range.isContainedWithin(declRange))) {
+                // Try to find a deeper child; if none, the declaration itself is the enclosing unit
+                var candidate = enclosingCodeUnit(declaration, range);
+                return candidate != null ? candidate : declaration;
             }
         }
 
         return null;
     }
 
-    private CodeUnit enclosingCodeUnit(CodeUnit parent, Range range) {
+    private @Nullable CodeUnit enclosingCodeUnit(CodeUnit parent, Range range) {
         for (var child : childrenOf(parent)) {
-            if (rangesOf(child).stream().anyMatch(o -> o.isContainedWithin(range)))
-                return enclosingCodeUnit(child, range);
+            if (rangesOf(child).stream().anyMatch(childRange -> range.isContainedWithin(childRange))) {
+                var deeper = enclosingCodeUnit(child, range);
+                return deeper != null ? deeper : child;
+            }
         }
+        // No deeper child matched; caller should treat 'parent' as enclosing if needed
         return null;
     }
 }

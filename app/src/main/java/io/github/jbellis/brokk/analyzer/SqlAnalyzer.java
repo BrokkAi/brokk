@@ -10,13 +10,14 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
-    // private final IProject project; // Unused field
+    private final IProject project;
     private final Map<ProjectFile, List<CodeUnit>> declarationsByFile;
-    final Map<CodeUnit, List<TreeSitterAnalyzer.Range>> rangesByCodeUnit; // Made package-private for testing
+    final Map<CodeUnit, List<Range>> rangesByCodeUnit; // Made package-private for testing
     private final List<CodeUnit> allDeclarationsList;
     private final Map<String, List<CodeUnit>> definitionsByFqName;
 
@@ -30,7 +31,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     public SqlAnalyzer(
             IProject projectInstance,
             Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
-        // this.project = project; // Unused field
+        this.project = projectInstance;
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
         this.allDeclarationsList = new ArrayList<>();
@@ -150,6 +151,11 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
+    public IProject getProject() {
+        return project;
+    }
+
+    @Override
     public List<CodeUnit> getAllDeclarations() {
         return Collections.unmodifiableList(allDeclarationsList);
     }
@@ -175,6 +181,50 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
             return Optional.of(cus.get(0));
         }
         return Optional.empty(); // Ambiguous or not found
+    }
+
+    @Override
+    public List<String> importStatementsOf(ProjectFile file) {
+        return List.of();
+    }
+
+    @Override
+    public @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
+        var declarations = declarationsByFile.get(file);
+        if (declarations == null || declarations.isEmpty()) {
+            logger.debug(
+                    "No declarations found for file {} when searching for enclosing range [{}..{})",
+                    file.absPath(),
+                    range.startByte(),
+                    range.endByte());
+            return null;
+        }
+
+        var best = declarations.stream()
+                .flatMap(cu -> rangesByCodeUnit.getOrDefault(cu, List.of()).stream()
+                        .filter(range::isContainedWithin)
+                        .map(r -> Map.entry(cu, r)))
+                .min(Comparator.comparingInt(
+                        e -> e.getValue().endByte() - e.getValue().startByte()))
+                .map(Map.Entry::getKey)
+                .orElse(null);
+
+        if (best != null) {
+            logger.debug(
+                    "Found enclosing SQL CodeUnit {} for range [{}..{}) in file {}",
+                    best.fqName(),
+                    range.startByte(),
+                    range.endByte(),
+                    file.absPath());
+        } else {
+            logger.debug(
+                    "No enclosing SQL CodeUnit for range [{}..{}) in file {}",
+                    range.startByte(),
+                    range.endByte(),
+                    file.absPath());
+        }
+
+        return best;
     }
 
     @Override

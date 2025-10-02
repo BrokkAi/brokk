@@ -28,7 +28,9 @@ public interface IAnalyzer {
     // Summarization
 
     /** The project this analyzer targets */
-    IProject getProject();
+    default IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
 
     default List<CodeUnit> getMembersInClass(String fqClass) {
         throw new UnsupportedOperationException();
@@ -244,14 +246,18 @@ public interface IAnalyzer {
     }
 
     /** @return the import snippets for the given file where other code units may be referred to by. */
-    List<String> importStatementsOf(ProjectFile file);
+    default List<String> importStatementsOf(ProjectFile file) {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      *     invalid.
      */
     @Nullable
-    CodeUnit enclosingCodeUnit(ProjectFile file, Range range);
+    default CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
+        throw new UnsupportedOperationException();
+    }
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
