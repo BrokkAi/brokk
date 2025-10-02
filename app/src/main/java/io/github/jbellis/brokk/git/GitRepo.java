@@ -643,10 +643,9 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.debug("Pushing branch {} to origin", branchName);
         var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", branchName, branchName));
 
-        Iterable<PushResult> results = git.push()
-                .setRemote("origin") // Default to "origin"
-                .setRefSpecs(refSpec)
-                .call();
+        var pushCommand = git.push().setRemote("origin").setRefSpecs(refSpec);
+        applyGitHubAuthentication(pushCommand, getRemoteUrl("origin"));
+        Iterable<PushResult> results = pushCommand.call();
         List<String> rejectionMessages = new ArrayList<>();
 
         for (var result : results) {
@@ -754,23 +753,38 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Applies GitHub token authentication to a git transport command if the remote URL is a GitHub HTTPS URL. For all
+     * other URLs (SSH, non-GitHub HTTPS, file, etc.), does nothing and lets JGit use its default handling.
+     *
+     * @param command The git transport command (push, pull, fetch, clone)
+     * @param remoteUrl The remote URL to check
+     * @throws GitAPIException if GitHub HTTPS URL is detected but no token is configured
+     */
+    public <T, C extends org.eclipse.jgit.api.TransportCommand<C, T>> void applyGitHubAuthentication(
+            C command, @Nullable String remoteUrl) throws GitAPIException {
+        // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
+        if (remoteUrl == null || !remoteUrl.startsWith("https://") || !remoteUrl.contains("github.com")) {
+            return;
+        }
+
+        // GitHub HTTPS requires token
+        logger.debug("Using GitHub token authentication for: {}", remoteUrl);
+        var githubToken = io.github.jbellis.brokk.MainProject.getGitHubToken();
+        if (!githubToken.trim().isEmpty()) {
+            command.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", githubToken));
+        } else {
+            throw new GitAPIException("GitHub token required for HTTPS authentication. "
+                    + "Configure in Settings → Global → GitHub, or use SSH URL instead.") {};
+        }
+    }
+
+    /**
      * Performs push with authentication for HTTPS URLs using GitHub token. SSH URLs use JGit's default SSH
      * authentication.
      */
     private Iterable<PushResult> performPushWithAuthentication(PushCommand pushCommand, @Nullable String remoteUrl)
             throws GitAPIException {
-        if (remoteUrl != null && remoteUrl.startsWith("https://")) {
-            // HTTPS URL - use GitHub token authentication
-            logger.debug("Using HTTPS token authentication for: {}", remoteUrl);
-            var githubToken = io.github.jbellis.brokk.MainProject.getGitHubToken();
-            if (!githubToken.trim().isEmpty()) {
-                pushCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", githubToken));
-            } else {
-                throw new GitAPIException("GitHub token is required for HTTPS authentication. "
-                        + "Please configure your token in Settings → Global → GitHub.") {};
-            }
-        }
-        // For SSH URLs (git@, ssh://, etc.) and other protocols, use JGit's default handling
+        applyGitHubAuthentication(pushCommand, remoteUrl);
         return pushCommand.call();
     }
 
@@ -782,18 +796,21 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public void fetchAll(ProgressMonitor pm) throws GitAPIException {
         for (String remote : repository.getRemoteNames()) {
-            git.fetch()
+            var fetchCommand = git.fetch()
                     .setRemote(remote)
                     .setRemoveDeletedRefs(true) // --prune
-                    .setProgressMonitor(pm)
-                    .call();
+                    .setProgressMonitor(pm);
+            applyGitHubAuthentication(fetchCommand, getRemoteUrl(remote));
+            fetchCommand.call();
         }
         invalidateCaches(); // Invalidate caches & ref-db
     }
 
     /** Pull changes from the remote repository for the current branch */
     public void pull() throws GitAPIException {
-        git.pull().call();
+        var pullCommand = git.pull();
+        applyGitHubAuthentication(pullCommand, getRemoteUrl("origin"));
+        pullCommand.call();
     }
 
     /** Get a set of commit IDs that exist in the local branch but not in its remote tracking branch */
@@ -2249,6 +2266,18 @@ public class GitRepo implements Closeable, IGitRepo {
                     .setURI(effectiveUrl)
                     .setDirectory(directory.toFile())
                     .setCloneAllBranches(depth <= 0);
+
+            // Apply GitHub authentication if needed
+            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
+                var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
+                if (!token.trim().isEmpty()) {
+                    cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
+                } else {
+                    throw new GitAPIException("GitHub token required to clone from github.com via HTTPS. "
+                            + "Configure in Settings → Global → GitHub, or use SSH URL.") {};
+                }
+            }
+
             if (depth > 0) {
                 cloneCmd.setDepth(depth);
                 cloneCmd.setNoTags();
@@ -2290,6 +2319,17 @@ public class GitRepo implements Closeable, IGitRepo {
                     .setURI(effectiveUrl)
                     .setDirectory(directory.toFile())
                     .setCloneAllBranches(depth <= 0);
+
+            // Apply GitHub authentication if needed
+            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
+                var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
+                if (!token.trim().isEmpty()) {
+                    cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
+                } else {
+                    throw new GitAPIException("GitHub token required to clone from github.com via HTTPS. "
+                            + "Configure in Settings → Global → GitHub, or use SSH URL.") {};
+                }
+            }
 
             if (branchOrTag != null && !branchOrTag.trim().isEmpty()) {
                 cloneCmd.setBranch(branchOrTag);
