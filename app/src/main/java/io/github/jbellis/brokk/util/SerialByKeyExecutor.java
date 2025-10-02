@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,7 +28,7 @@ public class SerialByKeyExecutor {
      * @param executor the ExecutorService to use
      */
     public SerialByKeyExecutor(ExecutorService executor) {
-        this.executor = Objects.requireNonNull(executor);
+        this.executor = executor;
     }
 
     /**

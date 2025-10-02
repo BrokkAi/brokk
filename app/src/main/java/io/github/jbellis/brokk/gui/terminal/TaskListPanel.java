@@ -1,9 +1,13 @@
 package io.github.jbellis.brokk.gui.terminal;
 
+import static java.util.Objects.requireNonNull;
+
 import com.google.common.base.Splitter;
-import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -19,6 +23,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -26,12 +31,13 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
+import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
-import java.awt.font.TextAttribute;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -40,6 +46,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -48,16 +55,20 @@ import javax.swing.DefaultListModel;
 import javax.swing.DropMode;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.JSeparator;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.TransferHandler;
@@ -66,6 +77,7 @@ import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
@@ -76,25 +88,29 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable UUID sessionIdAtLoad = null;
     private @Nullable IContextManager registeredContextManager = null;
 
-    private final DefaultListModel<TaskItem> model = new DefaultListModel<>();
+    private final DefaultListModel<@Nullable TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
     private final JTextField input = new JTextField();
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
+    private final MaterialButton playAllBtn = new MaterialButton();
+    private final MaterialButton combineBtn = new MaterialButton();
+    private final MaterialButton splitBtn = new MaterialButton();
     private final MaterialButton clearCompletedBtn = new MaterialButton();
-    private final IConsoleIO console;
+    private final Chrome chrome;
     private final Timer llmStateTimer;
     private final Timer runningFadeTimer;
     private long runningAnimStartMs = 0L;
 
-    private @Nullable JTextField inlineEditor = null;
+    private @Nullable JTextArea inlineEditor = null;
     private int editingIndex = -1;
     private @Nullable Integer runningIndex = null;
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
+    private @Nullable List<Integer> currentRunOrder = null;
 
-    public TaskListPanel(IConsoleIO console) {
+    public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 4));
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -103,11 +119,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
-        this.console = console;
+        this.chrome = chrome;
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
+        list.setFixedCellHeight(-1);
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
         list.addListSelectionListener(e -> updateButtonStates());
@@ -151,6 +168,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
+        list.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "copyTasks");
+        list.getActionMap().put("copyTasks", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                copySelectedTasks();
+            }
+        });
+
         // Run Architect with Ctrl/Cmd+Enter
         list.getInputMap()
                 .put(
@@ -172,6 +201,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var editItem = new JMenuItem("Edit");
         editItem.addActionListener(e -> editSelected());
         popup.add(editItem);
+        var splitItem = new JMenuItem("Split...");
+        splitItem.addActionListener(e -> splitSelectedTask());
+        popup.add(splitItem);
+        var copyItem = new JMenuItem("Copy");
+        copyItem.addActionListener(e -> copySelectedTasks());
+        popup.add(copyItem);
         var deleteItem = new JMenuItem("Delete");
         deleteItem.addActionListener(e -> removeSelected());
         popup.add(deleteItem);
@@ -200,6 +235,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     boolean block = includesRunning || includesPending;
                     toggleItem.setEnabled(!block);
                     editItem.setEnabled(!block);
+                    boolean exactlyOne = sel.length == 1;
+                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
                     deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
@@ -228,6 +265,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     boolean block = includesRunning || includesPending;
                     toggleItem.setEnabled(!block);
                     editItem.setEnabled(!block);
+                    boolean exactlyOne = sel.length == 1;
+                    splitItem.setEnabled(!block && exactlyOne && !queueActive);
                     deleteItem.setEnabled(!block);
                     popup.show(list, e.getX(), e.getY());
                 }
@@ -244,9 +283,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Modern input: placeholder + Enter adds, Escape clears
-        input.putClientProperty("JTextField.placeholderText", "Add a task...");
+        // Single-line input (no wrap). Shortcuts: Enter adds, Ctrl/Cmd+Enter adds, Ctrl/Cmd+Shift+Enter adds and keeps,
+        // Escape clears
+        input.setColumns(50);
+        input.putClientProperty("JTextField.placeholderText", "Add task here and press Enter");
+        input.setToolTipText("Add task here and press Enter");
+        // Enter adds
         input.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "addTask");
+        // Ctrl/Cmd+Enter also adds
+        input.getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "addTask");
         input.getActionMap().put("addTask", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -256,7 +305,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         input.getInputMap()
                 .put(
                         KeyStroke.getKeyStroke(
-                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                                KeyEvent.VK_ENTER,
+                                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | KeyEvent.SHIFT_DOWN_MASK),
                         "addTaskKeep");
         input.getActionMap().put("addTaskKeep", new AbstractAction() {
             @Override
@@ -306,6 +356,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
+        playAllBtn.setIcon(Icons.FAST_FORWARD);
+        playAllBtn.setToolTipText(
+                "<html><body style='width:300px'>Run Architect on all tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
+        playAllBtn.addActionListener(e -> runArchitectOnAll());
+
+        combineBtn.setIcon(Icons.CELL_MERGE);
+        combineBtn.setToolTipText(
+                "<html><body style='width:300px'>Combine two selected tasks into one new task.<br>The text from both tasks will be merged and the originals deleted.<br>Enabled only when exactly 2 tasks are selected.</body></html>");
+        combineBtn.addActionListener(e -> combineSelectedTasks());
+
+        splitBtn.setIcon(Icons.FORK_RIGHT);
+        splitBtn.setToolTipText(
+                "<html><body style='width:300px'>Split the selected task into multiple tasks.<br>Enter one task per line in the dialog.</body></html>");
+        splitBtn.addActionListener(e -> splitSelectedTask());
+
         clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
         clearCompletedBtn.setToolTipText(
                 "<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
@@ -316,23 +381,48 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
             playBtn.setMargin(new Insets(0, 0, 0, 0));
+            playAllBtn.setMargin(new Insets(0, 0, 0, 0));
+            combineBtn.setMargin(new Insets(0, 0, 0, 0));
+            splitBtn.setMargin(new Insets(0, 0, 0, 0));
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
-            JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-            buttonBar.setOpaque(false);
-            buttonBar.add(removeBtn);
-            buttonBar.add(toggleDoneBtn);
-            buttonBar.add(playBtn);
-            buttonBar.add(clearCompletedBtn);
+            // Top toolbar (below title, above list): left group + separator + play all/clear completed
+            JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            topToolbar.setOpaque(false);
 
-            gbc.gridx = 1;
-            gbc.weightx = 0.0;
-            gbc.fill = GridBagConstraints.NONE;
-            controls.add(buttonBar, gbc);
+            // Left group: remaining buttons
+            topToolbar.add(removeBtn);
+            topToolbar.add(toggleDoneBtn);
+            topToolbar.add(playBtn);
+            topToolbar.add(combineBtn);
+            topToolbar.add(splitBtn);
+
+            // Vertical separator between groups
+            JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
+            sep.setPreferredSize(new java.awt.Dimension(8, 24));
+            topToolbar.add(sep);
+
+            // Right group: Play All and Clear Completed
+            topToolbar.add(playAllBtn);
+            topToolbar.add(clearCompletedBtn);
+
+            add(topToolbar, BorderLayout.NORTH);
         }
 
-        add(new JScrollPane(list), BorderLayout.CENTER);
+        var scroll =
+                new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        add(scroll, BorderLayout.CENTER);
         add(controls, BorderLayout.SOUTH);
+
+        // Ensure correct initial layout with wrapped rows after the panel becomes visible
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
+                SwingUtilities.invokeLater(() -> {
+                    list.revalidate();
+                    list.repaint();
+                });
+            }
+        });
 
         // Edit on double-click only to avoid interfering with multi-select
         list.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -364,14 +454,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         loadTasksForCurrentSession();
 
-        if (console instanceof Chrome c) {
-            try {
-                IContextManager cm = c.getContextManager();
-                registeredContextManager = cm;
-                cm.addContextListener(this);
-            } catch (Exception e) {
-                logger.debug("Unable to register TaskListPanel as context listener", e);
-            }
+        try {
+            IContextManager cm = chrome.getContextManager();
+            registeredContextManager = cm;
+            cm.addContextListener(this);
+        } catch (Exception e) {
+            logger.debug("Unable to register TaskListPanel as context listener", e);
         }
     }
 
@@ -396,7 +484,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        cm.submitUserTask("Auto-committing task result", () -> {
+        cm.submitExclusiveAction(() -> {
             try {
                 var workflowService = new GitWorkflow(cm);
                 var filesToCommit =
@@ -453,7 +541,40 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void removeSelected() {
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
+            // Determine how many tasks can actually be removed (exclude running/queued)
+            int deletableCount = 0;
+            for (int idx : indices) {
+                if (runningIndex != null && idx == runningIndex.intValue()) {
+                    continue; // running task cannot be removed
+                }
+                if (pendingQueue.contains(idx)) {
+                    continue; // queued task cannot be removed
+                }
+                if (idx >= 0 && idx < model.size()) {
+                    deletableCount++;
+                }
+            }
+
+            if (deletableCount == 0) {
+                // No-op if only running/queued tasks were selected
+                updateButtonStates();
+                return;
+            }
+
+            String plural = deletableCount == 1 ? "task" : "tasks";
+            String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
+                    + "Tasks that are running or queued will not be removed.\n"
+                    + "This action cannot be undone.";
+            int result = chrome.showConfirmDialog(
+                    message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+            if (result != JOptionPane.YES_OPTION) {
+                updateButtonStates();
+                return;
+            }
+
             boolean removedAny = false;
+            // Remove from bottom to top to keep indices valid
             for (int i = indices.length - 1; i >= 0; i--) {
                 int idx = indices[i];
                 if (runningIndex != null && idx == runningIndex.intValue()) {
@@ -549,28 +670,47 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         editingIndex = index;
         var item = model.get(index);
-        inlineEditor = new JTextField(item.text());
+
+        // Use a wrapped JTextArea so the inline editor preserves word-wrap like the renderer.
+        inlineEditor = new JTextArea(item.text());
+        inlineEditor.setLineWrap(true);
+        inlineEditor.setWrapStyleWord(true);
+        inlineEditor.setOpaque(false);
+        inlineEditor.setEditable(true);
+        inlineEditor.setBorder(BorderFactory.createEmptyBorder());
+        inlineEditor.setFont(list.getFont());
 
         // Position editor over the cell (to the right of the checkbox area)
         java.awt.Rectangle cell = list.getCellBounds(index, index);
         int checkboxRegionWidth = 28;
         int editorX = cell.x + checkboxRegionWidth;
         int editorY = cell.y;
-        int editorW = Math.max(10, cell.width - checkboxRegionWidth - 4);
-        int editorH = cell.height - 2;
+
+        int availableWidth = Math.max(10, cell.width - checkboxRegionWidth - 4);
+        // Size the text area to compute wrapped preferred height so the editor shows multiple lines if needed.
+        inlineEditor.setSize(availableWidth, Short.MAX_VALUE);
+        int prefH = inlineEditor.getPreferredSize().height;
+        int editorH = Math.max(cell.height - 2, prefH);
 
         // Ensure list can host an overlay component
         if (list.getLayout() != null) {
             list.setLayout(null);
         }
 
-        inlineEditor.setBounds(editorX, editorY, editorW, editorH);
+        inlineEditor.setBounds(editorX, editorY, availableWidth, editorH);
         list.add(inlineEditor);
         inlineEditor.requestFocusInWindow();
         inlineEditor.selectAll();
 
         // Key bindings for commit/cancel
+        // Map Enter (and platform menu shortcut + Enter) to commitEdit so Enter does NOT insert a newline.
         inlineEditor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "commitEdit");
+        inlineEditor
+                .getInputMap()
+                .put(
+                        KeyStroke.getKeyStroke(
+                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
+                        "commitEdit");
         inlineEditor.getActionMap().put("commitEdit", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -624,12 +764,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void updateButtonStates() {
         boolean hasSelection = list.getSelectedIndex() >= 0;
         boolean llmBusy = false;
-        if (console instanceof Chrome c) {
-            try {
-                llmBusy = c.getContextManager().isLlmTaskInProgress();
-            } catch (Exception ex) {
-                logger.debug("Unable to query LLM busy state", ex);
-            }
+        try {
+            llmBusy = chrome.getContextManager().isLlmTaskInProgress();
+        } catch (Exception ex) {
+            logger.debug("Unable to query LLM busy state", ex);
         }
 
         boolean selectedIsDone = false;
@@ -659,6 +797,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // queue
         playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
 
+        // Play All enabled if: there are tasks, not busy, no active queue
+        boolean hasTasks = model.getSize() > 0;
+        playAllBtn.setEnabled(hasTasks && !llmBusy && !queueActive);
+
+        // Combine enabled only if exactly 2 tasks selected and no running/pending in selection
+        combineBtn.setEnabled(selIndices.length == 2 && !blockEdits);
+        // Split enabled only if exactly 1 task selected and no running/pending in selection and no active queue
+        splitBtn.setEnabled(selIndices.length == 1 && !blockEdits && !queueActive);
+
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
         for (int i = 0; i < model.getSize(); i++) {
@@ -671,31 +818,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearCompletedBtn.setEnabled(anyCompleted);
     }
 
-    private @Nullable UUID getCurrentSessionId() {
-        if (console instanceof Chrome c) {
-            try {
-                return c.getContextManager().getCurrentSessionId();
-            } catch (Exception e) {
-                logger.debug("Unable to get current session id", e);
-            }
-        }
-        return null;
+    private UUID getCurrentSessionId() {
+        return chrome.getContextManager().getCurrentSessionId();
     }
 
     private Path getTasksFilePath(UUID sessionId) {
-        if (console instanceof Chrome c) {
-            try {
-                Path root = c.getContextManager().getRoot();
-                return root.resolve(".brokk")
-                        .resolve("sessions")
-                        .resolve(sessionId.toString())
-                        .resolve("tasklist.json");
-            } catch (Exception e) {
-                logger.debug("Unable to resolve project root for tasks file; defaulting to user.dir", e);
-            }
-        }
-        Path userDir = Path.of(System.getProperty("user.dir"));
-        return userDir.resolve(".brokk")
+        Path root = chrome.getContextManager().getRoot();
+        return root.resolve(".brokk")
                 .resolve("sessions")
                 .resolve(sessionId.toString())
                 .resolve("tasklist.json");
@@ -703,10 +832,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void loadTasksForCurrentSession() {
         var sid = getCurrentSessionId();
-        if (sid == null) {
-            logger.debug("No current session id; skipping task load");
-            return;
-        }
         this.sessionIdAtLoad = sid;
         Path file = getTasksFilePath(sid);
         isLoadingTasks = true;
@@ -715,14 +840,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 model.clear();
             } else {
                 String json = Files.readString(file, StandardCharsets.UTF_8);
-                if (json != null && !json.isBlank()) {
+                if (!json.isBlank()) {
                     TaskListData data = Json.fromJson(json, TaskListData.class);
                     model.clear();
-                    if (data != null && data.tasks != null) {
-                        for (TaskEntryDto dto : data.tasks) {
-                            if (dto != null && dto.text != null && !dto.text.isBlank()) {
-                                model.addElement(new TaskItem(dto.text, dto.done));
-                            }
+                    for (TaskEntryDto dto : data.tasks) {
+                        if (!dto.text.isBlank()) {
+                            model.addElement(new TaskItem(dto.text, dto.done));
                         }
                     }
                 } else {
@@ -742,10 +865,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         UUID sid = this.sessionIdAtLoad;
         if (sid == null) {
             sid = getCurrentSessionId();
-            if (sid == null) {
-                logger.debug("No session id available; skipping task save");
-                return;
-            }
             this.sessionIdAtLoad = sid;
         }
         Path file = getTasksFilePath(sid);
@@ -765,12 +884,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     /** Append a collection of tasks to the end of the current list and persist them for the active session. */
     public void appendTasks(List<String> tasks) {
-        if (tasks == null || tasks.isEmpty()) {
+        if (tasks.isEmpty()) {
             return;
         }
         boolean added = false;
         for (var t : tasks) {
-            if (t == null) continue;
             var text = t.strip();
             if (!text.isEmpty()) {
                 model.addElement(new TaskItem(text, false));
@@ -791,27 +909,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        // Prevent running if an LLM task is already busy or a queue is in progress
-        if (console instanceof Chrome cBusy) {
-            try {
-                if (cBusy.getContextManager().isLlmTaskInProgress()) {
-                    JOptionPane.showMessageDialog(
-                            this,
-                            "An AI task is already running. Please wait for it to finish.",
-                            "Busy",
-                            JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-            } catch (Exception ex) {
-                logger.debug("Error checking LLM busy state", ex);
-            }
-        }
-        if (queueActive || runningIndex != null) {
-            JOptionPane.showMessageDialog(
-                    this, "A task run is already in progress.", "In progress", JOptionPane.INFORMATION_MESSAGE);
+        runArchitectOnIndices(selected);
+    }
+
+    private void runArchitectOnAll() {
+        if (model.getSize() == 0) {
             return;
         }
 
+        // Select all tasks
+        int[] allIndices = new int[model.getSize()];
+        for (int i = 0; i < model.getSize(); i++) {
+            allIndices[i] = i;
+        }
+
+        list.setSelectionInterval(0, model.getSize() - 1);
+        runArchitectOnIndices(allIndices);
+    }
+
+    private void runArchitectOnIndices(int[] selected) {
         // Build the ordered list of indices to run: valid, not done
         Arrays.sort(selected);
         var toRun = new java.util.ArrayList<Integer>(selected.length);
@@ -829,6 +945,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        // Record the full ordered run for context awareness
+        currentRunOrder = java.util.List.copyOf(toRun);
+
         // Set up queue: first runs now, the rest are pending
         int first = toRun.get(0);
         pendingQueue.clear();
@@ -839,9 +958,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             queueActive = false;
         }
 
-        // Reflect pending state in UI and disable Play to avoid double trigger
+        // Reflect pending state in UI and disable Play buttons to avoid double trigger
         list.repaint();
-        playBtn.setEnabled(false);
 
         // Start the first task
         startRunForIndex(first);
@@ -858,8 +976,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        String prompt = item.text();
-        if (prompt == null || prompt.isBlank()) {
+        String originalPrompt = item.text();
+        if (originalPrompt.isBlank()) {
             startNextIfAny();
             return;
         }
@@ -870,79 +988,113 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         runningFadeTimer.start();
         list.repaint();
 
-        if (!(console instanceof Chrome c)) {
-            try {
-                console.toolError("Architect is only available in the main app context.", "Task Runner Error");
-            } catch (Exception e2) {
-                logger.debug("Error reporting Architect availability warning", e2);
+        // IMMEDIATE FEEDBACK: inform user tasks were submitted without waiting for LLM work
+        int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
+        SwingUtilities.invokeLater(() -> chrome.systemOutput(
+                "Submitted " + totalToRun + " task(s) for execution. Running task 1 of " + totalToRun + "..."));
+
+        var cm = chrome.getContextManager();
+
+        var future = runArchitectOnTaskAsync(idx, cm, originalPrompt);
+
+        // When finished (on background thread), update UI state on EDT
+        future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Internal error running architect", ex);
+                finishQueueOnError();
+                return;
             }
-            finishQueueOnError();
-            return;
-        }
-
-        try {
-            var cm = c.getContextManager();
-            var future = cm.submitBackgroundTask("Execute Task " + (idx + 1), () -> {
-                var model = cm.getService().getScanModel();
-                SearchAgent agent = new SearchAgent(prompt, cm, model, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
-                var searchResult = agent.execute();
-                if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                    logger.debug("Search failed: {}", searchResult.stopDetails());
-                    return false;
+            try {
+                if (res == null || res.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                    finishQueueOnError();
+                    return;
                 }
 
-                var archFuture = c.getInstructionsPanel().runArchitectCommand(prompt);
-                TaskResult archResult;
-                try {
-                    archResult = archFuture.get();
-                } catch (Exception e) {
-                    logger.error("Architect failed for prompt: {}", prompt, e);
-                    return false;
-                }
-
-                if (archResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                    autoCommitChanges(c, prompt);
-                    return true;
-                }
-                return false;
-            });
-
-            future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
-                try {
-                    if (res && runningIndex != null && runningIndex == idx && idx < model.size()) {
-                        var it = model.get(idx);
+                if (Objects.equals(runningIndex, idx) && idx < model.size()) {
+                    var it = model.get(idx);
+                    if (it != null) {
                         model.set(idx, new TaskItem(it.text(), true));
                         saveTasksForCurrentSession();
                     }
-                } finally {
-                    // Clear running, advance queue
-                    runningIndex = null;
-                    runningFadeTimer.stop();
-                    list.repaint();
-                    updateButtonStates();
-                    startNextIfAny();
                 }
-            }));
-        } catch (Exception ex) {
-            try {
-                console.toolError("Failed to run queued tasks: " + ex.getMessage(), "Task Runner Error");
-            } catch (Exception e2) {
-                logger.debug("Error reporting queued task failure", e2);
+            } finally {
+                // Clear running, advance queue
+                runningIndex = null;
+                runningFadeTimer.stop();
+                list.repaint();
+                updateButtonStates();
+                startNextIfAny();
             }
-            finishQueueOnError();
+        }));
+    }
+
+    @NotNull
+    CompletableFuture<TaskResult> runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
+        // Submit an LLM action that will perform optional search + architect work off the EDT.
+        return cm.submitLlmAction("Execute Task " + (idx + 1), () -> {
+            chrome.showOutputSpinner("Executing Task command...");
+            TaskResult result;
+            try (var scope = cm.beginTask(originalPrompt, false)) {
+                result = runArchitectOnTaskInternal(idx, cm, originalPrompt, scope);
+            } finally {
+                chrome.hideOutputSpinner();
+                cm.checkBalanceAndNotify();
+            }
+
+            // do this AFTER the TaskScope closes with both search + architect results
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                // Only auto-commit if we're processing multiple tasks as part of a queue
+                if (queueActive) {
+                    autoCommitChanges(chrome, originalPrompt);
+                    cm.compressHistory(); // synchronous compress (avoid deadlock with async variant)
+                }
+            }
+
+            return result;
+        });
+    }
+
+    private @NotNull TaskResult runArchitectOnTaskInternal(
+            int idx, ContextManager cm, String originalPrompt, ContextManager.TaskScope scope) {
+        // Optionally run SearchAgent; we can skip search if this is the first task
+        // AND there are items in the context to edit (NOT context.isEmpty which includes task history)
+        boolean skipSearch =
+                idx == 0 && cm.liveContext().getEditableFragments().findAny().isPresent();
+        if (skipSearch) {
+            logger.debug("Skipping SearchAgent for first task since workspace has editable fragments");
+        } else {
+            var scanModel = cm.getService().getScanModel();
+            SearchAgent agent =
+                    new SearchAgent(originalPrompt, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
+            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+            var searchResult = agent.execute();
+            scope.append(searchResult);
+            if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                return searchResult;
+            }
         }
+
+        var planningModel = requireNonNull(cm.getService().getModel(Service.GEMINI_2_5_PRO));
+        var codeModel = requireNonNull(
+                cm.getService().getModel(chrome.getInstructionsPanel().getSelectedModel()));
+
+        var architectAgent = new ArchitectAgent(cm, planningModel, codeModel, originalPrompt, scope);
+        var archResult = architectAgent.execute();
+        scope.append(archResult);
+        return archResult;
     }
 
     private void startNextIfAny() {
         if (pendingQueue.isEmpty()) {
             // Queue finished
             queueActive = false;
+            currentRunOrder = null;
             list.repaint();
             updateButtonStates();
             return;
         }
         // Get next pending index in insertion order and start it
-        int next = pendingQueue.iterator().next();
+        int next = pendingQueue.getFirst();
         pendingQueue.remove(next);
         list.repaint();
         startRunForIndex(next);
@@ -953,6 +1105,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         runningFadeTimer.stop();
         pendingQueue.clear();
         queueActive = false;
+        currentRunOrder = null;
         list.repaint();
         updateButtonStates();
     }
@@ -969,6 +1122,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setSelectionForeground(selFg);
         revalidate();
         repaint();
+    }
+
+    public void disablePlay() {
+        playBtn.setEnabled(false);
+        playAllBtn.setEnabled(false);
+    }
+
+    public void enablePlay() {
+        updateButtonStates();
     }
 
     /**
@@ -995,7 +1157,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Disallow dragging if selection includes the running task
             if (runningIndex != null && indices != null) {
                 for (int i : indices) {
-                    if (i == runningIndex.intValue()) {
+                    if (i == runningIndex) {
                         Toolkit.getDefaultToolkit().beep();
                         indices = null;
                         return null; // cancel drag
@@ -1121,6 +1283,188 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
+    private void combineSelectedTasks() {
+        int[] indices = list.getSelectedIndices();
+        if (indices.length != 2) {
+            JOptionPane.showMessageDialog(
+                    this, "Select exactly two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Check if either task is running or pending
+        for (int idx : indices) {
+            if (runningIndex != null && idx == runningIndex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot combine tasks while one is currently running.",
+                        "Combine Disabled",
+                        JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            if (pendingQueue.contains(idx)) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot combine tasks while one is queued for running.",
+                        "Combine Disabled",
+                        JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+        }
+
+        Arrays.sort(indices);
+        int firstIdx = indices[0];
+        int secondIdx = indices[1];
+
+        if (firstIdx < 0 || secondIdx >= model.size()) {
+            return;
+        }
+
+        TaskItem firstTask = model.get(firstIdx);
+        TaskItem secondTask = model.get(secondIdx);
+
+        if (firstTask == null || secondTask == null) {
+            return;
+        }
+
+        // Combine the text with a separator
+        String combinedText = firstTask.text() + " | " + secondTask.text();
+
+        // Both tasks are considered done if either one is done
+        boolean combinedDone = firstTask.done() || secondTask.done();
+
+        // Create the new combined task
+        TaskItem combinedTask = new TaskItem(combinedText, combinedDone);
+
+        // Add the combined task at the position of the first selected task
+        model.set(firstIdx, combinedTask);
+
+        // Remove the second task (higher index first to keep indices valid)
+        model.remove(secondIdx);
+
+        // Select the combined task
+        list.setSelectedIndex(firstIdx);
+
+        saveTasksForCurrentSession();
+        updateButtonStates();
+    }
+
+    private void splitSelectedTask() {
+        int[] indices = list.getSelectedIndices();
+        if (indices.length != 1) {
+            JOptionPane.showMessageDialog(
+                    this, "Select exactly one task to split.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        int idx = indices[0];
+
+        if (runningIndex != null && idx == runningIndex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split a task that is currently running.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (pendingQueue.contains(idx)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split a task that is queued for running.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        if (queueActive) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split tasks while a run is in progress.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        stopInlineEdit(true);
+
+        if (idx < 0 || idx >= model.size()) {
+            return;
+        }
+
+        TaskItem original = model.get(idx);
+        if (original == null) return;
+
+        var textArea = new JTextArea();
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(true);
+        textArea.setText(original.text());
+
+        var scroll = new JScrollPane(
+                textArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setPreferredSize(new java.awt.Dimension(420, 180));
+
+        var panel = new JPanel(new BorderLayout(6, 6));
+        panel.add(new JLabel("Enter one task per line:"), BorderLayout.NORTH);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        int result = JOptionPane.showConfirmDialog(
+                this, panel, "Split Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        var lines = normalizeSplitLines(textArea.getText());
+
+        if (lines.isEmpty()) {
+            return;
+        }
+
+        // Replace the original with the first line; insert remaining lines after; mark all as not done
+        model.set(idx, new TaskItem(lines.getFirst(), false));
+        for (int i = 1; i < lines.size(); i++) {
+            model.add(idx + i, new TaskItem(lines.get(i), false));
+        }
+
+        // Select the new block
+        list.setSelectionInterval(idx, idx + lines.size() - 1);
+
+        saveTasksForCurrentSession();
+        updateButtonStates();
+        list.revalidate();
+        list.repaint();
+    }
+
+    static List<String> normalizeSplitLines(@Nullable String input) {
+        if (input == null) return java.util.Collections.emptyList();
+        return Arrays.stream(input.split("\\R+"))
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Compute vertical padding to center content within a cell of a given minimum height. If contentHeight >=
+     * minHeight, returns zero padding. Otherwise splits the extra space between top and bottom, with top =
+     * floor(extra/2).
+     *
+     * <p>Centering approach: - We dynamically compute the padding to position the text vertically without changing
+     * layout managers. - In the renderer, we apply the resulting top padding as a paint offset (or as an EmptyBorder
+     * when using a text component). Why not change layouts or switch to HTML/StyledDocument? - Changing the layout per
+     * cell (e.g., GridBag/Box) is heavier and can degrade performance on large lists. - HTML/StyledDocument introduce
+     * different wrapping/metrics and are more expensive than simple text painting, and do not inherently solve vertical
+     * placement within a taller cell. - Keeping rendering lightweight and predictable avoids jank and keeps word-wrap
+     * behavior stable, which is especially important when the inline editor uses JTextArea wrapping.
+     */
+    static Insets verticalPaddingForCell(int contentHeight, int minHeight) {
+        int extra = minHeight - contentHeight;
+        if (extra <= 0) {
+            return new Insets(0, 0, 0, 0);
+        }
+        int top = extra / 2;
+        int bottom = extra - top;
+        return new Insets(top, 0, bottom, 0);
+    }
+
     private void clearCompletedTasks() {
         if (model.isEmpty()) {
             return;
@@ -1131,7 +1475,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (int i = 0; i < model.size(); i++) {
             TaskItem it = model.get(i);
             if (it != null && it.done()) {
-                if (runningIndex != null && i == runningIndex.intValue()) {
+                if (runningIndex != null && i == runningIndex) {
                     continue;
                 }
                 completedCount++;
@@ -1147,7 +1491,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         String plural = completedCount == 1 ? "task" : "tasks";
         String message = "This will remove " + completedCount + " completed " + plural + " from this session.\n"
                 + "This action cannot be undone.";
-        int result = console.showConfirmDialog(
+        int result = chrome.showConfirmDialog(
                 message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
         if (result != JOptionPane.YES_OPTION) {
@@ -1161,7 +1505,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             TaskItem it = model.get(i);
             if (it != null && it.done()) {
                 // Do not remove the running task even if marked done (safety)
-                if (runningIndex != null && i == runningIndex.intValue()) {
+                if (runningIndex != null && i == runningIndex) {
                     continue;
                 }
                 model.remove(i);
@@ -1173,6 +1517,29 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             saveTasksForCurrentSession();
         }
         updateButtonStates();
+    }
+
+    private void copySelectedTasks() {
+        int[] indices = list.getSelectedIndices();
+        if (indices.length == 0) {
+            return;
+        }
+
+        var taskTexts = new java.util.ArrayList<String>(indices.length);
+        for (int idx : indices) {
+            if (idx >= 0 && idx < model.getSize()) {
+                var item = model.get(idx);
+                if (item != null) {
+                    taskTexts.add(item.text());
+                }
+            }
+        }
+
+        if (!taskTexts.isEmpty()) {
+            String clipboardText = String.join("\n", taskTexts);
+            StringSelection selection = new StringSelection(clipboardText);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+        }
     }
 
     @Override
@@ -1192,10 +1559,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             registeredContextManager = null;
         }
-        if (llmStateTimer != null) {
-            llmStateTimer.stop();
-        }
-        if (runningFadeTimer != null) runningFadeTimer.stop();
+        llmStateTimer.stop();
+        runningFadeTimer.stop();
         super.removeNotify();
     }
 
@@ -1212,16 +1577,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final class TaskRenderer extends JPanel implements ListCellRenderer<TaskItem> {
         private final JCheckBox check = new JCheckBox();
-        private final javax.swing.JLabel label = new javax.swing.JLabel();
+        private final WrappedTextView view = new WrappedTextView();
 
         TaskRenderer() {
             super(new BorderLayout(6, 0));
             setOpaque(true);
+
             check.setOpaque(false);
             check.setIcon(Icons.CIRCLE);
             check.setSelectedIcon(Icons.CHECK);
+            check.setVerticalAlignment(SwingConstants.CENTER);
             add(check, BorderLayout.WEST);
-            add(label, BorderLayout.CENTER);
+
+            view.setOpaque(false);
+            add(view, BorderLayout.CENTER);
         }
 
         @Override
@@ -1232,6 +1601,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     && TaskListPanel.this.runningIndex != null
                     && TaskListPanel.this.runningIndex == index);
             boolean isPendingRow = (!value.done() && TaskListPanel.this.pendingQueue.contains(index));
+
             // Icon logic: running takes precedence, then pending, then done/undone
             if (isRunningRow) {
                 check.setSelected(false);
@@ -1246,18 +1616,55 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
-            label.setText(value.text());
 
-            // Strike-through and dim when done
+            // Set text and editing visibility
+            view.setText(value.text());
+            boolean isEditingRow =
+                    (TaskListPanel.this.inlineEditor != null && TaskListPanel.this.editingIndex == index);
+            view.setVisible(!isEditingRow);
+
+            // Font and strike-through
             Font base = list.getFont();
-            if (value.done()) {
-                var attrs = new java.util.HashMap<java.awt.font.TextAttribute, Object>(base.getAttributes());
-                attrs.put(TextAttribute.STRIKETHROUGH, TextAttribute.STRIKETHROUGH_ON);
-                label.setFont(base.deriveFont(attrs));
-            } else {
-                label.setFont(base.deriveFont(Font.PLAIN));
-            }
+            view.setFont(base.deriveFont(Font.PLAIN));
+            view.setStrikeThrough(value.done());
 
+            // Compute wrapping height based on available width (with safe fallbacks for first render)
+            int checkboxRegionWidth = 28;
+            int width = list.getWidth();
+            if (width <= 0) {
+                java.awt.Container parent = list.getParent();
+                if (parent instanceof javax.swing.JViewport vp) {
+                    width = vp.getWidth();
+                }
+            }
+            if (width <= 0) {
+                // Final fallback to a reasonable width to avoid giant first row
+                width = 600;
+            }
+            int available = Math.max(1, width - checkboxRegionWidth - 8);
+
+            // Measure content height for the width and compute minHeight invariant
+            view.setAvailableWidth(available);
+            int contentH = view.getContentHeight();
+
+            // Ensure minimum height to show full checkbox icon and preserve wrapping behavior.
+            // Guard against regressions: do not change this formula; minHeight must remain Math.max(contentH, 48).
+            int minHeight = Math.max(contentH, 48);
+            assert minHeight == Math.max(contentH, 48)
+                    : "minHeight must remain Math.max(contentH, 48) to keep wrapping stable";
+            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, minHeight));
+
+            // Vertically center the text within the row by applying top padding as a paint offset.
+            // We intentionally avoid changing layouts or switching to HTML so that wrapping remains predictable
+            // and rendering stays lightweight. The paint offset gives the same visual effect as a dynamic
+            // EmptyBorder without incurring layout churn.
+            Insets pad = verticalPaddingForCell(contentH, minHeight);
+            if (isEditingRow) {
+                pad = new Insets(0, 0, 0, 0);
+            }
+            view.setTopPadding(pad.top);
+
+            // State coloring and subtle running animation
             if (isRunningRow) {
                 long now = System.currentTimeMillis();
                 long start = TaskListPanel.this.runningAnimStartMs;
@@ -1275,25 +1682,217 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 setBackground(new java.awt.Color(r, g, b));
 
                 if (isSelected) {
-                    label.setForeground(list.getSelectionForeground());
-                    // Subtle selection indicator while flashing
+                    view.setForeground(list.getSelectionForeground());
                     java.awt.Color borderColor = selBg.darker();
                     setBorder(javax.swing.BorderFactory.createLineBorder(borderColor, 1));
                 } else {
-                    label.setForeground(list.getForeground());
+                    view.setForeground(list.getForeground());
                     setBorder(null);
                 }
             } else if (isSelected) {
                 setBackground(list.getSelectionBackground());
-                label.setForeground(list.getSelectionForeground());
+                view.setForeground(list.getSelectionForeground());
                 setBorder(null);
             } else {
                 setBackground(list.getBackground());
-                label.setForeground(list.getForeground());
+                view.setForeground(list.getForeground());
                 setBorder(null);
             }
 
             return this;
+        }
+    }
+
+    /**
+     * Lightweight wrapped text painter used in the renderer (no JTextArea). - Measures wrapped content height for a
+     * given available width. - Applies vertical centering by honoring a top padding paint offset. - Keeps rendering
+     * fast and stable; avoids layout churn and preserves wrap behavior consistent with the inline editor (which uses
+     * JTextArea only while editing).
+     */
+    private static final class WrappedTextView extends JComponent {
+        private String text = "";
+        private int availableWidth = 0;
+        private int contentHeight = 0;
+        private boolean strikeThrough = false;
+        private int topPadding = 0;
+
+        void setText(String text) {
+            this.text = text;
+            // Re-measure on text change
+            measure();
+            repaint();
+        }
+
+        void setAvailableWidth(int w) {
+            if (w < 1) w = 1;
+            if (this.availableWidth != w) {
+                this.availableWidth = w;
+                measure();
+                revalidate();
+                repaint();
+            }
+        }
+
+        void setStrikeThrough(boolean on) {
+            if (this.strikeThrough != on) {
+                this.strikeThrough = on;
+                repaint();
+            }
+        }
+
+        void setTopPadding(int padTop) {
+            this.topPadding = Math.max(0, padTop);
+            repaint();
+        }
+
+        int getContentHeight() {
+            return contentHeight;
+        }
+
+        @Override
+        public void setFont(Font font) {
+            super.setFont(font);
+            measure();
+            revalidate();
+            repaint();
+        }
+
+        private void measure() {
+            Font f = getFont();
+            if (f == null) {
+                contentHeight = 0;
+                return;
+            }
+            FontMetrics fm = getFontMetrics(f);
+            int lineHeight = fm.getHeight();
+            if (availableWidth <= 0 || text.isEmpty()) {
+                contentHeight = lineHeight;
+                return;
+            }
+
+            var lines = wrapLines(text, fm, availableWidth);
+            contentHeight = Math.max(lineHeight, lines.size() * lineHeight);
+        }
+
+        @Override
+        public java.awt.Dimension getPreferredSize() {
+            // The parent panel dictates minHeight; this view reports its content height and width.
+            return new java.awt.Dimension(Math.max(1, availableWidth), Math.max(0, topPadding + contentHeight));
+        }
+
+        @Override
+        protected void paintComponent(java.awt.Graphics g) {
+            super.paintComponent(g);
+            if (text.isEmpty()) return;
+
+            java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+            try {
+                g2.setColor(getForeground());
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                int lineHeight = fm.getHeight();
+                int y = topPadding + fm.getAscent();
+
+                var lines = wrapLines(text, fm, availableWidth);
+                for (var line : lines) {
+                    g2.drawString(line, 0, y);
+                    if (strikeThrough) {
+                        int yStrike = y - Math.round(fm.getAscent() * 0.4f);
+                        int w = fm.stringWidth(line);
+                        g2.drawLine(0, yStrike, w, yStrike);
+                    }
+                    y += lineHeight;
+                }
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        private List<String> wrapLines(String text, FontMetrics fm, int maxWidth) {
+            // Handle explicit newlines as hard breaks first.
+            var paragraphs = text.split("\\R", -1);
+            var result = new ArrayList<String>(paragraphs.length);
+            for (var para : paragraphs) {
+                wrapParagraph(para, fm, maxWidth, result);
+            }
+            if (result.isEmpty()) {
+                result.add("");
+            }
+            return result;
+        }
+
+        private void wrapParagraph(String para, FontMetrics fm, int maxWidth, List<String> out) {
+            if (para.isEmpty()) {
+                out.add("");
+                return;
+            }
+            var breaker = BreakIterator.getLineInstance(java.util.Locale.ROOT);
+            breaker.setText(para);
+            int start = breaker.first();
+            int end = breaker.next();
+            StringBuilder current = new StringBuilder();
+            while (end != BreakIterator.DONE) {
+                String word = para.substring(start, end);
+                String candidate = current + word;
+                int w = fm.stringWidth(candidate);
+                if (w <= maxWidth) {
+                    current.append(word);
+                    start = end;
+                    end = breaker.next();
+                } else {
+                    if (current.length() == 0) {
+                        // Single word longer than maxWidth: hard-break by characters
+                        end = hardBreakByChars(para, start, fm, maxWidth, out);
+                        start = end;
+                        current.setLength(0);
+                        end = breaker.following(start);
+                        if (end == BreakIterator.DONE && start < para.length()) {
+                            end = para.length();
+                        }
+                    } else {
+                        out.add(current.toString().stripTrailing());
+                        current.setLength(0);
+                        // keep evaluating the same word on next loop
+                    }
+                }
+            }
+            if (start < para.length()) {
+                current.append(para.substring(start));
+            }
+            if (current.length() > 0) {
+                out.add(current.toString().stripTrailing());
+            }
+        }
+
+        private int hardBreakByChars(String text, int start, FontMetrics fm, int maxWidth, List<String> out) {
+            int i = start;
+            StringBuilder sb = new StringBuilder();
+            while (i < text.length()) {
+                char ch = text.charAt(i);
+                int w = fm.stringWidth(sb.toString() + ch);
+                if (w > maxWidth) {
+                    if (sb.length() == 0) {
+                        // Always place at least one char to make progress
+                        sb.append(ch);
+                        i++;
+                    }
+                    out.add(sb.toString());
+                    sb.setLength(0);
+                    // Continue building next line without incrementing i
+                } else {
+                    sb.append(ch);
+                    i++;
+                }
+                // If next char would overflow and we already have content, flush
+                if (i < text.length() && fm.stringWidth(sb.toString() + text.charAt(i)) > maxWidth && sb.length() > 0) {
+                    out.add(sb.toString());
+                    sb.setLength(0);
+                }
+            }
+            if (sb.length() > 0) {
+                out.add(sb.toString());
+            }
+            return i;
         }
     }
 
@@ -1306,8 +1905,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private static final class TaskEntryDto {
         public String text = "";
         public boolean done;
-
-        public TaskEntryDto() {}
 
         public TaskEntryDto(String text, boolean done) {
             this.text = text;

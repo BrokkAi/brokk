@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.tools;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
@@ -9,6 +10,7 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Predicate;
@@ -32,7 +34,7 @@ public class SearchTools {
     private final IContextManager contextManager; // Needed for file operations
 
     public SearchTools(IContextManager contextManager) {
-        this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null");
+        this.contextManager = contextManager;
     }
 
     // --- Sanitization Helper Methods
@@ -167,8 +169,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Retrieves summaries (fields and method signatures) for all classes defined within specified project files.
                             Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
                             This is a fast and efficient way to read multiple related files at once.
@@ -225,8 +226,7 @@ public class SearchTools {
     // --- Tool Methods requiring analyzer
 
     @Tool(
-            value =
-                    """
+            """
                             Search for symbols (class/method/field definitions) using static analysis.
                             This should usually be the first step in a search.
                             """)
@@ -268,8 +268,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
                             """)
     public String getUsages(
@@ -307,8 +306,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns a list of related class names, ordered by relevance (using PageRank).
                             Use this for exploring and also when you're almost done and want to double-check that you haven't missed anything.
                             """)
@@ -358,8 +356,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns an overview of classes' contents, including fields and method signatures.
                             Use this to understand class structures and APIs much faster than fetching full source code.
                             """)
@@ -389,8 +386,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns the full source code of classes.
                             This is expensive, so prefer requesting skeletons or method sources when possible.
                             Use this when you need the complete implementation details, or if you think multiple methods in the classes may be relevant.
@@ -442,8 +438,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns the full source code of specific methods. Use this to examine the implementation of particular methods without retrieving the entire classes.
                             """)
     public String getMethodSources(
@@ -489,8 +484,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns the call graph to a depth of 3 showing which methods call the given method and one line of source code for each invocation.
                             Use this to understand method dependencies and how code flows into a method.
                             """)
@@ -517,8 +511,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns the call graph to a depth of 3 showing which methods are called by the given method and one line of source code for each invocation.
                             Use this to understand how a method's logic flows to other parts of the codebase.
                             """)
@@ -547,8 +540,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Search git commit messages using a Java regular expression.
                             Returns matching commits with their message and list of changed files.
                             """)
@@ -621,8 +613,7 @@ public class SearchTools {
     // --- Text search tools
 
     @Tool(
-            value =
-                    """
+            """
                             Returns file names whose text contents match Java regular expression patterns.
                             This is slower than searchSymbols but can find references to external dependencies and comment strings.
                             """)
@@ -678,8 +669,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns filenames (relative to the project root) that match the given Java regular expression patterns.
                             Use this to find configuration files, test data, or source files when you know part of their name.
                             """)
@@ -724,8 +714,7 @@ public class SearchTools {
     }
 
     @Tool(
-            value =
-                    """
+            """
                             Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
                             This can be expensive for large files.
                             """)
@@ -780,8 +769,7 @@ public class SearchTools {
 
     // Only includes project files. Is this what we want?
     @Tool(
-            value =
-                    """
+            """
                             Lists files within a specified directory relative to the project root.
                             Use '.' for the root directory.
                             """)
@@ -808,5 +796,48 @@ public class SearchTools {
         }
 
         return "Files in " + directoryPath + ": " + files;
+    }
+
+    @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
+    public String createTaskList(
+            @P(
+                            """
+            Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
+
+            Requirements (apply to EACH task):
+            - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
+            - Size target: ~2 hours for an experienced contributor across < 10 files.
+            - Testability: name the verification (unit test name or manual check) at the end in brackets: [Verify: ...].
+            - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
+            - Output: starts with a strong verb and names concrete artifact(s) (class/method/file, config, test).
+
+            Rubric for slicing:
+            - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes—split by subsystem or by 'behavior change' vs 'refactor'.
+            - TOO SMALL if there is no distinct verification—merge into its nearest parent goal.
+            - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
+
+            Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
+            """)
+                    List<String> tasks) {
+        logger.debug("createTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
+        }
+
+        var io = contextManager.getIo();
+        // Append tasks to Task List Panel (if running in Chrome UI)
+        try {
+            ((Chrome) io).appendTasksToTaskList(tasks);
+        } catch (ClassCastException ignored) {
+            // Not running in Chrome UI; skip appending
+        }
+        io.systemOutput("Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+
+        var lines = java.util.stream.IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+        io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        return formattedTaskList;
     }
 }

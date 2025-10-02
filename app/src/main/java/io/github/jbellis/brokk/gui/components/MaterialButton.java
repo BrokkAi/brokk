@@ -38,10 +38,15 @@ public class MaterialButton extends JButton {
 
     private void applyStyling() {
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setBorderPainted(false);
+        setBorderPainted(true);
         setFocusable(true);
+        setOpaque(false);
         putClientProperty("JButton.buttonType", "borderless");
 
+        var borderColor = UIManager.getColor("Component.borderColor");
+        setBorder(javax.swing.BorderFactory.createCompoundBorder(
+                new javax.swing.border.LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                javax.swing.BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
         setContentAreaFilled(true);
@@ -109,6 +114,10 @@ public class MaterialButton extends JButton {
     @Override
     public void setIcon(@Nullable Icon icon) {
         this.originalIcon = icon;
+        if (icon != null) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+        }
         updateIconForEnabledState();
     }
 

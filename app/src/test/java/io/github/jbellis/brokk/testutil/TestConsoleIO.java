@@ -45,14 +45,13 @@ public class TestConsoleIO implements IConsoleIO {
         }
     }
 
-    @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         finishStreamingAiMessage();
         llmRawMessages.addAll(newOutput.messages());
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages(boolean includeStreaming) {
+    public List<ChatMessage> getLlmRawMessages() {
         finishStreamingAiMessage();
         return llmRawMessages;
     }

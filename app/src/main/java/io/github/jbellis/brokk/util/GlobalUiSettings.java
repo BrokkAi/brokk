@@ -34,7 +34,9 @@ public final class GlobalUiSettings {
     private static final String KEY_DEP_PROP = "drawers.dependencies.proportion";
     private static final String KEY_TERM_OPEN = "drawers.terminal.open";
     private static final String KEY_TERM_PROP = "drawers.terminal.proportion";
+    private static final String KEY_TERM_LASTTAB = "drawers.terminal.lastTab";
     private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
+    private static final String KEYBIND_PREFIX = "keybinding.";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -92,6 +94,31 @@ public final class GlobalUiSettings {
         } catch (IOException e) {
             logger.warn("Failed to save global UI settings: {}", e.getMessage());
         }
+    }
+
+    // --- Keybinding persistence ---
+    public static javax.swing.KeyStroke getKeybinding(String id, javax.swing.KeyStroke fallback) {
+        var props = loadProps();
+        var raw = props.getProperty(KEYBIND_PREFIX + id);
+        if (raw == null || raw.isBlank()) return fallback;
+        try {
+            var parts = com.google.common.base.Splitter.on(',').splitToList(raw);
+            if (parts.size() != 2) return fallback;
+            int keyCode = Integer.parseInt(parts.get(0));
+            int modifiers = Integer.parseInt(parts.get(1));
+            var ks = javax.swing.KeyStroke.getKeyStroke(keyCode, modifiers);
+            return ks != null ? ks : fallback;
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    public static void saveKeybinding(String id, javax.swing.KeyStroke stroke) {
+        var props = loadProps();
+        int keyCode = stroke.getKeyCode();
+        int modifiers = stroke.getModifiers();
+        props.setProperty(KEYBIND_PREFIX + id, keyCode + "," + modifiers);
+        saveProps(props);
     }
 
     // Main window bounds
@@ -179,6 +206,25 @@ public final class GlobalUiSettings {
 
     public static void saveTerminalDrawerProportion(double prop) {
         setDouble(KEY_TERM_PROP, clampProportion(prop));
+    }
+
+    // Drawer: last tab ("terminal" or "tasks")
+    public static @Nullable String getTerminalDrawerLastTab() {
+        var props = loadProps();
+        var raw = props.getProperty(KEY_TERM_LASTTAB);
+        if (raw == null || raw.isBlank()) return null;
+        var norm = raw.trim().toLowerCase(Locale.ROOT);
+        return ("terminal".equals(norm) || "tasks".equals(norm)) ? norm : null;
+    }
+
+    public static void saveTerminalDrawerLastTab(String tab) {
+        var norm = tab.trim().toLowerCase(Locale.ROOT);
+        if (!"terminal".equals(norm) && !"tasks".equals(norm)) {
+            return;
+        }
+        var props = loadProps();
+        props.setProperty(KEY_TERM_LASTTAB, norm);
+        saveProps(props);
     }
 
     // Window bounds persistence preference (default: true = per-project)

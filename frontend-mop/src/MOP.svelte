@@ -90,7 +90,7 @@
     <!-- History tasks -->
     {#each $historyStore as task (task.threadId)}
       {#if task.entries.length > 0}
-        <ThreadBlock threadId={task.threadId} bubbles={task.entries} />
+        <ThreadBlock taskSequence={task.taskSequence} threadId={task.threadId} bubbles={task.entries} />
       {/if}
     {/each}
 

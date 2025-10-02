@@ -31,11 +31,11 @@ public class SymbolSelectionPanel extends JPanel {
         // Build text input with autocomplete at the top
         symbolInput = new JTextField(30);
         var provider = createSymbolCompletionProvider(analyzer);
-        // Enable auto-activation so suggestions appear on every keystroke (immediate popup).
+        // Enable auto-activation with a small debounce so suggestions don't flash on every keystroke.
         provider.setAutoActivationRules(true, "._$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
         autoCompletion = new AutoCompletion(provider);
         autoCompletion.setAutoActivationEnabled(true);
-        autoCompletion.setAutoActivationDelay(0);
+        autoCompletion.setAutoActivationDelay(500);
         autoCompletion.install(symbolInput);
 
         JPanel inputPanel = new JPanel(new BorderLayout());

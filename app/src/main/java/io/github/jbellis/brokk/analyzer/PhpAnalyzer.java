@@ -202,8 +202,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         if (cu.isClass()) { // CodeUnit.cls is used for class, interface, trait
-            boolean isEmptyCuBody = withChildrenByParent(childrenByParent ->
-                    childrenByParent.getOrDefault(cu, List.of()).isEmpty());
+            boolean isEmptyCuBody = childrenOf(cu).isEmpty();
             if (isEmptyCuBody) {
                 return ""; // Closer already handled by renderClassHeader for empty bodies
             }

@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.testutil;
 
+import io.github.jbellis.brokk.AnalyzerWrapper;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
@@ -7,10 +9,21 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
+import java.io.File;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
+/**
+ * Lightweight Test IContextManager used in unit tests.
+ *
+ * <p>Provides a quick AnalyzerWrapper backed by a TaskRunner that immediately returns the MockAnalyzer. This avoids
+ * triggering expensive analyzer build logic while satisfying callers (CodeAgent) that expect an AnalyzerWrapper to
+ * exist and support pause()/resume()/get().
+ */
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
     private final MockAnalyzer mockAnalyzer;
@@ -20,6 +33,9 @@ public final class TestContextManager implements IContextManager {
     private final IConsoleIO consoleIO;
     private final TestService stubService;
     private final Context liveContext;
+
+    // Test-friendly AnalyzerWrapper that uses a "quick runner" to return the mockAnalyzer immediately.
+    private final AnalyzerWrapper analyzerWrapper;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
         this(new TestProject(projectRoot, Languages.JAVA), consoleIO);
@@ -32,6 +48,21 @@ public final class TestContextManager implements IContextManager {
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
         this.liveContext = new Context(this, "Test context");
+
+        // Quick TaskRunner that never invokes the provided Callable; it returns a completed future
+        // containing the mockAnalyzer. This prevents AnalyzerWrapper from performing real work during tests.
+        ContextManager.TaskRunner quickRunner = new ContextManager.TaskRunner() {
+            @Override
+            public <T> Future<T> submit(String taskDescription, Callable<T> task) {
+                CompletableFuture<T> f = new CompletableFuture<>();
+                @SuppressWarnings("unchecked")
+                T cast = (T) mockAnalyzer;
+                f.complete(cast);
+                return f;
+            }
+        };
+
+        this.analyzerWrapper = new AnalyzerWrapper(this.project, quickRunner, /*listener=*/ null, this.consoleIO);
     }
 
     public TestContextManager(Path tempDir, Set<String> files) {
@@ -63,6 +94,11 @@ public final class TestContextManager implements IContextManager {
 
     public MockAnalyzer getMockAnalyzer() {
         return mockAnalyzer;
+    }
+
+    @Override
+    public AnalyzerWrapper getAnalyzerWrapper() {
+        return analyzerWrapper;
     }
 
     @Override
@@ -107,5 +143,46 @@ public final class TestContextManager implements IContextManager {
 
     public EditBlockParser getParserForWorkspace() {
         return EditBlockParser.instance;
+    }
+
+    /**
+     * Set a custom model to be returned by getLlm when requesting the quickest model. Used for testing preprocessing
+     * behavior.
+     */
+    public void setQuickestModel(dev.langchain4j.model.chat.StreamingChatModel model) {
+        stubService.setQuickestModel(model);
+    }
+
+    public ProjectFile toFile(String relativePath) {
+        var trimmed = relativePath.trim();
+
+        // If an absolute-like path is provided (leading '/' or '\'), attempt to interpret it as a
+        // project-relative path by stripping the leading slash. If that file exists, return it.
+        if (trimmed.startsWith(File.separator)) {
+            var candidateRel = trimmed.substring(File.separator.length()).trim();
+            var candidate = new ProjectFile(project.getRoot(), candidateRel);
+            if (candidate.exists()) {
+                return candidate;
+            }
+            // The path looked absolute (or root-anchored) but does not exist relative to the project.
+            // Treat this as invalid to avoid resolving to a location outside the project root.
+            throw new IllegalArgumentException(
+                    "Filename '%s' is absolute-like and does not exist relative to the project root"
+                            .formatted(relativePath));
+        }
+
+        return new ProjectFile(project.getRoot(), trimmed);
+    }
+
+    private String buildFragmentContent = "";
+
+    @Override
+    public void updateBuildFragment(boolean success, String buildOutput) {
+        buildFragmentContent = success ? "" : buildOutput;
+    }
+
+    @Override
+    public String getProcessedBuildOutput() {
+        return buildFragmentContent;
     }
 }

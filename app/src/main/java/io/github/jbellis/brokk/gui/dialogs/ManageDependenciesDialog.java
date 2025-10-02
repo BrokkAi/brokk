@@ -1,10 +1,10 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.UIManager;
@@ -20,8 +20,8 @@ public class ManageDependenciesDialog extends JDialog {
         add(dependenciesPanel, BorderLayout.CENTER);
 
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var okButton = new JButton("OK");
-        var cancelButton = new JButton("Cancel");
+        var okButton = new MaterialButton("OK");
+        var cancelButton = new MaterialButton("Cancel");
 
         var order = UIManager.getString("OptionPane.buttonOrder");
         if (order == null) order = "OC";

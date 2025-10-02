@@ -2,8 +2,6 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import com.github.difflib.DiffUtils;
-import com.github.difflib.UnifiedDiffUtils;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
 import dev.langchain4j.data.message.AiMessage;
@@ -26,6 +24,7 @@ import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
+import io.github.jbellis.brokk.util.ContentDiffUtils;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -39,7 +38,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
@@ -632,8 +630,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Bottom panel with buttons
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var codeButton = new JButton("Code");
-        var cancelButton = new JButton("Cancel");
+        var codeButton = new MaterialButton("Code");
+        var cancelButton = new MaterialButton("Cancel");
 
         cancelButton.addActionListener(e -> {
             quickEditDialog.dispose();
@@ -736,8 +734,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Bottom panel with Okay and Stop buttons
         var bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var okayButton = new JButton("Okay");
-        var stopButton = new JButton("Stop");
+        var okayButton = new MaterialButton("Okay");
+        var stopButton = new MaterialButton("Stop");
         okayButton.setEnabled(false);
         bottomPanel.add(okayButton);
         bottomPanel.add(stopButton);
@@ -783,7 +781,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         var resultsIo = new QuickResultsIo();
 
         // Submit the quick-edit session to a background future
-        var future = cm.submitUserTask("Quick Edit", () -> {
+        var future = cm.submitExclusiveAction(() -> {
             var agent = new CodeAgent(cm, cm.getService().quickModel());
             return agent.runQuickTask(file, selectedText, instructions);
         });
@@ -1015,22 +1013,21 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
                 if (contentChangedFromInitial) {
                     try {
-                        // Generate a unified diff from the initial state to the current state
-                        var originalLines = contentBeforeSave.lines().collect(Collectors.toList());
-                        var newLines = newContent.lines().collect(Collectors.toList());
-                        var patch = DiffUtils.diff(originalLines, newLines);
                         var fileNameForDiff = file.toString();
-                        var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(
-                                fileNameForDiff, fileNameForDiff, originalLines, patch, 3);
+                        var diffResult = ContentDiffUtils.computeDiffResult(
+                                contentBeforeSave, newContent, fileNameForDiff, fileNameForDiff, 3);
+                        var diffText = diffResult.diff();
                         // Create the SessionResult representing the net change
                         var actionDescription = "Edited " + fileNameForDiff;
                         // Include filtered quick edit messages (without XML context) + the current diff
                         var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
-                        messagesForHistory.add(
-                                Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
+                        messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
+                        messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
                         var saveResult = new TaskResult(
                                 cm, actionDescription, messagesForHistory, Set.of(file), TaskResult.StopReason.SUCCESS);
-                        cm.addToHistory(saveResult, false); // Add the single entry
+                        try (var scope = cm.beginTask("", false)) {
+                            scope.append(saveResult);
+                        }
                         logger.debug("Added history entry for changes in: {}", file);
                     } catch (Exception e) {
                         logger.error("Failed to generate diff or add history entry for {}", file, e);

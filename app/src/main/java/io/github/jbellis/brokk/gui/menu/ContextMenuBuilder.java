@@ -266,11 +266,7 @@ public class ContextMenuBuilder {
         var historyItem = new JMenuItem("Show History");
         historyItem.addActionListener(e -> {
             final var chrome = context.chrome();
-            if (chrome != null) {
-                chrome.addFileHistoryTab(file);
-            } else {
-                logger.warn("Chrome is null, cannot show history for {}", file);
-            }
+            chrome.addFileHistoryTab(file);
         });
         historyItem.setEnabled(hasGit);
         if (!hasGit) {
@@ -302,11 +298,7 @@ public class ContextMenuBuilder {
         var historyItem = new JMenuItem("Show History");
         historyItem.addActionListener(e -> {
             final var chrome = singleFileContext.chrome();
-            if (chrome != null) {
-                chrome.addFileHistoryTab(file);
-            } else {
-                logger.warn("Chrome is null, cannot show history for {}", file);
-            }
+            chrome.addFileHistoryTab(file);
         });
         historyItem.setEnabled(hasGit);
         if (!hasGit) {
@@ -406,7 +398,7 @@ public class ContextMenuBuilder {
         logger.info("Open in preview for symbol: {}", context.symbolName());
 
         var symbolName = context.symbolName();
-        context.contextManager().submitContextTask("Open in preview for " + symbolName, () -> {
+        context.contextManager().submitBackgroundTask("Open in preview for " + symbolName, () -> {
             var definition = findSymbolDefinition(context);
             definition.ifPresent(codeUnit -> openPreview(codeUnit, context));
         });
@@ -416,7 +408,7 @@ public class ContextMenuBuilder {
         logger.info("Open in project tree for symbol: {}", context.symbolName());
 
         var symbolName = context.symbolName();
-        context.contextManager().submitContextTask("Open in project tree for " + symbolName, () -> {
+        context.contextManager().submitBackgroundTask("Open in project tree for " + symbolName, () -> {
             var definition = findSymbolDefinition(context);
             if (definition.isPresent()) {
                 var projectFile = definition.get().source();
@@ -439,7 +431,7 @@ public class ContextMenuBuilder {
     // File actions
 
     private void editFiles(FileMenuContext context) {
-        context.contextManager().submitContextTask("Edit files", () -> {
+        context.contextManager().submitContextTask(() -> {
             context.contextManager().addFiles(context.files());
         });
     }
@@ -453,13 +445,13 @@ public class ContextMenuBuilder {
                             JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        context.contextManager().submitContextTask("Summarize files", () -> {
+        context.contextManager().submitContextTask(() -> {
             context.contextManager().addSummaries(new HashSet<>(context.files()), Collections.emptySet());
         });
     }
 
     private void runTests(FileMenuContext context) {
-        context.contextManager().submitContextTask("Run selected tests", () -> {
+        context.contextManager().submitExclusiveAction(() -> {
             var testProjectFiles =
                     context.files().stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
 
@@ -474,7 +466,7 @@ public class ContextMenuBuilder {
     private void openPreview(CodeUnit symbol, SymbolMenuContext context) {
         logger.debug("Opening symbol in preview: {} in file: {}", symbol.fqName(), symbol.source());
 
-        context.contextManager().submitContextTask("Open preview for " + symbol.fqName(), () -> {
+        context.contextManager().submitBackgroundTask("Open preview for " + symbol.fqName(), () -> {
             SwingUtilities.invokeLater(() -> {
                 // Try to get the symbol's source range to position the preview
                 var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
@@ -522,7 +514,7 @@ public class ContextMenuBuilder {
 
     // Symbol-based file operations (overloaded versions)
     private void editFiles(SymbolMenuContext context) {
-        context.contextManager().submitContextTask("Edit file", () -> {
+        context.contextManager().submitContextTask(() -> {
             var definition = findSymbolDefinition(context);
             if (definition.isPresent()) {
                 var file = definition.get().source();
@@ -551,7 +543,7 @@ public class ContextMenuBuilder {
                             JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        context.contextManager().submitContextTask("Summarize file", () -> {
+        context.contextManager().submitContextTask(() -> {
             var definition = findSymbolDefinition(context);
             if (definition.isPresent()) {
                 var file = definition.get().source();

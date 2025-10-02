@@ -57,8 +57,6 @@ public record TaskResult(
         INTERRUPTED,
         /** The LLM returned an error after retries. */
         LLM_ERROR,
-        /** The LLM returned an empty or blank response after retries. */
-        EMPTY_RESPONSE,
         /** The LLM response could not be parsed after retries. */
         PARSE_ERROR,
         /** Applying edits failed after retries. */

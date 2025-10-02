@@ -76,3 +76,10 @@ cpg.bin
 node_modules/
 jdeploy-bundle/
 jdeploy/
+
+# TreeSitter Benchmark Dataset
+test-projects
+
+# For swe-bench-live testing
+.venv
+swe_bench_repos/

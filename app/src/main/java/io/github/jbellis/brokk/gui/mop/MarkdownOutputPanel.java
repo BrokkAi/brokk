@@ -124,11 +124,11 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     private void setMainIfChanged(List<? extends ChatMessage> newMessages) {
-        if (isBlocking()) {
-            logger.debug("Ignoring setMainIfChanged() while blocking is enabled.");
+        if (isBlocking() && !messages.isEmpty()) {
+            logger.debug("Ignoring setMainIfChanged() while blocking is enabled and content already exists.");
             return;
         }
-        if (getRawMessages(true).equals(newMessages)) {
+        if (getRawMessages().equals(newMessages)) {
             logger.debug("Skipping MOP main update, content is unchanged.");
             return;
         }
@@ -152,8 +152,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
      */
     public java.util.concurrent.CompletableFuture<Void> setMainThenHistoryAsync(
             List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
-        if (isBlocking()) {
-            logger.debug("Ignoring setMainThenHistoryAsync() while blocking is enabled.");
+        if (isBlocking() && !messages.isEmpty()) {
+            logger.debug("Ignoring setMainThenHistoryAsync() while blocking is enabled and content already exists.");
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         }
         setMainIfChanged(mainMessages);
@@ -231,26 +231,12 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void setText(TaskEntry taskEntry) {
-        SwingUtilities.invokeLater(() -> {
-            if (taskEntry.isCompressed()) {
-                setText(List.of(Messages.customSystem(Objects.toString(taskEntry.summary(), "Summary not available"))));
-            } else {
-                var taskFragment = castNonNull(taskEntry.log());
-                setText(taskFragment.messages());
-            }
-        });
-    }
-
     public String getText() {
         return messages.stream().map(Messages::getRepr).collect(java.util.stream.Collectors.joining("\n\n"));
     }
 
-    public List<ChatMessage> getRawMessages(boolean includeReasoning) {
-        if (includeReasoning) {
-            return List.copyOf(messages);
-        }
-        return messages.stream().filter(m -> !isReasoningMessage(m)).toList();
+    public List<ChatMessage> getRawMessages() {
+        return List.copyOf(messages);
     }
 
     public static boolean isReasoningMessage(ChatMessage msg) {

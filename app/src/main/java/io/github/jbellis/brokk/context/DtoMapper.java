@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.context;
 
+import static java.util.Objects.requireNonNullElse;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.ChatMessage;
@@ -24,6 +25,7 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /** Mapper to convert between Context domain objects and DTO representations. */
@@ -101,12 +103,21 @@ public class DtoMapper {
             Map<String, ContextFragment> fragmentCacheForRecursion,
             ContentReader contentReader) {
         if (referencedDtos.containsKey(idToResolve)) {
-            return _buildReferencedFragment(
-                    castNonNull(referencedDtos.get(idToResolve)), mgr, imageBytesMap, contentReader);
+            var dto = referencedDtos.get(idToResolve);
+            if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
+                logger.info("Skipping deprecated BuildFragment during deserialization: {}", idToResolve);
+                return null;
+            }
+            return _buildReferencedFragment(castNonNull(dto), mgr, imageBytesMap, contentReader);
         }
         if (virtualDtos.containsKey(idToResolve)) {
+            var dto = virtualDtos.get(idToResolve);
+            if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
+                logger.info("Skipping deprecated BuildFragment during deserialization: {}", idToResolve);
+                return null;
+            }
             return _buildVirtualFragment(
-                    castNonNull(virtualDtos.get(idToResolve)),
+                    castNonNull(dto),
                     mgr,
                     imageBytesMap,
                     fragmentCacheForRecursion,
@@ -182,7 +193,13 @@ public class DtoMapper {
             ContentReader reader) {
         if (dto == null) return null;
         return switch (dto) {
-            case FrozenFragmentDto ffd -> (FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
+            case FrozenFragmentDto ffd -> {
+                if (isDeprecatedBuildFragment(ffd)) {
+                    logger.info("Skipping deprecated BuildFragment during deserialization: {}", ffd.id());
+                    yield null;
+                }
+                yield (FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
+            }
             case SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
                         .map(DtoMapper::fromCodeUnitDto)
@@ -214,7 +231,9 @@ public class DtoMapper {
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
-                        CompletableFuture.completedFuture(pasteTextDto.description()));
+                        CompletableFuture.completedFuture(pasteTextDto.description()),
+                        CompletableFuture.completedFuture(
+                                requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
                     if (imageBytesMap == null) {
@@ -256,6 +275,8 @@ public class DtoMapper {
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto ->
                 new ContextFragment.CodeFragment(codeDto.id(), mgr, fromCodeUnitDto(codeDto.unit()));
+            case BuildFragmentDto bfDto ->
+                new ContextFragment.BuildFragment(mgr, reader.readContent(bfDto.contentId()));
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()
                         .map(taskEntryDto -> _fromTaskEntryDto(
@@ -387,9 +408,10 @@ public class DtoMapper {
             case ContextFragment.UsageFragment uf ->
                 new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
             case ContextFragment.PasteTextFragment ptf -> {
-                String description = getFutureDescription(ptf.descriptionFuture, "Paste of ");
+                String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
                 String contentId = writer.writeContent(ptf.text(), null);
-                yield new PasteTextFragmentDto(ptf.id(), contentId, description);
+                String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
+                yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
             case ContextFragment.AnonymousImageFragment aif -> {
                 String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
@@ -406,6 +428,8 @@ public class DtoMapper {
             case ContextFragment.CallGraphFragment cgf ->
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
             case ContextFragment.CodeFragment cf -> new CodeFragmentDto(cf.id(), toCodeUnitDto(cf.getCodeUnit()));
+            case ContextFragment.BuildFragment bf ->
+                new BuildFragmentDto(bf.id(), writer.writeContent(bf.text(), null));
             case ContextFragment.HistoryFragment hf -> {
                 var historyDto = hf.entries().stream()
                         .map(te -> toTaskEntryDto(te, writer))
@@ -428,6 +452,14 @@ public class DtoMapper {
             description = "(Error getting paste description: " + e.getMessage() + ")";
         }
         return description;
+    }
+
+    private static String getFutureSyntaxStyle(Future<String> future) {
+        try {
+            return future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN; // Fallback
+        }
     }
 
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {
@@ -508,6 +540,11 @@ public class DtoMapper {
         ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
         var kind = io.github.jbellis.brokk.analyzer.CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
+    }
+
+    private static boolean isDeprecatedBuildFragment(FrozenFragmentDto ffd) {
+        return "io.github.jbellis.brokk.context.ContextFragment$BuildFragment".equals(ffd.originalClassName())
+                || "BUILD_LOG".equals(ffd.originalType());
     }
 
     /* ───────────── entryInfos mapping ───────────── */

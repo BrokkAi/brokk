@@ -354,7 +354,8 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public synchronized void add(Path path) throws GitAPIException {
         var addCommand = git.add();
-        addCommand.addFilepattern(path.toString());
+        var repoRelativePath = gitTopLevel.relativize(path.toAbsolutePath()).toString();
+        addCommand.addFilepattern(repoRelativePath);
         addCommand.call();
     }
 
@@ -1362,7 +1363,13 @@ public class GitRepo implements Closeable, IGitRepo {
                     throw new GitWrappedIOException(ex);
                 }
                 if (head != null) {
-                    return head.getName(); // Return the commit SHA in detached HEAD state
+                    try (var reader = repository.newObjectReader()) {
+                        var abbrev = reader.abbreviate(head);
+                        return abbrev.name();
+                    } catch (IOException ioEx) {
+                        // Fallback to full SHA on error
+                        return head.getName();
+                    }
                 }
                 throw new GitRepoException("Repository has no HEAD", new NullPointerException());
             }
@@ -1419,8 +1426,8 @@ public class GitRepo implements Closeable, IGitRepo {
             } else if (name.startsWith("refs/tags/")) {
                 tags.add(name.substring("refs/tags/".length()));
             } else if (name.equals("HEAD")) {
-                @Nullable var target = ref.getTarget();
-                if (target != null && target.isSymbolic() && target.getName().startsWith("refs/heads/")) {
+                var target = ref.getTarget();
+                if (target.isSymbolic() && target.getName().startsWith("refs/heads/")) {
                     defaultBranch = target.getName().substring("refs/heads/".length());
                 }
             }
@@ -2163,9 +2170,11 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public static void initRepo(Path root) throws GitAPIException, IOException {
         logger.info("Initializing new Git repository at {}", root);
-        Git.init().setDirectory(root.toFile()).call();
-        logger.info("Git repository initialized at {}.", root);
-        ensureBrokkIgnored(root);
+        try (var git = Git.init().setDirectory(root.toFile()).call()) {
+            logger.info("Git repository initialized at {}.", root);
+            ensureBrokkIgnored(root);
+            git.commit().setAllowEmpty(true).setMessage("Initial commit").call();
+        }
     }
 
     private static void ensureBrokkIgnored(Path root) throws IOException {
@@ -2202,9 +2211,6 @@ public class GitRepo implements Closeable, IGitRepo {
      * automatically append “.git”.
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
-        requireNonNull(remoteUrl, "remoteUrl");
-        requireNonNull(directory, "directory");
-
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
         // Ensure the target directory is empty (or doesn’t yet exist)
@@ -2246,9 +2252,6 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
-        requireNonNull(remoteUrl, "remoteUrl");
-        requireNonNull(directory, "directory");
-
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
         // Ensure the target directory is empty (or doesn't yet exist)

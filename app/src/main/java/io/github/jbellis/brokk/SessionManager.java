@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -34,6 +35,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
     /** Record representing session metadata for the sessions management system. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record SessionInfo(UUID id, String name, long created, long modified) {
 
         @JsonIgnore
@@ -132,9 +134,9 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public void deleteSession(UUID sessionId) {
+    public void deleteSession(UUID sessionId) throws Exception {
         sessionsCache.remove(sessionId);
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             try {
                 boolean deleted = Files.deleteIfExists(historyZipPath);
@@ -146,8 +148,10 @@ public class SessionManager implements AutoCloseable {
                 }
             } catch (IOException e) {
                 logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+                throw new RuntimeException("Failed to delete session " + sessionId, e);
             }
         });
+        deleteFuture.get(); // Wait for deletion to complete
     }
 
     /**

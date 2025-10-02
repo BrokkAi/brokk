@@ -23,12 +23,11 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.tools.ToolRegistry.SignatureUnit;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -41,9 +40,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -71,7 +70,6 @@ public class SearchAgent {
     private final Llm llm;
     private final ToolRegistry toolRegistry;
     private final IConsoleIO io;
-    // private final int ordinal; // TODO use this to disambiguate different search agents spawned by Architect
     private final String goal;
     private final Set<Terminal> allowedTerminals;
 
@@ -79,7 +77,7 @@ public class SearchAgent {
     private final List<ChatMessage> sessionMessages = new ArrayList<>();
 
     // Duplicate detection and linkage discovery
-    private final Set<String> toolCallSignatures = new HashSet<>();
+    private final Set<SignatureUnit> toolCallSignatures = new HashSet<>();
     private final Set<String> trackedClassNames = new HashSet<>();
 
     // State toggles
@@ -101,9 +99,16 @@ public class SearchAgent {
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
-    public TaskResult execute() throws InterruptedException {
-        io.systemOutput("Search Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(goal)));
+    public TaskResult execute() {
+        try {
+            return executeInternal();
+        } catch (InterruptedException e) {
+            logger.debug("Search interrupted", e);
+            return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+        }
+    }
 
+    private @NotNull TaskResult executeInternal() throws InterruptedException {
         // Seed Workspace with ContextAgent recommendations (same pattern as ArchitectAgent)
         addInitialContextToWorkspace();
 
@@ -391,19 +396,21 @@ public class SearchAgent {
 
         var names = new ArrayList<String>();
 
-        // Analyzer-backed exploration
-        names.add("searchSymbols");
-        var analyzerWrapper = cm.getAnalyzerWrapper();
+        // Any Analyzer at all provides these
+        if (!cm.getProject().getAnalyzerLanguages().equals(Set.of(Languages.NONE))) {
+            names.add("searchSymbols");
+            names.add("getFiles");
+        }
 
+        // Fine-grained Analyzer capabilities
+        var analyzerWrapper = cm.getAnalyzerWrapper();
         if (analyzerWrapper.providesSummaries()) {
             names.add("getClassSkeletons");
         }
-
         if (analyzerWrapper.providesSourceCode()) {
             names.add("getClassSources");
             names.add("getMethodSources");
         }
-
         if (analyzerWrapper.providesInterproceduralAnalysis()) {
             names.add("getUsages");
             names.add("getRelatedClasses");
@@ -429,7 +436,6 @@ public class SearchAgent {
         names.add("addCallGraphOutToWorkspace");
         names.add("addTextToWorkspace");
         names.add("dropWorkspaceFragments");
-        names.add("getFiles");
 
         logger.debug("Allowed tool names: {}", names);
         return names;
@@ -439,19 +445,26 @@ public class SearchAgent {
         if (!response.hasToolExecutionRequests()) {
             return List.of();
         }
-        // Forge getRelatedClasses for duplicates (like SearchAgent)
-        var raw = response.toolExecutionRequests().stream()
-                .map(this::handleDuplicateRequestIfNeeded)
-                .toList();
 
-        // If a final action is present, isolate it
-        var firstFinal = raw.stream()
+        // 1) Isolate terminator tools BEFORE running any dedupe logic.
+        //    Terminal tools like answer/createTaskList/workspaceComplete/abortSearch do not have a list parameter
+        //    and must not be deduplicated; doing so can throw during signature extraction.
+        var firstFinal = response.toolExecutionRequests().stream()
                 .filter(r -> r.name().equals("answer")
                         || r.name().equals("createTaskList")
                         || r.name().equals("workspaceComplete")
                         || r.name().equals("abortSearch"))
                 .findFirst();
-        return firstFinal.map(List::of).orElse(raw);
+        if (firstFinal.isPresent()) {
+            return List.of(firstFinal.get());
+        }
+
+        // 2) Otherwise, dedupe non-terminator tool requests and forge getRelatedClasses for duplicates.
+        var raw = response.toolExecutionRequests().stream()
+                .map(this::handleDuplicateRequestIfNeeded)
+                .toList();
+
+        return raw;
     }
 
     private int priority(String toolName) {
@@ -490,12 +503,14 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.getSummary(recommendation.fragments());
-            var msgs = new ArrayList<>(List.of(
-                    new UserMessage("Scan for relevant files"),
-                    new AiMessage("Potentially relevant files:\n" + summaries)));
-            cm.addToHistory(
-                    new TaskResult(cm, "Scan for relevant files", msgs, Set.of(), TaskResult.StopReason.SUCCESS),
-                    false);
+            cm.addVirtualFragment(new ContextFragment.StringFragment(
+                    cm,
+                    summaries,
+                    "Summary of Scan Results",
+                    recommendation.fragments().stream()
+                            .findFirst()
+                            .orElseThrow()
+                            .syntaxStyle()));
         } else {
             WorkspaceTools.addToWorkspace(cm, recommendation);
             io.llmOutput("\n\nScan complete; added recommendations to the Workspace.", ChatMessageType.CUSTOM);
@@ -506,63 +521,23 @@ public class SearchAgent {
     // Answer/abort tools
     // =======================
 
-    @Tool(
-            value =
-                    "Provide a final answer to a purely informational request. Use this when no code changes are required.")
+    @Tool("Provide a final answer to a purely informational request. Use this when no code changes are required.")
     public String answer(
             @P(
                             "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
                     String explanation) {
-        logger.debug("answer selected with explanation length {}", explanation.length());
+        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI);
         return explanation;
     }
 
-    @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
-    public String createTaskList(
-            @P(
-                            """
-            Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
-
-            Requirements (apply to EACH task):
-            - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
-            - Size target: ~2 hours for an experienced contributor across < 10 files.
-            - Testability: name the verification (unit test name or manual check) at the end in brackets: [Verify: ...].
-            - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
-            - Output: starts with a strong verb and names concrete artifact(s) (class/method/file, config, test).
-
-            Rubric for slicing:
-            - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes—split by subsystem or by 'behavior change' vs 'refactor'.
-            - TOO SMALL if there is no distinct verification—merge into its nearest parent goal.
-            - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
-
-            Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
-            """)
-                    List<String> tasks) {
-        // TODO: enrich with project-specific heuristics and validation of task granularity.
-        logger.debug("createTaskList selected with {} tasks", tasks.size());
-        if (tasks.isEmpty()) {
-            return "No tasks provided.";
-        }
-
-        // Append tasks to Task List Panel (if running in Chrome UI)
-        ((Chrome) io).appendTasksToTaskList(tasks);
-        io.systemOutput("Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
-
-        var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
-                .collect(Collectors.joining("\n"));
-        return "# Task List\n" + lines + "\n";
-    }
-
     @Tool(
-            value =
-                    "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
+            "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
     public String workspaceComplete() {
         logger.debug("workspaceComplete selected");
         return "Workspace marked complete for the current goal.";
     }
 
-    @Tool(value = "Abort when you determine the question is not answerable from this codebase or is out of scope.")
+    @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
         logger.debug("abortSearch selected with explanation length {}", explanation.length());
@@ -575,7 +550,7 @@ public class SearchAgent {
 
     private TaskResult createResult() {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages(false));
+        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
             finalMessages = new ArrayList<>(sessionMessages);
         }
@@ -590,7 +565,7 @@ public class SearchAgent {
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
         // Build final messages from already-streamed transcript; fallback to session-local messages if empty
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages(false));
+        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
         if (finalMessages.isEmpty()) {
             finalMessages = new ArrayList<>(sessionMessages);
         }
@@ -670,7 +645,7 @@ public class SearchAgent {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
-        if (sr.error() != null || sr.isEmpty()) {
+        if (sr.error() != null) {
             return rawResult; // fallback to raw
         }
         return sr.text();
@@ -684,15 +659,41 @@ public class SearchAgent {
         if (!cm.getAnalyzerWrapper().providesInterproceduralAnalysis()) {
             return request;
         }
-        var requestSignatures = createToolCallSignatures(request);
-        if (toolCallSignatures.stream().anyMatch(requestSignatures::contains)) {
+
+        // Workspace mutation tools are never deduplicated
+        if (toolRegistry.isWorkspaceMutationTool(request.name())) {
+            return request;
+        }
+
+        var requestUnits = createToolCallSignatures(request);
+        if (requestUnits.isEmpty()) {
+            // Could not determine units; conservatively allow execution
+            return request;
+        }
+
+        var newUnits = requestUnits.stream()
+                .filter(u -> !toolCallSignatures.contains(u))
+                .toList();
+
+        if (newUnits.isEmpty()) {
+            // Nothing new in this request: treat as duplicate and consider forging getRelatedClasses
             logger.debug("Duplicate call detected for {}; forging getRelatedClasses", request.name());
             request = createRelatedClassesRequest();
-            if (toolCallSignatures.containsAll(createToolCallSignatures(request))) {
+            var forgedUnits = createToolCallSignatures(request);
+            if (toolCallSignatures.containsAll(forgedUnits)) {
                 logger.debug("Forged getRelatedClasses would also be duplicate; switching to beast mode");
                 beastMode = true;
             }
+            return request;
         }
+
+        // Some items are new: rewrite the request to contain only the new items (avoid losing new work)
+        if (newUnits.size() < requestUnits.size()) {
+            var rewritten = toolRegistry.buildRequestFromUnits(request, newUnits);
+            return rewritten;
+        }
+
+        // All units are new: execute original request
         return request;
     }
 
@@ -723,37 +724,14 @@ public class SearchAgent {
         }
     }
 
-    private List<String> createToolCallSignatures(ToolExecutionRequest request) {
-        String toolName = request.name();
+    private List<SignatureUnit> createToolCallSignatures(ToolExecutionRequest request) {
+        // Delegate to ToolRegistry which has validation/typing knowledge.
         try {
-            var args = getArgumentsMap(request);
-            return switch (toolName) {
-                case "searchSymbols", "searchSubstrings", "searchFilenames" ->
-                    listParamSignatures(toolName, args, "patterns");
-                case "getFileContents" -> listParamSignatures(toolName, args, "filenames");
-                case "getFileSummaries" -> listParamSignatures(toolName, args, "filePaths");
-                case "getUsages" -> listParamSignatures(toolName, args, "symbols");
-                case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
-                    listParamSignatures(toolName, args, "classNames");
-                case "getMethodSources" -> listParamSignatures(toolName, args, "methodNames");
-                case "searchGitCommitMessages" -> List.of(toolName + ":pattern=" + args.getOrDefault("pattern", ""));
-                case "answer", "createTaskList", "workspaceComplete", "abortSearch" ->
-                    List.of(toolName + ":finalizing");
-                default -> List.of(toolName + ":unknown");
-            };
+            return toolRegistry.signatureUnits(this, request);
         } catch (Exception e) {
-            logger.error("Error creating signature for {}: {}", toolName, e.getMessage());
-            return List.of(toolName + ":error");
+            logger.error("Error creating signature units for {}: {}", request.name(), e.getMessage(), e);
+            return List.of();
         }
-    }
-
-    private List<String> listParamSignatures(String toolName, Map<String, Object> args, String listParam) {
-        @SuppressWarnings("unchecked")
-        List<String> items = (List<String>) args.get(listParam);
-        if (items != null && !items.isEmpty()) {
-            return items.stream().map(i -> toolName + ":" + listParam + "=" + i).toList();
-        }
-        return List.of(toolName + ":" + listParam + "=empty");
     }
 
     private void trackClassNamesFromToolCall(ToolExecutionRequest request) {

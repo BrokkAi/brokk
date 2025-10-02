@@ -133,7 +133,7 @@ public class Llm {
     }
 
     private static String logFileTimestamp() {
-        return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm.ss"));
+        return LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
     }
 
     /** Write the request JSON before sending to the model, to a file named "<base>-request.json". */
@@ -156,10 +156,11 @@ public class Llm {
      * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
      * 'echo' is true, partial tokens go to console.
      */
-    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo) throws InterruptedException {
+    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo, boolean addJsonFence)
+            throws InterruptedException {
         StreamingResult result;
         try {
-            result = doSingleStreamingCallInternal(request, echo);
+            result = doSingleStreamingCallInternal(request, echo, addJsonFence);
         } catch (InterruptedException e) {
             logResult(model, request, null);
             throw e;
@@ -168,7 +169,7 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo)
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo, boolean addJsonFence)
             throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
@@ -189,6 +190,7 @@ public class Llm {
         var accumulatedReasoningBuilder = new StringBuilder();
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
+        var fenceOpen = new AtomicBoolean(false);
 
         Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
@@ -216,6 +218,10 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
+                        if (addJsonFence && !fenceOpen.get()) {
+                            io.llmOutput("\n```json\n", ChatMessageType.AI);
+                            fenceOpen.set(true);
+                        }
                         io.llmOutput(token, ChatMessageType.AI);
                     }
                 });
@@ -256,6 +262,10 @@ public class Llm {
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
+                    if (echo && addJsonFence && fenceOpen.get()) {
+                        io.llmOutput("\n```", ChatMessageType.AI);
+                        fenceOpen.set(false);
+                    }
                     completed.set(true);
                 });
             }
@@ -266,6 +276,10 @@ public class Llm {
                     logger.debug(th);
                     io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
+                    if (echo && addJsonFence && fenceOpen.get()) {
+                        io.llmOutput("\n```", ChatMessageType.AI);
+                        fenceOpen.set(false);
+                    }
                     completed.set(true);
                 });
             }
@@ -298,6 +312,12 @@ public class Llm {
                 lock.unlock();
             }
             throw e; // Propagate interruption
+        }
+
+        // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
+        if (echo && addJsonFence && fenceOpen.get()) {
+            io.llmOutput("\n```", ChatMessageType.AI);
+            fenceOpen.set(false);
         }
 
         // At this point, latch has been counted down and we have a result or an error
@@ -351,6 +371,12 @@ public class Llm {
     private static class LitellmException extends LangChain4jException {
         public LitellmException(String message) {
             super(message);
+        }
+    }
+
+    public static class EmptyResponseError extends LangChain4jException {
+        public EmptyResponseError() {
+            super("Empty response from LLM");
         }
     }
 
@@ -479,8 +505,7 @@ public class Llm {
 
         // If we get here, we failed all attempts
         if (lastError == null) {
-            return new StreamingResult(
-                    null, new IllegalStateException("Empty response after max retries"), attempt - 1);
+            return new StreamingResult(null, new EmptyResponseError(), attempt - 1);
         }
         return new StreamingResult(null, lastError, attempt - 1);
     }
@@ -529,21 +554,24 @@ public class Llm {
         }
 
         var request = requestBuilder.build();
-        var sr = doSingleStreamingCall(request, echo);
+        var sr = doSingleStreamingCall(request, echo, false);
 
         // Pretty-print native tool calls when echo is enabled
+        // (For emulated calls, echo means we get the raw json in the response which is not ideal but
+        // there's no reason to add a second print of it)
         if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
-            prettyPrintToolCalls(sr.toolRequests());
+            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests());
         }
         return sr;
     }
 
-    private void prettyPrintToolCalls(List<ToolExecutionRequest> requests) {
+    private void prettyPrintToolCalls(Object toolOwner, List<ToolExecutionRequest> requests) {
         if (requests.isEmpty()) {
             return;
         }
+        var registry = contextManager.getToolRegistry();
         var rendered = requests.stream()
-                .map(ToolRegistry::getExplanationForToolRequest)
+                .map(tr -> registry.getExplanationForToolRequest(toolOwner, tr))
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
@@ -610,7 +638,7 @@ public class Llm {
 
             // Perform the request for THIS attempt
             lastRequest = requestBuilder.apply(attemptMessages);
-            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo);
+            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo, true);
 
             // Fast-fail on transport / HTTP errors (no retry)
             if (rawResult.error() != null) {
@@ -630,10 +658,6 @@ public class Llm {
 
                 if (echo) {
                     // output the LLM's thinking
-                    var reasoning = parseResult.reasoningContent();
-                    if (reasoning != null && !reasoning.isBlank()) {
-                        io.llmOutput(reasoning, ChatMessageType.AI, false, true);
-                    }
                     String textToOutput = parseResult.text();
                     if (textToOutput != null && !textToOutput.isBlank()) {
                         io.llmOutput(textToOutput, ChatMessageType.AI, false, false);
@@ -644,8 +668,7 @@ public class Llm {
                 var registry = contextManager.getToolRegistry();
                 var validationErrors = new ArrayList<String>();
                 Object toolOwner = requireNonNull(
-                        requireNonNull(toolContext).toolOwner(),
-                        "ToolContext.toolOwner() must be provided for tool validation");
+                        toolContext.toolOwner(), "ToolContext.toolOwner() must be provided for tool validation");
                 for (var ter : parseResult.toolRequests()) {
                     try {
                         registry.validateTool(toolOwner, ter);
@@ -1259,8 +1282,7 @@ public class Llm {
 
         public boolean isEmpty() {
             var emptyText = text == null || text.isEmpty();
-            var emptyReasoning = reasoningContent == null || reasoningContent.isEmpty();
-            return emptyText && toolRequests.isEmpty() && emptyReasoning;
+            return emptyText && toolRequests.isEmpty();
         }
 
         public AiMessage aiMessage() {

@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
@@ -45,8 +46,8 @@ public class GitCommitTab extends JPanel {
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
     private FileStatusTable fileStatusPane;
-    private JButton commitButton;
-    private JButton stashButton;
+    private MaterialButton commitButton;
+    private MaterialButton stashButton;
     private JPanel buttonPanel;
 
     @Nullable
@@ -202,7 +203,7 @@ public class GitCommitTab extends JPanel {
         buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         // Commit Button
-        commitButton = new JButton("Commit All..."); // Default label with ellipsis
+        commitButton = new MaterialButton("Commit All..."); // Default label with ellipsis
         SwingUtil.applyPrimaryButtonStyle(commitButton);
         commitButton.setToolTipText("Commit files...");
         commitButton.setEnabled(false);
@@ -238,7 +239,7 @@ public class GitCommitTab extends JPanel {
         buttonPanel.add(commitButton);
 
         // Stash Button
-        stashButton = new JButton("Stash All"); // Default label
+        stashButton = new MaterialButton("Stash All"); // Default label
         stashButton.setToolTipText("Save your changes to the stash");
         stashButton.setEnabled(false);
         stashButton.addActionListener(e -> {
@@ -250,7 +251,7 @@ public class GitCommitTab extends JPanel {
 
             // Stash without asking for a message, using a default one.
             String stashMessage = "Stash created by Brokk";
-            contextManager.submitUserTask("Stashing changes", () -> {
+            contextManager.submitExclusiveAction(() -> {
                 try {
                     performStash(filesToStash, stashMessage);
                 } catch (GitAPIException ex) {
@@ -528,7 +529,7 @@ public class GitCommitTab extends JPanel {
             }
         }
 
-        contextManager.submitUserTask("show-uncomitted-files", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
@@ -601,7 +602,7 @@ public class GitCommitTab extends JPanel {
             return;
         }
 
-        contextManager.submitUserTask("Rolling back files", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 // 1. Identify which files are not in the workspace.
                 var filesNotInWorkspace = selectedFiles.stream()
@@ -667,8 +668,9 @@ public class GitCommitTab extends JPanel {
                         new HashSet<>(selectedFiles),
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 
-                // 8. Add the result to history. The snapshot will not contain the fragments for `newFiles`.
-                contextManager.addToHistory(taskResult, false);
+                try (var scope = contextManager.beginTask("", false)) {
+                    scope.append(taskResult);
+                }
 
                 // 9. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {

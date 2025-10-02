@@ -44,7 +44,7 @@ public final class WeakList<T> extends AbstractCollection<T> {
         }
 
         @Override
-        public boolean equals(Object obj) {
+        public boolean equals(@Nullable Object obj) {
             return this == obj || (obj != null && Objects.equals(get(), ((Reference<?>) obj).get()));
         }
 

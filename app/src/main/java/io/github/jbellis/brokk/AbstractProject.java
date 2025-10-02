@@ -324,19 +324,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    @Override
-    public boolean getInstructionsAskMode() {
-        String v = workspaceProps.getProperty(PROP_INSTRUCTIONS_ASK);
-        // default to true (Ask mode) if not set
-        return v == null ? true : Boolean.parseBoolean(v);
-    }
-
-    @Override
-    public void setInstructionsAskMode(boolean ask) {
-        workspaceProps.setProperty(PROP_INSTRUCTIONS_ASK, String.valueOf(ask));
-        saveWorkspaceProperties();
-    }
-
     public final Optional<UUID> getLastActiveSession() {
         String sessionIdStr = workspaceProps.getProperty("lastActiveSession");
         if (sessionIdStr != null && !sessionIdStr.isBlank()) {
@@ -358,7 +345,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private static final String PROP_BUILD_LANGUAGE = "build.language";
     private static final String PROP_COMMAND_EXECUTOR = "commandExecutor";
     private static final String PROP_EXECUTOR_ARGS = "commandExecutorArgs";
-    private static final String PROP_INSTRUCTIONS_ASK = "instructions.ask";
+
+    // Terminal drawer per-project persistence
+    private static final String PROP_DRAWER_TERM_OPEN = "drawers.terminal.open";
+    private static final String PROP_DRAWER_TERM_PROP = "drawers.terminal.proportion";
+    private static final String PROP_DRAWER_TERM_LASTTAB = "drawers.terminal.lastTab";
 
     @Override
     public @Nullable String getJdk() {
@@ -432,6 +423,57 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             workspaceProps.setProperty(PROP_EXECUTOR_ARGS, args);
         }
         saveWorkspaceProperties();
+    }
+
+    // --- Terminal drawer per-project persistence ---
+
+    public @Nullable Boolean getTerminalDrawerOpen() {
+        var raw = workspaceProps.getProperty(PROP_DRAWER_TERM_OPEN);
+        if (raw == null || raw.isBlank()) return null;
+        return Boolean.parseBoolean(raw.trim());
+    }
+
+    public void setTerminalDrawerOpen(boolean open) {
+        workspaceProps.setProperty(PROP_DRAWER_TERM_OPEN, Boolean.toString(open));
+        saveWorkspaceProperties();
+    }
+
+    public double getTerminalDrawerProportion() {
+        var raw = workspaceProps.getProperty(PROP_DRAWER_TERM_PROP);
+        if (raw == null || raw.isBlank()) return -1.0;
+        try {
+            return Double.parseDouble(raw.trim());
+        } catch (Exception e) {
+            return -1.0;
+        }
+    }
+
+    public void setTerminalDrawerProportion(double prop) {
+        var clamped = clampProportion(prop);
+        workspaceProps.setProperty(PROP_DRAWER_TERM_PROP, Double.toString(clamped));
+        saveWorkspaceProperties();
+    }
+
+    public @Nullable String getTerminalDrawerLastTab() {
+        var raw = workspaceProps.getProperty(PROP_DRAWER_TERM_LASTTAB);
+        if (raw == null || raw.isBlank()) return null;
+        var norm = raw.trim().toLowerCase(Locale.ROOT);
+        return ("terminal".equals(norm) || "tasks".equals(norm)) ? norm : null;
+    }
+
+    public void setTerminalDrawerLastTab(String tab) {
+        var norm = tab.trim().toLowerCase(Locale.ROOT);
+        if (!"terminal".equals(norm) && !"tasks".equals(norm)) {
+            return;
+        }
+        workspaceProps.setProperty(PROP_DRAWER_TERM_LASTTAB, norm);
+        saveWorkspaceProperties();
+    }
+
+    private static double clampProportion(double p) {
+        if (Double.isNaN(p) || Double.isInfinite(p)) return -1.0;
+        if (p <= 0.0 || p >= 1.0) return -1.0;
+        return Math.max(0.05, Math.min(0.95, p));
     }
 
     private Language computeMostCommonLanguage() {

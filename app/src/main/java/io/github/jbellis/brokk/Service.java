@@ -47,6 +47,8 @@ public class Service {
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
 
+    public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
+
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
         public ModelConfig(String name, ReasoningLevel reasoning) {
@@ -857,7 +859,7 @@ public class Service {
             return true;
         }
 
-        if (true) {
+        if (GLOBAL_FORCE_TOOL_EMULATION) {
             // something is broken in litellm world
             return true;
         }
@@ -1046,6 +1048,17 @@ public class Service {
         return model;
     }
 
+    /** Returns a model for the Wand button: prefer GPT-5 Mini; fall back to Gemini 2.0 Flash. */
+    public StreamingChatModel getWandModel() {
+        var modelName = modelLocations.containsKey(GPT_5_MINI) ? GPT_5_MINI : GEMINI_2_0_FLASH;
+        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
+        if (model == null) {
+            logger.error("Failed to get wand model '{}'", modelName);
+            return new UnavailableStreamingModel();
+        }
+        return model;
+    }
+
     /**
      * Convenience helper to check whether a real STT model is available.
      *
@@ -1079,9 +1092,6 @@ public class Service {
     public void sendFeedback(
             String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
             throws IOException {
-        Objects.requireNonNull(category, "category must not be null");
-        Objects.requireNonNull(feedbackText, "feedbackText must not be null");
-
         // Get user ID from Brokk key
         var kp = parseKey(MainProject.getBrokkKey());
 

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import javax.swing.*;
@@ -24,7 +25,7 @@ public class MergeBranchDialogPanel extends JDialog {
     private final String sourceBranch;
     private final String targetBranch;
 
-    private final JButton okButton;
+    private final MaterialButton okButton;
     private boolean dialogResult = false;
 
     public MergeBranchDialogPanel(Frame parent, String sourceBranch, String targetBranch) {
@@ -36,7 +37,7 @@ public class MergeBranchDialogPanel extends JDialog {
         this.mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
         this.conflictStatusLabel = new JLabel(" ");
 
-        okButton = new JButton("OK");
+        okButton = new MaterialButton("OK");
         initializeDialog();
     }
 
@@ -81,7 +82,7 @@ public class MergeBranchDialogPanel extends JDialog {
 
         // Create button panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var cancelButton = new JButton("Cancel");
+        var cancelButton = new MaterialButton("Cancel");
 
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);

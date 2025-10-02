@@ -211,4 +211,34 @@ public final class WorktreeProject extends AbstractProject {
     public void sessionsListChanged() {
         parent.sessionsListChanged();
     }
+
+    @Override
+    public boolean getPlanFirst() {
+        return parent.getPlanFirst();
+    }
+
+    @Override
+    public void setPlanFirst(boolean v) {
+        parent.setPlanFirst(v);
+    }
+
+    @Override
+    public boolean getSearch() {
+        return parent.getSearch();
+    }
+
+    @Override
+    public void setSearch(boolean v) {
+        parent.setSearch(v);
+    }
+
+    @Override
+    public boolean getInstructionsAskMode() {
+        return parent.getInstructionsAskMode();
+    }
+
+    @Override
+    public void setInstructionsAskMode(boolean ask) {
+        parent.setInstructionsAskMode(ask);
+    }
 }

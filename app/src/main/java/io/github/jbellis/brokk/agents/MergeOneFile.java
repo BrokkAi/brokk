@@ -160,7 +160,7 @@ public final class MergeOneFile {
 
             var result = llm.sendRequest(
                     List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
-            if (result.error() != null || result.isEmpty()) {
+            if (result.error() != null) {
                 var msg = result.error() != null ? result.error().getMessage() : "Empty response";
                 io.systemOutput("LLM error in merge loop: " + msg);
                 break;
@@ -182,7 +182,7 @@ public final class MergeOneFile {
             for (var req : sorted) {
                 if (Thread.interrupted()) throw new InterruptedException();
 
-                var explanation = ToolRegistry.getExplanationForToolRequest(req);
+                var explanation = cm.getToolRegistry().getExplanationForToolRequest(this, req);
                 if (!explanation.isBlank()) {
                     io.llmOutput("\n" + explanation, ChatMessageType.AI);
                 }
@@ -519,7 +519,7 @@ public final class MergeOneFile {
                         + "\nYou can also make non-conflict edits if necessary to fix related issues caused by the merge.";
         var agent = new CodeAgent(cm, codeModel, cm.getIo());
         var result = agent.runSingleFileEdit(
-                requireNonNull(file),
+                file,
                 instructions,
                 requireNonNull(currentSessionMessages),
                 EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS));

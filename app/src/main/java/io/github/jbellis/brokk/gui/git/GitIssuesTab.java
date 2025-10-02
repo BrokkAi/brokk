@@ -1036,7 +1036,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void captureIssue(IssueHeader header) {
-        var future = contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
+        var future = contextManager.submitContextTask(() -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
 

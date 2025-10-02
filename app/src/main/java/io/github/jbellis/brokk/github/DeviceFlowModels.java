@@ -8,12 +8,12 @@ public class DeviceFlowModels {
             @JsonProperty("device_code") String deviceCode,
             @JsonProperty("user_code") String userCode,
             @JsonProperty("verification_uri") String verificationUri,
-            @JsonProperty("verification_uri_complete") String verificationUriComplete,
+            @JsonProperty("verification_uri_complete") @Nullable String verificationUriComplete,
             @JsonProperty("expires_in") int expiresIn,
             @JsonProperty("interval") int interval) {
 
         public String getPreferredVerificationUri() {
-            return (verificationUriComplete != null && !verificationUriComplete.isEmpty())
+            return verificationUriComplete != null && !verificationUriComplete.isEmpty()
                     ? verificationUriComplete
                     : verificationUri;
         }
@@ -24,9 +24,9 @@ public class DeviceFlowModels {
     }
 
     public record TokenResponse(
-            @JsonProperty("access_token") String accessToken,
-            @JsonProperty("token_type") String tokenType,
-            @JsonProperty("scope") String scope) {}
+            @JsonProperty("access_token") @Nullable String accessToken,
+            @JsonProperty("token_type") @Nullable String tokenType,
+            @JsonProperty("scope") @Nullable String scope) {}
 
     public enum TokenPollResult {
         SUCCESS,

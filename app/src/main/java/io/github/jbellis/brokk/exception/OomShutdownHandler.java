@@ -70,8 +70,7 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
      * @return true if a {@link OutOfMemoryError} is part of the throwable cause chain.
      */
     public static boolean isOomError(Throwable e) {
-        if (e == null) return false;
-        else if (e instanceof OutOfMemoryError) return true;
+        if (e instanceof OutOfMemoryError) return true;
         else if (e.getCause() == null) return false;
         else return isOomError(e.getCause());
     }

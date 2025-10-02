@@ -196,16 +196,15 @@ public class GitHubAuth {
      * Checks if a GitHub token is configured, without performing network I/O. This is suitable for UI checks to
      * enable/disable features.
      *
-     * @param project The current project (reserved for future use, e.g., project-specific tokens).
      * @return true if a non-blank token is present.
      */
-    public static boolean tokenPresent(IProject project) {
-        var token = MainProject.getGitHubToken();
+    public static boolean tokenPresent() {
+        var token = getStoredToken();
         return !token.isBlank();
     }
 
     public static boolean validateStoredToken() {
-        String token = MainProject.getGitHubToken();
+        String token = getStoredToken();
         if (token.isEmpty()) {
             return false;
         }
@@ -223,8 +222,17 @@ public class GitHubAuth {
         }
     }
 
+    /**
+     * Gets the stored GitHub token. Single source of truth for token access.
+     *
+     * @return the GitHub token, or empty string if none configured
+     */
+    public static String getStoredToken() {
+        return MainProject.getGitHubToken();
+    }
+
     public static @Nullable String getAuthenticatedUsername() {
-        String token = MainProject.getGitHubToken();
+        String token = getStoredToken();
         if (token.isEmpty()) {
             return null;
         }
@@ -252,7 +260,7 @@ public class GitHubAuth {
         }
 
         // Try with token
-        var token = MainProject.getGitHubToken();
+        var token = getStoredToken();
         GitHubBuilder builder = new GitHubBuilder();
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
@@ -413,7 +421,7 @@ public class GitHubAuth {
                 .writeTimeout(5, TimeUnit.SECONDS)
                 .followRedirects(true);
 
-        var token = MainProject.getGitHubToken();
+        var token = getStoredToken();
         if (!token.isBlank()) {
             builder.addInterceptor(chain -> {
                 Request originalRequest = chain.request();

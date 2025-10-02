@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer.lsp;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.util.ExecutorServiceUtil;
 import io.github.jbellis.brokk.util.FileUtil;
 import java.io.File;
 import java.io.IOException;
@@ -259,8 +260,7 @@ public abstract class LspServer {
         this.serverProcess = pb.start();
 
         // Create a dedicated thread pool for the LSP client
-        this.lspExecutor =
-                Executors.newFixedThreadPool(4, runnable -> new Thread(runnable, language + "-lsp-client-thread"));
+        this.lspExecutor = ExecutorServiceUtil.newFixedThreadExecutor(4, "lsp-client-thread-");
 
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);

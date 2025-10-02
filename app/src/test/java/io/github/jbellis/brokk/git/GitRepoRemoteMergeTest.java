@@ -12,11 +12,9 @@ import org.eclipse.jgit.transport.RefSpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 
 /** Tests for GitRepo remote merge functionality via fast-forward, squash, and rebase modes. */
-@DisabledIfEnvironmentVariable(named = "RUNNER_OS", matches = "Windows")
 public class GitRepoRemoteMergeTest {
 
     @TempDir
@@ -46,6 +44,9 @@ public class GitRepoRemoteMergeTest {
         localGit.getRepository().getConfig().setString("user", null, "name", "Test User");
         localGit.getRepository().getConfig().setString("user", null, "email", "test@example.com");
         localGit.getRepository().getConfig().setBoolean("commit", null, "gpgsign", false);
+        // Configure line endings to be consistent
+        localGit.getRepository().getConfig().setString("core", null, "autocrlf", "false");
+        localGit.getRepository().getConfig().setString("core", null, "eol", "lf");
         localGit.getRepository().getConfig().save();
 
         // Create initial commit

@@ -650,7 +650,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 return;
             }
 
-            contextManager.submitUserTask("Capturing workspace selections at " + shortId, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 int success = 0;
                 for (var pf : selectedFiles) {
                     try {
@@ -718,11 +718,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             }
             final String branchLabel = branchTmp;
 
-            String taskName = (commitIds.size() == 1)
-                    ? "Cherry picking 1 commit into " + branchLabel
-                    : "Cherry picking " + commitIds.size() + " commits into " + branchLabel;
-
-            contextManager.submitUserTask(taskName, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 int applied = 0;
                 for (var cid : commitIds) {
                     CherryPickResult res;
@@ -1027,7 +1023,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void softResetToCommitInternal(String commitId, String commitMessage) {
-        contextManager.submitUserTask("Soft resetting to " + getShortId(commitId), () -> {
+        contextManager.submitExclusiveAction(() -> {
             var oldHeadId = getOldHeadId();
             try {
                 getRepo().softReset(commitId);
@@ -1044,7 +1040,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void revertCommitInternal(String commitId) {
-        contextManager.submitUserTask("Reverting " + getShortId(commitId), () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 getRepo().revertCommit(commitId);
                 SwingUtil.runOnEdt(() -> {
@@ -1060,7 +1056,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void performStashOp(
             int idx, String description, StashActionPerformer repoCall, String successMsg, boolean refreshView) {
-        contextManager.submitUserTask(description + " @" + idx, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 repoCall.perform(idx);
                 SwingUtil.runOnEdt(() -> {
@@ -1356,7 +1352,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         }
 
         // Token check first, as it's cheap and local.
-        if (!GitHubAuth.tokenPresent(contextManager.getProject())) {
+        if (!GitHubAuth.tokenPresent()) {
             return new ButtonConfig(
                     false,
                     "A GitHub token is required to create pull requests. Please configure it in settings.",
@@ -1386,7 +1382,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void handlePullAction(String branchName) {
-        contextManager.submitUserTask("Pulling " + branchName, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.pull(branchName);
                 SwingUtil.runOnEdt(() -> {
@@ -1402,7 +1398,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void handlePushAction(String branchName) {
-        contextManager.submitUserTask("Pushing " + branchName, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.push(branchName);
                 SwingUtil.runOnEdt(() -> {
@@ -1622,7 +1618,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         return "Author: " + author + "\n" + "Date:   " + dateStr + "\n\n" + indentedMsg;
     }
 
-    private void configureButton(JButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
+    private void configureButton(
+            MaterialButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
         button.setEnabled(enabled);
         // Visibility is now controlled at a higher level (when adding to panel)
         // and should not be changed here if options.showPushPullButtons or options.showCreatePrButton is true.

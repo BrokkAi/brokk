@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.*;
 import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager;
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -17,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Discovers, registers, provides specifications for, and executes tools. Tools are methods annotated with @Tool on
@@ -29,190 +29,91 @@ public class ToolRegistry {
     // Maps tool name to its invocation target (method + instance)
     private final Map<String, ToolInvocationTarget> toolMap = new ConcurrentHashMap<>();
 
-    /** Gets human-readable parameter information from a tool call */
-    public static String formatListParameter(Map<String, Object> arguments, String paramName) {
-        @SuppressWarnings("unchecked")
-        List<String> items = (List<String>) arguments.get(paramName);
-        if (items != null && !items.isEmpty()) {
-            // turn it back into a JSON list or the LLM will be lazy too
-            var mapper = new ObjectMapper();
-            try {
-                return "%s=%s".formatted(paramName, mapper.writeValueAsString(items));
-            } catch (IOException e) {
-                logger.error("Error formatting list parameter", e);
-            }
-        }
-        return "";
-    }
-
     /** Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting. */
-    public static String getExplanationForToolRequest(ToolExecutionRequest request) {
-        try {
-            // Get tool display metadata
-            var displayMeta = ToolDisplayMeta.fromToolName(request.name());
-
-            // Skip empty explanations for answer/abort
-            if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
-                return "";
-            }
-
-            // Parse the arguments
-            var mapper = new ObjectMapper();
-            Map<String, Object> args = mapper.readValue(request.arguments(), new TypeReference<>() {});
-
-            // Convert to YAML format
-            StringBuilder yamlBuilder = new StringBuilder();
-
-            // Process each argument entry
-            for (var entry : args.entrySet()) {
-                String key = entry.getKey();
-                Object value = entry.getValue();
-
-                // Handle different value types
-                if (value instanceof List<?> list) {
-                    yamlBuilder.append(key).append(":\n");
-                    for (Object item : list) {
-                        yamlBuilder.append("  - ").append(item).append("\n");
-                    }
-                } else if (value instanceof String str && str.contains("\n")) {
-                    // Use YAML block scalar for multi-line strings
-                    yamlBuilder.append(key).append(": |\n");
-                    for (String line :
-                            com.google.common.base.Splitter.on('\n').splitToList(str)) { // Use Splitter fully qualified
-                        yamlBuilder.append("  ").append(line).append("\n");
-                    }
-                } else {
-                    yamlBuilder.append(key).append(": ").append(value).append("\n");
-                }
-            }
-
-            // Create the Markdown code fence with icon and headline
-            return """
-                   ### %s %s
-                   ```yaml
-                   %s```
-                   """
-                    .formatted(displayMeta.getIcon(), displayMeta.getHeadline(), yamlBuilder);
-        } catch (Exception e) {
-            logger.error("Error formatting tool request explanation", e);
-            String paramInfo = getToolParameterInfoFromRequest(request);
-            var displayMeta = ToolDisplayMeta.fromToolName(request.name());
-            return paramInfo.isBlank() ? displayMeta.getHeadline() : displayMeta.getHeadline() + " (" + paramInfo + ")";
-        }
-    }
-
-    /** Gets parameter info directly from a request for explanation purposes. */
-    private static String getToolParameterInfoFromRequest(ToolExecutionRequest request) {
-        try {
-            var mapper = new ObjectMapper();
-            var arguments = mapper.readValue(request.arguments(), new TypeReference<Map<String, Object>>() {});
-
-            return switch (request.name()) {
-                case "searchSymbols", "searchSubstrings", "searchFilenames" ->
-                    formatListParameter(arguments, "patterns");
-                case "getFileContents" -> formatListParameter(arguments, "filenames");
-                case "getFileSummaries" -> formatListParameter(arguments, "filePaths");
-                case "getUsages" -> formatListParameter(arguments, "symbols");
-                case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
-                    formatListParameter(arguments, "classNames");
-                case "getMethodSources" -> formatListParameter(arguments, "methodNames");
-                case "getCallGraphTo", "getCallGraphFrom" ->
-                    arguments.getOrDefault("methodName", "").toString();
-                case "answerSearch", "abortSearch" -> "";
-                default -> "";
-            };
-        } catch (Exception e) {
-            logger.error("Error getting parameter info for request {}: {}", request.name(), e);
+    public String getExplanationForToolRequest(Object toolOwner, ToolExecutionRequest request) {
+        // Skip empty explanations for answer/abort
+        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
             return "";
         }
+
+        // Resolve target and perform typed conversion via validateTool; let ToolValidationException propagate.
+        var vi = validateTool(toolOwner, request);
+        var argsYaml = toYaml(vi);
+        var headline = headlineFor(request.name());
+
+        return """
+               ### %s
+               ```yaml
+               %s```
+               """
+                .formatted(headline, argsYaml);
     }
 
-    /** Enum that defines display metadata for each tool */
-    private enum ToolDisplayMeta {
-        SEARCH_SYMBOLS("🔍", "Searching for symbols"),
-        SEARCH_SUBSTRINGS("🔍", "Searching for substrings"),
-        SEARCH_FILENAMES("🔍", "Searching for filenames"),
-        GET_FILE_CONTENTS("🔍", "Getting file contents"),
-        GET_FILE_SUMMARIES("🔍", "Getting file summaries"),
-        GET_USAGES("🔍", "Finding usages"),
-        GET_CLASS_SKELETONS("🔍", "Getting class overview"),
-        GET_CLASS_SOURCES("🔍", "Fetching class source"),
-        GET_METHOD_SOURCES("🔍", "Fetching method source"),
-        GET_RELATED_CLASSES("🔍", "Finding related code"),
-        CALL_GRAPH_TO("🔍", "Getting call graph TO"),
-        CALL_GRAPH_FROM("🔍", "Getting call graph FROM"),
-        SEARCH_GIT_COMMIT_MESSAGES("🔍", "Searching git commits"),
-        LIST_FILES("🔍", "Listing files"),
-        GET_FILES("🔍", "Finding files for classes"),
-        ADD_FILES_TO_WORKSPACE("📝", "Adding files to workspace"),
-        ADD_CLASSES_TO_WORKSPACE("📝", "Adding classes to workspace"),
-        ADD_URL_CONTENTS_TO_WORKSPACE("📝", "Adding URL contents to workspace"),
-        ADD_TEXT_TO_WORKSPACE("📝", "Adding text to workspace"),
-        ADD_SYMBOL_USAGES_TO_WORKSPACE("📝", "Adding symbol usages to workspace"),
-        ADD_CLASS_SUMMARIES_TO_WORKSPACE("📝", "Adding class summaries to workspace"),
-        ADD_FILE_SUMMARIES_TO_WORKSPACE("📝", "Adding file summaries to workspace"),
-        ADD_METHODS_TO_WORKSPACE("📝", "Adding method sources to workspace"),
-        ADD_CALL_GRAPH_IN_TO_WORKSPACE("📝", "Adding callers to workspace"),
-        ADD_CALL_GRAPH_OUT_TO_WORKSPACE("📝", "Adding callees to workspace"),
-        DROP_WORKSPACE_FRAGMENTS("🗑️", "Removing from workspace"),
-        ANSWER_SEARCH("", ""),
-        ABORT_SEARCH("", ""),
-        UNKNOWN("❓", "");
-
-        private final String icon;
-        private final String headline;
-
-        ToolDisplayMeta(String icon, String headline) {
-            this.icon = icon;
-            this.headline = headline;
+    // Helper to render a simple YAML block from a map of arguments
+    private static String toYaml(ValidatedInvocation vi) {
+        var named = new LinkedHashMap<String, Object>();
+        var params = vi.method().getParameters();
+        var values = vi.parameters();
+        assert params.length == values.size();
+        for (int i = 0; i < params.length; i++) {
+            named.put(params[i].getName(), values.get(i));
         }
+        var args = (Map<String, Object>) named;
 
-        public String getIcon() {
-            return icon;
-        }
-
-        public String getHeadline() {
-            return headline;
-        }
-
-        public static ToolDisplayMeta fromToolName(String toolName) {
-            return switch (toolName) {
-                case "searchSymbols" -> SEARCH_SYMBOLS;
-                case "searchSubstrings" -> SEARCH_SUBSTRINGS;
-                case "searchFilenames" -> SEARCH_FILENAMES;
-                case "getFileContents" -> GET_FILE_CONTENTS;
-                case "getFileSummaries" -> GET_FILE_SUMMARIES;
-                case "getUsages" -> GET_USAGES;
-                case "getRelatedClasses" -> GET_RELATED_CLASSES;
-                case "getClassSkeletons" -> GET_CLASS_SKELETONS;
-                case "getClassSources" -> GET_CLASS_SOURCES;
-                case "getMethodSources" -> GET_METHOD_SOURCES;
-                case "getCallGraphTo" -> CALL_GRAPH_TO;
-                case "getCallGraphFrom" -> CALL_GRAPH_FROM;
-                case "searchGitCommitMessages" -> SEARCH_GIT_COMMIT_MESSAGES;
-                case "listFiles" -> LIST_FILES;
-                case "getFiles" -> GET_FILES;
-                case "addFilesToWorkspace" -> ADD_FILES_TO_WORKSPACE;
-                case "addClassesToWorkspace" -> ADD_CLASSES_TO_WORKSPACE;
-                case "addUrlContentsToWorkspace" -> ADD_URL_CONTENTS_TO_WORKSPACE;
-                case "addTextToWorkspace" -> ADD_TEXT_TO_WORKSPACE;
-                case "addSymbolUsagesToWorkspace" -> ADD_SYMBOL_USAGES_TO_WORKSPACE;
-                case "addClassSummariesToWorkspace" -> ADD_CLASS_SUMMARIES_TO_WORKSPACE;
-                case "addFileSummariesToWorkspace" -> ADD_FILE_SUMMARIES_TO_WORKSPACE;
-                case "addMethodsToWorkspace" -> ADD_METHODS_TO_WORKSPACE;
-                case "addCallGraphInToWorkspace" -> ADD_CALL_GRAPH_IN_TO_WORKSPACE;
-                case "addCallGraphOutToWorkspace" -> ADD_CALL_GRAPH_OUT_TO_WORKSPACE;
-                case "dropWorkspaceFragments" -> DROP_WORKSPACE_FRAGMENTS;
-                case "answerSearch" -> ANSWER_SEARCH;
-                case "abortSearch" -> ABORT_SEARCH;
-                default -> {
-                    logger.warn("Unknown tool name for display metadata: {}", toolName);
-                    yield UNKNOWN;
+        var sb = new StringBuilder();
+        for (var entry : args.entrySet()) {
+            var key = entry.getKey();
+            var value = entry.getValue();
+            if (value instanceof Collection<?> list) {
+                sb.append(key).append(":\n");
+                for (var item : list) {
+                    sb.append("  - ").append(item).append("\n");
                 }
-            };
+            } else if (value instanceof String s && s.contains("\n")) {
+                sb.append(key).append(": |\n");
+                s.lines().forEach(line -> sb.append("  ").append(line).append("\n"));
+            } else {
+                sb.append(key).append(": ").append(value).append("\n");
+            }
         }
+        return sb.toString();
     }
-    // private final ContextManager contextManager; // Unused field removed
+
+    /** Mapping of tool names to display headlines (icons removed). */
+    private static final Map<String, String> HEADLINES = Map.ofEntries(
+            Map.entry("searchSymbols", "Searching for symbols"),
+            Map.entry("searchSubstrings", "Searching for substrings"),
+            Map.entry("searchFilenames", "Searching for filenames"),
+            Map.entry("getFileContents", "Getting file contents"),
+            Map.entry("getFileSummaries", "Getting file summaries"),
+            Map.entry("getUsages", "Finding usages"),
+            Map.entry("getRelatedClasses", "Finding related code"),
+            Map.entry("getClassSkeletons", "Getting class overview"),
+            Map.entry("getClassSources", "Fetching class source"),
+            Map.entry("getMethodSources", "Fetching method source"),
+            Map.entry("getCallGraphTo", "Getting call graph TO"),
+            Map.entry("getCallGraphFrom", "Getting call graph FROM"),
+            Map.entry("searchGitCommitMessages", "Searching git commits"),
+            Map.entry("listFiles", "Listing files"),
+            Map.entry("getFiles", "Finding files for classes"),
+            Map.entry("addFilesToWorkspace", "Adding files to workspace"),
+            Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
+            Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
+            Map.entry("addTextToWorkspace", "Adding text to workspace"),
+            Map.entry("addSymbolUsagesToWorkspace", "Adding symbol usages to workspace"),
+            Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
+            Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
+            Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
+            Map.entry("addCallGraphInToWorkspace", "Adding callers to workspace"),
+            Map.entry("addCallGraphOutToWorkspace", "Adding callees to workspace"),
+            Map.entry("dropWorkspaceFragments", "Removing from workspace"),
+            Map.entry("recommendContext", "Recommending context"),
+            Map.entry("createTaskList", "Creating task list"));
+
+    /** Returns a human-readable headline for the given tool. Falls back to the tool name if there is no mapping. */
+    private static String headlineFor(String toolName) {
+        return HEADLINES.getOrDefault(toolName, toolName);
+    }
 
     // Internal record to hold method and the instance it belongs to
     private record ToolInvocationTarget(Method method, Object instance) {}
@@ -225,29 +126,143 @@ public class ToolRegistry {
         }
     }
 
+    /**
+     * Minimal atomic signature unit for duplicate detection: - toolName: the tool being invoked - paramName: the list
+     * parameter that was sliced - item: the single item from that list parameter
+     */
+    public record SignatureUnit(String toolName, String paramName, Object item) {}
+
+    /**
+     * Returns true if the given tool is a workspace-mutation tool that should never be deduplicated. This is an
+     * explicit whitelist so new tools are safe-by-default.
+     */
+    public boolean isWorkspaceMutationTool(String toolName) {
+        return Set.of(
+                        "addFilesToWorkspace",
+                        "addClassesToWorkspace",
+                        "addUrlContentsToWorkspace",
+                        "addTextToWorkspace",
+                        "addSymbolUsagesToWorkspace",
+                        "addClassSummariesToWorkspace",
+                        "addFileSummariesToWorkspace",
+                        "addMethodsToWorkspace",
+                        "addCallGraphInToWorkspace",
+                        "addCallGraphOutToWorkspace",
+                        "dropWorkspaceFragments")
+                .contains(toolName);
+    }
+
+    /**
+     * Produces a list of SignatureUnit objects for the provided request by validating the request against the target
+     * method and inspecting the typed parameters.
+     *
+     * <p>Constraints for dedupe: - The target method must have exactly one parameter whose runtime value is a
+     * Collection. - Each element in that collection must be a primitive wrapper, String, or other simple scalar.
+     * Otherwise, throws IllegalArgumentException to signal unsupported pattern for dedupe.
+     */
+    public List<SignatureUnit> signatureUnits(Object instance, ToolExecutionRequest request) {
+        String toolName = request.name();
+
+        ValidatedInvocation vi = validateTool(instance, request);
+        Method method = vi.method();
+        Parameter[] params = method.getParameters();
+        List<Object> values = vi.parameters();
+
+        // Identify collection-like parameters (by runtime value)
+        List<Integer> collectionIndices = new ArrayList<>();
+        for (int i = 0; i < values.size(); i++) {
+            if (values.get(i) instanceof Collection<?>) {
+                collectionIndices.add(i);
+            }
+        }
+
+        if (collectionIndices.size() != 1) {
+            throw new IllegalArgumentException("Tool '" + toolName
+                    + "' must have exactly one list parameter for dedupe; found " + collectionIndices.size());
+        }
+
+        int sliceIdx = collectionIndices.get(0);
+        String sliceName = params[sliceIdx].getName();
+        Collection<?> coll = (Collection<?>) values.get(sliceIdx);
+
+        // Validate element shape (primitives/simple scalars)
+        for (Object elem : coll) {
+            if (!isSimpleScalar(elem)) {
+                throw new IllegalArgumentException(
+                        "Tool '" + toolName + "' list parameter '" + sliceName + "' contains non-scalar element: "
+                                + (elem == null ? "null" : elem.getClass().getName()));
+            }
+        }
+
+        // Create a unit per element
+        return coll.stream()
+                .map(item -> new SignatureUnit(toolName, sliceName, item))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Build a new ToolExecutionRequest from a set of SignatureUnit items that came from the same original request. This
+     * rewrites the single list parameter to the provided items while preserving other arguments.
+     */
+    public ToolExecutionRequest buildRequestFromUnits(ToolExecutionRequest original, List<SignatureUnit> units) {
+        if (units.isEmpty()) return original;
+
+        String toolName = original.name();
+        String paramName = units.get(0).paramName();
+
+        // Ensure all units belong to the same tool/param
+        boolean consistent = units.stream()
+                .allMatch(u -> u.toolName().equals(toolName) && u.paramName().equals(paramName));
+        if (!consistent) {
+            logger.error("Inconsistent SignatureUnits when rebuilding request for {}: {}", toolName, units);
+            return original;
+        }
+
+        // Parse original arguments, replace the list parameter with our new items, preserve others
+        try {
+            Map<String, Object> args = OBJECT_MAPPER.readValue(
+                    original.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
+            var items = units.stream().map(SignatureUnit::item).collect(Collectors.toList());
+            if (!args.containsKey(paramName)) {
+                logger.error("Parameter '{}' not found in original arguments for tool {}", paramName, toolName);
+                return original;
+            }
+            args.put(paramName, items);
+            String json = OBJECT_MAPPER.writeValueAsString(args);
+            return ToolExecutionRequest.builder().name(toolName).arguments(json).build();
+        } catch (JsonProcessingException e) {
+            logger.error("Error rebuilding request from units for {}: {}", toolName, e.getMessage(), e);
+            return original;
+        }
+    }
+
+    private static boolean isSimpleScalar(@Nullable Object v) {
+        if (v == null) return true;
+        return v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Character;
+    }
+
     /** Validates a tool request against the provided instance's @Tool methods (falling back to globals). */
     public ValidatedInvocation validateTool(Object instance, ToolExecutionRequest request) {
-        Objects.requireNonNull(instance, "toolInstance cannot be null");
-        Class<?> cls = instance.getClass();
+        String toolName = request.name();
+        if (toolName.isBlank()) {
+            throw new ToolValidationException("Tool name cannot be empty");
+        }
 
+        // first check the instance
+        Class<?> cls = instance.getClass();
         Method targetMethod = Arrays.stream(cls.getDeclaredMethods())
-                .filter(m -> m.isAnnotationPresent(dev.langchain4j.agent.tool.Tool.class))
+                .filter(m -> m.isAnnotationPresent(Tool.class))
                 .filter(m -> !Modifier.isStatic(m.getModifiers()))
                 .filter(m -> {
-                    var toolAnnotation = m.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
-                    String name = toolAnnotation.name().isEmpty() ? m.getName() : toolAnnotation.name();
-                    return name.equals(request.name());
+                    String name = m.getName();
+                    return name.equals(toolName);
                 })
                 .findFirst()
                 .orElse(null);
 
-        ToolInvocationTarget target;
-        if (targetMethod == null) {
-            target = toolMap.get(request.name());
-        } else {
-            target = new ToolInvocationTarget(targetMethod, instance);
-        }
-
+        // then check the global tool map
+        ToolInvocationTarget target =
+                (targetMethod != null) ? new ToolInvocationTarget(targetMethod, instance) : toolMap.get(request.name());
         if (target == null) {
             throw new ToolValidationException("Tool not found: " + request.name());
         }
@@ -256,7 +271,7 @@ public class ToolRegistry {
         return new ValidatedInvocation(target.method(), target.instance(), args);
     }
 
-    private List<Object> parseArguments(ToolExecutionRequest request, Method method) {
+    private static List<Object> parseArguments(ToolExecutionRequest request, Method method) {
         try {
             Map<String, Object> argumentsMap =
                     OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<HashMap<String, Object>>() {});
@@ -286,7 +301,7 @@ public class ToolRegistry {
                         if (contentClass != Object.class) {
                             if (converted instanceof java.util.Collection<?> coll) {
                                 for (Object elem : coll) {
-                                    if (elem != null && !contentClass.isInstance(elem)) {
+                                    if (!contentClass.isInstance(elem)) {
                                         throw new ToolValidationException(
                                                 "Parameter '%s' expected elements of type %s but got %s"
                                                         .formatted(
@@ -320,7 +335,6 @@ public class ToolRegistry {
 
     /** Creates a new ToolRegistry and self-registers internal tools. */
     public ToolRegistry(ContextManager contextManagerIgnored) {
-        // this.contextManager = contextManager; // contextManager field removed
         register(this);
     }
 
@@ -329,8 +343,7 @@ public class ToolRegistry {
      * process explicitly.
      */
     @Tool(
-            value =
-                    """
+            """
     Think carefully step by step about a complex problem. Use this tool to reason through difficult questions
     or break problems into smaller pieces. Call it concurrently with other tools.
     """)
@@ -345,15 +358,11 @@ public class ToolRegistry {
      * @param toolProviderInstance An instance of a class containing methods annotated with @Tool.
      */
     public void register(Object toolProviderInstance) {
-        Objects.requireNonNull(toolProviderInstance, "toolProviderInstance cannot be null");
         Class<?> clazz = toolProviderInstance.getClass();
 
         for (Method method : clazz.getMethods()) {
             if (method.isAnnotationPresent(dev.langchain4j.agent.tool.Tool.class)) {
-                dev.langchain4j.agent.tool.Tool toolAnnotation =
-                        method.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
-                String toolName = toolAnnotation.name().isEmpty() ? method.getName() : toolAnnotation.name();
-
+                String toolName = method.getName();
                 if (toolMap.containsKey(toolName)) {
                     throw new IllegalArgumentException(
                             "Duplicate tool name registration attempted: '%s'".formatted(toolName));
@@ -393,7 +402,6 @@ public class ToolRegistry {
      *     match.
      */
     public List<ToolSpecification> getTools(Object instance, Collection<String> toolNames) {
-        Objects.requireNonNull(instance, "toolInstance cannot be null");
         Class<?> cls = instance.getClass();
 
         // Gather all instance methods declared in the class that are annotated with @Tool.
@@ -406,8 +414,7 @@ public class ToolRegistry {
         return toolNames.stream()
                 .map(toolName -> annotatedMethods.stream()
                         .filter(m -> {
-                            var toolAnnotation = m.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
-                            String name = toolAnnotation.name().isEmpty() ? m.getName() : toolAnnotation.name();
+                            String name = m.getName();
                             return name.equals(toolName);
                         })
                         .findFirst()

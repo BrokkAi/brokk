@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.MenuBar;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
@@ -414,7 +415,7 @@ public class Brokk {
         boolean isDark = MainProject.getTheme().equals("dark");
         initializeLookAndFeelAndSplashScreen(isDark);
 
-        // Register native macOS “About” handler (only if running on macOS)
+        // Register native macOS handlers (only if running on macOS)
         if (Environment.isMacOs()) {
             SwingUtilities.invokeLater(() -> {
                 try {
@@ -423,6 +424,9 @@ public class Brokk {
                     // AboutHandler not supported on this platform/JVM – safe to ignore
                 }
             });
+
+            // Set up global preferences handler for all Chrome windows
+            MenuBar.setupGlobalMacOSPreferencesHandler();
         }
 
         // run this after we show the splash screen, it's expensive
@@ -1040,6 +1044,54 @@ public class Brokk {
 
     public static ConcurrentHashMap<Path, Chrome> getOpenProjectWindows() {
         return openProjectWindows;
+    }
+
+    /**
+     * Finds the focused or active Chrome window among open project windows. First tries to find a focused window, then
+     * falls back to an active (non-minimized) window, and finally returns any displayable and showing Chrome instance.
+     *
+     * @return the focused or active Chrome window, or null if no suitable window is found
+     */
+    @Nullable
+    public static Chrome getActiveWindow() {
+        var openChromeInstances = getOpenProjectWindows().values();
+        if (openChromeInstances.isEmpty()) {
+            return null;
+        }
+
+        // First try to find the focused window that is displayable and showing
+        var focusedWindow = openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isFocused() && frame.isDisplayable() && frame.isShowing();
+                })
+                .findFirst();
+        if (focusedWindow.isPresent()) {
+            return focusedWindow.get();
+        }
+
+        // Fallback: try to find the active window (not minimized) that is displayable and showing
+        var activeWindow = openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isActive()
+                            && (frame.getExtendedState() & Frame.ICONIFIED) == 0
+                            && frame.isDisplayable()
+                            && frame.isShowing();
+                })
+                .findFirst();
+        if (activeWindow.isPresent()) {
+            return activeWindow.get();
+        }
+
+        // Last resort: return any displayable and showing Chrome instance
+        return openChromeInstances.stream()
+                .filter(chrome -> {
+                    var frame = chrome.getFrame();
+                    return frame.isDisplayable() && frame.isShowing();
+                })
+                .findFirst()
+                .orElse(null);
     }
 
     public static List<Chrome> getWorktreeChromes(IProject mainProject) {

@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,6 +63,11 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
+    // Keys for GitHub clone preferences (global user settings)
+    private static final String GITHUB_CLONE_PROTOCOL_KEY = "githubCloneProtocol";
+    private static final String GITHUB_SHALLOW_CLONE_ENABLED_KEY = "githubShallowCloneEnabled";
+    private static final String GITHUB_SHALLOW_CLONE_DEPTH_KEY = "githubShallowCloneDepth";
+
     // New key for the IssueProvider record as JSON
     private static final String ISSUES_PROVIDER_JSON_KEY = "issuesProviderJson";
 
@@ -72,6 +78,7 @@ public final class MainProject extends AbstractProject {
     // Keys for Plan First and Search First workspace preferences
     private static final String PLAN_FIRST_KEY = "planFirst";
     private static final String SEARCH_FIRST_KEY = "searchFirst";
+    private static final String PROP_INSTRUCTIONS_ASK = "instructions.ask";
 
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
@@ -139,10 +146,15 @@ public final class MainProject extends AbstractProject {
     public static final String DEFAULT_REVIEW_GUIDE =
             """
             When reviewing the pull request, please address the following points:
-            - explain your understanding of what this PR is intended to do
-            - does it accomplish its goals
-            - does it conform to the style guidelines
-            - what parts are the trickiest and how could they be simplified
+            - Explain your understanding of what this PR is intended to do.
+            - Does it accomplish its goals in the simplest way possible?
+            - Does it conform to the project coding standards?
+            - What parts are the trickiest and how could they be simplified?
+            - What additional tests, if any, would add the most value?
+
+            Conclude with a summary of:
+            - Blockers (serious functional or design issues)
+            - Additional areas for improvement, ordered by priority
             """
                     .stripIndent();
 
@@ -896,24 +908,59 @@ public final class MainProject extends AbstractProject {
         return Boolean.parseBoolean(workspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
     }
 
-    /** Workspace preference: whether to "Plan First" (Architect) when coding. Defaults to true on first run. */
+    @Override
     public boolean getPlanFirst() {
-        return Boolean.parseBoolean(workspaceProps.getProperty(PLAN_FIRST_KEY, "true"));
+        return getLayoutBoolean(PLAN_FIRST_KEY);
     }
 
+    @Override
     public void setPlanFirst(boolean v) {
-        workspaceProps.setProperty(PLAN_FIRST_KEY, String.valueOf(v));
-        saveWorkspaceProperties();
+        setLayoutBoolean(PLAN_FIRST_KEY, v);
     }
 
-    /** Workspace preference: whether to "Search First" when in Ask/Answer mode. Defaults to true on first run. */
-    public boolean getSearchFirst() {
-        return Boolean.parseBoolean(workspaceProps.getProperty(SEARCH_FIRST_KEY, "true"));
+    @Override
+    public boolean getSearch() {
+        return getLayoutBoolean(SEARCH_FIRST_KEY);
     }
 
-    public void setSearchFirst(boolean v) {
-        workspaceProps.setProperty(SEARCH_FIRST_KEY, String.valueOf(v));
-        saveWorkspaceProperties();
+    @Override
+    public void setSearch(boolean v) {
+        setLayoutBoolean(SEARCH_FIRST_KEY, v);
+    }
+
+    @Override
+    public boolean getInstructionsAskMode() {
+        return getLayoutBoolean(PROP_INSTRUCTIONS_ASK);
+    }
+
+    @Override
+    public void setInstructionsAskMode(boolean ask) {
+        setLayoutBoolean(PROP_INSTRUCTIONS_ASK, ask);
+    }
+
+    private boolean getLayoutBoolean(String key) {
+        // Per-project first if enabled; else global. If per-project is enabled but unset, fallback to global.
+        if (GlobalUiSettings.isPersistPerProjectBounds()) {
+            String v = workspaceProps.getProperty(key);
+            if (v != null) {
+                return Boolean.parseBoolean(v);
+            }
+        }
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(key, "true"));
+    }
+
+    private void setLayoutBoolean(String key, boolean v) {
+        // Always persist globally so the preference carries across projects.
+        var props = loadGlobalProperties();
+        props.setProperty(key, String.valueOf(v));
+        saveGlobalProperties(props);
+
+        // Persist per-project only when per-project layout persistence is enabled.
+        if (GlobalUiSettings.isPersistPerProjectBounds()) {
+            workspaceProps.setProperty(key, String.valueOf(v));
+            saveWorkspaceProperties();
+        }
     }
 
     @Override
@@ -1028,6 +1075,39 @@ public final class MainProject extends AbstractProject {
     public static String getGitHubToken() {
         var props = loadGlobalProperties();
         return props.getProperty(GITHUB_TOKEN_KEY, "");
+    }
+
+    public static String getGitHubCloneProtocol() {
+        var props = loadGlobalProperties();
+        return props.getProperty(GITHUB_CLONE_PROTOCOL_KEY, "https");
+    }
+
+    public static void setGitHubCloneProtocol(String protocol) {
+        var props = loadGlobalProperties();
+        props.setProperty(GITHUB_CLONE_PROTOCOL_KEY, protocol);
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getGitHubShallowCloneEnabled() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(GITHUB_SHALLOW_CLONE_ENABLED_KEY, "false"));
+    }
+
+    public static void setGitHubShallowCloneEnabled(boolean enabled) {
+        var props = loadGlobalProperties();
+        props.setProperty(GITHUB_SHALLOW_CLONE_ENABLED_KEY, String.valueOf(enabled));
+        saveGlobalProperties(props);
+    }
+
+    public static int getGitHubShallowCloneDepth() {
+        var props = loadGlobalProperties();
+        return Integer.parseInt(props.getProperty(GITHUB_SHALLOW_CLONE_DEPTH_KEY, "1"));
+    }
+
+    public static void setGitHubShallowCloneDepth(int depth) {
+        var props = loadGlobalProperties();
+        props.setProperty(GITHUB_SHALLOW_CLONE_DEPTH_KEY, String.valueOf(depth));
+        saveGlobalProperties(props);
     }
 
     public static String getTheme() {

@@ -17,20 +17,11 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -70,7 +61,6 @@ public class CodeAgent {
     }
 
     public enum Option {
-        PRESERVE_RAW_MESSAGES,
         DEFER_BUILD
     }
 
@@ -79,6 +69,15 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult runTask(String userInput, Set<Option> options) {
+        contextManager.getAnalyzerWrapper().pause();
+        try {
+            return runTaskInternal(userInput, options);
+        } finally {
+            contextManager.getAnalyzerWrapper().resume();
+        }
+    }
+
+    private @NotNull TaskResult runTaskInternal(String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
@@ -248,9 +247,7 @@ public class CodeAgent {
                 : userInput + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
-        var finalMessages = options.contains(Option.PRESERVE_RAW_MESSAGES)
-                ? List.copyOf(io.getLlmRawMessages(false))
-                : prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
+        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
         return new TaskResult(
                 "Code: " + finalActionDescription,
                 new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
@@ -273,10 +270,9 @@ public class CodeAgent {
                         .anyMatch(f -> f.read()
                                 .map(s -> s.contains("BRK_CONFLICT_END"))
                                 .orElse(false));
-        var instructionsFlags = hasMergeMarkers
+        return hasMergeMarkers
                 ? EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS)
                 : Set.<CodePrompts.InstructionsFlags>of();
-        return instructionsFlags;
     }
 
     public TaskResult runSingleFileEdit(
@@ -375,7 +371,7 @@ public class CodeAgent {
 
         // 2.  Produce TaskResult
         assert stopDetails != null;
-        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
+        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
 
         String finalAction = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                 ? instructions
@@ -554,11 +550,8 @@ public class CodeAgent {
             String errorMessage = Objects.toString(result.error().getMessage(), "Unknown LLM error during quick edit");
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, errorMessage);
             io.toolError("Quick edit failed: " + errorMessage);
-        } else if (result.text().isBlank()) {
-            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
-            io.toolError("LLM returned empty response for quick edit.");
         } else {
-            // Success from LLM perspective (no error, text is not blank)
+            // Success from LLM perspective
             pendingHistory.add(result.aiMessage());
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         }
@@ -569,23 +562,6 @@ public class CodeAgent {
                 new ContextFragment.TaskFragment(contextManager, pendingHistory, "Quick Edit: " + file.getFileName()),
                 Set.of(file),
                 stopDetails);
-    }
-
-    /** Formats the most recent build error for the LLM retry prompt. */
-    private static String formatBuildErrorsForLLM(String latestBuildError) {
-        return """
-                The build failed with the following error:
-
-                %s
-
-                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
-
-                IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
-                do your best to explain the problem but DO NOT provide any edits.
-                Otherwise, provide the edits as usual.
-                """
-                .stripIndent()
-                .formatted(latestBuildError);
     }
 
     /**
@@ -629,17 +605,12 @@ public class CodeAgent {
     Step requestPhase(
             ConversationState cs, EditState es, StreamingResult streamingResultFromLlm, @Nullable Metrics metrics) {
         var llmError = streamingResultFromLlm.error();
-        if (streamingResultFromLlm.isEmpty()) {
+        if (llmError != null) {
             String message;
             TaskResult.StopDetails fatalDetails;
-            if (llmError != null) {
-                message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
-                fatalDetails = new TaskResult.StopDetails(
-                        TaskResult.StopReason.LLM_ERROR, requireNonNull(llmError.getMessage()));
-            } else {
-                message = "Empty LLM response even after retries. Ending task";
-                fatalDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE, message);
-            }
+            message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
+            fatalDetails =
+                    new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, requireNonNull(llmError.getMessage()));
             io.toolError(message);
             return new Step.Fatal(fatalDetails);
         }
@@ -684,22 +655,23 @@ public class CodeAgent {
             return new Step.Fatal(stopDetails);
         }
 
-        String latestBuildError;
+        String buildError;
         try {
-            latestBuildError = performBuildVerification();
-            latestBuildError = sanitizeBuildOutput(latestBuildError);
+            buildError = BuildAgent.runVerification(contextManager);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
 
-        if (latestBuildError.isEmpty()) {
+        // Base success/failure decision on raw build result, not processed output
+        if (buildError.isEmpty()) {
             // Build succeeded or was skipped by performBuildVerification
+            logger.debug("Build verification succeeded");
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {
-            // Build failed
+            // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
             if (metrics != null) {
                 metrics.buildFailures++;
             }
@@ -709,14 +681,15 @@ public class CodeAgent {
                 reportComplete("Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
                 return new Step.Fatal(new TaskResult.StopDetails(
                         TaskResult.StopReason.BUILD_ERROR,
-                        "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, latestBuildError)));
+                        "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
             }
-            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
+            // Use processed output for LLM context, but fallback to sanitized if pipeline processing returned empty
+            UserMessage nextRequestForBuildFailure = new UserMessage(CodePrompts.buildFeedbackPrompt());
             var newCs = new ConversationState(
                     cs.taskMessages(),
                     nextRequestForBuildFailure,
                     cs.taskMessages().size());
-            var newEs = es.afterBuildFailure(latestBuildError);
+            var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
         }
@@ -802,7 +775,7 @@ public class CodeAgent {
             if (e.stopDetails.reason() == TaskResult.StopReason.READ_ONLY_EDIT) {
                 // already reported by applyBlocksAndHandleErrors
             } else if (e.stopDetails.reason() == TaskResult.StopReason.IO_ERROR) {
-                io.toolError(requireNonNull(e.stopDetails.explanation()));
+                io.toolError(e.stopDetails.explanation());
             } else if (e.stopDetails.reason() == TaskResult.StopReason.APPLY_ERROR) {
                 reportComplete(e.stopDetails.explanation());
             }
@@ -812,125 +785,6 @@ public class CodeAgent {
             Thread.currentThread().interrupt(); // Preserve interrupt status
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
-    }
-
-    private String performBuildVerification() throws InterruptedException {
-        var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
-        if (verificationCommand == null || verificationCommand.isBlank()) {
-            report("No verification command specified, skipping build/check.");
-            return "";
-        }
-
-        // Enforce single-build execution when requested
-        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
-        if (!noConcurrentBuilds) {
-            return runVerificationCommand(verificationCommand);
-        }
-
-        Path lockDir = Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
-        try {
-            Files.createDirectories(lockDir);
-        } catch (IOException e) {
-            logger.warn("Unable to create lock directory {}; proceeding without build lock", lockDir, e);
-            return runVerificationCommand(verificationCommand);
-        }
-
-        var repoNameForLock = getOriginRepositoryName();
-        Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
-
-        try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-                FileLock lock = channel.lock()) {
-            logger.debug("Acquired build lock {}", lockFile);
-            return runVerificationCommand(verificationCommand);
-        } catch (IOException ioe) {
-            logger.warn("Failed to acquire file lock {}; proceeding without it", lockFile, ioe);
-            return runVerificationCommand(verificationCommand);
-        }
-    }
-
-    public String getOriginRepositoryName() {
-        var url = contextManager.getRepo().getRemoteUrl();
-        if (url == null || url.isBlank()) {
-            // Fallback: use directory name of repo root
-            return contextManager.getRepo().getGitTopLevel().getFileName().toString();
-        }
-
-        // Strip trailing ".git", if any
-        if (url.endsWith(".git")) {
-            url = url.substring(0, url.length() - 4);
-        }
-
-        // SSH URLs use ':', HTTPS uses '/'
-        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
-        if (idx >= 0 && idx < url.length() - 1) {
-            return url.substring(idx + 1);
-        }
-
-        throw new IllegalArgumentException("Unable to parse git repo url " + url);
-    }
-
-    /**
-     * Executes the given verification command, streaming output back to the console. Returns an empty string on
-     * success, or the combined error/output when the command exits non-zero.
-     */
-    private String runVerificationCommand(String verificationCommand) throws InterruptedException {
-        io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-        String shellLang = ExecutorConfig.getShellLanguageFromProject(contextManager.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
-        try {
-            var output = Environment.instance.runShellCommand(
-                    verificationCommand,
-                    contextManager.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    Environment.UNLIMITED_TIMEOUT);
-            logger.debug("Verification command successful. Output: {}", output);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM);
-            return "";
-        } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
-            // Add the combined error and output to the history for the next request
-            return e.getMessage() + "\n\n" + e.getOutput();
-        }
-    }
-
-    /**
-     * Sanitize build output by relativizing absolute paths that begin with the project root.
-     *
-     * <p>Behavior: - Handles both Unix-style and Windows-style absolute paths. - Converts the project root path to both
-     * forward- and back-slash forms and appends a trailing separator, so that only paths that are clearly children of
-     * the project root are matched. - Replacement is case-insensitive to accommodate tooling differences. - The root
-     * markers are only removed when they appear as a directory prefix of a larger path (root + separator) and when
-     * preceded by a non-path character boundary. This prevents accidental removal when the root string appears as part
-     * of some other token, and avoids removing the root itself when it stands alone.
-     *
-     * <p>Examples: - Unix: /home/user/repo/src/Main.java -> src/Main.java - Windows: C:\repo\pkg\mod.py -> pkg\mod.py
-     */
-    private String sanitizeBuildOutput(String text) {
-        var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();
-        var rootAbs = root.toString();
-
-        // Build forward- and back-slash variants with a trailing separator
-        var rootFwd = rootAbs.replace('\\', '/');
-        if (!rootFwd.endsWith("/")) {
-            rootFwd = rootFwd + "/";
-        }
-        var rootBwd = rootAbs.replace('/', '\\');
-        if (!rootBwd.endsWith("\\")) {
-            rootBwd = rootBwd + "\\";
-        }
-
-        // Case-insensitive replacement and boundary-checked:
-        // - (?<![A-Za-z0-9._-]) ensures the match is not preceded by a typical path/token character.
-        // - The trailing separator in rootFwd/rootBwd ensures we only match a directory prefix of a larger path.
-        // - (?=\S) ensures there is at least one non-whitespace character following the prefix (i.e., a larger path).
-        var sanitized = text;
-        var forwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootFwd) + "(?=\\S)");
-        var backwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootBwd) + "(?=\\S)");
-
-        sanitized = forwardPattern.matcher(sanitized).replaceAll("");
-        sanitized = backwardPattern.matcher(sanitized).replaceAll("");
-
-        return sanitized;
     }
 
     /** next FSM state */

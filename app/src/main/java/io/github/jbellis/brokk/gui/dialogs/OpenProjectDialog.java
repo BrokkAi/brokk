@@ -1,31 +1,64 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.Brokk;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHRepository;
+import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.HttpException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class OpenProjectDialog extends JDialog {
+    private static final Logger logger = LoggerFactory.getLogger(OpenProjectDialog.class);
+
+    private static record GitHubRepoInfo(
+            String fullName,
+            String description,
+            String httpsUrl,
+            String sshUrl,
+            Instant lastUpdated,
+            boolean isPrivate) {}
+
     private static final Pattern GITHUB_URL_PATTERN = Pattern.compile("https://github.com/([^/]+)/([^/\\s]+)");
     private final @Nullable Frame parentFrame;
     private @Nullable Path selectedProjectPath = null;
+    private List<GitHubRepoInfo> loadedRepositories = List.of();
+
+    // Tab state management
+    private JTabbedPane tabbedPane;
+    private int gitHubTabIndex = -1;
+    private JPanel gitHubReposPanel;
 
     public OpenProjectDialog(@Nullable Frame parent) {
         super(parent, "Open Project", true);
@@ -64,13 +97,26 @@ public class OpenProjectDialog extends JDialog {
             leftPanel.add(versionLabel);
         }
 
-        var tabbedPane = new JTabbedPane();
+        tabbedPane = new JTabbedPane();
         var knownProjectsPanel = createKnownProjectsPanel();
         if (knownProjectsPanel != null) {
             tabbedPane.addTab("Known Projects", knownProjectsPanel);
         }
         tabbedPane.addTab("Open Local", createOpenLocalPanel());
         tabbedPane.addTab("Clone from Git", createClonePanel());
+
+        // Always add GitHub repositories tab, but control its enabled state
+        gitHubReposPanel = createGitHubReposPanel();
+        gitHubTabIndex = tabbedPane.getTabCount();
+        tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+
+        // Set initial state based on token presence
+        if (GitHubAuth.tokenPresent()) {
+            enableGitHubTab();
+            validateTokenAndLoadRepositories();
+        } else {
+            disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
+        }
 
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
@@ -126,11 +172,10 @@ public class OpenProjectDialog extends JDialog {
         var sorter = new TableRowSorter<>(tableModel);
         table.setRowSorter(sorter);
         sorter.setSortKeys(List.of(new RowSorter.SortKey(1, SortOrder.DESCENDING)));
-        sorter.setComparator(0, Comparator.comparing(Object::toString));
 
-        table.addMouseListener(new java.awt.event.MouseAdapter() {
+        table.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent evt) {
+            public void mouseClicked(MouseEvent evt) {
                 if (evt.getClickCount() == 2) {
                     int viewRow = table.getSelectedRow();
                     if (viewRow >= 0) {
@@ -144,7 +189,7 @@ public class OpenProjectDialog extends JDialog {
 
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
 
-        var openButton = new JButton("Open Selected");
+        var openButton = new MaterialButton("Open Selected");
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(openButton);
         panel.add(buttonPanel, BorderLayout.SOUTH);
@@ -211,7 +256,13 @@ public class OpenProjectDialog extends JDialog {
         if (chooseIcon == null) {
             chooseIcon = UIManager.getIcon("FileView.directoryIcon");
         }
-        var chooseButton = chooseIcon != null ? new JButton(chooseIcon) : new JButton("...");
+        MaterialButton chooseButton;
+        if (chooseIcon != null) {
+            chooseButton = new MaterialButton();
+            chooseButton.setIcon(chooseIcon);
+        } else {
+            chooseButton = new MaterialButton("...");
+        }
         if (chooseIcon != null) {
             var iconDim = new Dimension(chooseIcon.getIconWidth(), chooseIcon.getIconHeight());
             chooseButton.setPreferredSize(iconDim);
@@ -239,9 +290,13 @@ public class OpenProjectDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(directoryInputPanel, gbc);
 
-        var shallowCloneCheckbox = new JCheckBox("Shallow clone with");
-        var depthSpinner = new JSpinner(new SpinnerNumberModel(1, 1, Integer.MAX_VALUE, 1));
-        depthSpinner.setEnabled(false);
+        // Load persisted shallow clone preferences
+        boolean shallowEnabled = MainProject.getGitHubShallowCloneEnabled();
+        int shallowDepth = MainProject.getGitHubShallowCloneDepth();
+
+        var shallowCloneCheckbox = new JCheckBox("Shallow clone with", shallowEnabled);
+        var depthSpinner = new JSpinner(new SpinnerNumberModel(shallowDepth, 1, Integer.MAX_VALUE, 1));
+        depthSpinner.setEnabled(shallowEnabled);
         ((JSpinner.DefaultEditor) depthSpinner.getEditor()).getTextField().setColumns(3);
         var commitsLabel = new JLabel("commits");
 
@@ -258,7 +313,16 @@ public class OpenProjectDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         panel.add(shallowPanel, gbc);
 
-        shallowCloneCheckbox.addActionListener(e -> depthSpinner.setEnabled(shallowCloneCheckbox.isSelected()));
+        shallowCloneCheckbox.addActionListener(e -> {
+            boolean selected = shallowCloneCheckbox.isSelected();
+            depthSpinner.setEnabled(selected);
+            MainProject.setGitHubShallowCloneEnabled(selected);
+        });
+
+        // Save depth when changed
+        depthSpinner.addChangeListener(e -> {
+            MainProject.setGitHubShallowCloneDepth((Integer) depthSpinner.getValue());
+        });
 
         chooseButton.addActionListener(e -> {
             var chooser = new JFileChooser();
@@ -270,7 +334,7 @@ public class OpenProjectDialog extends JDialog {
             }
         });
 
-        var cloneButton = new JButton("Clone and Open");
+        var cloneButton = new MaterialButton("Clone and Open");
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(cloneButton);
 
@@ -287,6 +351,242 @@ public class OpenProjectDialog extends JDialog {
                 e -> cloneAndOpen(urlField.getText(), dirField.getText(), shallowCloneCheckbox.isSelected(), (Integer)
                         depthSpinner.getValue()));
         return panel;
+    }
+
+    private JPanel createGitHubReposPanel() {
+        var panel = new JPanel(new BorderLayout());
+
+        String[] columnNames = {"Repository", "Description", "Type", "Updated"};
+        var tableModel = new DefaultTableModel(columnNames, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return switch (columnIndex) {
+                    case 3 -> Instant.class;
+                    default -> String.class;
+                };
+            }
+        };
+
+        var table = new JTable(tableModel);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        table.getColumnModel().getColumn(2).setCellRenderer(this::renderTypeColumn);
+        table.getColumnModel().getColumn(3).setCellRenderer(this::renderDateColumn);
+
+        var sorter = new TableRowSorter<>(tableModel);
+        table.setRowSorter(sorter);
+        sorter.setSortKeys(List.of(new RowSorter.SortKey(3, SortOrder.DESCENDING)));
+
+        var scrollPane = new JScrollPane(table);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        var controlsPanel = createGitHubControlsPanel(table, tableModel);
+        panel.add(controlsPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createGitHubControlsPanel(JTable table, DefaultTableModel tableModel) {
+        var panel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.anchor = GridBagConstraints.WEST;
+        panel.add(new JLabel("Directory:"), gbc);
+
+        var dirField = new JTextField(System.getProperty("user.home"), 30);
+        var chooseIcon = UIManager.getIcon("FileChooser.directoryIcon");
+        if (chooseIcon == null) {
+            chooseIcon = UIManager.getIcon("FileView.directoryIcon");
+        }
+        var chooseDirButton = chooseIcon != null ? new JButton(chooseIcon) : new JButton("...");
+        if (chooseIcon != null) {
+            var iconDim = new Dimension(chooseIcon.getIconWidth(), chooseIcon.getIconHeight());
+            chooseDirButton.setPreferredSize(iconDim);
+            chooseDirButton.setMinimumSize(iconDim);
+            chooseDirButton.setMaximumSize(iconDim);
+            chooseDirButton.setMargin(new Insets(0, 0, 0, 0));
+        } else {
+            chooseDirButton.setMargin(new Insets(0, 0, 0, 0));
+            var size = chooseDirButton.getPreferredSize();
+            var minDim = new Dimension(size.height, size.height);
+            chooseDirButton.setPreferredSize(minDim);
+            chooseDirButton.setMinimumSize(minDim);
+            chooseDirButton.setMaximumSize(minDim);
+        }
+        chooseDirButton.setToolTipText("Choose directory");
+
+        chooseDirButton.addActionListener(e -> {
+            var chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            chooser.setDialogTitle("Select Directory to Clone Into");
+            chooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                dirField.setText(chooser.getSelectedFile().getAbsolutePath());
+            }
+        });
+
+        var dirPanel = new JPanel(new BorderLayout(5, 0));
+        dirPanel.add(dirField, BorderLayout.CENTER);
+        dirPanel.add(chooseDirButton, BorderLayout.EAST);
+
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        panel.add(dirPanel, gbc);
+
+        // Load persisted protocol preference
+        String preferredProtocol = MainProject.getGitHubCloneProtocol();
+        boolean useHttps = "https".equals(preferredProtocol);
+
+        var httpsRadio = new JRadioButton("HTTPS", useHttps);
+        var sshRadio = new JRadioButton("SSH", !useHttps);
+        var protocolGroup = new ButtonGroup();
+        protocolGroup.add(httpsRadio);
+        protocolGroup.add(sshRadio);
+
+        var protocolPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        protocolPanel.add(new JLabel("Protocol: "));
+        protocolPanel.add(httpsRadio);
+        protocolPanel.add(sshRadio);
+
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(protocolPanel, gbc);
+
+        // Shallow clone controls - load persisted preferences
+        boolean shallowEnabled = MainProject.getGitHubShallowCloneEnabled();
+        int shallowDepth = MainProject.getGitHubShallowCloneDepth();
+
+        var shallowCloneCheckbox = new JCheckBox("Shallow clone with", shallowEnabled);
+        var depthSpinner = new JSpinner(new SpinnerNumberModel(shallowDepth, 1, Integer.MAX_VALUE, 1));
+        depthSpinner.setEnabled(shallowEnabled);
+        ((JSpinner.DefaultEditor) depthSpinner.getEditor()).getTextField().setColumns(3);
+        var commitsLabel = new JLabel("commits");
+
+        var shallowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        shallowPanel.add(shallowCloneCheckbox);
+        shallowPanel.add(depthSpinner);
+        shallowPanel.add(commitsLabel);
+
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
+        panel.add(shallowPanel, gbc);
+
+        // Add persistence listeners
+        httpsRadio.addActionListener(e -> {
+            if (httpsRadio.isSelected()) {
+                MainProject.setGitHubCloneProtocol("https");
+            }
+        });
+
+        sshRadio.addActionListener(e -> {
+            if (sshRadio.isSelected()) {
+                MainProject.setGitHubCloneProtocol("ssh");
+            }
+        });
+
+        shallowCloneCheckbox.addActionListener(e -> {
+            boolean selected = shallowCloneCheckbox.isSelected();
+            depthSpinner.setEnabled(selected);
+            MainProject.setGitHubShallowCloneEnabled(selected);
+        });
+
+        // Save depth when changed
+        depthSpinner.addChangeListener(e -> {
+            MainProject.setGitHubShallowCloneDepth((Integer) depthSpinner.getValue());
+        });
+
+        var refreshButton = new JButton("Refresh");
+        refreshButton.addActionListener(e -> {
+            // Re-check token presence and update tab state accordingly
+            if (GitHubAuth.tokenPresent()) {
+                enableGitHubTab();
+            } else {
+                disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
+            }
+            loadRepositoriesAsync(tableModel, true);
+        });
+
+        var cloneButton = new JButton("Clone and Open");
+        cloneButton.addActionListener(e -> cloneSelectedRepository(
+                table,
+                tableModel,
+                dirField.getText(),
+                httpsRadio.isSelected(),
+                shallowCloneCheckbox.isSelected(),
+                (Integer) depthSpinner.getValue()));
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.add(refreshButton);
+        buttonPanel.add(cloneButton);
+
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.gridwidth = 2;
+        gbc.anchor = GridBagConstraints.EAST;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0.0;
+        panel.add(buttonPanel, gbc);
+
+        return panel;
+    }
+
+    private Component renderTypeColumn(
+            JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+        return createStyledLabel(value.toString(), table, isSelected);
+    }
+
+    private Component renderDateColumn(
+            JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+        var dateText = GitUiUtil.formatRelativeDate((Instant) value, LocalDate.now(ZoneId.systemDefault()));
+        return createStyledLabel(dateText, table, isSelected);
+    }
+
+    private JLabel createStyledLabel(String text, JTable table, boolean isSelected) {
+        var label = new JLabel(text);
+        label.setOpaque(true);
+        if (isSelected) {
+            label.setBackground(table.getSelectionBackground());
+            label.setForeground(table.getSelectionForeground());
+        } else {
+            label.setBackground(table.getBackground());
+            label.setForeground(table.getForeground());
+        }
+        label.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
+        return label;
+    }
+
+    private void enableGitHubTab() {
+        if (gitHubTabIndex == -1) {
+            // Tab needs to be added
+            gitHubTabIndex = tabbedPane.getTabCount();
+            tabbedPane.addTab("GitHub Repositories", gitHubReposPanel);
+        }
+        tabbedPane.setEnabledAt(gitHubTabIndex, true);
+        tabbedPane.setToolTipTextAt(gitHubTabIndex, "Browse your GitHub repositories");
+        logger.debug("Enabled GitHub repositories tab");
+    }
+
+    private void disableGitHubTab(String reason) {
+        if (gitHubTabIndex != -1) {
+            tabbedPane.setEnabledAt(gitHubTabIndex, false);
+            tabbedPane.setToolTipTextAt(gitHubTabIndex, reason);
+            logger.debug("Disabled GitHub repositories tab: {}", reason);
+        }
     }
 
     private void cloneAndOpen(String url, String dir, boolean shallow, int depth) {
@@ -319,22 +619,22 @@ public class OpenProjectDialog extends JDialog {
 
             @Override
             protected void done() {
-                // Always dispose dialog on EDT
-                SwingUtilities.invokeLater(() -> {
-                    progressDialog.dispose();
-                    try {
-                        Path projectPath = get();
-                        if (projectPath != null) {
-                            openProject(projectPath);
-                        }
-                    } catch (Exception e) {
-                        JOptionPane.showMessageDialog(
-                                OpenProjectDialog.this,
-                                "Failed to clone repository: " + e.getMessage(),
-                                "Clone Failed",
-                                JOptionPane.ERROR_MESSAGE);
+                progressDialog.dispose();
+                if (!isDisplayable()) {
+                    return;
+                }
+                try {
+                    Path projectPath = get();
+                    if (projectPath != null) {
+                        openProject(projectPath);
                     }
-                });
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(
+                            OpenProjectDialog.this,
+                            "Failed to clone repository: " + e.getMessage(),
+                            "Clone Failed",
+                            JOptionPane.ERROR_MESSAGE);
+                }
             }
         };
         worker.execute();
@@ -356,6 +656,277 @@ public class OpenProjectDialog extends JDialog {
         return url;
     }
 
+    private void validateTokenAndLoadRepositories() {
+        if (!GitHubAuth.tokenPresent()) {
+            disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
+            return;
+        }
+
+        logger.info("Validating GitHub token and loading repositories");
+        var tableModel = (DefaultTableModel) ((JTable) ((JScrollPane) gitHubReposPanel.getComponent(0))
+                        .getViewport()
+                        .getView())
+                .getModel();
+
+        var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
+            @Override
+            protected List<GitHubRepoInfo> doInBackground() throws Exception {
+                // First validate the token with a simple API call
+                var token = GitHubAuth.getStoredToken();
+                var github = new GitHubBuilder().withOAuthToken(token).build();
+                github.getMyself(); // This will throw if token is invalid
+
+                // Token is valid, now load repositories
+                return getUserRepositories();
+            }
+
+            @Override
+            protected void done() {
+                if (!isDisplayable()) {
+                    return;
+                }
+                try {
+                    var repositories = get();
+                    logger.info("Successfully loaded {} GitHub repositories", repositories.size());
+                    loadedRepositories = repositories;
+                    populateTable(tableModel, repositories);
+                    enableGitHubTab();
+                } catch (ExecutionException e) {
+                    var cause = e.getCause();
+                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
+                        logger.warn("GitHub token is invalid, clearing stored token");
+                        GitHubAuth.invalidateInstance();
+                        disableGitHubTab(
+                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+                        clearTable(tableModel);
+                    } else {
+                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
+                        logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
+                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
+                        clearTable(tableModel);
+                    }
+                } catch (Exception e) {
+                    logger.error("Unexpected error loading GitHub repositories", e);
+                    disableGitHubTab("Failed to load GitHub repositories: " + e.getMessage());
+                    clearTable(tableModel);
+                }
+            }
+        };
+
+        showLoadingState(tableModel);
+        worker.execute();
+    }
+
+    private void loadRepositoriesAsync(DefaultTableModel tableModel, boolean forceRefresh) {
+        if (!forceRefresh && !loadedRepositories.isEmpty()) {
+            logger.debug("Using cached repositories ({} repos)", loadedRepositories.size());
+            populateTable(tableModel, loadedRepositories);
+            enableGitHubTab();
+            return;
+        }
+
+        if (!GitHubAuth.tokenPresent()) {
+            disableGitHubTab("No GitHub token configured. Go to Settings → GitHub to configure your token.");
+            clearTable(tableModel);
+            return;
+        }
+
+        logger.info("Starting GitHub repository load (force refresh: {})", forceRefresh);
+        var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
+            @Override
+            protected List<GitHubRepoInfo> doInBackground() throws Exception {
+                // Validate token first
+                var token = GitHubAuth.getStoredToken();
+                var github = new GitHubBuilder().withOAuthToken(token).build();
+                github.getMyself(); // This will throw if token is invalid
+
+                return getUserRepositories();
+            }
+
+            @Override
+            protected void done() {
+                if (!isDisplayable()) {
+                    return;
+                }
+                try {
+                    var repositories = get();
+                    logger.info("Successfully loaded {} GitHub repositories", repositories.size());
+                    loadedRepositories = repositories;
+                    populateTable(tableModel, repositories);
+                    enableGitHubTab();
+                } catch (ExecutionException e) {
+                    var cause = e.getCause();
+                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
+                        logger.warn("GitHub token is invalid, clearing stored token");
+                        GitHubAuth.invalidateInstance();
+                        disableGitHubTab(
+                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+                    } else {
+                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
+                        logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
+                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
+                    }
+                    clearTable(tableModel);
+                } catch (Exception e) {
+                    logger.error("Unexpected error loading GitHub repositories", e);
+                    disableGitHubTab("Failed to load GitHub repositories: " + e.getMessage());
+                    clearTable(tableModel);
+                }
+            }
+        };
+
+        showLoadingState(tableModel);
+        worker.execute();
+    }
+
+    private void populateTable(DefaultTableModel tableModel, List<GitHubRepoInfo> repositories) {
+        tableModel.setRowCount(0);
+
+        for (var repo : repositories) {
+            tableModel.addRow(new Object[] {
+                repo.fullName(),
+                truncateDescription(repo.description()),
+                repo.isPrivate() ? "Private" : "Public",
+                repo.lastUpdated()
+            });
+        }
+    }
+
+    private void showLoadingState(DefaultTableModel tableModel) {
+        tableModel.setRowCount(0);
+        tableModel.addRow(new Object[] {"Loading repositories...", "", "", Instant.now()});
+    }
+
+    private void clearTable(DefaultTableModel tableModel) {
+        tableModel.setRowCount(0);
+    }
+
+    private String truncateDescription(String description) {
+        if (description.isBlank()) return "";
+        return description.length() > 50 ? description.substring(0, 47) + "..." : description;
+    }
+
+    private void cloneSelectedRepository(
+            JTable table,
+            DefaultTableModel tableModel,
+            String directory,
+            boolean useHttps,
+            boolean shallow,
+            int depth) {
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0) {
+            JOptionPane.showMessageDialog(this, "Please select a repository to clone.");
+            return;
+        }
+
+        int modelRow = table.convertRowIndexToModel(viewRow);
+        var repoFullName = (String) tableModel.getValueAt(modelRow, 0);
+
+        var repoInfoOpt = findRepositoryByName(repoFullName);
+        if (repoInfoOpt.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Repository information not found.");
+            return;
+        }
+        var repoInfo = repoInfoOpt.get();
+
+        // Validate directory before proceeding
+        if (directory.isBlank()) {
+            JOptionPane.showMessageDialog(this, "Directory must be provided.", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        var targetPath = Paths.get(directory);
+        if (!Files.exists(targetPath)) {
+            try {
+                Files.createDirectories(targetPath);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot create target directory: " + e.getMessage(),
+                        "Directory Error",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+
+        if (!Files.isDirectory(targetPath) || !Files.isWritable(targetPath)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Target path is not a writable directory: " + directory,
+                    "Directory Error",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        var cloneUrl = useHttps ? repoInfo.httpsUrl() : repoInfo.sshUrl();
+        var protocol = useHttps ? "HTTPS" : "SSH";
+
+        logger.info(
+                "User initiated clone: repository={}, protocol={}, targetDir={}, shallow={}, depth={}",
+                repoFullName,
+                protocol,
+                directory,
+                shallow,
+                depth);
+
+        cloneAndOpen(cloneUrl, directory, shallow, depth);
+    }
+
+    private Optional<GitHubRepoInfo> findRepositoryByName(String fullName) {
+        return loadedRepositories.stream()
+                .filter(repo -> repo.fullName().equals(fullName))
+                .findFirst();
+    }
+
+    private static List<GitHubRepoInfo> getUserRepositories() throws Exception {
+        var token = GitHubAuth.getStoredToken();
+        if (token.isBlank()) {
+            throw new IllegalStateException("No GitHub token available");
+        }
+
+        try {
+            var github = new GitHubBuilder().withOAuthToken(token).build();
+            var repositories = new ArrayList<GHRepository>();
+            int count = 0;
+            for (var repo : github.getMyself().listRepositories()) {
+                repositories.add(repo);
+                if (++count >= 100) break;
+            }
+            return repositories.stream()
+                    .map(repo -> {
+                        try {
+                            return new GitHubRepoInfo(
+                                    repo.getFullName(),
+                                    repo.getDescription() != null ? repo.getDescription() : "",
+                                    repo.getHttpTransportUrl(),
+                                    repo.getSshUrl(),
+                                    repo.getUpdatedAt() != null
+                                            ? repo.getUpdatedAt().toInstant()
+                                            : Instant.now(),
+                                    repo.isPrivate());
+                        } catch (Exception e) {
+                            logger.warn("Failed to process repository {}: {}", repo.getFullName(), e.getMessage());
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .sorted(Comparator.comparing(GitHubRepoInfo::lastUpdated).reversed())
+                    .toList();
+        } catch (HttpException e) {
+            if (e.getResponseCode() == 401) {
+                throw new IllegalStateException("GitHub token is invalid or expired");
+            } else if (e.getResponseCode() == 403) {
+                throw new IllegalStateException("GitHub API rate limit exceeded or access forbidden");
+            } else {
+                throw new IOException("GitHub API error (HTTP " + e.getResponseCode() + "): " + e.getMessage(), e);
+            }
+        } catch (ConnectException | UnknownHostException e) {
+            throw new IOException("Network connection failed. Please check your internet connection.", e);
+        } catch (SocketTimeoutException e) {
+            throw new IOException("GitHub API request timed out. Please try again.", e);
+        }
+    }
+
     private void openProject(Path projectPath) {
         if (!Files.isDirectory(projectPath)) {
             var message = "The selected path is not a directory.";
@@ -374,8 +945,13 @@ public class OpenProjectDialog extends JDialog {
      * @return Optional containing the selected project path; empty if the user cancelled
      */
     public static Optional<Path> showDialog(@Nullable Frame owner) {
-        var dlg = new OpenProjectDialog(owner);
-        dlg.setVisible(true); // modal; blocks
-        return Optional.ofNullable(dlg.selectedProjectPath);
+        var selectedPath = SwingUtil.runOnEdt(
+                () -> {
+                    var dlg = new OpenProjectDialog(owner);
+                    dlg.setVisible(true); // modal; blocks
+                    return dlg.selectedProjectPath;
+                },
+                null);
+        return Optional.ofNullable(selectedPath);
     }
 }

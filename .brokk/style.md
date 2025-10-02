@@ -10,6 +10,7 @@ when we can prove a value is not null but the compiler doesn't realize it, e.g. 
 returned by Collectors.partitioningBy. You do not need either requireNonNull or castNonNull when a field, parameter,
 or return value is not annotated @Nullable.
 1. **RedundantNullCheck**: Try to resolve `RedundantNullCheck` warnings by either removing the redundant null check or by annotating the reported variable or method with @Nullable (imported from org.jetbrains.annotations). Do NOT suppress the `RedundantNullCheck` warnings.
+1. **@NullMarked**: Add `@org.jspecify.annotations.NullMarked` to `package-info.java` for any new Java source code packages.
 1. **Java 21 features**: The codebase leverages Java features up to JDK 21. Embrace the lambdas! and also getFirst/getLast, Collectors.toList, pattern matching for instanceof, records and record patterns, etc.
 1. **Prefer functional streams to manual loops**: Leverage streams for transforming collections, joining to Strings, etc.
 1. **Favor Immutable Data Structures**: Prefer `List.of` and `Map.of`, as well as the Stream Collectors.
@@ -40,3 +41,5 @@ or return value is not annotated @Nullable.
 1. **Swing thread safety**: Public methods that deal with Swing components should either assert they are being run on the EDT, or wrap in SwingUtilities.invokeLater. (Prefer `SwingUtil.runOnEdt(Callable<T> task, T defaultValue)` or `SwingUtil.runOnEdt(Runnable task)` to `SwingUtilities.invokeAndWait` when blocking for the result.)
 1. **Popup dialogs**: IConsoleIO (implemented by Chrome) offers `systemNotify(String message, String title, int messageType)` and `toolError(String message, String title)` methods backed by JMessageDialog, prefer these for simple "OK" notifications 
 1. **Named components**: Avoid navigating component hierarchies to retrieve a specific component by index or text. Save a reference as a field instead.
+1. **Buttons**: Use io.github.jbellis.brokk.gui.components.MaterialButton instead of JButton. Use io.github.jbellis.brokk.gui.components.MaterialToggleButton instead of JToggleButton.
+1. **Dialogs**: When building dialogs have buttons on the bottom. Start with a primary action button such as Ok or Done. It should have the following function applied to it io.github.jbellis.brokk.gui.SwingUtil.applyPrimaryButtonStyle(javax.swing.AbstractButton b). Next it should have a cancel button which is a normal io.github.jbellis.brokk.gui.components.MaterialButton with the text Cancel.

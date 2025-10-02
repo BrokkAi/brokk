@@ -7,13 +7,14 @@ public final class Icons {
 
     private Icons() {}
 
+    public static final Icon WAND = SwingUtil.uiIcon("Brokk.wand");
     public static final Icon REFRESH = SwingUtil.uiIcon("Brokk.refresh");
     public static final Icon FOLDER_CODE = SwingUtil.uiIcon("Brokk.folder_code");
     public static final Icon COMMIT = SwingUtil.uiIcon("Brokk.commit");
     public static final Icon PULL_REQUEST = SwingUtil.uiIcon("Brokk.pull_request");
     public static final Icon ADJUST = SwingUtil.uiIcon("Brokk.adjust");
     public static final Icon ASSIGNMENT = SwingUtil.uiIcon("Brokk.assignment");
-    public static final Icon AI_ROBOT = SwingUtil.uiIcon("Brokk.ai-robot");
+    public static final Icon CHAT_BUBBLE = SwingUtil.uiIcon("Brokk.chat_bubble");
     public static final Icon PERSON = SwingUtil.uiIcon("Brokk.person");
     public static final Icon DOWNLOAD = SwingUtil.uiIcon("Brokk.download");
     public static final Icon PUBLISH = SwingUtil.uiIcon("Brokk.publish");
@@ -48,4 +49,7 @@ public final class Icons {
     public static final Icon PENDING = SwingUtil.uiIcon("Brokk.pending");
     public static final Icon ARROW_UPLOAD_READY = SwingUtil.uiIcon("Brokk.arrow_upload_ready");
     public static final Icon CLEAR_ALL = SwingUtil.uiIcon("Brokk.clear_all");
+    public static final Icon CELL_MERGE = SwingUtil.uiIcon("Brokk.cell_merge");
+    public static final Icon FAST_FORWARD = SwingUtil.uiIcon("Brokk.fast_forward");
+    public static final Icon FORK_RIGHT = SwingUtil.uiIcon("Brokk.fork_right");
 }

@@ -621,7 +621,6 @@ public class EditBlock {
      * it's not null.
      */
     private static ContentLines prep(String content) {
-        Objects.requireNonNull(content, "Content cannot be null");
         // ensure it ends with newline
         if (!content.isEmpty() && !content.endsWith("\n")) {
             content += "\n";

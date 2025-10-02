@@ -81,7 +81,7 @@ dependencies {
     implementation(libs.mcp.sdk)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
-    
+
     // Markdown and templating
     implementation(libs.bundles.markdown)
 
@@ -264,6 +264,7 @@ tasks.named<JavaCompile>("compileJava") {
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
         option("NullAway:HandleTestAssertionLibraries", "true")
         option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+        option("RedundantNullCheck:CheckRequireNonNull", "true")
 
         // RedundantNullCheck
         enable("RedundantNullCheck")
@@ -392,6 +393,14 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
+}
+
+tasks.register<JavaExec>("generateThemeCss") {
+    group = "application"
+    description = "Generates theme CSS variables from ThemeColors"
+    mainClass.set("io.github.jbellis.brokk.tools.GenerateThemeCss")
+    classpath = sourceSets.main.get().runtimeClasspath
+    args = listOf("${project.rootDir}/frontend-mop/src/styles/theme-colors.generated.scss")
 }
 
 tasks.register<JavaExec>("runTreeSitterRepoRunner") {
