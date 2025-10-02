@@ -39,15 +39,17 @@ public sealed interface FuzzyResult
     }
 
     /** Ambiguous result: indicates multiple candidate targets. */
-    record Ambiguous(String shortName, List<CodeUnit> candidateTargets) implements FuzzyResult {
-        public Ambiguous(String shortName, List<CodeUnit> candidateTargets) {
+    record Ambiguous(String shortName, List<CodeUnit> candidateTargets, List<UsageHit> hits) implements FuzzyResult {
+        public Ambiguous(String shortName, List<CodeUnit> candidateTargets, List<UsageHit> hits) {
             this.shortName = requireNonNull(shortName, "shortName");
             this.candidateTargets = List.copyOf(requireNonNull(candidateTargets, "candidateTargets"));
+            this.hits = List.copyOf(requireNonNull(hits, "hits"));
         }
 
         @Override
         public String toString() {
-            return "Ambiguous{shortName=" + shortName + ", candidates=" + candidateTargets.size() + "}";
+            return "Ambiguous{shortName=" + shortName + ", candidates=" + candidateTargets.size() + ", hits="
+                    + hits.size() + "}";
         }
     }
 

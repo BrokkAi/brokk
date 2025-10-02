@@ -8,8 +8,12 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import io.github.jbellis.brokk.tools.SearchTools;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -53,7 +57,8 @@ public final class FuzzyUsageAnalyzer {
         var identifier = target.identifier();
         // matches identifier around word boundaries and around common structures
         var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\))?";
-        var isUnique = analyzer.searchDefinitions(searchPattern).size() == 1;
+        var matchingCodeUnits = analyzer.searchDefinitions(searchPattern);
+        var isUnique = matchingCodeUnits.size() == 1;
         final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
                 List.of(searchPattern), analyzer.getProject().getAllFiles());
 
@@ -62,16 +67,96 @@ public final class FuzzyUsageAnalyzer {
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxCallsites);
         }
 
+        // Extract raw usage hits from candidate files using the provided pattern
+        var hits = extractUsageHits(candidateFiles, searchPattern);
+        logger.debug(
+                "Extracted {} usage hits for {} from {} candidate files",
+                hits.size(),
+                target.fqName(),
+                candidateFiles.size());
+
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
+            return new FuzzyResult.Success(hits);
         }
 
         if (llm != null) {
             // Case 3: This symbol is not unique among code units, disambiguate with LLM if possible
+            // (LLM-based classification to be implemented in follow-up)
         }
 
         // Case 4: If still ambiguous, return result describing it as such
-        return new FuzzyResult.Ambiguous(target.shortName(), List.of());
+        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, hits);
+    }
+
+    /**
+     * Extract raw usage hits from the given files by applying the Java regex searchPattern.
+     *
+     * <ul>
+     *   <li>Emits one UsageHit per regex match occurrence.
+     *   <li>Line numbers are 1-based.
+     *   <li>Snippet contains 3 lines above and 3 lines below the matched line (when available).
+     *   <li>Confidence is 1.0 by default; LLM will adjust if needed later.
+     * </ul>
+     */
+    private List<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, String searchPattern) {
+        var hits = new ArrayList<UsageHit>();
+        final var pattern = Pattern.compile(searchPattern);
+
+        candidateFiles.parallelStream().forEach(file -> {
+            try {
+                if (!file.isText()) {
+                    return;
+                }
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) {
+                    return;
+                }
+                var content = contentOpt.get();
+                if (content.isEmpty()) {
+                    return;
+                }
+
+                // Precompute line starts for fast offset->line mapping
+                var lines = content.split("\\R", -1); // keep trailing empty lines if present
+                int[] lineStarts = new int[lines.length];
+                int running = 0;
+                for (int i = 0; i < lines.length; i++) {
+                    lineStarts[i] = running;
+                    running += lines[i].length() + 1; // +1 for the '\n' separator
+                }
+
+                var matcher = pattern.matcher(content);
+                while (matcher.find()) {
+                    int start = matcher.start();
+                    int end = matcher.end();
+
+                    // Binary search for the line index such that lineStarts[idx] <= start < next
+                    int lo = 0, hi = lineStarts.length - 1, lineIdx = 0;
+                    while (lo <= hi) {
+                        int mid = (lo + hi) >>> 1;
+                        if (lineStarts[mid] <= start) {
+                            lineIdx = mid;
+                            lo = mid + 1;
+                        } else {
+                            hi = mid - 1;
+                        }
+                    }
+
+                    int startLine = Math.max(0, lineIdx - 3);
+                    int endLine = Math.min(lines.length - 1, lineIdx + 3);
+                    var snippet = IntStream.rangeClosed(startLine, endLine)
+                            .mapToObj(i -> lines[i])
+                            .collect(Collectors.joining("\n"));
+
+                    hits.add(new UsageHit(file, lineIdx + 1, start, end, 1.0, snippet));
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to extract usage hits from {}: {}", file, e.toString());
+            }
+        });
+
+        return hits;
     }
 
     /**
