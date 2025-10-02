@@ -1302,6 +1302,52 @@ public class HistoryOutputPanel extends JPanel {
         listPanel.setOpaque(false);
         listPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
 
+        rebuildNotificationsList(dialog, listPanel);
+
+        var scroll = new JScrollPane(listPanel);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        // Footer with limit note and buttons
+        var footer = new JPanel(new BorderLayout());
+        footer.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        var noteLabel = new JLabel("The most recent 100 notifications are retained.");
+        noteLabel.setFont(noteLabel.getFont().deriveFont(Font.ITALIC));
+        noteLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        footer.add(noteLabel, BorderLayout.WEST);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+
+        var closeBtn = new MaterialButton("Ok");
+        SwingUtil.applyPrimaryButtonStyle(closeBtn);
+        closeBtn.addActionListener(e -> dialog.dispose());
+        buttonPanel.add(closeBtn);
+
+        var clearAllBtn = new MaterialButton("Clear All");
+        clearAllBtn.addActionListener(e -> {
+            notifications.clear();
+            notificationQueue.clear();
+            updateNotificationsButton();
+            persistNotificationsAsync();
+            dialog.dispose();
+        });
+        buttonPanel.add(clearAllBtn);
+
+        footer.add(buttonPanel, BorderLayout.EAST);
+
+        dialog.add(scroll, BorderLayout.CENTER);
+        dialog.add(footer, BorderLayout.SOUTH);
+
+        dialog.setSize(640, 480);
+        dialog.setLocationRelativeTo(chrome.getFrame());
+        dialog.setVisible(true);
+    }
+
+    private void rebuildNotificationsList(JDialog dialog, JPanel listPanel) {
+        listPanel.removeAll();
+        dialog.setTitle("Notifications (" + notifications.size() + ")");
+
         if (notifications.isEmpty()) {
             GridBagConstraints gbcEmpty = new GridBagConstraints();
             gbcEmpty.gridx = 0;
@@ -1317,7 +1363,6 @@ public class HistoryOutputPanel extends JPanel {
 
             for (int i = 0; i < sortedNotifications.size(); i++) {
                 var n = sortedNotifications.get(i);
-                final int originalIndex = notifications.indexOf(n);
                 var colors = resolveNotificationColors(n.role);
                 Color bg = colors.get(0);
                 Color fg = colors.get(1);
@@ -1358,12 +1403,11 @@ public class HistoryOutputPanel extends JPanel {
                     }
                 });
                 closeBtn.addActionListener(e -> {
-                    notifications.remove(originalIndex);
+                    notifications.remove(n);
                     notificationQueue.removeIf(entry -> entry == n);
                     updateNotificationsButton();
                     persistNotificationsAsync();
-                    dialog.dispose();
-                    showNotificationsDialog();
+                    rebuildNotificationsList(dialog, listPanel);
                 });
                 closeBtn.setPreferredSize(new Dimension(24, 24));
                 actions.add(closeBtn);
@@ -1389,45 +1433,8 @@ public class HistoryOutputPanel extends JPanel {
             filler.setOpaque(false);
             listPanel.add(filler, gbc);
         }
-
-        var scroll = new JScrollPane(listPanel);
-        scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-
-        // Footer with limit note and buttons
-        var footer = new JPanel(new BorderLayout());
-        footer.setBorder(new EmptyBorder(8, 8, 8, 8));
-
-        var noteLabel = new JLabel("The most recent 100 notifications are retained.");
-        noteLabel.setFont(noteLabel.getFont().deriveFont(Font.ITALIC));
-        noteLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
-        footer.add(noteLabel, BorderLayout.WEST);
-
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-
-        var closeBtn = new MaterialButton("Ok");
-        SwingUtil.applyPrimaryButtonStyle(closeBtn);
-        closeBtn.addActionListener(e -> dialog.dispose());
-        buttonPanel.add(closeBtn);
-
-        var clearAllBtn = new MaterialButton("Clear All");
-        clearAllBtn.addActionListener(e -> {
-            notifications.clear();
-            notificationQueue.clear();
-            updateNotificationsButton();
-            persistNotificationsAsync();
-            dialog.dispose();
-        });
-        buttonPanel.add(clearAllBtn);
-
-        footer.add(buttonPanel, BorderLayout.EAST);
-
-        dialog.add(scroll, BorderLayout.CENTER);
-        dialog.add(footer, BorderLayout.SOUTH);
-
-        dialog.setSize(640, 480);
-        dialog.setLocationRelativeTo(chrome.getFrame());
-        dialog.setVisible(true);
+        listPanel.revalidate();
+        listPanel.repaint();
     }
 
     // Simple container for notifications
