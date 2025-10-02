@@ -54,7 +54,6 @@
     <span class="sep">•</span>
   {/if}
     {msgLabel} • {totalLines} lines
-    {#if taskSequence !== undefined}
     <button
             type="button"
             class="delete-btn"
@@ -66,6 +65,7 @@
     >
       <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} style={copied ? 'color: var(--diff-add);' : ''}/>
     </button>
+    {#if taskSequence !== undefined}
     <button
             type="button"
             class="delete-btn"

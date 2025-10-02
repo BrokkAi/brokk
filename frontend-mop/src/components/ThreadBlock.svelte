@@ -53,19 +53,18 @@
         deleteHistoryTaskByThreadId(threadIdParam);
     }
 
-    async function handleCopy(threadIdParam: number) {
-        const xmlMessages = bubbles
+    async function handleCopy() {
+        const xml = bubbles
             .map(b => {
                 const t = b.type.toLowerCase();
-                return `  <message type="${t}">${b.markdown}</message>`;
+                return `<message type="${t}">\n${b.markdown}\n</message>`;
             })
-            .join('\n');
+            .join('\n\n');
 
-        const xml = `<thread>\n${xmlMessages}\n</thread>`;
 
         try {
             await navigator.clipboard.writeText(xml);
-        } catch (err) {
+        } catch (serr) {
             try {
                 const ta = document.createElement('textarea');
                 ta.value = xml;
@@ -138,17 +137,19 @@
             <div class="bubble-container">
                 {#if !collapsed}
                     <div class="thread-meta-inline">
-                        <ThreadMeta
-                            adds={threadTotals.adds}
-                            dels={threadTotals.dels}
-                            showEdits={showEdits}
-                            msgLabel={msgLabel}
-                            totalLines={totalLinesAll}
-                            threadId={threadId}
-                            {taskSequence}
-                            onCopy={handleCopy}
-                            onDelete={handleDelete}
-                        />
+                        <div class="meta-actions">
+                            <ThreadMeta
+                                adds={threadTotals.adds}
+                                dels={threadTotals.dels}
+                                showEdits={showEdits}
+                                msgLabel={msgLabel}
+                                totalLines={totalLinesAll}
+                                threadId={threadId}
+                                {taskSequence}
+                                onCopy={handleCopy}
+                                onDelete={handleDelete}
+                            />
+                        </div>
                     </div>
                 {/if}
                 {#if !collapsed}
@@ -306,7 +307,7 @@
     /* Expanded inline metadata overlay aligned with the first line (tag row) */
     .thread-meta-inline {
         position: absolute;
-        top: -5px;
+        top: -10px;
         right: 40px;
         z-index: 3; /* Above the first-line hit area (z-index:1) so delete is clickable */
         height: var(--thread-first-line-hit-height, 2.25em);
@@ -319,7 +320,10 @@
     }
 
 
-    .thread-meta-inline .delete-btn {
-        pointer-events: auto; /* Make delete button clickable */
+    .thread-meta-inline .meta-actions {
+        pointer-events: auto;
+        display: inline-flex;
+        align-items: center;
+        height: 100%;
     }
 </style>
