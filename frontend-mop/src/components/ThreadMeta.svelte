@@ -1,6 +1,6 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onDestroy } from 'svelte';
 
     export let adds: number;
     export let dels: number;
@@ -19,6 +19,13 @@
 
     let copied = false;
     let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+    onDestroy(() => {
+        if (copyResetTimer) {
+            clearTimeout(copyResetTimer);
+            copyResetTimer = null;
+        }
+    });
 
     function handleDelete(e: MouseEvent) {
         if (onDelete) {
@@ -52,7 +59,9 @@
     <button
             type="button"
             class="delete-btn"
+            class:copied={copied}
             on:click|stopPropagation|preventDefault={handleCopy}
+            on:keydown|stopPropagation={() => {}}
             aria-label="Copy thread"
             title="Copy thread"
     >
@@ -62,6 +71,7 @@
             type="button"
             class="delete-btn"
             on:click|stopPropagation|preventDefault={handleDelete}
+            on:keydown|stopPropagation={() => {}}
             aria-label="Delete history task"
             title="Delete history task"
     >
@@ -118,5 +128,16 @@
     .spacer {
         display: inline-block;
         width: 20px;
+    }
+
+    /* Subtle feedback animation when copy is triggered */
+    .delete-btn.copied {
+        animation: copy-pulse 180ms ease-in-out;
+    }
+
+    @keyframes copy-pulse {
+        0% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(0.93); opacity: 0.9; }
+        100% { transform: scale(1); opacity: 1; }
     }
 </style>
