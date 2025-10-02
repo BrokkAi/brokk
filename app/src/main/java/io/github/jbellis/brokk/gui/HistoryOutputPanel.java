@@ -1299,31 +1299,51 @@ public class HistoryOutputPanel extends JPanel {
                 var card = new RoundedPanel(12, bg, border);
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
+                
+                // Apply visual indication for read messages
+                if (n.read) {
+                    card.setOpaque(true);
+                    float[] hsb = Color.RGBtoHSB(bg.getRed(), bg.getGreen(), bg.getBlue(), null);
+                    bg = Color.getHSBColor(hsb[0], hsb[1] * 0.5f, hsb[2]);
+                    fg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 128);
+                }
 
-                // Center: message with bold timestamp at end
+                // Left: message with bold timestamp at end
                 String timeStr = formatModified(n.timestamp);
                 String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
-                var msgLabel = new JLabel("<html><div style='width:500px; word-wrap: break-word; white-space: normal; text-align: center;'>" + combined + "</div></html>");
+                var msgLabel = new JLabel("<html><div style='width:500px; word-wrap: break-word; white-space: normal;'>" + combined + "</div></html>");
                 msgLabel.setForeground(fg);
-                msgLabel.setHorizontalAlignment(JLabel.CENTER);
+                msgLabel.setHorizontalAlignment(JLabel.LEFT);
                 msgLabel.setVerticalAlignment(JLabel.CENTER);
 
                 card.add(msgLabel, BorderLayout.CENTER);
 
-                // Right: dismiss button
+                // Right: close button (half size)
                 var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
                 actions.setOpaque(false);
 
-                var dismissBtn = new MaterialButton();
-                dismissBtn.setToolTipText("Dismiss");
-                SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLOSE));
-                dismissBtn.addActionListener(e -> {
+                var closeBtn = new MaterialButton();
+                closeBtn.setToolTipText("Remove this notification");
+                SwingUtilities.invokeLater(() -> {
+                    var icon = Icons.CLOSE;
+                    if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                        closeBtn.setIcon(themedIcon.withSize(12));
+                    } else {
+                        closeBtn.setIcon(icon);
+                    }
+                });
+                closeBtn.addActionListener(e -> {
                     notifications.remove(originalIndex);
+                    if (!n.read && unreadNotificationCount > 0) {
+                        unreadNotificationCount--;
+                        updateNotificationsButton();
+                    }
                     persistNotificationsAsync();
                     dialog.dispose();
                     showNotificationsDialog();
                 });
-                actions.add(dismissBtn);
+                closeBtn.setPreferredSize(new Dimension(24, 24));
+                actions.add(closeBtn);
 
                 card.add(actions, BorderLayout.EAST);
 
