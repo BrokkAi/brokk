@@ -13,7 +13,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayDeque; // Added import
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -67,18 +66,8 @@ public abstract class TreeSitterAnalyzer
     protected static final int PRIORITY_HIGH = -1;
     protected static final int PRIORITY_LOW = 1;
 
-    private static boolean containsAnyHierarchySeparator(String s) {
-        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
-            if (s.contains(sep)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
-                    (CodeUnit cu) -> definitionOverridePriority(cu))
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(this::definitionOverridePriority)
             .thenComparingInt(this::firstStartByteForSelection)
             .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
@@ -96,87 +85,27 @@ public abstract class TreeSitterAnalyzer
         return parser;
     });
     private final ThreadLocal<TSQuery> query;
-    private final Map<ProjectFile, List<CodeUnit>> topLevelDeclarations =
-            new ConcurrentHashMap<>(); // package-private for testing
-    private final Map<CodeUnit, List<CodeUnit>> childrenByParent =
-            new ConcurrentHashMap<>(); // package-private for testing
-    private final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
-    private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
+
+    // "Database"
     private final ConcurrentSkipListMap<String, List<CodeUnit>> symbolIndex =
             new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
+    private final Map<ProjectFile, TSTree> parsedTreeCache =
+            new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
+    // New combined state maps (mirrors of legacy maps during migration)
+    private final Map<CodeUnit, CodeUnitProperties> codeUnitState = new ConcurrentHashMap<>();
+    private final Map<ProjectFile, FileProperties> fileState = new ConcurrentHashMap<>();
+
+    // Ensures reads see a consistent view while updates mutate internal maps atomically
+    private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
+
     // Timestamp of the last successful full-project update (epoch nanos)
     private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
     // Over-approximation buffer for filesystem mtime comparisons (nanos)
     private static final long MTIME_EPSILON_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
-    private final Map<ProjectFile, TSTree> parsedTreeCache =
-            new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
-    // Ensures reads see a consistent view while updates mutate internal maps atomically
-    private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
 
     private final IProject project;
     private final Language language;
     protected final Set<Path> normalizedExcludedPaths;
-
-    /** Frees memory from the parsed AST cache. */
-    public void clearCaches() {
-        withReadLock(parsedTreeCache::clear);
-    }
-
-    /** The number of cached AST entries. */
-    public int cacheSize() {
-        return withReadLock(parsedTreeCache::size);
-    }
-
-    /* ------------ read-lock helpers ------------ */
-
-    /** Execute {@code supplier} under the read lock and return its result. */
-    private <T> T withReadLock(Supplier<T> supplier) {
-        var rl = stateRwLock.readLock();
-        rl.lock();
-        try {
-            return supplier.get();
-        } finally {
-            rl.unlock();
-        }
-    }
-
-    /** Execute {@code runnable} under the read lock. */
-    private void withReadLock(Runnable runnable) {
-        var rl = stateRwLock.readLock();
-        rl.lock();
-        try {
-            runnable.run();
-        } finally {
-            rl.unlock();
-        }
-    }
-
-    /**
-     * A thread-safe way to interact with the "signatures" field.
-     *
-     * @param function the callback.
-     */
-    protected <R> R withSignatures(Function<Map<CodeUnit, List<String>>, R> function) {
-        return withReadLock(() -> function.apply(signatures));
-    }
-
-    /**
-     * A thread-safe way to interact with the "childrenByParent" field.
-     *
-     * @param function the callback.
-     */
-    protected <R> R withChildrenByParent(Function<Map<CodeUnit, List<CodeUnit>>, R> function) {
-        return withReadLock(() -> function.apply(childrenByParent));
-    }
-
-    /**
-     * A thread-safe way to interact with the "topLevelDeclarations" field.
-     *
-     * @param function the callback.
-     */
-    public <R> R withTopLevelDeclarations(Function<Map<ProjectFile, List<CodeUnit>>, R> function) {
-        return withReadLock(() -> function.apply(topLevelDeclarations));
-    }
 
     /**
      * Stores information about a definition found by a query match, including associated modifier keywords and
@@ -222,9 +151,7 @@ public abstract class TreeSitterAnalyzer
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
-            Map<CodeUnit, List<CodeUnit>> children,
-            Map<CodeUnit, List<String>> signatures,
-            Map<CodeUnit, List<Range>> sourceRanges,
+            Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, List<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements // Added for module-level imports
             ) {}
@@ -415,11 +342,10 @@ public abstract class TreeSitterAnalyzer
                 formatSecondsMillis(totalWall));
 
         log.debug(
-                "[{}] TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
+                "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
                 language.name(),
-                topLevelDeclarations.size(),
-                childrenByParent.size(),
-                signatures.size());
+                codeUnitState.size(),
+                fileState.size());
 
         // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
         var initInstant = Instant.now();
@@ -431,20 +357,68 @@ public abstract class TreeSitterAnalyzer
         this(project, language, Collections.emptySet());
     }
 
+    /** Frees memory from the parsed AST cache. */
+    public void clearCaches() {
+        withReadLock(parsedTreeCache::clear);
+    }
+
+    /** The number of cached AST entries. */
+    public int cacheSize() {
+        return withReadLock(parsedTreeCache::size);
+    }
+
+    /* ------------ read-lock helpers ------------ */
+
+    /** Execute {@code supplier} under the read lock and return its result. */
+    private <T> T withReadLock(Supplier<T> supplier) {
+        var rl = stateRwLock.readLock();
+        rl.lock();
+        try {
+            return supplier.get();
+        } finally {
+            rl.unlock();
+        }
+    }
+
+    /** Execute {@code runnable} under the read lock. */
+    private void withReadLock(Runnable runnable) {
+        var rl = stateRwLock.readLock();
+        rl.lock();
+        try {
+            runnable.run();
+        } finally {
+            rl.unlock();
+        }
+    }
+
+    /**
+     * A thread-safe way to interact with the "codeUnitState" field.
+     *
+     * @param function the callback.
+     */
+    protected <R> R withCodeUnitProperties(Function<Map<CodeUnit, CodeUnitProperties>, R> function) {
+        return withReadLock(() -> function.apply(codeUnitState));
+    }
+
+    /**
+     * A thread-safe way to interact with the "fileState" field.
+     *
+     * @param function the callback.
+     */
+    public <R> R withFileProperties(Function<Map<ProjectFile, FileProperties>, R> function) {
+        return withReadLock(() -> function.apply(fileState));
+    }
+
     /* ---------- Helper methods for accessing CodeUnits ---------- */
 
     /** All CodeUnits we know about (top-level + children). */
     private Stream<CodeUnit> allCodeUnits() {
-        // Stream top-level declarations
-        Stream<CodeUnit> topLevelStream = topLevelDeclarations.values().stream().flatMap(Collection::stream);
-
         // Stream parents from childrenByParent (they might not be in topLevelDeclarations if they are nested)
-        Stream<CodeUnit> parentStream = childrenByParent.keySet().stream();
+        Stream<CodeUnit> parentStream = codeUnitState.keySet().stream();
 
-        // Stream children from childrenByParent
-        Stream<CodeUnit> childrenStream = childrenByParent.values().stream().flatMap(Collection::stream);
+        Stream<CodeUnit> childrenStream = codeUnitState.values().stream().flatMap(x -> x.children().stream());
 
-        return Stream.of(topLevelStream, parentStream, childrenStream).flatMap(s -> s);
+        return Stream.of(parentStream, childrenStream).flatMap(s -> s).distinct();
     }
 
     /** De-duplicate and materialise into a List once. */
@@ -452,13 +426,44 @@ public abstract class TreeSitterAnalyzer
         return withReadLock(() -> allCodeUnits().distinct().toList());
     }
 
+    /* ---------- Helper methods for accessing various properties ---------- */
+
+    private CodeUnitProperties codeUnitProperties(CodeUnit codeUnit) {
+        return withCodeUnitProperties(props -> props.getOrDefault(codeUnit, CodeUnitProperties.empty()));
+    }
+
+    protected List<CodeUnit> childrenOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).children();
+    }
+
+    protected List<String> signaturesOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).signatures();
+    }
+
+    protected List<Range> rangesOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).ranges();
+    }
+
+    private FileProperties fileProperties(ProjectFile file) {
+        return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
+    }
+
+    protected List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+        return fileProperties(file).topLevelCodeUnits();
+    }
+
+    protected List<String> importStatementsOf(ProjectFile file) {
+        return fileProperties(file).importStatements();
+    }
+
+    protected @Nullable TSTree treeOf(ProjectFile file) {
+        return fileProperties(file).parsedTree();
+    }
+
     /* ---------- IAnalyzer ---------- */
     @Override
     public boolean isEmpty() {
-        return withReadLock(() -> topLevelDeclarations.isEmpty()
-                && signatures.isEmpty()
-                && childrenByParent.isEmpty()
-                && sourceRanges.isEmpty());
+        return withReadLock(codeUnitState::isEmpty);
     }
 
     @Override
@@ -468,29 +473,22 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public List<CodeUnit> getMembersInClass(String fqClass) {
-        Optional<CodeUnit> parent = uniqueCodeUnitList().stream()
-                .filter(cu -> cu.fqName().equals(fqClass) && cu.isClass())
-                .findFirst();
-        return parent.map(p -> List.copyOf(childrenByParent.getOrDefault(p, List.of())))
-                .orElse(List.of());
+        Optional<CodeUnit> parent =
+                getDefinition(fqClass).stream().filter(CodeUnit::isClass).findFirst();
+        return parent.map(this::childrenOf).orElse(List.of());
     }
 
     @Override
     public Optional<ProjectFile> getFileFor(String fqName) {
-        return uniqueCodeUnitList().stream()
-                .filter(cu -> cu.fqName().equals(fqName))
-                .map(CodeUnit::source)
-                .findFirst();
+        return getDefinition(fqName).stream().map(CodeUnit::source).findFirst();
     }
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        final String methodTarget = normalizeFullName(fqName);
+        final String normalizedFqName = normalizeFullName(fqName);
 
         List<CodeUnit> matches = uniqueCodeUnitList().stream()
-                .filter(cu -> cu.isFunction()
-                        ? cu.fqName().equals(methodTarget)
-                        : cu.fqName().equals(fqName))
+                .filter(cu -> cu.fqName().equals(normalizedFqName))
                 .toList();
 
         if (matches.isEmpty()) {
@@ -507,11 +505,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public List<CodeUnit> getAllDeclarations() {
-        Set<CodeUnit> allClasses = new HashSet<>();
-        topLevelDeclarations.values().forEach(allClasses::addAll);
-        childrenByParent.values().forEach(allClasses::addAll); // Children lists
-        allClasses.addAll(childrenByParent.keySet()); // Parent CUs themselves
-        return allClasses.stream().filter(CodeUnit::isClass).distinct().toList();
+        return uniqueCodeUnitList().stream().filter(CodeUnit::isClass).toList();
     }
 
     @Override
@@ -619,7 +613,10 @@ public abstract class TreeSitterAnalyzer
      * @return Map from ProjectFile to List of CodeUnits declared at the top level in that file
      */
     public Map<ProjectFile, List<CodeUnit>> getTopLevelDeclarations() {
-        return Map.copyOf(topLevelDeclarations);
+        final Map<ProjectFile, List<CodeUnit>> result = new HashMap<>();
+        withReadLock(() ->
+                fileState.forEach((file, fileProperties) -> result.put(file, fileProperties.topLevelCodeUnits())));
+        return Map.copyOf(result);
     }
 
     @Override
@@ -629,7 +626,7 @@ public abstract class TreeSitterAnalyzer
             return Map.of();
         }
 
-        List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
+        List<CodeUnit> topCUs = topLevelCodeUnitsOf(file);
         if (topCUs.isEmpty()) return Map.of();
 
         Map<CodeUnit, String> resultSkeletons = new HashMap<>();
@@ -653,7 +650,7 @@ public abstract class TreeSitterAnalyzer
             return Set.of();
         }
 
-        List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
+        List<CodeUnit> topCUs = topLevelCodeUnitsOf(file);
         if (topCUs.isEmpty()) return Set.of();
 
         Set<CodeUnit> allDeclarationsInFile = new HashSet<>();
@@ -664,7 +661,7 @@ public abstract class TreeSitterAnalyzer
             CodeUnit current = toProcess.poll();
             allDeclarationsInFile.add(current); // Add all encountered CodeUnits
 
-            childrenByParent.getOrDefault(current, List.of()).forEach(child -> {
+            childrenOf(current).forEach(child -> {
                 if (visited.add(child)) { // Add to queue only if not visited
                     toProcess.add(child);
                 }
@@ -681,8 +678,9 @@ public abstract class TreeSitterAnalyzer
     }
 
     private void reconstructSkeletonRecursive(CodeUnit cu, String indent, boolean headerOnly, StringBuilder sb) {
-        List<String> sigList = signatures.get(cu);
-        if (sigList == null || sigList.isEmpty()) {
+        final List<String> sigList = signaturesOf(cu);
+
+        if (sigList.isEmpty()) {
             // It's possible for some CUs (e.g., a namespace CU acting only as a parent) to not have direct textual
             // signatures.
             // This can be legitimate if they are primarily structural and their children form the content.
@@ -692,37 +690,38 @@ public abstract class TreeSitterAnalyzer
             return;
         }
 
-        for (String individualFullSignature : sigList) {
+        for (var individualFullSignature : sigList) {
             if (individualFullSignature.isBlank()) {
                 log.warn("Encountered null or blank signature in list for CU: {}. Skipping this signature.", cu);
                 continue;
             }
             // Apply indent to each line of the current signature
             String[] signatureLines = individualFullSignature.split("\n", -1); // Use -1 limit
-            for (String line : signatureLines) {
+            for (var line : signatureLines) {
                 sb.append(indent).append(line).append('\n');
             }
         }
 
-        final List<CodeUnit> kids = childrenByParent.getOrDefault(cu, List.of()).stream()
+        final List<CodeUnit> allChildren = childrenOf(cu);
+
+        final var kids = allChildren.stream()
                 .filter(child -> !headerOnly || child.isField())
                 .toList();
         // Only add children and closer if the CU can have them (e.g. class, or function that can nest)
         // For simplicity now, always check for children. Specific languages might refine this.
         if (!kids.isEmpty()
                 || (cu.isClass() && !getLanguageSpecificCloser(cu).isEmpty())) { // also add closer for empty classes
-            String childIndent = indent + getLanguageSpecificIndent();
-            for (CodeUnit kid : kids) {
+            var childIndent = indent + getLanguageSpecificIndent();
+            for (var kid : kids) {
                 reconstructSkeletonRecursive(kid, childIndent, headerOnly, sb);
             }
             if (headerOnly && cu.isClass()) {
-                final var nonFieldKidsSize =
-                        childrenByParent.getOrDefault(cu, List.of()).size() - kids.size();
+                final int nonFieldKidsSize = allChildren.size() - kids.size();
                 if (nonFieldKidsSize > 0) {
                     sb.append(childIndent).append("[...]").append("\n");
                 }
             }
-            String closer = getLanguageSpecificCloser(cu);
+            var closer = getLanguageSpecificCloser(cu);
             if (!closer.isEmpty()) {
                 sb.append(indent).append(closer).append('\n');
             }
@@ -736,17 +735,24 @@ public abstract class TreeSitterAnalyzer
 
     public Optional<String> getSkeletonImpl(String fqName, Boolean headerOnly) {
         return withReadLock(() -> {
-            Optional<CodeUnit> cuOpt = signatures.keySet().stream()
-                    .filter(c -> c.fqName().equals(fqName))
-                    .findFirst();
+            final var cuOpt = getDefinition(fqName);
             if (cuOpt.isPresent()) {
-                String skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
+                var skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
                 log.trace("getSkeleton: fqName='{}', found=true", fqName);
                 return Optional.of(skeleton);
             }
             log.trace("getSkeleton: fqName='{}', found=false", fqName);
             return Optional.empty();
         });
+    }
+
+    private static boolean containsAnyHierarchySeparator(String s) {
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            if (s.contains(sep)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -772,10 +778,7 @@ public abstract class TreeSitterAnalyzer
 
     /** Returns the earliest startByte among recorded ranges for deterministic ordering. */
     private int firstStartByteForSelection(CodeUnit cu) {
-        return withReadLock(() -> sourceRanges.getOrDefault(cu, List.of()).stream()
-                .mapToInt(Range::startByte)
-                .min()
-                .orElse(Integer.MAX_VALUE));
+        return rangesOf(cu).stream().mapToInt(Range::startByte).min().orElse(Integer.MAX_VALUE);
     }
 
     @Override
@@ -784,9 +787,9 @@ public abstract class TreeSitterAnalyzer
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
 
-        var ranges = sourceRanges.get(cu);
+        var ranges = rangesOf(cu);
 
-        if (ranges == null || ranges.isEmpty()) {
+        if (ranges.isEmpty()) {
             throw new SymbolNotFoundException("Source range not found for class: " + fqName);
         }
 
@@ -812,8 +815,8 @@ public abstract class TreeSitterAnalyzer
                 // overloads)
                 .filter(CodeUnit::isFunction)
                 .flatMap(cu -> {
-                    List<Range> rangesForOverloads = sourceRanges.get(cu);
-                    if (rangesForOverloads == null || rangesForOverloads.isEmpty()) {
+                    List<Range> rangesForOverloads = rangesOf(cu);
+                    if (rangesForOverloads.isEmpty()) {
                         log.warn(
                                 "No source ranges found for CU {} (fqName {}) although definition was found.",
                                 cu,
@@ -875,27 +878,6 @@ public abstract class TreeSitterAnalyzer
     }
 
     /**
-     * Calculates the line number (1-based) from a byte offset in the source text. This is used for on-demand line
-     * calculation when needed.
-     *
-     * @param source the source text
-     * @param byteOffset the byte offset to calculate line for
-     * @return the line number (1-based)
-     */
-    protected int calculateLineFromByteOffset(String source, int byteOffset) {
-        if (byteOffset <= 0) {
-            return 1;
-        }
-
-        int clampedOffset = Math.min(byteOffset, source.length());
-        return (int) source.substring(0, clampedOffset)
-                        .chars()
-                        .filter(c -> c == '\n')
-                        .count()
-                + 1;
-    }
-
-    /**
      * Gets the starting line number (0-based) for the given CodeUnit for UI positioning purposes. Returns the original
      * code definition line (not expanded with comments) for better navigation.
      *
@@ -904,8 +886,8 @@ public abstract class TreeSitterAnalyzer
      */
     public int getStartLineForCodeUnit(CodeUnit codeUnit) {
         return withReadLock(() -> {
-            var ranges = sourceRanges.get(codeUnit);
-            if (ranges == null || ranges.isEmpty()) {
+            var ranges = rangesOf(codeUnit);
+            if (ranges.isEmpty()) {
                 return -1;
             }
 
@@ -1075,7 +1057,7 @@ public abstract class TreeSitterAnalyzer
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of());
         }
         // Log root node type
         String rootNodeType = rootNode.getType();
@@ -1503,6 +1485,19 @@ public abstract class TreeSitterAnalyzer
         Map<CodeUnit, List<Range>> finalLocalSourceRanges = new HashMap<>();
         localSourceRanges.forEach((c, ranges) -> finalLocalSourceRanges.put(c, Collections.unmodifiableList(ranges)));
 
+        // Combine local maps into CodeUnitState entries
+        Map<CodeUnit, CodeUnitProperties> localStates = new HashMap<>();
+        var unionKeys = new HashSet<CodeUnit>();
+        unionKeys.addAll(finalLocalChildren.keySet());
+        unionKeys.addAll(localSignatures.keySet());
+        unionKeys.addAll(finalLocalSourceRanges.keySet());
+        for (var cu : unionKeys) {
+            var kids = finalLocalChildren.getOrDefault(cu, List.of());
+            var sigs = localSignatures.getOrDefault(cu, List.of());
+            var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
+            localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs)));
+        }
+
         long __processEnd = System.nanoTime();
         if (timing != null) {
             timing.processStageNanos().addAndGet(__processEnd - __processStart);
@@ -1511,9 +1506,7 @@ public abstract class TreeSitterAnalyzer
         }
         return new FileAnalysisResult(
                 Collections.unmodifiableList(localTopLevelCUs),
-                finalLocalChildren,
-                localSignatures,
-                finalLocalSourceRanges,
+                Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements));
     }
@@ -2325,7 +2318,7 @@ public abstract class TreeSitterAnalyzer
      */
     @Override
     public List<CodeUnit> directChildren(CodeUnit cu) {
-        return withReadLock(() -> childrenByParent.getOrDefault(cu, List.of()));
+        return childrenOf(cu);
     }
 
     /* ---------- file filtering helpers ---------- */
@@ -2375,8 +2368,7 @@ public abstract class TreeSitterAnalyzer
 
     private void mergeAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult, ConstructionTiming timing) {
         if (!analysisResult.topLevelCUs().isEmpty()
-                || !analysisResult.signatures().isEmpty()
-                || !analysisResult.sourceRanges().isEmpty()) {
+                || !analysisResult.codeUnitState().isEmpty()) {
 
             long __mergeStart = System.nanoTime();
             ingestAnalysisResult(pf, analysisResult);
@@ -2386,12 +2378,10 @@ public abstract class TreeSitterAnalyzer
             timing.mergeStageLastEndNanos().accumulateAndGet(__mergeEnd, Math::max);
 
             log.trace(
-                    "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
+                    "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} code-unit states.",
                     pf,
                     analysisResult.topLevelCUs().size(),
-                    analysisResult.signatures().size(),
-                    analysisResult.children().size(),
-                    analysisResult.sourceRanges().size());
+                    analysisResult.codeUnitState().size());
         } else {
             log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
         }
@@ -2450,7 +2440,21 @@ public abstract class TreeSitterAnalyzer
                                         pair -> pair.lhs().equals(pair.rhs()));
 
                                 parsedTreeCache.remove(file);
-                                topLevelDeclarations.remove(file);
+                                fileState.remove(file);
+
+                                // Purge CodeUnitState entries for this file and prune children lists
+                                codeUnitState.keySet().removeIf(fromFile);
+                                codeUnitState.replaceAll((parent, state) -> {
+                                    var filteredKids = state.children().stream()
+                                            .filter(fromFile.negate())
+                                            .toList();
+                                    if (!filteredKids.equals(state.children())) {
+                                        parentsTouchedCount.incrementAndGet();
+                                        return new CodeUnitProperties(
+                                                List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                    }
+                                    return state;
+                                });
 
                                 var symbolsToPurge = new HashSet<String>();
                                 var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
@@ -2469,22 +2473,6 @@ public abstract class TreeSitterAnalyzer
                                 symbolsTouchedCount.addAndGet(symbolsToPurge.size() + symbolsToUpdate.size());
                                 symbolIndex.putAll(symbolsToUpdate);
                                 symbolsToPurge.forEach(symbolIndex::remove);
-
-                                childrenByParent.keySet().removeIf(fromFile);
-                                signatures.keySet().removeIf(fromFile);
-                                sourceRanges.keySet().removeIf(fromFile);
-
-                                // remove children entries pointing to CodeUnits from the changed file
-                                childrenByParent.replaceAll((parent, kids) -> {
-                                    var filtered = kids.stream()
-                                            .filter(fromFile.negate())
-                                            .toList();
-                                    if (!filtered.equals(kids)) {
-                                        parentsTouchedCount.incrementAndGet();
-                                        return List.copyOf(filtered);
-                                    }
-                                    return kids;
-                                });
                             } catch (Throwable t) {
                                 log.error("Exception encountered while performing update for file {}", file, t);
                             } finally {
@@ -2578,12 +2566,7 @@ public abstract class TreeSitterAnalyzer
                 .collect(Collectors.toSet());
 
         // Snapshot known files (those we've analyzed/cached)
-        Set<ProjectFile> knownFiles = withReadLock(() -> {
-            var s = new HashSet<ProjectFile>();
-            s.addAll(topLevelDeclarations.keySet());
-            s.addAll(parsedTreeCache.keySet());
-            return s;
-        });
+        Set<ProjectFile> knownFiles = withReadLock(() -> new HashSet<>(parsedTreeCache.keySet()));
 
         Set<ProjectFile> changed = new HashSet<>();
         var nowInstant = Instant.now();
@@ -2659,133 +2642,94 @@ public abstract class TreeSitterAnalyzer
 
     private void ingestAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult) {
         if (analysisResult.topLevelCUs().isEmpty()
-                && analysisResult.signatures().isEmpty()
-                && analysisResult.sourceRanges().isEmpty()) {
+                && analysisResult.codeUnitState().isEmpty()) {
             return;
         }
-
-        topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
-
         // Merge codeUnitsBySymbol with no-op checks to avoid allocations
-        analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
-            symbolIndex.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
+        analysisResult
+                .codeUnitsBySymbol()
+                .forEach((symbol, cus) -> symbolIndex.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
+                    if (existing == null) {
+                        return List.copyOf(cus);
+                    }
+                    if (cus.isEmpty()) {
+                        return existing; // nothing to add
+                    }
+                    boolean changed = false;
+                    for (CodeUnit cu : cus) {
+                        if (!existing.contains(cu)) {
+                            changed = true;
+                            break;
+                        }
+                    }
+                    if (!changed) {
+                        return existing;
+                    }
+                    var merged = new ArrayList<CodeUnit>(existing.size() + cus.size());
+                    merged.addAll(existing);
+                    for (CodeUnit cu : cus) {
+                        if (!merged.contains(cu)) {
+                            merged.add(cu);
+                        }
+                    }
+                    return List.copyOf(merged);
+                }));
+
+        // Merge combined state from analysisResult.codeUnitState()
+        analysisResult.codeUnitState().forEach((cu, newState) -> {
+            // combined state merge
+            codeUnitState.compute(cu, (CodeUnit k, @Nullable CodeUnitProperties existing) -> {
                 if (existing == null) {
-                    return List.copyOf(cus);
+                    return new CodeUnitProperties(newState.children(), newState.signatures(), newState.ranges());
                 }
-                if (cus.isEmpty()) {
-                    return existing; // nothing to add
-                }
-                boolean changed = false;
-                for (CodeUnit cu : cus) {
-                    if (!existing.contains(cu)) {
-                        changed = true;
-                        break;
+                List<CodeUnit> mergedKids = existing.children();
+                var newKids = newState.children();
+                if (!newKids.isEmpty()) {
+                    var tmp = new ArrayList<CodeUnit>(existing.children().size() + newKids.size());
+                    tmp.addAll(existing.children());
+                    for (var kid : newKids) {
+                        if (!tmp.contains(kid)) {
+                            tmp.add(kid);
+                        }
                     }
+                    mergedKids = List.copyOf(tmp);
                 }
-                if (!changed) {
-                    return existing;
-                }
-                var merged = new ArrayList<CodeUnit>(existing.size() + cus.size());
-                merged.addAll(existing);
-                for (CodeUnit cu : cus) {
-                    if (!merged.contains(cu)) {
-                        merged.add(cu);
+
+                List<String> mergedSigs = existing.signatures();
+                var newSigs = newState.signatures();
+                if (!newSigs.isEmpty()) {
+                    var tmp = new ArrayList<String>(existing.signatures().size() + newSigs.size());
+                    tmp.addAll(existing.signatures());
+                    for (var s : newSigs) {
+                        if (!tmp.contains(s)) {
+                            tmp.add(s);
+                        }
                     }
+                    mergedSigs = List.copyOf(tmp);
                 }
-                return List.copyOf(merged);
+
+                List<Range> mergedRanges = existing.ranges();
+                var newRngs2 = newState.ranges();
+                if (!newRngs2.isEmpty()) {
+                    var tmp = new ArrayList<Range>(existing.ranges().size() + newRngs2.size());
+                    tmp.addAll(existing.ranges());
+                    for (var r : newRngs2) {
+                        if (!tmp.contains(r)) {
+                            tmp.add(r);
+                        }
+                    }
+                    mergedRanges = List.copyOf(tmp);
+                }
+
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges);
             });
         });
 
-        // Merge childrenByParent with no-op checks
-        analysisResult
-                .children()
-                .forEach((parent, newKids) ->
-                        childrenByParent.compute(parent, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                            if (existing == null) {
-                                return newKids;
-                            }
-                            if (newKids.isEmpty()) {
-                                return existing;
-                            }
-                            boolean changed = false;
-                            for (CodeUnit kid : newKids) {
-                                if (!existing.contains(kid)) {
-                                    changed = true;
-                                    break;
-                                }
-                            }
-                            if (!changed) {
-                                return existing;
-                            }
-                            var merged = new ArrayList<CodeUnit>(existing.size() + newKids.size());
-                            merged.addAll(existing);
-                            for (CodeUnit kid : newKids) {
-                                if (!merged.contains(kid)) {
-                                    merged.add(kid);
-                                }
-                            }
-                            return List.copyOf(merged);
-                        }));
-
-        // Merge signatures with no-op checks
-        analysisResult
-                .signatures()
-                .forEach((cu, newSigs) -> signatures.compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
-                    if (existing == null) {
-                        return List.copyOf(newSigs);
-                    }
-                    if (newSigs.isEmpty()) {
-                        return existing;
-                    }
-                    boolean changed = false;
-                    for (String s : newSigs) {
-                        if (!existing.contains(s)) {
-                            changed = true;
-                            break;
-                        }
-                    }
-                    if (!changed) {
-                        return existing;
-                    }
-                    var merged = new ArrayList<String>(existing.size() + newSigs.size());
-                    merged.addAll(existing);
-                    for (String s : newSigs) {
-                        if (!merged.contains(s)) {
-                            merged.add(s);
-                        }
-                    }
-                    return List.copyOf(merged);
-                }));
-
-        // Merge sourceRanges with no-op checks
-        analysisResult
-                .sourceRanges()
-                .forEach((cu, newRanges) -> sourceRanges.compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
-                    if (existing == null) {
-                        return List.copyOf(newRanges);
-                    }
-                    if (newRanges.isEmpty()) {
-                        return existing;
-                    }
-                    boolean changed = false;
-                    for (Range r : newRanges) {
-                        if (!existing.contains(r)) {
-                            changed = true;
-                            break;
-                        }
-                    }
-                    if (!changed) {
-                        return existing;
-                    }
-                    var merged = new ArrayList<Range>(existing.size() + newRanges.size());
-                    merged.addAll(existing);
-                    for (Range r : newRanges) {
-                        if (!merged.contains(r)) {
-                            merged.add(r);
-                        }
-                    }
-                    return List.copyOf(merged);
-                }));
+        // Mirror per-file state
+        fileState.put(
+                pf,
+                new FileProperties(
+                        analysisResult.topLevelCUs(), parsedTreeCache.get(pf), analysisResult.importStatements()));
     }
 
     /* ---------- comment detection for source expansion ---------- */
@@ -2888,7 +2832,7 @@ public abstract class TreeSitterAnalyzer
 
             // Reverse to get earliest-first
             Collections.reverse(leading);
-            int newStartByte = leading.get(0).getStartByte();
+            int newStartByte = leading.getFirst().getStartByte();
 
             Range expandedRange = new Range(
                     originalRange.startByte(),

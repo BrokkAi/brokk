@@ -705,14 +705,33 @@ public class GitLogTab extends JPanel {
     private void checkoutBranch(String branchName) {
         contextManager.submitExclusiveAction(() -> {
             try {
-                if (!getRepo().listLocalBranches().contains(branchName)) {
+                var localBranches = getRepo().listLocalBranches();
+                var createdTracking = false;
+                var localTrackingName = branchName;
+
+                if (!localBranches.contains(branchName)) {
                     // If it's not a known local branch, assume it's remote or needs tracking.
+                    if (branchName.contains("/")) {
+                        localTrackingName = branchName.substring(branchName.indexOf('/') + 1);
+                    }
                     getRepo().checkoutRemoteBranch(branchName);
                     chrome.systemOutput("Created local tracking branch for " + branchName);
+                    createdTracking = true;
                 } else {
                     getRepo().checkout(branchName);
                 }
-                update();
+
+                // After successful checkout, update branch selector and Project Files title on EDT
+                var currentActualBranch = getRepo().getCurrentBranch();
+                if (createdTracking) {
+                    // If JGit reports a non-local name (e.g. remote-ref or detached), use the expected local tracking
+                    // name
+                    var localsAfter = getRepo().listLocalBranches();
+                    if (!localsAfter.contains(currentActualBranch)) {
+                        currentActualBranch = localTrackingName;
+                    }
+                }
+                refreshAllGitUi(currentActualBranch);
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -790,7 +809,20 @@ public class GitLogTab extends JPanel {
                 }
 
                 // Refresh UI to reflect changes
-                SwingUtilities.invokeLater(this::update);
+                String branchForUiRefresh;
+                try {
+                    branchForUiRefresh = repo.getCurrentBranch();
+                } catch (GitAPIException ex) {
+                    logger.error("Error determining current branch after merge: {}", ex.getMessage());
+                    branchForUiRefresh = null;
+                }
+                final String branchForUiRefreshFinal = branchForUiRefresh;
+                SwingUtilities.invokeLater(() -> {
+                    // Update commit/branch tables
+                    if (branchForUiRefreshFinal != null) {
+                        refreshAllGitUi(branchForUiRefreshFinal);
+                    }
+                });
             }
 
             return null;
@@ -852,7 +884,7 @@ public class GitLogTab extends JPanel {
             contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    update();
+                    refreshAllGitUi(newName);
                     chrome.systemOutput(
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
@@ -942,6 +974,13 @@ public class GitLogTab extends JPanel {
     // ==================================================================
     // Helper Methods
     // ==================================================================
+
+    private void refreshAllGitUi(String branchName) {
+        SwingUtilities.invokeLater(() -> {
+            chrome.updateGitRepo();
+            chrome.getInstructionsPanel().refreshBranchUi(branchName);
+        });
+    }
 
     private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();

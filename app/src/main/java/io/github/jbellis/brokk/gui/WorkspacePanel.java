@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -656,6 +657,10 @@ public class WorkspacePanel extends JPanel {
     @Nullable
     private JMenuItem dropAllMenuItem = null;
 
+    // Global dispatcher for Cmd/Ctrl+Shift+I to open Attach Context
+    @Nullable
+    private KeyEventDispatcher globalAttachDispatcher = null;
+
     // Observers for bottom-controls height changes
     private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
 
@@ -1140,12 +1145,20 @@ public class WorkspacePanel extends JPanel {
             // Add button to show Add popup (same menu as table's Add)
             var addButton = new MaterialButton();
             addButton.setIcon(Icons.ATTACH_FILE);
-            addButton.setToolTipText("Add content to workspace");
+            addButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
             addButton.setFocusable(false);
             addButton.setOpaque(false);
             addButton.addActionListener(e -> {
                 attachContextViaDialog();
             });
+            // Keyboard shortcut: Cmd/Ctrl+Shift+A opens the Attach Context dialog
+            KeyboardShortcutUtil.registerGlobalShortcut(
+                    WorkspacePanel.this,
+                    KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
+                    "attachContext",
+                    () -> SwingUtilities.invokeLater(() -> {
+                        attachContextViaDialog();
+                    }));
 
             // Wrap the button so it vertically centers nicely with the labels
             var buttonWrapper = new JPanel(new GridBagLayout());
@@ -1382,7 +1395,7 @@ public class WorkspacePanel extends JPanel {
                                 file.getFileName(), file.toString(), file))
                         .distinct()
                         .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-                        .collect(Collectors.toList());
+                        .toList();
             }
 
             // Create rich description object
@@ -1390,105 +1403,27 @@ public class WorkspacePanel extends JPanel {
             tableModel.addRow(new Object[] {locText, descriptionWithRefs, frag});
         }
 
-        var approxTokens = Messages.getApproximateTokens(fullText.toString());
         var innerLabel = safeGetLabel(0);
         var costLabel = safeGetLabel(1);
 
-        // Check for context size warning against the selected model only
-        var service = contextManager.getService();
-        var instructionsPanel = chrome.getInstructionsPanel();
-        Service.ModelConfig selectedConfig = instructionsPanel.getSelectedModel();
-
-        boolean showRedWarning = false;
-        boolean showYellowWarning = false;
-        int selectedModelMaxInputTokens = -1;
-        String selectedModelName = selectedConfig.name();
-
-        if (!selectedModelName.isBlank()) {
-            try {
-                var modelInstance = service.getModel(selectedConfig);
-                if (modelInstance == null) {
-                    logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
-                } else if (modelInstance instanceof Service.UnavailableStreamingModel) {
-                    logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
-                } else {
-                    selectedModelMaxInputTokens = service.getMaxInputTokens(modelInstance);
-                    if (selectedModelMaxInputTokens <= 0) {
-                        logger.warn(
-                                "Selected model {} has invalid maxInputTokens: {}",
-                                selectedModelName,
-                                selectedModelMaxInputTokens);
-                    } else {
-                        // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
-                        if (approxTokens > selectedModelMaxInputTokens / 1.1) {
-                            showRedWarning = true;
-                        }
-                        // Yellow warning: context > 50% of max (approxTokens > maxInputTokens / 2.0)
-                        else if (approxTokens > selectedModelMaxInputTokens / 2.0) {
-                            showYellowWarning = true;
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn(
-                        "Error processing selected model {} for context warning: {}",
-                        selectedModelName,
-                        e.getMessage(),
-                        e);
-            }
-        }
-
-        String warningTooltip =
-                """
-        Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
-        Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
-        """;
-
-        // Always set the standard summary text on innerLabel (single line to avoid layout jumps)
-        innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
-        String costEstimate = calculateCostEstimate(approxTokens, service);
-        String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
-
-        // Single-line summary to keep the paperclip aligned
-        innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
-
-        // Preserve details in tooltip
-        innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
-                .formatted(totalLines, approxTokens, costText));
-
-        // Keep the secondary label hidden to avoid changing the row height
+        // Prepare UI placeholders while computing tokens off the EDT
+        innerLabel.setForeground(UIManager.getColor("Label.foreground"));
+        innerLabel.setText("Calculating token estimate...");
+        innerLabel.setToolTipText("Total: %,d LOC".formatted(totalLines));
         costLabel.setText(" ");
         costLabel.setVisible(false);
-
-        // Remove any existing warning labels from the warningPanel
         warningPanel.removeAll();
-
-        if (showRedWarning) {
-            String warningText = String.format(
-                    "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the selected model: %s (%,d). Performance will be degraded.",
-                    approxTokens, selectedModelName, selectedModelMaxInputTokens);
-
-            JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
-            warningPanel.add(warningArea, BorderLayout.CENTER);
-
-        } else if (showYellowWarning) {
-            String warningText = String.format(
-                    "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the selected model: %s (%,d). Performance may be degraded.",
-                    approxTokens, selectedModelName, selectedModelMaxInputTokens);
-
-            JTextArea warningArea = createWarningTextArea(
-                    warningText, Color.YELLOW, warningTooltip); // Standard yellow might be hard to see on some themes
-            warningPanel.add(warningArea, BorderLayout.CENTER);
-        }
-
         warningPanel.revalidate();
         warningPanel.repaint();
 
         revalidate();
         repaint();
 
-        // Notify listeners that bottom controls height may have changed
+        // Notify listeners that bottom controls height may have changed (may shrink when warnings cleared)
         fireBottomControlsHeightChanged();
+
+        // Compute tokens off the EDT and update UI on completion
+        computeApproxTokensAsync(fullText, totalLines);
     }
 
     /** Called by Chrome to refresh the table if context changes */
@@ -2191,6 +2126,114 @@ public class WorkspacePanel extends JPanel {
         }
     }
 
+    private void computeApproxTokensAsync(StringBuilder fullText, int totalLines) {
+        contextManager
+                .submitBackgroundTask(
+                        "Compute token estimate", () -> Messages.getApproximateTokens(fullText.toString()))
+                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+                    var innerLabel = safeGetLabel(0);
+                    var costLabel = safeGetLabel(1);
+
+                    // Check for context size warning against the selected model only
+                    var service = contextManager.getService();
+                    var instructionsPanel = chrome.getInstructionsPanel();
+                    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedModel();
+
+                    boolean showRedWarning = false;
+                    boolean showYellowWarning = false;
+                    int selectedModelMaxInputTokens = -1;
+                    String selectedModelName = selectedConfig.name();
+
+                    if (!selectedModelName.isBlank()) {
+                        try {
+                            var modelInstance = service.getModel(selectedConfig);
+                            if (modelInstance == null) {
+                                logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
+                            } else if (modelInstance instanceof Service.UnavailableStreamingModel) {
+                                logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
+                            } else {
+                                selectedModelMaxInputTokens = service.getMaxInputTokens(modelInstance);
+                                if (selectedModelMaxInputTokens <= 0) {
+                                    logger.warn(
+                                            "Selected model {} has invalid maxInputTokens: {}",
+                                            selectedModelName,
+                                            selectedModelMaxInputTokens);
+                                } else {
+                                    // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
+                                    if (approxTokens > selectedModelMaxInputTokens / 1.1) {
+                                        showRedWarning = true;
+                                    }
+                                    // Yellow warning: context > 50% of max (approxTokens > maxInputTokens / 2.0)
+                                    else if (approxTokens > selectedModelMaxInputTokens / 2.0) {
+                                        showYellowWarning = true;
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            logger.warn(
+                                    "Error processing selected model {} for context warning: {}",
+                                    selectedModelName,
+                                    e.getMessage(),
+                                    e);
+                        }
+                    }
+
+                    String warningTooltip =
+                            """
+        Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
+        Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
+        """;
+
+                    // Always set the standard summary text on innerLabel (single line to avoid layout jumps)
+                    innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
+                    String costEstimate = calculateCostEstimate(approxTokens, service);
+                    String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
+
+                    // Single-line summary to keep the paperclip aligned
+                    innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
+
+                    // Preserve details in tooltip
+                    innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                            .formatted(totalLines, approxTokens, costText));
+
+                    // Keep the secondary label hidden to avoid changing the row height
+                    costLabel.setText(" ");
+                    costLabel.setVisible(false);
+
+                    // Remove any existing warning labels from the warningPanel
+                    warningPanel.removeAll();
+
+                    if (showRedWarning) {
+                        String warningText = String.format(
+                                "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the selected model: %s (%,d). Performance will be degraded.",
+                                approxTokens, selectedModelName, selectedModelMaxInputTokens);
+
+                        JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
+                        warningPanel.add(warningArea, BorderLayout.CENTER);
+
+                    } else if (showYellowWarning) {
+                        String warningText = String.format(
+                                "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the selected model: %s (%,d). Performance may be degraded.",
+                                approxTokens, selectedModelName, selectedModelMaxInputTokens);
+
+                        JTextArea warningArea = createWarningTextArea(
+                                warningText,
+                                Color.YELLOW,
+                                warningTooltip); // Standard yellow might be hard to see on some themes
+                        warningPanel.add(warningArea, BorderLayout.CENTER);
+                    }
+
+                    warningPanel.revalidate();
+                    warningPanel.repaint();
+
+                    revalidate();
+                    repaint();
+
+                    // Notify listeners that bottom controls height may have changed
+                    fireBottomControlsHeightChanged();
+                }));
+    }
+
     /**
      * Sets the editable state of the workspace panel.
      *
@@ -2306,6 +2349,51 @@ public class WorkspacePanel extends JPanel {
         // Also update the global drop all menu item
         if (dropAllMenuItem != null) {
             dropAllMenuItem.setEnabled(true);
+        }
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        registerGlobalAttachDispatcher();
+    }
+
+    @Override
+    public void removeNotify() {
+        unregisterGlobalAttachDispatcher();
+        super.removeNotify();
+    }
+
+    private void registerGlobalAttachDispatcher() {
+        if (globalAttachDispatcher != null) return;
+
+        globalAttachDispatcher = new KeyEventDispatcher() {
+            @Override
+            public boolean dispatchKeyEvent(KeyEvent e) {
+                if (e.getID() != KeyEvent.KEY_PRESSED) return false;
+
+                int mods = e.getModifiersEx();
+                int shortcutMask =
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // Cmd on macOS, Ctrl elsewhere
+                boolean hasShortcut = (mods & shortcutMask) != 0;
+                boolean hasShift = (mods & InputEvent.SHIFT_DOWN_MASK) != 0;
+
+                if (hasShortcut && hasShift && e.getKeyCode() == KeyEvent.VK_I) {
+                    SwingUtilities.invokeLater(() -> attachContextViaDialog());
+                    // Consume the event so focused components (e.g., terminal) don't handle it
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(globalAttachDispatcher);
+    }
+
+    private void unregisterGlobalAttachDispatcher() {
+        if (globalAttachDispatcher != null) {
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(globalAttachDispatcher);
+            globalAttachDispatcher = null;
         }
     }
 }

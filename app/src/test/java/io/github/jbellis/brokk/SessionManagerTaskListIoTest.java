@@ -2,8 +2,6 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto;
-import io.github.jbellis.brokk.sessions.TaskListStore.TaskListData;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -84,7 +82,7 @@ class SessionManagerTaskListIoTest {
                     sessionManager
                             .writeTaskList(
                                     sessionId,
-                                    new TaskListData(List.of(new TaskEntryDto("task_" + taskId, taskId % 2 == 0))))
+                                    new TaskListData(List.of(new TaskListEntryDto("task_" + taskId, taskId % 2 == 0))))
                             .get(5, TimeUnit.SECONDS); // Wait for each write to complete
                     executionOrder.add(String.valueOf(taskId));
                 } catch (Exception e) {
@@ -138,7 +136,7 @@ class SessionManagerTaskListIoTest {
                     sessionManager
                             .writeTaskList(
                                     sessionId1,
-                                    new TaskListData(List.of(new TaskEntryDto("session1_task_" + taskId, false))))
+                                    new TaskListData(List.of(new TaskListEntryDto("session1_task_" + taskId, false))))
                             .get(5, TimeUnit.SECONDS);
                     writeCounts.get(sessionId1).incrementAndGet();
                 } catch (Exception e) {
@@ -150,7 +148,7 @@ class SessionManagerTaskListIoTest {
                     sessionManager
                             .writeTaskList(
                                     sessionId2,
-                                    new TaskListData(List.of(new TaskEntryDto("session2_task_" + taskId, true))))
+                                    new TaskListData(List.of(new TaskListEntryDto("session2_task_" + taskId, true))))
                             .get(5, TimeUnit.SECONDS);
                     writeCounts.get(sessionId2).incrementAndGet();
                 } catch (Exception e) {
@@ -222,7 +220,7 @@ class SessionManagerTaskListIoTest {
                     sessionManager
                             .writeTaskList(
                                     sessionId,
-                                    new TaskListData(List.of(new TaskEntryDto("task_write_" + writeValue, false))))
+                                    new TaskListData(List.of(new TaskListEntryDto("task_write_" + writeValue, false))))
                             .get(5, TimeUnit.SECONDS); // Wait for each write to complete
                 } catch (Exception e) {
                     fail("Write task failed: " + e.getMessage());
@@ -304,7 +302,7 @@ class SessionManagerTaskListIoTest {
                             sessionManager
                                     .writeTaskList(
                                             sessionId,
-                                            new TaskListData(List.of(new TaskEntryDto("task_" + value, false))))
+                                            new TaskListData(List.of(new TaskListEntryDto("task_" + value, false))))
                                     .get(5, TimeUnit.SECONDS);
 
                             TaskListData data =

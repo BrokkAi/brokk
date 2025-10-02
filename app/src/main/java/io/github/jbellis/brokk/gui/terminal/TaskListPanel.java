@@ -827,7 +827,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                             return;
                         }
                         model.clear();
-                        for (io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto dto : data.tasks()) {
+                        for (io.github.jbellis.brokk.TaskListEntryDto dto : data.tasks()) {
                             if (!dto.text().isBlank()) {
                                 model.addElement(new TaskItem(dto.text(), dto.done()));
                             }
@@ -836,6 +836,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         updateButtonStates();
                     } finally {
                         isLoadingTasks = false;
+            clearExpansionOnStructureChange();
                     }
                 });
             }
@@ -852,14 +853,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var sessionManager = chrome.getContextManager().getProject().getSessionManager();
 
-        var dtos = new java.util.ArrayList<io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto>(model.size());
+        var dtos = new java.util.ArrayList<io.github.jbellis.brokk.TaskListEntryDto>(model.size());
         for (int i = 0; i < model.size(); i++) {
             TaskItem it = model.get(i);
             if (it != null && !it.text().isBlank()) {
-                dtos.add(new io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto(it.text(), it.done()));
+                dtos.add(new io.github.jbellis.brokk.TaskListEntryDto(it.text(), it.done()));
             }
         }
-        var data = new io.github.jbellis.brokk.sessions.TaskListStore.TaskListData(java.util.List.copyOf(dtos));
+        var data = new io.github.jbellis.brokk.TaskListData(java.util.List.copyOf(dtos));
 
         final UUID sidFinal = sid;
         Executor edt = SwingUtilities::invokeLater;

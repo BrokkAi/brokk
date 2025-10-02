@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.tools;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
@@ -9,6 +10,7 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Predicate;
@@ -794,5 +796,48 @@ public class SearchTools {
         }
 
         return "Files in " + directoryPath + ": " + files;
+    }
+
+    @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
+    public String createTaskList(
+            @P(
+                            """
+            Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
+
+            Requirements (apply to EACH task):
+            - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
+            - Size target: ~2 hours for an experienced contributor across < 10 files.
+            - Testability: name the verification (unit test name or manual check) at the end in brackets: [Verify: ...].
+            - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
+            - Output: starts with a strong verb and names concrete artifact(s) (class/method/file, config, test).
+
+            Rubric for slicing:
+            - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes—split by subsystem or by 'behavior change' vs 'refactor'.
+            - TOO SMALL if there is no distinct verification—merge into its nearest parent goal.
+            - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
+
+            Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
+            """)
+                    List<String> tasks) {
+        logger.debug("createTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
+        }
+
+        var io = contextManager.getIo();
+        // Append tasks to Task List Panel (if running in Chrome UI)
+        try {
+            ((Chrome) io).appendTasksToTaskList(tasks);
+        } catch (ClassCastException ignored) {
+            // Not running in Chrome UI; skip appending
+        }
+        io.systemOutput("Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+
+        var lines = java.util.stream.IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+        io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        return formattedTaskList;
     }
 }

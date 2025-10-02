@@ -2,8 +2,6 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.sessions.TaskListStore.TaskEntryDto;
-import io.github.jbellis.brokk.sessions.TaskListStore.TaskListData;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -46,7 +44,7 @@ class SessionManagerTaskListLifecycleTest {
         SessionManager sm = project.getSessionManager();
 
         // Prepare a canonical task list payload
-        TaskListData data = new TaskListData(List.of(new TaskEntryDto("do A", false), new TaskEntryDto("do B", true)));
+        TaskListData data = new TaskListData(List.of(new TaskListEntryDto("do A", false), new TaskListEntryDto("do B", true)));
 
         // 1) Create original session and write a tasklist.json inside its zip
         SessionManager.SessionInfo s1 = sm.newSession("Origin");

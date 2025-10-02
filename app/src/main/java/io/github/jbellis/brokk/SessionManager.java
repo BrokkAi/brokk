@@ -3,11 +3,11 @@ package io.github.jbellis.brokk;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
+
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.sessions.TaskListStore.TaskListData;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
 import java.io.IOException;
@@ -136,9 +136,9 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public void deleteSession(UUID sessionId) {
+    public void deleteSession(UUID sessionId) throws Exception {
         sessionsCache.remove(sessionId);
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             try {
                 boolean deleted = Files.deleteIfExists(historyZipPath);
@@ -150,8 +150,10 @@ public class SessionManager implements AutoCloseable {
                 }
             } catch (IOException e) {
                 logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+                throw new RuntimeException("Failed to delete session " + sessionId, e);
             }
         });
+        deleteFuture.get(); // Wait for deletion to complete
     }
 
     /**

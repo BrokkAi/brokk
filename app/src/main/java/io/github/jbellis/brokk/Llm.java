@@ -14,6 +14,8 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.LangChain4jException;
+import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ResponseFormat;
@@ -274,7 +276,9 @@ public class Llm {
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
                     logger.debug(th);
-                    io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
+                    var retryable = !(th instanceof NonRetriableException);
+                    io.systemOutput("LLM Error: " + th.getMessage()
+                            + (retryable ? " (retry-able)" : " (non-retriable)")); // Immediate feedback for user
                     errorRef.set(th);
                     if (echo && addJsonFence && fenceOpen.get()) {
                         io.llmOutput("\n```", ChatMessageType.AI);
@@ -287,7 +291,28 @@ public class Llm {
 
         var finalHandler =
                 contextManager.getService().usesThinkTags(model) ? new ThinkTagInterceptor(rawHandler) : rawHandler;
-        model.chat(request, finalHandler);
+        try {
+            model.chat(request, finalHandler);
+        } catch (Throwable t) {
+            var mapped = ExceptionMapper.DEFAULT.mapException(t);
+            lock.lock();
+            try {
+                cancelled.set(true);
+                logger.debug(mapped);
+                var retryable = !(mapped instanceof NonRetriableException);
+                io.systemOutput(
+                        "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)"));
+                errorRef.set(mapped);
+                if (echo && addJsonFence && fenceOpen.get()) {
+                    io.llmOutput("\n```", ChatMessageType.AI);
+                    fenceOpen.set(false);
+                }
+                completed.set(true);
+            } finally {
+                lock.unlock();
+                tick.release();
+            }
+        }
 
         try {
             while (!completed.get()) {
@@ -468,8 +493,11 @@ public class Llm {
                 return response.withRetryCount(attempt - 1);
             }
 
-            // don't retry on bad request errors
+            // don't retry on non-retriable errors or known bad request errors
             if (lastError != null) {
+                if (lastError instanceof NonRetriableException) {
+                    break;
+                }
                 var msg = requireNonNull(lastError.getMessage());
                 if (msg.contains("BadRequestError")
                         || msg.contains("UnsupportedParamsError")
