@@ -1323,8 +1323,9 @@ public class Llm {
 
                     String message;
                     if (pricing.bands().isEmpty()) {
-                        message = "Cost unknown for %s (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
-                                .formatted(modelName, input, uncached, cached, output, think);
+                        message =
+                                "Cost unknown for %s (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
+                                        .formatted(modelName, input, uncached, cached, output, think);
                     } else {
                         double cost = pricing.estimateCost(uncached, cached, output);
                         java.text.DecimalFormat df =

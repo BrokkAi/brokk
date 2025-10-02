@@ -27,7 +27,6 @@ import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -1022,29 +1021,29 @@ public class HistoryOutputPanel extends JPanel {
 
     private void animateNotificationCard(JPanel card) {
         card.putClientProperty("notificationOpacity", 0.0f);
-        
-        final int fadeInDuration = 2000;  // 2 seconds
-        final int holdDuration = 1000;   // 10 seconds
+
+        final int fadeInDuration = 2000; // 2 seconds
+        final int holdDuration = 1000; // 10 seconds
         final int fadeOutDuration = 2000; // 2 seconds
         final int fps = 30;
         final int fadeInFrames = (fadeInDuration * fps) / 1000;
         final int fadeOutFrames = (fadeOutDuration * fps) / 1000;
         final float fadeInStep = 1.0f / fadeInFrames;
         final float fadeOutStep = 1.0f / fadeOutFrames;
-        
+
         final Timer[] timerHolder = new Timer[1];
         final int[] frameCounter = {0};
         final int[] phase = {0}; // 0=fade in, 1=hold, 2=fade out
-        
+
         Timer timer = new Timer(1000 / fps, e -> {
             float currentOpacity = (Float) card.getClientProperty("notificationOpacity");
-            
+
             if (phase[0] == 0) {
                 // Fade in
                 currentOpacity = Math.min(1.0f, currentOpacity + fadeInStep);
                 card.putClientProperty("notificationOpacity", currentOpacity);
                 card.repaint();
-                
+
                 if (currentOpacity >= 1.0f) {
                     phase[0] = 1;
                     frameCounter[0] = 0;
@@ -1061,7 +1060,7 @@ public class HistoryOutputPanel extends JPanel {
                 currentOpacity = Math.max(0.0f, currentOpacity - fadeOutStep);
                 card.putClientProperty("notificationOpacity", currentOpacity);
                 card.repaint();
-                
+
                 if (currentOpacity <= 0.0f) {
                     timerHolder[0].stop();
                     isDisplayingNotification = false;
@@ -1073,7 +1072,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
             }
         });
-        
+
         timerHolder[0] = timer;
         timer.start();
     }
@@ -1119,7 +1118,7 @@ public class HistoryOutputPanel extends JPanel {
                 removeNotificationCard();
             });
             actions.add(rejectBtn);
-            
+
             card.add(actions, BorderLayout.EAST);
         }
 
@@ -1155,13 +1154,13 @@ public class HistoryOutputPanel extends JPanel {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
+
                 // Apply opacity animation if present
                 Float opacity = (Float) getClientProperty("notificationOpacity");
                 if (opacity != null && opacity < 1.0f) {
                     g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity));
                 }
-                
+
                 int w = getWidth();
                 int h = getHeight();
                 g2.setColor(bg);
@@ -1231,7 +1230,8 @@ public class HistoryOutputPanel extends JPanel {
     private void persistNotifications() {
         try {
             var linesToPersist = notifications.stream()
-                    .sorted(Comparator.comparingLong((NotificationEntry n) -> n.timestamp).reversed())
+                    .sorted(Comparator.comparingLong((NotificationEntry n) -> n.timestamp)
+                            .reversed())
                     .limit(100)
                     .map(n -> {
                         var msgB64 = Base64.getEncoder().encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
@@ -1254,7 +1254,7 @@ public class HistoryOutputPanel extends JPanel {
                 if (line == null || line.isBlank()) continue;
                 var parts = line.split("\\|", 4);
                 if (parts.length < 4) continue;
-                
+
                 // Skip old format (version 1)
                 if ("1".equals(parts[0])) continue;
                 if (!"2".equals(parts[0])) continue;
