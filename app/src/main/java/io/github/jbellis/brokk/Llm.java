@@ -1301,9 +1301,10 @@ public class Llm {
                 if (usage != null) {
                     var service = contextManager.getService();
                     var modelName = service.nameOf(model);
-                    // Filter out notifications for gemini-2.0-flash-lite
-                    if ("gemini-2.0-flash-lite".equals(modelName)) {
-                        logger.debug("Skipping cost notification for {}", modelName);
+                    // Filter out cost notifications for Gemini Flash Lite unless explicitly enabled
+                    boolean isGeminiLite = "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.5-flash-light".equals(modelName);
+                    if (isGeminiLite && !GlobalUiSettings.isShowGeminiLiteCostNotifications()) {
+                        logger.debug("Skipping cost notification for {} (user preference for Gemini Lite)", modelName);
                         return;
                     }
                     // Respect user preference for cost notifications

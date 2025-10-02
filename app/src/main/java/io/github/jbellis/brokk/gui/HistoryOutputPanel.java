@@ -100,6 +100,8 @@ public class HistoryOutputPanel extends JPanel {
 
     private final MaterialButton copyButton;
     private final JPanel notificationAreaPanel;
+    @Nullable
+    private JScrollPane notificationScrollPane;
     private final MaterialButton notificationsButton = new MaterialButton();
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
     private int unreadNotificationCount = 0;
@@ -930,8 +932,16 @@ public class HistoryOutputPanel extends JPanel {
 
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
-        // Add notification area to the east of the buttons panel
-        panel.add(notificationAreaPanel, BorderLayout.CENTER);
+        // Add scrollable notification area to the right of the buttons panel
+        notificationScrollPane = new JScrollPane(
+                notificationAreaPanel,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        notificationScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        notificationScrollPane.setOpaque(false);
+        notificationScrollPane.getViewport().setOpaque(false);
+        panel.add(notificationScrollPane, BorderLayout.CENTER);
+        updateNotificationScrollSize();
 
         return panel;
     }
@@ -948,6 +958,7 @@ public class HistoryOutputPanel extends JPanel {
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
+            updateNotificationScrollSize();
             persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
@@ -968,6 +979,7 @@ public class HistoryOutputPanel extends JPanel {
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
+            updateNotificationScrollSize();
             persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
@@ -987,6 +999,28 @@ public class HistoryOutputPanel extends JPanel {
         return p;
     }
 
+    // Keep the toolbar compact by capping height and letting content scroll when needed
+    private void updateNotificationScrollSize() {
+        if (notificationScrollPane == null) return;
+
+        int count = notificationAreaPanel.getComponentCount();
+        if (count == 0) {
+            notificationScrollPane.setPreferredSize(new Dimension(0, 0));
+            notificationScrollPane.revalidate();
+            return;
+        }
+
+        int total = 0;
+        for (Component comp : notificationAreaPanel.getComponents()) {
+            total += comp.getPreferredSize().height;
+        }
+
+        int max = 160; // do not let toolbar grow too tall; scroll instead
+        int desired = Math.min(total, max);
+        notificationScrollPane.setPreferredSize(new Dimension(0, desired));
+        notificationScrollPane.revalidate();
+    }
+
     private JPanel createNotificationCard(NotificationRole role, String message, @Nullable Runnable onAccept, @Nullable Runnable onReject) {
         var colors = resolveNotificationColors(role);
         Color bg = colors.get(0);
@@ -998,10 +1032,16 @@ public class HistoryOutputPanel extends JPanel {
         card.setLayout(new BorderLayout(10, 6));
         card.setBorder(new EmptyBorder(6, 10, 6, 10));
 
-        // Left: role icon
+        // Left: icon or cost text
         var iconLabel = new JLabel();
         iconLabel.setForeground(fg);
-        SwingUtilities.invokeLater(() -> iconLabel.setIcon(getNotificationIcon(role)));
+        if (role == NotificationRole.COST) {
+            String costText = extractCostText(message);
+            iconLabel.setText(costText);
+            iconLabel.setFont(iconLabel.getFont().deriveFont(Font.BOLD));
+        } else {
+            SwingUtilities.invokeLater(() -> iconLabel.setIcon(getNotificationIcon(role)));
+        }
         iconLabel.setBorder(new EmptyBorder(0, 0, 0, 2));
         card.add(iconLabel, BorderLayout.WEST);
 
@@ -1050,8 +1090,7 @@ public class HistoryOutputPanel extends JPanel {
 
         card.add(actions, BorderLayout.EAST);
 
-        // Keep card compact
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
+        // Allow card to grow vertically; overall area scrolls when necessary
         return card;
     }
 
@@ -1074,6 +1113,29 @@ public class HistoryOutputPanel extends JPanel {
             case COST -> Icons.LIST;
             case INFO -> Icons.CHAT_BUBBLE;
         };
+    }
+
+    // Extracts a cost token (e.g., "$0.0123") from a cost message.
+    private static String extractCostText(String message) {
+        message = message.trim();
+        // Typical format: "$0.0123 for <model> (details...)"
+        if (message.startsWith("$")) {
+            int space = message.indexOf(' ');
+            if (space > 0) return message.substring(0, space);
+            return message; // If there's no space, use the full message
+        }
+        // Fallback: find first '$' and read number-like characters after it
+        int dollar = message.indexOf('$');
+        if (dollar >= 0) {
+            int end = dollar + 1;
+            while (end < message.length()) {
+                char ch = message.charAt(end);
+                if (!(Character.isDigit(ch) || ch == '.' || ch == ',')) break;
+                end++;
+            }
+            return message.substring(dollar, Math.max(dollar + 1, end));
+        }
+        return "N/A";
     }
 
     private static class RoundedPanel extends JPanel {
@@ -1203,6 +1265,7 @@ public class HistoryOutputPanel extends JPanel {
                     }
                 }
                 updateNotificationsButton();
+                updateNotificationScrollSize();
                 notificationAreaPanel.revalidate();
                 notificationAreaPanel.repaint();
             });
@@ -1297,6 +1360,7 @@ public class HistoryOutputPanel extends JPanel {
             notificationAreaPanel.remove(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
+            updateNotificationScrollSize();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();

@@ -41,6 +41,7 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
     private static final String KEY_SHOW_CONFIRM_NOTIFICATIONS = "notifications.confirm.enabled";
     private static final String KEY_SHOW_INFO_NOTIFICATIONS = "notifications.info.enabled";
+    private static final String KEY_SHOW_GEMINI_LITE_COST_NOTIFICATIONS = "notifications.cost.geminiFlashLite.enabled";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -271,6 +272,14 @@ public final class GlobalUiSettings {
 
     public static void saveShowInfoNotifications(boolean show) {
         setBoolean(KEY_SHOW_INFO_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowGeminiLiteCostNotifications() {
+        return getBoolean(KEY_SHOW_GEMINI_LITE_COST_NOTIFICATIONS, false);
+    }
+
+    public static void saveShowGeminiLiteCostNotifications(boolean show) {
+        setBoolean(KEY_SHOW_GEMINI_LITE_COST_NOTIFICATIONS, show);
     }
 
     private static int getInt(String key) {
