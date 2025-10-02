@@ -55,10 +55,10 @@
         deleteHistoryTaskByThreadId(threadId);
     }
 
-    async function handleCopy(event: CustomEvent<{ threadId: number | undefined }>) {
-        // Only act if the event is for this thread (when provided)
-        const detailThreadId = event?.detail?.threadId;
-        if (detailThreadId !== undefined && detailThreadId !== threadId) {
+    async function handleCopy(event: CustomEvent<{ threadId: number }>) {
+        // Only act if the event is for this thread
+        const detailThreadId = event.detail.threadId;
+        if (detailThreadId !== threadId) {
             return;
         }
 

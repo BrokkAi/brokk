@@ -11,11 +11,11 @@
 
     // Thread identifier to include in copy-thread event detail.
     // Detail contains only { threadId }; parent component assembles the text to copy.
-    export let threadId: number | undefined;
+    export let threadId: number;
 
     export let onDelete: ((e: MouseEvent) => void) | undefined;
 
-    const dispatch = createEventDispatcher<{ 'copy-thread': { threadId: number | undefined } }>();
+    const dispatch = createEventDispatcher<{ 'copy-thread': { threadId: number } }>();
 
     let copied = false;
     let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
