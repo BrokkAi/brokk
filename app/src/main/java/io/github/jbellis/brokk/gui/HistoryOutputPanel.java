@@ -103,7 +103,7 @@ public class HistoryOutputPanel extends JPanel {
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
-    private final java.util.Set<Integer> displayedNotificationIndices = new java.util.HashSet<>();
+    private final java.util.Queue<NotificationEntry> notificationQueue = new java.util.ArrayDeque<>();
     private final Path notificationsFile;
     private boolean isDisplayingNotification = false;
 
@@ -950,7 +950,9 @@ public class HistoryOutputPanel extends JPanel {
     // Notification API
     public void showNotification(NotificationRole role, String message) {
         Runnable r = () -> {
-            notifications.add(new NotificationEntry(role, message, System.currentTimeMillis()));
+            var entry = new NotificationEntry(role, message, System.currentTimeMillis());
+            notifications.add(entry);
+            notificationQueue.offer(entry);
             updateNotificationsButton();
             persistNotificationsAsync();
             refreshLatestNotificationCard();
@@ -964,15 +966,22 @@ public class HistoryOutputPanel extends JPanel {
 
     public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
         Runnable r = () -> {
-            notifications.add(new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis()));
+            var entry = new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis());
+            notifications.add(entry);
             updateNotificationsButton();
             persistNotificationsAsync();
 
-            notificationAreaPanel.removeAll();
-            JPanel card = createNotificationCard(NotificationRole.CONFIRM, message, onAccept, onReject);
-            notificationAreaPanel.add(card);
-            notificationAreaPanel.revalidate();
-            notificationAreaPanel.repaint();
+            if (isDisplayingNotification) {
+                notificationQueue.offer(entry);
+            } else {
+                notificationAreaPanel.removeAll();
+                isDisplayingNotification = true;
+                JPanel card = createNotificationCard(NotificationRole.CONFIRM, message, onAccept, onReject);
+                notificationAreaPanel.add(card);
+                animateNotificationCard(card);
+                notificationAreaPanel.revalidate();
+                notificationAreaPanel.repaint();
+            }
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
@@ -991,33 +1000,22 @@ public class HistoryOutputPanel extends JPanel {
         return p;
     }
 
-    // Show the next unshown notification in the toolbar
+    // Show the next notification from the queue
     private void refreshLatestNotificationCard() {
-        if (isDisplayingNotification) {
+        if (isDisplayingNotification || notificationQueue.isEmpty()) {
             return;
         }
 
-        // Find the latest notification that hasn't been displayed yet
-        NotificationEntry nextToShow = null;
-        int nextIndex = -1;
-        for (int i = 0; i < notifications.size(); i++) {
-            if (!displayedNotificationIndices.contains(i)) {
-                var n = notifications.get(i);
-                if (nextToShow == null || n.timestamp > nextToShow.timestamp) {
-                    nextToShow = n;
-                    nextIndex = i;
-                }
-            }
+        var nextToShow = notificationQueue.poll();
+        if (nextToShow == null) {
+            return;
         }
 
         notificationAreaPanel.removeAll();
-        if (nextToShow != null) {
-            isDisplayingNotification = true;
-            displayedNotificationIndices.add(nextIndex);
-            JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
-            notificationAreaPanel.add(card);
-            animateNotificationCard(card);
-        }
+        isDisplayingNotification = true;
+        JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
+        notificationAreaPanel.add(card);
+        animateNotificationCard(card);
         notificationAreaPanel.revalidate();
         notificationAreaPanel.repaint();
     }
@@ -1067,8 +1065,11 @@ public class HistoryOutputPanel extends JPanel {
                 if (currentOpacity <= 0.0f) {
                     timerHolder[0].stop();
                     isDisplayingNotification = false;
+                    notificationAreaPanel.removeAll();
+                    notificationAreaPanel.revalidate();
+                    notificationAreaPanel.repaint();
                     // Show the next notification (if any)
-                    removeNotificationCard();
+                    refreshLatestNotificationCard();
                 }
             }
         });
@@ -1118,23 +1119,9 @@ public class HistoryOutputPanel extends JPanel {
                 removeNotificationCard();
             });
             actions.add(rejectBtn);
+            
+            card.add(actions, BorderLayout.EAST);
         }
-        // No extra "details" button for COST; full details are already shown.
-
-        var dismissBtn = new MaterialButton();
-        dismissBtn.setToolTipText("Dismiss");
-        SwingUtilities.invokeLater(() -> {
-            var icon = Icons.CLOSE;
-            if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
-                dismissBtn.setIcon(themedIcon.withSize(18));
-            } else {
-                dismissBtn.setIcon(icon);
-            }
-        });
-        dismissBtn.addActionListener(e -> removeNotificationCard());
-        actions.add(dismissBtn);
-
-        card.add(actions, BorderLayout.EAST);
 
         // Allow card to grow vertically; overall area scrolls when necessary
         return card;
@@ -1272,7 +1259,6 @@ public class HistoryOutputPanel extends JPanel {
 
             SwingUtilities.invokeLater(() -> {
                 updateNotificationsButton();
-                refreshLatestNotificationCard();
             });
         } catch (Exception e) {
             logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
@@ -1308,7 +1294,7 @@ public class HistoryOutputPanel extends JPanel {
                 var card = new RoundedPanel(12, bg, border);
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
-                card.setMaximumSize(new Dimension(320, 120));
+                card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
                 card.setMinimumSize(new Dimension(0, 30));
 
                 // Left: unread indicator (if unread) + message with bold timestamp at end
@@ -1342,17 +1328,7 @@ public class HistoryOutputPanel extends JPanel {
                 });
                 closeBtn.addActionListener(e -> {
                     notifications.remove(originalIndex);
-                    // Update displayed indices after removal
-                    var newDisplayedIndices = new java.util.HashSet<Integer>();
-                    for (int idx : displayedNotificationIndices) {
-                        if (idx < originalIndex) {
-                            newDisplayedIndices.add(idx);
-                        } else if (idx > originalIndex) {
-                            newDisplayedIndices.add(idx - 1);
-                        }
-                    }
-                    displayedNotificationIndices.clear();
-                    displayedNotificationIndices.addAll(newDisplayedIndices);
+                    notificationQueue.removeIf(entry -> entry == n);
                     updateNotificationsButton();
                     persistNotificationsAsync();
                     dialog.dispose();
@@ -1382,7 +1358,7 @@ public class HistoryOutputPanel extends JPanel {
         var clearAllBtn = new MaterialButton("Clear All");
         clearAllBtn.addActionListener(e -> {
             notifications.clear();
-            displayedNotificationIndices.clear();
+            notificationQueue.clear();
             updateNotificationsButton();
             persistNotificationsAsync();
             dialog.dispose();
