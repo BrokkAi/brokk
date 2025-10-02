@@ -8,21 +8,20 @@ import java.util.List;
 /**
  * Result type for usage queries.
  *
- * <p>- Success: usages resolved (possibly empty) - Ambiguous: short name or targets ambiguous; classification needed -
- * TooManyCallsites: guardrail when raw callsites exceed cap
+ * <ul>
+ *   <li>Success: usages resolved (possibly empty)
+ *   <li>Failure: unable to resolve query due to analyzer or LLM related issues
+ *   <li>Ambiguous: short name or targets ambiguous; classification needed
+ *   <li>TooManyCallsites: guardrail when raw callsites exceed cap
+ * </ul>
  */
-public sealed interface FuzzyResult permits FuzzyResult.Success, FuzzyResult.Ambiguous, FuzzyResult.TooManyCallsites {
+public sealed interface FuzzyResult
+        permits FuzzyResult.Success, FuzzyResult.Failure, FuzzyResult.Ambiguous, FuzzyResult.TooManyCallsites {
 
     /** Successful resolution of usages (possibly empty). */
-    final class Success implements FuzzyResult {
-        private final List<FuzzyUsageAnalyzer.UsageHit> hits;
-
-        public Success(List<FuzzyUsageAnalyzer.UsageHit> hits) {
+    record Success(List<UsageHit> hits) implements FuzzyResult {
+        public Success(List<UsageHit> hits) {
             this.hits = List.copyOf(requireNonNull(hits, "hits"));
-        }
-
-        public List<FuzzyUsageAnalyzer.UsageHit> hits() {
-            return hits;
         }
 
         @Override
@@ -31,64 +30,33 @@ public sealed interface FuzzyResult permits FuzzyResult.Success, FuzzyResult.Amb
         }
     }
 
-    /** Ambiguous result: indicates multiple candidate targets and prepared callsites. */
-    final class Ambiguous implements FuzzyResult {
-        private final String shortName;
-        private final List<CodeUnit> candidateTargets;
-        private final int preparedCallsites;
+    /** Failure: Error related to querying the analyzer or LLM. */
+    record Failure(String fqName, String reason) implements FuzzyResult {
+        @Override
+        public String toString() {
+            return "Failure{fqName=" + fqName + ", reason=" + reason + "}";
+        }
+    }
 
-        public Ambiguous(String shortName, List<CodeUnit> candidateTargets, int preparedCallsites) {
+    /** Ambiguous result: indicates multiple candidate targets. */
+    record Ambiguous(String shortName, List<CodeUnit> candidateTargets) implements FuzzyResult {
+        public Ambiguous(String shortName, List<CodeUnit> candidateTargets) {
             this.shortName = requireNonNull(shortName, "shortName");
             this.candidateTargets = List.copyOf(requireNonNull(candidateTargets, "candidateTargets"));
-            this.preparedCallsites = preparedCallsites;
-        }
-
-        public String shortName() {
-            return shortName;
-        }
-
-        public List<CodeUnit> candidateTargets() {
-            return candidateTargets;
-        }
-
-        public int preparedCallsites() {
-            return preparedCallsites;
         }
 
         @Override
         public String toString() {
-            return "Ambiguous{shortName="
-                    + shortName
-                    + ", candidates="
-                    + candidateTargets.size()
-                    + ", preparedCallsites="
-                    + preparedCallsites
-                    + "}";
+            return "Ambiguous{shortName=" + shortName + ", candidates=" + candidateTargets.size() + "}";
         }
     }
 
     /** Too-many-callsites guardrail. */
-    final class TooManyCallsites implements FuzzyResult {
-        private final String shortName;
-        private final int totalCallsites;
-        private final int limit;
-
+    record TooManyCallsites(String shortName, int totalCallsites, int limit) implements FuzzyResult {
         public TooManyCallsites(String shortName, int totalCallsites, int limit) {
             this.shortName = requireNonNull(shortName, "shortName");
             this.totalCallsites = totalCallsites;
             this.limit = limit;
-        }
-
-        public String shortName() {
-            return shortName;
-        }
-
-        public int totalCallsites() {
-            return totalCallsites;
-        }
-
-        public int limit() {
-            return limit;
         }
 
         @Override

@@ -5,8 +5,7 @@ import static java.util.Objects.requireNonNull;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -25,7 +24,7 @@ public final class FuzzyUsageAnalyzer {
     private static final Logger logger = LogManager.getLogger(FuzzyUsageAnalyzer.class);
 
     private final IProject project;
-    private final IAnalyzer analyzer;
+    private final TreeSitterAnalyzer analyzer;
     private final @Nullable Llm llm;
 
     /**
@@ -35,7 +34,7 @@ public final class FuzzyUsageAnalyzer {
      * @param analyzer the analyzer providing declarations/definitions
      * @param llm optional LLM for future disambiguation
      */
-    public FuzzyUsageAnalyzer(IProject project, IAnalyzer analyzer, @Nullable Llm llm) {
+    public FuzzyUsageAnalyzer(IProject project, TreeSitterAnalyzer analyzer, @Nullable Llm llm) {
         this.project = requireNonNull(project, "project");
         this.analyzer = requireNonNull(analyzer, "analyzer");
         this.llm = llm; // optional
@@ -47,14 +46,20 @@ public final class FuzzyUsageAnalyzer {
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
-    public FuzzyResult findUsages(CodeUnit target, int maxCallsites) {
-        requireNonNull(target, "target");
-        if (isEffectivelyEmpty()) {
-            logger.debug("Project/analyzer empty; returning empty Success for {}", target);
-            return new FuzzyResult.Success(List.of());
+    private FuzzyResult findUsages(CodeUnit target, int maxCallsites) {
+        var identifier = target.identifier();
+        var isUnique = analyzer.searchDefinitions(".*" + identifier + "$").size() == 1;
+        final List<UsageHit> candidates = List.of(); // TODO: Get call/usage sites for this identifier
+
+        if (isUnique) {
+            // Case 1: This is a uniquely named code unit, no need to check with LLM.
         }
-        // POC step-1: API only – full logic (range map, text search, LLM) to be added in follow-up tasks.
-        return new FuzzyResult.Success(List.of());
+
+        if (llm != null) {
+            // TODO: Consult LLM if ambiguous possible
+        }
+
+        return new FuzzyResult.Ambiguous(target.shortName(), List.of());
     }
 
     /**
@@ -68,8 +73,12 @@ public final class FuzzyUsageAnalyzer {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(List.of());
         }
-        // POC step-1: API only – full logic (range map, text search, LLM) to be added in follow-up tasks.
-        return new FuzzyResult.Success(List.of());
+        var maybeCodeUnit = analyzer.getDefinition(fqName);
+        if (maybeCodeUnit.isEmpty()) {
+            logger.warn("Unable to find code unit for fqName={}", fqName);
+            return new FuzzyResult.Failure(fqName, "Unable to find associated code unit for the given name");
+        }
+        return findUsages(maybeCodeUnit.get(), maxCallsites);
     }
 
     private boolean isEffectivelyEmpty() {
@@ -80,21 +89,4 @@ public final class FuzzyUsageAnalyzer {
         var files = project.getAllFiles();
         return files.isEmpty();
     }
-
-    /**
-     * Immutable metadata describing a usage occurrence.
-     *
-     * <p>- file: the file containing the usage - line: 1-based line number - startOffset/endOffset: character offsets
-     * within the file content (inclusive/exclusive) - enclosing: best-effort enclosing CodeUnit for the usage -
-     * confidence: [0.0, 1.0], 1.0 for exact/unique matches; may be lower when disambiguated - snippet: short text
-     * snippet around the usage location
-     */
-    public record UsageHit(
-            ProjectFile file,
-            int line,
-            int startOffset,
-            int endOffset,
-            CodeUnit enclosing,
-            double confidence,
-            String snippet) {}
 }
