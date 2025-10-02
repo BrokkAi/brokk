@@ -922,7 +922,7 @@ public class HistoryOutputPanel extends JPanel {
 
         // Notifications counter button
         SwingUtilities.invokeLater(() -> {
-            notificationsButton.setIcon(Icons.LIST);
+            notificationsButton.setIcon(Icons.NOTIFICATIONS);
         });
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
@@ -1355,8 +1355,13 @@ public class HistoryOutputPanel extends JPanel {
         var scroll = new JScrollPane(listPanel);
         scroll.setBorder(BorderFactory.createEmptyBorder());
 
-        // Footer with Clear Read and Close buttons
+        // Footer with Ok and Clear Read buttons
         var footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        
+        var closeBtn = new MaterialButton("Ok");
+        SwingUtil.applyPrimaryButtonStyle(closeBtn);
+        closeBtn.addActionListener(e -> dialog.dispose());
+        footer.add(closeBtn);
         
         var clearReadBtn = new MaterialButton("Clear Read");
         clearReadBtn.addActionListener(e -> {
@@ -1366,10 +1371,6 @@ public class HistoryOutputPanel extends JPanel {
             showNotificationsDialog();
         });
         footer.add(clearReadBtn);
-        
-        var closeBtn = new MaterialButton("Close");
-        closeBtn.addActionListener(e -> dialog.dispose());
-        footer.add(closeBtn);
 
         dialog.add(scroll, BorderLayout.CENTER);
         dialog.add(footer, BorderLayout.SOUTH);
