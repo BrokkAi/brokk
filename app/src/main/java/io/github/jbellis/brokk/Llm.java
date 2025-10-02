@@ -1291,6 +1291,46 @@ public class Llm {
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
         }
+
+        // Compute and show cost notification if usage/pricing are available
+        try {
+            if (result != null) {
+                var usage = result.tokenUsage();
+                if (usage != null) {
+                    var service = contextManager.getService();
+                    var modelName = service.nameOf(model);
+                    var pricing = service.getModelPricing(modelName);
+
+                    int input = usage.inputTokens();
+                    int cached = usage.cachedInputTokens();
+                    int uncached = Math.max(0, input - cached);
+                    int output = usage.outputTokens();
+                    int think = usage.thinkingTokens();
+
+                    String message;
+                    if (pricing.bands().isEmpty()) {
+                        message = "Cost unknown for %s (in %,d uncached, %,d cached, out %,d, think %,d)"
+                                .formatted(modelName, uncached, cached, output, think);
+                    } else {
+                        double cost = pricing.estimateCost(uncached, cached, output);
+                        String costStr = new java.text.DecimalFormat("#,##0.0000").format(cost);
+                        message = "$" + costStr + " for " + modelName
+                                + " (in %,d uncached, %,d cached, out %,d, think %,d)"
+                                .formatted(uncached, cached, output, think);
+                    }
+
+                    try {
+                        io.systemOutput("LLM cost: " + message);
+                    } catch (Throwable t) {
+                        logger.debug("Unable to show cost notification; falling back to system output", t);
+                        io.systemOutput("LLM cost: " + message);
+                    }
+                    logger.debug("LLM cost: {}", message);
+                }
+            }
+        } catch (Throwable t) {
+            logger.debug("Unable to compute cost notification", t);
+        }
     }
 
     public record NullSafeResponse(
