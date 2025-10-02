@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer.usages;
 
+import static io.github.jbellis.brokk.util.HtmlUtil.escapeXml;
+
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
@@ -117,22 +119,5 @@ public final class UsagePromptBuilder {
         }
 
         return sb.toString();
-    }
-
-    private static String escapeXml(String s) {
-        if (s == null || s.isEmpty()) return "";
-        StringBuilder out = new StringBuilder((int) (s.length() * 1.1));
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '&' -> out.append("&amp;");
-                case '<' -> out.append("&lt;");
-                case '>' -> out.append("&gt;");
-                case '"' -> out.append("&quot;");
-                case '\'' -> out.append("&apos;");
-                default -> out.append(c);
-            }
-        }
-        return out.toString();
     }
 }

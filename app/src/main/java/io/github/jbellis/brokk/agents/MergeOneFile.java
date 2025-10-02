@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.agents;
 
+import static io.github.jbellis.brokk.util.HtmlUtil.escapeXml;
 import static java.util.Objects.requireNonNull;
 
 import com.jakewharton.disklrucache.DiskLruCache;
@@ -490,16 +491,6 @@ public final class MergeOneFile {
                fully-resolved version (no conflict markers). Keep changes minimal and only resolve the conflicts.
                """
                 .stripIndent();
-    }
-
-    /** Escape XML special characters for safe embedding of commit messages. */
-    private static String escapeXml(@Nullable String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&apos;");
     }
 
     /**
