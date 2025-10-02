@@ -1312,15 +1312,18 @@ public class HistoryOutputPanel extends JPanel {
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
 
-                // Apply visual indication for read messages
-                if (n.read) {
-                    card.setOpaque(true);
-                    float[] hsb = Color.RGBtoHSB(bg.getRed(), bg.getGreen(), bg.getBlue(), null);
-                    bg = Color.getHSBColor(hsb[0], hsb[1] * 0.5f, hsb[2]);
-                    fg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 128);
-                }
+                // Left: unread indicator (if unread) + message with bold timestamp at end
+                var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                leftPanel.setOpaque(false);
 
-                // Left: message with bold timestamp at end
+                if (!n.read) {
+                    var unreadIcon = Icons.NOTIFICATIONS_UNREAD;
+                    if (unreadIcon instanceof SwingUtil.ThemedIcon themedIcon) {
+                        unreadIcon = themedIcon.withSize(6);
+                    }
+                    var unreadLabel = new JLabel(unreadIcon);
+                    leftPanel.add(unreadLabel);
+                }
                 String timeStr = formatModified(n.timestamp);
                 String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
                 var msgLabel = new JLabel("<html><div style='width:500px; word-wrap: break-word; white-space: normal;'>"
@@ -1329,7 +1332,8 @@ public class HistoryOutputPanel extends JPanel {
                 msgLabel.setHorizontalAlignment(JLabel.LEFT);
                 msgLabel.setVerticalAlignment(JLabel.CENTER);
 
-                card.add(msgLabel, BorderLayout.CENTER);
+                leftPanel.add(msgLabel);
+                card.add(leftPanel, BorderLayout.CENTER);
 
                 // Right: close button (half size)
                 var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
