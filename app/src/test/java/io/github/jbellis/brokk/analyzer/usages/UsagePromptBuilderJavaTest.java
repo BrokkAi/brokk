@@ -79,12 +79,15 @@ public class UsagePromptBuilderJavaTest {
                 analyzer,
                 "A.method2",
                 10_000 // generous token budget
-        );
+                );
 
         // Then: record has the three expected accessors and nothing else
         RecordComponent[] components = prompt.getClass().getRecordComponents();
         var names = Arrays.stream(components).map(RecordComponent::getName).collect(Collectors.toSet());
-        assertEquals(Set.of("filterDescription", "candidateText", "promptText"), names, "Record must contain only the expected fields");
+        assertEquals(
+                Set.of("filterDescription", "candidateText", "promptText"),
+                names,
+                "Record must contain only the expected fields");
 
         // Field-level assertions
         assertNotNull(prompt.filterDescription(), "filterDescription should not be null");
@@ -104,8 +107,7 @@ public class UsagePromptBuilderJavaTest {
         assertTrue(text.contains("&amp;"), "Expected '&' to be escaped");
         assertTrue(text.contains("&quot;quotes&quot;"), "Expected '\"' to be escaped");
         assertTrue(
-                text.contains("&apos;single&apos;") || text.contains("&#39;single&#39;"),
-                "Expected ''' to be escaped");
+                text.contains("&apos;single&apos;") || text.contains("&#39;single&#39;"), "Expected ''' to be escaped");
     }
 
     @Test
@@ -116,12 +118,8 @@ public class UsagePromptBuilderJavaTest {
         UsageHit hit = new UsageHit(file, 1, 0, largeSnippet.length(), 1.0, largeSnippet);
 
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit,
-                Collections.emptyList(),
-                analyzer,
-                "A.method2",
-                32 // ~128 chars budget to trigger truncation
-        );
+                hit, Collections.emptyList(), analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
+                );
 
         assertTrue(prompt.promptText().contains("truncated due to token limit"), "Expected truncation note in prompt");
     }

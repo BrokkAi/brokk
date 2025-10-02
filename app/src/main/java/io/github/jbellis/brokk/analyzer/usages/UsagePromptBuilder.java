@@ -10,11 +10,12 @@ import java.util.List;
 /**
  * Builds a single-usage prompt record for LLM-based relevance scoring.
  *
- * The builder emits:
+ * <p>The builder emits:
+ *
  * <ul>
- *   <li>filterDescription: concise text describing the intended target (e.g., the short name and optional candidates)</li>
- *   <li>candidateText: the snippet representing this single usage</li>
- *   <li>promptText: an XML-like block including file path, imports, and a single &lt;usage&gt; block (no IDs)</li>
+ *   <li>filterDescription: concise text describing the intended target (e.g., the short name and optional candidates)
+ *   <li>candidateText: the snippet representing this single usage
+ *   <li>promptText: an XML-like block including file path, imports, and a single &lt;usage&gt; block (no IDs)
  * </ul>
  *
  * All textual XML content is escaped, and a conservative token-to-character budget is enforced.
@@ -104,7 +105,9 @@ public final class UsagePromptBuilder {
 
     private static String buildFilterDescription(String shortName, List<CodeUnit> candidateTargets) {
         var sb = new StringBuilder(256);
-        sb.append("Determine if the snippet represents a usage of ").append(shortName).append(".");
+        sb.append("Determine if the snippet represents a usage of ")
+                .append(shortName)
+                .append(".");
         if (candidateTargets != null && !candidateTargets.isEmpty()) {
             sb.append(" Candidates: ");
             var names = new ArrayList<String>(candidateTargets.size());
