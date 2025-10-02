@@ -1306,19 +1306,31 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             var analyzer = getAnalyzer();
-            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
-            if (maybeUsagesProvider.isEmpty()) {
-                return Set.of(); // If no provider, no sources can be found.
-            }
-            var up = maybeUsagesProvider.get();
+            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, 100);
 
-            List<CodeUnit> uses = up.getUses(targetIdentifier);
+            if (usageResult instanceof FuzzyResult.Failure) {
+                return Collections.emptySet();
+            } else if (usageResult instanceof FuzzyResult.TooManyCallsites) {
+                return Collections.emptySet();
+            }
+
+            List<UsageHit> uses = new ArrayList<>();
+            if (usageResult instanceof FuzzyResult.Success(List<UsageHit> hits)) {
+                uses.addAll(hits);
+            } else if (usageResult instanceof FuzzyResult.Ambiguous ambiguous) {
+                var filteredHits = ambiguous.hits().stream()
+                        .filter(x -> x.confidence() > CONFIDENCE_THRESHOLD)
+                        .toList();
+                uses.addAll(filteredHits);
+            }
+
             if (!includeTestFiles) {
                 uses = uses.stream()
-                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                        .filter(cu -> !ContextManager.isTestFile(cu.file()))
                         .toList();
             }
-            var parts = AnalyzerUtil.processUsages(analyzer, uses);
+            var parts = AnalyzerUtil.processUsages(
+                    analyzer, uses.stream().map(UsageHit::enclosing).toList());
             return parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
         }
 
