@@ -103,6 +103,7 @@ public class HistoryOutputPanel extends JPanel {
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
+    private final java.util.Set<Integer> displayedNotificationIndices = new java.util.HashSet<>();
     private final Path notificationsFile;
 
     public static enum NotificationRole {
@@ -950,11 +951,8 @@ public class HistoryOutputPanel extends JPanel {
         Runnable r = () -> {
             notifications.add(new NotificationEntry(role, message, System.currentTimeMillis()));
             updateNotificationsButton();
-
-            // Always show only the latest notification in the toolbar
-            refreshLatestNotificationCard();
-
             persistNotificationsAsync();
+            refreshLatestNotificationCard();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
@@ -967,15 +965,13 @@ public class HistoryOutputPanel extends JPanel {
         Runnable r = () -> {
             notifications.add(new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis()));
             updateNotificationsButton();
+            persistNotificationsAsync();
 
-            // Always show only the latest notification in the toolbar; for fresh CONFIRM, keep actions
             notificationAreaPanel.removeAll();
             JPanel card = createNotificationCard(NotificationRole.CONFIRM, message, onAccept, onReject);
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
-
-            persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
@@ -994,20 +990,25 @@ public class HistoryOutputPanel extends JPanel {
         return p;
     }
 
-
-    // Show only the latest notification in the toolbar
+    // Show the next unshown notification in the toolbar
     private void refreshLatestNotificationCard() {
-        // Find the latest notification by timestamp
-        NotificationEntry latest = null;
-        for (var n : notifications) {
-            if (latest == null || n.timestamp > latest.timestamp) {
-                latest = n;
+        // Find the latest notification that hasn't been displayed yet
+        NotificationEntry nextToShow = null;
+        int nextIndex = -1;
+        for (int i = 0; i < notifications.size(); i++) {
+            if (!displayedNotificationIndices.contains(i)) {
+                var n = notifications.get(i);
+                if (nextToShow == null || n.timestamp > nextToShow.timestamp) {
+                    nextToShow = n;
+                    nextIndex = i;
+                }
             }
         }
 
         notificationAreaPanel.removeAll();
-        if (latest != null) {
-            JPanel card = createNotificationCard(latest.role, latest.message, null, null);
+        if (nextToShow != null) {
+            displayedNotificationIndices.add(nextIndex);
+            JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
             notificationAreaPanel.add(card);
             animateNotificationCard(card);
         }
@@ -1018,8 +1019,8 @@ public class HistoryOutputPanel extends JPanel {
     private void animateNotificationCard(JPanel card) {
         card.putClientProperty("notificationOpacity", 0.0f);
         
-        final int fadeInDuration = 1000;  // 1 second
-        final int holdDuration = 10000;   // 10 seconds
+        final int fadeInDuration = 2000;  // 2 seconds
+        final int holdDuration = 1000;   // 10 seconds
         final int fadeOutDuration = 2000; // 2 seconds
         final int fps = 30;
         final int fadeInFrames = (fadeInDuration * fps) / 1000;
@@ -1059,6 +1060,7 @@ public class HistoryOutputPanel extends JPanel {
                 
                 if (currentOpacity <= 0.0f) {
                     timerHolder[0].stop();
+                    // Show the next notification (if any)
                     removeNotificationCard();
                 }
             }
@@ -1333,6 +1335,17 @@ public class HistoryOutputPanel extends JPanel {
                 });
                 closeBtn.addActionListener(e -> {
                     notifications.remove(originalIndex);
+                    // Update displayed indices after removal
+                    var newDisplayedIndices = new java.util.HashSet<Integer>();
+                    for (int idx : displayedNotificationIndices) {
+                        if (idx < originalIndex) {
+                            newDisplayedIndices.add(idx);
+                        } else if (idx > originalIndex) {
+                            newDisplayedIndices.add(idx - 1);
+                        }
+                    }
+                    displayedNotificationIndices.clear();
+                    displayedNotificationIndices.addAll(newDisplayedIndices);
                     updateNotificationsButton();
                     persistNotificationsAsync();
                     dialog.dispose();
@@ -1362,6 +1375,7 @@ public class HistoryOutputPanel extends JPanel {
         var clearAllBtn = new MaterialButton("Clear All");
         clearAllBtn.addActionListener(e -> {
             notifications.clear();
+            displayedNotificationIndices.clear();
             updateNotificationsButton();
             persistNotificationsAsync();
             dialog.dispose();
