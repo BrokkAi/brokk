@@ -6,6 +6,8 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.TaskListData;
+import io.github.jbellis.brokk.TaskListEntryDto;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
@@ -827,7 +829,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                             return;
                         }
                         model.clear();
-                        for (io.github.jbellis.brokk.TaskListEntryDto dto : data.tasks()) {
+                        for (TaskListEntryDto dto : data.tasks()) {
                             if (!dto.text().isBlank()) {
                                 model.addElement(new TaskItem(dto.text(), dto.done()));
                             }
@@ -853,14 +855,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var sessionManager = chrome.getContextManager().getProject().getSessionManager();
 
-        var dtos = new java.util.ArrayList<io.github.jbellis.brokk.TaskListEntryDto>(model.size());
+        var dtos = new java.util.ArrayList<TaskListEntryDto>(model.size());
         for (int i = 0; i < model.size(); i++) {
             TaskItem it = model.get(i);
             if (it != null && !it.text().isBlank()) {
-                dtos.add(new io.github.jbellis.brokk.TaskListEntryDto(it.text(), it.done()));
+                dtos.add(new TaskListEntryDto(it.text(), it.done()));
             }
         }
-        var data = new io.github.jbellis.brokk.TaskListData(java.util.List.copyOf(dtos));
+        var data = new TaskListData(java.util.List.copyOf(dtos));
 
         final UUID sidFinal = sid;
         Executor edt = SwingUtilities::invokeLater;
