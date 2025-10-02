@@ -92,6 +92,9 @@
            !/\s/.test(symbolText); // No whitespace
   }
 
+  // Track last processed text to detect changes
+  let lastProcessedText = $state('');
+
   // Extract text from children - for inline code, this should be simple text
   function extractTextFromChildren(): string {
     // For svelte-exmarkdown, the children prop for inline code elements
@@ -127,12 +130,36 @@
     return '';
   }
 
+  // Reset all state when content changes
+  function resetState() {
+    extractedText = '';
+    symbolText = '';
+    isValidSymbol = false;
+    symbolCacheEntry = undefined;
+    filePathText = '';
+    isValidFilePath = false;
+    filePathCacheEntry = undefined;
+    symbolStore = undefined;
+    filePathStore = undefined;
+    lastProcessedText = '';
+  }
+
+  // Process new content
+  function processContent(text: string) {
+    if (text === lastProcessedText) {
+      return; // No change, skip processing
+    }
+
+    lastProcessedText = text;
+    extractedText = text;
+    validateAndRequestContent(text);
+  }
+
   onMount(() => {
     // Try to extract from props first
     const propsText = extractTextFromChildren();
     if (propsText && !propsText.includes('\n')) {
-      extractedText = propsText;
-      validateAndRequestContent(propsText);
+      processContent(propsText);
       return;
     }
 
@@ -147,10 +174,22 @@
           return;
         }
 
-        extractedText = textContent; // Store for fallback rendering
-        validateAndRequestContent(textContent);
+        processContent(textContent);
       }
     }, 0);
+  });
+
+  // Reactive effect to detect when children/content changes after mount
+  // This handles the streaming markdown case where children prop updates
+  $effect(() => {
+    // Watch for changes in the rest props (which include children)
+    // Re-extract and re-validate when they change
+    const propsText = extractTextFromChildren();
+    if (propsText && propsText !== lastProcessedText) {
+      // Content has changed, reset and reprocess
+      resetState();
+      processContent(propsText);
+    }
   });
 
   // Main detection function - tries files first, then symbols

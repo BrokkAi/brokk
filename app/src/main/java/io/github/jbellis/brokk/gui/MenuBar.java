@@ -85,8 +85,11 @@ public class MenuBar {
         // Use platform conventions on macOS: Preferences live in the application menu.
         // Also ensure Cmd+, opens Settings as a fallback by registering a key binding.
         boolean isMac = Environment.instance.isMacOs();
-        settingsItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        // Accelerator uses current binding; action also available via Chrome root pane binding
+        settingsItem.setAccelerator(io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.openSettings",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx())));
 
         if (isMac) {
             // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
