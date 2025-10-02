@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
+import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
@@ -50,6 +51,7 @@ public class SessionsDialog extends JDialog {
     // Sessions table components
     private JTable sessionsTable;
     private DefaultTableModel sessionsTableModel;
+    private LoadingTextBox searchBox;
     private MaterialButton closeButton;
 
     // Activity history components
@@ -80,6 +82,8 @@ public class SessionsDialog extends JDialog {
     }
 
     private void initializeComponents() {
+        searchBox = new LoadingTextBox("Search sessions", 20, chrome);
+
         // Initialize sessions table model with Active, Session Name, Date, and hidden SessionInfo columns
         sessionsTableModel = new DefaultTableModel(new Object[] {"Active", "Session Name", "Date", "SessionInfo"}, 0) {
             @Override
@@ -171,6 +175,7 @@ public class SessionsDialog extends JDialog {
         // Create sessions panel
         JPanel sessionsPanel = new JPanel(new BorderLayout());
         sessionsPanel.setBorder(BorderFactory.createTitledBorder("Sessions"));
+        sessionsPanel.add(searchBox, BorderLayout.NORTH);
         JScrollPane sessionsScrollPane = new JScrollPane(sessionsTable);
         sessionsPanel.add(sessionsScrollPane, BorderLayout.CENTER);
 
