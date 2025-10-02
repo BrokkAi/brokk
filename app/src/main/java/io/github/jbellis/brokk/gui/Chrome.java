@@ -2652,6 +2652,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
+    @Override
+    public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.showNotification(role, message));
+    }
+
     /** Helper method to find JScrollPane component within a container */
     @Nullable
     private static Component findScrollPaneIn(Container container) {
