@@ -819,13 +819,23 @@ public class HistoryOutputPanel extends JPanel {
         copyButton.setMnemonic(KeyEvent.VK_T);
         copyButton.setToolTipText("Copy the output to clipboard");
         copyButton.addActionListener(e -> {
-            String text = llmStreamArea.getText();
-            if (!text.isBlank()) {
-                java.awt.Toolkit.getDefaultToolkit()
-                        .getSystemClipboard()
-                        .setContents(new java.awt.datatransfer.StringSelection(text), null);
-                chrome.systemOutput("Copied to clipboard");
+            var ctx = contextManager.selectedContext();
+            if (ctx == null) {
+                chrome.systemOutput("No active context to copy from.");
+                return;
             }
+
+            var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
+                    .reduce((first, second) -> second); // use the most recent HISTORY fragment
+
+            if (historyOpt.isEmpty()) {
+                chrome.systemOutput("No conversation history found in the current workspace.");
+                return;
+            }
+
+            var historyFrag = historyOpt.get();
+            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of(historyFrag));
         });
         // Set minimum size
         copyButton.setMinimumSize(copyButton.getPreferredSize());
