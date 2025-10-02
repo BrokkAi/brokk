@@ -257,6 +257,11 @@ public interface IAnalyzer {
     }
 
     /**
+     * @return the import snippets for the given file where other code units may be referred to by.
+     */
+    List<String> importStatementsOf(ProjectFile file);
+
+    /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      * invalid.
      */
