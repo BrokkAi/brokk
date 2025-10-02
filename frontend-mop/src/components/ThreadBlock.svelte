@@ -49,19 +49,11 @@
         threadStore.toggleThread(threadId);
     }
 
-    function handleDelete(e: MouseEvent) {
-        e.stopPropagation();
-        e.preventDefault();
-        deleteHistoryTaskByThreadId(threadId);
+    function handleDelete(threadIdParam: number) {
+        deleteHistoryTaskByThreadId(threadIdParam);
     }
 
-    async function handleCopy(event: CustomEvent<{ threadId: number }>) {
-        // Only act if the event is for this thread
-        const detailThreadId = event.detail.threadId;
-        if (detailThreadId !== threadId) {
-            return;
-        }
-
+    async function handleCopy(threadIdParam: number) {
         const xmlMessages = bubbles
             .map(b => {
                 const t = b.type.toLowerCase();
@@ -120,8 +112,8 @@
             totalLines={totalLinesAll}
             threadId={threadId}
             {taskSequence}
+            onCopy={handleCopy}
             onDelete={handleDelete}
-            on:copy-thread={handleCopy}
         />
     </header>
 
@@ -154,8 +146,8 @@
                             totalLines={totalLinesAll}
                             threadId={threadId}
                             {taskSequence}
+                            onCopy={handleCopy}
                             onDelete={handleDelete}
-                            on:copy-thread={handleCopy}
                         />
                     </div>
                 {/if}

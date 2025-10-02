@@ -1,6 +1,6 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
-    import { createEventDispatcher, onDestroy } from 'svelte';
+    import { onDestroy } from 'svelte';
 
     export let adds: number;
     export let dels: number;
@@ -8,14 +8,11 @@
     export let msgLabel: string;
     export let totalLines: number;
     export let taskSequence: number | undefined;
-
-    // Thread identifier to include in copy-thread event detail.
-    // Detail contains only { threadId }; parent component assembles the text to copy.
     export let threadId: number;
 
-    export let onDelete: ((e: MouseEvent) => void) | undefined;
+    export let onCopy: ((threadId: number) => void) | undefined;
+    export let onDelete: ((threadId: number) => void) | undefined;
 
-    const dispatch = createEventDispatcher<{ 'copy-thread': { threadId: number } }>();
 
     let copied = false;
     let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -27,20 +24,22 @@
         }
     });
 
-    function handleDelete(e: MouseEvent) {
+    function handleDelete() {
         if (onDelete) {
-            onDelete(e);
+            onDelete(threadId);
         }
     }
 
-    function handleCopy(e: MouseEvent) {
-        // Provide lightweight visual feedback and dispatch event upward.
+    function handleCopy() {
+        // Provide lightweight visual feedback and call onCopy prop.
         if (copyResetTimer) {
             clearTimeout(copyResetTimer);
             copyResetTimer = null;
         }
         copied = true;
-        dispatch('copy-thread', { threadId });
+        if (onCopy) {
+            onCopy(threadId);
+        }
         copyResetTimer = setTimeout(() => {
             copied = false;
             copyResetTimer = null;
@@ -128,16 +127,5 @@
     .spacer {
         display: inline-block;
         width: 20px;
-    }
-
-    /* Subtle feedback animation when copy is triggered */
-    .delete-btn.copied {
-        animation: copy-pulse 180ms ease-in-out;
-    }
-
-    @keyframes copy-pulse {
-        0% { transform: scale(1); opacity: 1; }
-        50% { transform: scale(0.93); opacity: 0.9; }
-        100% { transform: scale(1); opacity: 1; }
     }
 </style>
