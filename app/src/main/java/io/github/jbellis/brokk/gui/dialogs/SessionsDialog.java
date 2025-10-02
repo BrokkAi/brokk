@@ -33,6 +33,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -393,6 +394,14 @@ public class SessionsDialog extends JDialog {
         sessionsTableModel.setRowCount(0);
         List<SessionInfo> sessions =
                 contextManager.getProject().getSessionManager().listSessions();
+
+        String searchText = searchBox.getText().toLowerCase(Locale.ROOT);
+        if (!searchText.isEmpty()) {
+            sessions = sessions.stream()
+                    .filter(s -> s.name().toLowerCase(Locale.ROOT).contains(searchText))
+                    .collect(Collectors.toList());
+        }
+
         sessions.sort(java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Sort newest first
 
         UUID currentSessionId = contextManager.getCurrentSessionId();
