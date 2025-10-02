@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,15 +57,8 @@ public class GitRepoPushTest {
 
     @Test
     void testPushAndSetRemoteTracking_HttpsWithoutToken() throws Exception {
-        // This test verifies the error when no GitHub token is configured
-        // Check if a token is actually configured in the test environment
-        var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
-
-        if (!token.trim().isEmpty()) {
-            // Skip this test if a token is configured - we can't test the "no token" path
-            // when a token exists in the environment
-            return;
-        }
+        // Create repo with empty token supplier to simulate missing token
+        localRepo = new GitRepo(tempDir, () -> "");
 
         // Create a new branch with a commit
         localGit.checkout().setCreateBranch(true).setName("feature").call();
@@ -83,29 +75,16 @@ public class GitRepoPushTest {
         // Verify the remote URL was changed
         assertEquals("https://github.com/test/repo.git", localRepo.getRemoteUrl("origin"));
 
-        // Attempt to push without token should fail with specific error message
-        var exception = assertThrows(GitAPIException.class, () -> {
+        // Attempt to push without token should fail with GitHubAuthenticationException
+        assertThrows(GitHubAuthenticationException.class, () -> {
             localRepo.pushAndSetRemoteTracking("feature", "origin");
         });
-
-        // Verify the error message mentions token requirement
-        assertTrue(
-                exception.getMessage().contains("GitHub token is required"),
-                "Exception should mention token requirement, got: " + exception.getMessage());
-        assertTrue(
-                exception.getMessage().contains("Settings → Global → GitHub"),
-                "Exception should guide user to settings");
     }
 
     @Test
     void testPushAndSetRemoteTracking_HttpsWithToken() throws Exception {
-        // This test verifies that HTTPS authentication is attempted when a token is configured
-        var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
-
-        if (token.trim().isEmpty()) {
-            // Skip this test if no token is configured - we can't test the "with token" path
-            return;
-        }
+        // Create repo with fake token supplier to simulate configured token
+        localRepo = new GitRepo(tempDir, () -> "fake-token");
 
         // Create a new branch with a commit
         localGit.checkout().setCreateBranch(true).setName("feature").call();
@@ -119,16 +98,16 @@ public class GitRepoPushTest {
         config.setString("remote", "origin", "url", "https://github.com/test/repo.git");
         config.save();
 
-        // The push will fail (invalid URL/credentials), but we verify it attempts
-        // authentication and doesn't throw the "token required" error
+        // The push will fail (invalid URL/credentials), but we verify it does NOT throw
+        // GitHubAuthenticationException - it should be a different error (network/auth)
         var exception = assertThrows(Exception.class, () -> {
             localRepo.pushAndSetRemoteTracking("feature", "origin");
         });
 
-        // Verify it's NOT the token required error - it should be a network/auth error
+        // Verify it's NOT GitHubAuthenticationException - token was provided
         assertFalse(
-                exception.getMessage().contains("GitHub token is required"),
-                "Should not get 'token required' error when token is configured. Got: " + exception.getMessage());
+                exception instanceof GitHubAuthenticationException,
+                "Should not throw GitHubAuthenticationException when token is configured");
     }
 
     @Test
@@ -149,15 +128,15 @@ public class GitRepoPushTest {
         assertEquals("git@github.com:test/repo.git", localRepo.getRemoteUrl("origin"));
 
         // The push will fail (no SSH keys/invalid URL), but it should NOT throw
-        // the "token required" error - SSH URLs should use JGit's default handling
+        // GitHubAuthenticationException - SSH URLs use JGit's default handling
         var exception = assertThrows(Exception.class, () -> {
             localRepo.pushAndSetRemoteTracking("feature", "origin");
         });
 
-        // Verify it's NOT the token required error
+        // Verify it's NOT GitHubAuthenticationException
         assertFalse(
-                exception.getMessage().contains("GitHub token is required"),
-                "SSH URLs should not require GitHub token. Got: " + exception.getMessage());
+                exception instanceof GitHubAuthenticationException,
+                "SSH URLs should not throw GitHubAuthenticationException");
     }
 
     @Test
@@ -180,11 +159,8 @@ public class GitRepoPushTest {
 
     @Test
     void testPush_GitHubHttpsWithoutToken() throws Exception {
-        var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
-        if (!token.trim().isEmpty()) {
-            // Skip if token is configured
-            return;
-        }
+        // Create repo with empty token supplier to simulate missing token
+        localRepo = new GitRepo(tempDir, () -> "");
 
         // Create a commit on master
         Path file = tempDir.resolve("test.txt");
@@ -197,80 +173,51 @@ public class GitRepoPushTest {
         config.setString("remote", "origin", "url", "https://github.com/test/repo.git");
         config.save();
 
-        // push() should fail with token required error
-        var exception = assertThrows(GitAPIException.class, () -> {
+        // push() should fail with GitHubAuthenticationException
+        assertThrows(GitHubAuthenticationException.class, () -> {
             localRepo.push("master");
         });
-
-        assertTrue(
-                exception.getMessage().contains("GitHub token required"),
-                "Should require GitHub token. Got: " + exception.getMessage());
     }
 
     @Test
     void testPull_GitHubHttpsRequiresToken() throws Exception {
-        var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
-        if (!token.trim().isEmpty()) {
-            // Skip if token is configured
-            return;
-        }
+        // Create repo with empty token supplier to simulate missing token
+        localRepo = new GitRepo(tempDir, () -> "");
 
         // Change remote to GitHub HTTPS
         var config = localGit.getRepository().getConfig();
         config.setString("remote", "origin", "url", "https://github.com/test/repo.git");
         config.save();
 
-        // pull() should fail with token required error
-        var exception = assertThrows(GitAPIException.class, () -> {
+        // pull() should fail with GitHubAuthenticationException
+        assertThrows(GitHubAuthenticationException.class, () -> {
             localRepo.pull();
         });
-
-        assertTrue(
-                exception.getMessage().contains("GitHub token required"),
-                "Should require GitHub token. Got: " + exception.getMessage());
     }
 
     @Test
     void testClone_GitHubHttpsWithoutToken() throws Exception {
-        var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
-        if (!token.trim().isEmpty()) {
-            // Skip if token is configured
-            return;
-        }
-
         Path cloneDir = tempDir.resolve("cloned");
 
-        // Attempt to clone GitHub HTTPS URL should fail with token required error
-        var exception = assertThrows(GitAPIException.class, () -> {
-            GitRepo.cloneRepo("https://github.com/test/repo.git", cloneDir, 0);
+        // Attempt to clone GitHub HTTPS URL should fail with GitHubAuthenticationException
+        assertThrows(GitHubAuthenticationException.class, () -> {
+            GitRepo.cloneRepo(() -> "", "https://github.com/test/repo.git", cloneDir, 0);
         });
-
-        assertTrue(
-                exception.getMessage().contains("GitHub token required"),
-                "Should require GitHub token for cloning. Got: " + exception.getMessage());
-        assertTrue(exception.getMessage().contains("SSH URL"), "Error should suggest using SSH URL");
     }
 
     @Test
     void testFetchAll_GitHubHttpsRequiresToken() throws Exception {
-        var token = io.github.jbellis.brokk.MainProject.getGitHubToken();
-        if (!token.trim().isEmpty()) {
-            // Skip if token is configured
-            return;
-        }
+        // Create repo with empty token supplier to simulate missing token
+        localRepo = new GitRepo(tempDir, () -> "");
 
         // Change remote to GitHub HTTPS
         var config = localGit.getRepository().getConfig();
         config.setString("remote", "origin", "url", "https://github.com/test/repo.git");
         config.save();
 
-        // fetchAll() should fail with token required error
-        var exception = assertThrows(GitAPIException.class, () -> {
+        // fetchAll() should fail with GitHubAuthenticationException
+        assertThrows(GitHubAuthenticationException.class, () -> {
             localRepo.fetchAll(org.eclipse.jgit.lib.NullProgressMonitor.INSTANCE);
         });
-
-        assertTrue(
-                exception.getMessage().contains("GitHub token required"),
-                "Should require GitHub token. Got: " + exception.getMessage());
     }
 }
