@@ -2,13 +2,15 @@ package io.github.jbellis.brokk.analyzer.usages;
 
 import static java.util.Objects.requireNonNull;
 
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.agents.RelevanceClassifier;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import io.github.jbellis.brokk.tools.SearchTools;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -29,8 +31,20 @@ public final class FuzzyUsageFinder {
     private static final Logger logger = LogManager.getLogger(FuzzyUsageFinder.class);
 
     private final IProject project;
-    private final TreeSitterAnalyzer analyzer;
+    private final IAnalyzer analyzer;
     private final @Nullable Llm llm;
+
+    public static FuzzyUsageFinder create(IContextManager ctx) {
+        var quickestModel = ctx.getService().quickestModel();
+        Llm llm;
+        try {
+            llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false);
+        } catch (Exception e) {
+            logger.error("Could not create LLM due to exception. Proceeding without LLM capabilities.", e);
+            llm = null;
+        }
+        return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), llm);
+    }
 
     /**
      * Construct a FuzzyUsageFinder.
@@ -39,7 +53,7 @@ public final class FuzzyUsageFinder {
      * @param analyzer the analyzer providing declarations/definitions
      * @param llm optional LLM for future disambiguation
      */
-    public FuzzyUsageFinder(IProject project, TreeSitterAnalyzer analyzer, @Nullable Llm llm) {
+    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, @Nullable Llm llm) {
         this.project = requireNonNull(project, "project");
         this.analyzer = requireNonNull(analyzer, "analyzer");
         this.llm = llm; // optional
@@ -152,6 +166,10 @@ public final class FuzzyUsageFinder {
                     int start = matcher.start();
                     int end = matcher.end();
 
+                    // Get the substring before the match and find its byte length
+                    int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
+                    int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
+
                     // Binary search for the line index such that lineStarts[idx] <= start < next
                     int lo = 0, hi = lineStarts.length - 1, lineIdx = 0;
                     while (lo <= hi) {
@@ -170,7 +188,17 @@ public final class FuzzyUsageFinder {
                             .mapToObj(i -> lines[i])
                             .collect(Collectors.joining("\n"));
 
-                    hits.add(new UsageHit(file, lineIdx + 1, start, end, 1.0, snippet));
+                    var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);
+                    var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
+
+                    if (enclosingCodeUnit != null) {
+                        hits.add(new UsageHit(file, lineIdx + 1, start, end, enclosingCodeUnit, 1.0, snippet));
+                    } else {
+                        logger.warn(
+                                "Unable to find enclosing code unit for {} in {}. Not registering hit.",
+                                searchPattern,
+                                file);
+                    }
                 }
             } catch (Exception e) {
                 logger.warn("Failed to extract usage hits from {}: {}", file, e.toString());
