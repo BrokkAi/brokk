@@ -83,6 +83,7 @@
             showEdits={showEdits}
             msgLabel={msgLabel}
             totalLines={totalLinesAll}
+            threadId={threadId}
             {taskSequence}
             onDelete={handleDelete}
         />
@@ -115,6 +116,7 @@
                             showEdits={showEdits}
                             msgLabel={msgLabel}
                             totalLines={totalLinesAll}
+                            threadId={threadId}
                             {taskSequence}
                             onDelete={handleDelete}
                         />

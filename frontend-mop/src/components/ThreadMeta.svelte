@@ -1,5 +1,6 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
+    import { createEventDispatcher } from 'svelte';
 
     export let adds: number;
     export let dels: number;
@@ -7,12 +8,36 @@
     export let msgLabel: string;
     export let totalLines: number;
     export let taskSequence: number | undefined;
+
+    // Thread identifier to include in copy-thread event detail.
+    // Detail contains only { threadId }; parent component assembles the text to copy.
+    export let threadId: number | undefined;
+
     export let onDelete: ((e: MouseEvent) => void) | undefined;
+
+    const dispatch = createEventDispatcher<{ 'copy-thread': { threadId: number | undefined } }>();
+
+    let copied = false;
+    let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 
     function handleDelete(e: MouseEvent) {
         if (onDelete) {
             onDelete(e);
         }
+    }
+
+    function handleCopy(e: MouseEvent) {
+        // Provide lightweight visual feedback and dispatch event upward.
+        if (copyResetTimer) {
+            clearTimeout(copyResetTimer);
+            copyResetTimer = null;
+        }
+        copied = true;
+        dispatch('copy-thread', { threadId });
+        copyResetTimer = setTimeout(() => {
+            copied = false;
+            copyResetTimer = null;
+        }, 800);
     }
 </script>
 
@@ -24,6 +49,15 @@
   {/if}
     {msgLabel} • {totalLines} lines
     {#if taskSequence !== undefined}
+    <button
+            type="button"
+            class="delete-btn"
+            on:click|stopPropagation|preventDefault={handleCopy}
+            aria-label="Copy thread"
+            title="Copy thread"
+    >
+      <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} style={copied ? 'color: var(--diff-add);' : ''}/>
+    </button>
     <button
             type="button"
             class="delete-btn"
