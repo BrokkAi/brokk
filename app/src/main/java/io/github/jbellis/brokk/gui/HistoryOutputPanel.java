@@ -93,6 +93,9 @@ public class HistoryOutputPanel extends JPanel {
 
     private final MaterialButton copyButton;
     private final JPanel notificationAreaPanel;
+    private final MaterialButton notificationsButton = new MaterialButton();
+    private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
+    private int unreadNotificationCount = 0;
 
     public static enum NotificationRole { ERROR, CONFIRM, COST, INFO }
 
@@ -887,6 +890,16 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
+        // Notifications counter button
+        SwingUtilities.invokeLater(() -> {
+            notificationsButton.setIcon(Icons.LIST);
+        });
+        notificationsButton.setToolTipText("Show notifications");
+        notificationsButton.addActionListener(e -> showNotificationsDialog());
+        notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+        buttonsPanel.add(notificationsButton);
+        updateNotificationsButton();
+
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
         // Add notification area to the east of the buttons panel
@@ -898,6 +911,11 @@ public class HistoryOutputPanel extends JPanel {
     // Notification API
     public void showNotification(NotificationRole role, String message) {
         Runnable r = () -> {
+            // Track and increment unread count
+            notifications.add(new NotificationEntry(role, message, System.currentTimeMillis(), false));
+            unreadNotificationCount++;
+            updateNotificationsButton();
+
             JPanel card = createNotificationCard(role, message, null, null);
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
@@ -912,6 +930,11 @@ public class HistoryOutputPanel extends JPanel {
 
     public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
         Runnable r = () -> {
+            // Track and increment unread count
+            notifications.add(new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis(), false));
+            unreadNotificationCount++;
+            updateNotificationsButton();
+
             JPanel card = createNotificationCard(NotificationRole.CONFIRM, message, onAccept, onReject);
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
@@ -991,6 +1014,95 @@ public class HistoryOutputPanel extends JPanel {
         // Keep card compact and responsive
         card.setMaximumSize(new Dimension(260, Integer.MAX_VALUE));
         return card;
+    }
+
+    // Update the notifications counter button (icon text and enabled state)
+    private void updateNotificationsButton() {
+        if (unreadNotificationCount > 0) {
+            notificationsButton.setText(String.valueOf(unreadNotificationCount));
+            notificationsButton.setEnabled(true);
+        } else {
+            notificationsButton.setText("");
+            notificationsButton.setEnabled(false);
+        }
+        notificationsButton.revalidate();
+        notificationsButton.repaint();
+    }
+
+    // Dialog showing a list of all notifications (marks all as read)
+    private void showNotificationsDialog() {
+        // Mark all as read and reset counter
+        for (int i = 0; i < notifications.size(); i++) {
+            var entry = notifications.get(i);
+            if (!entry.read) {
+                notifications.set(i, new NotificationEntry(entry.role, entry.message, entry.timestamp, true));
+            }
+        }
+        unreadNotificationCount = 0;
+        updateNotificationsButton();
+
+        var dialog = new JDialog(chrome.getFrame(), "Notifications", true);
+        dialog.setLayout(new BorderLayout(8, 8));
+
+        // Build list panel
+        var listPanel = new JPanel();
+        listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+        listPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        if (notifications.isEmpty()) {
+            listPanel.add(new JLabel("No notifications."));
+        } else {
+            for (var n : notifications) {
+                var itemPanel = new JPanel(new BorderLayout());
+                itemPanel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(0xDDDDDD)),
+                        new EmptyBorder(6, 8, 6, 8)));
+                itemPanel.setOpaque(true);
+                itemPanel.setBackground(UIManager.getColor("Panel.background"));
+
+                String header = "[" + n.role.name() + "] " + formatModified(n.timestamp);
+                var titleLabel = new JLabel(header);
+                titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
+                var msgLabel = new JLabel("<html><body style='width:500px'>" + escapeHtml(n.message) + "</body></html>");
+
+                itemPanel.add(titleLabel, BorderLayout.NORTH);
+                itemPanel.add(msgLabel, BorderLayout.CENTER);
+
+                listPanel.add(itemPanel);
+                listPanel.add(Box.createVerticalStrut(6));
+            }
+        }
+
+        var scroll = new JScrollPane(listPanel);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+
+        // Footer with Close button
+        var footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var closeBtn = new MaterialButton("Close");
+        closeBtn.addActionListener(e -> dialog.dispose());
+        footer.add(closeBtn);
+
+        dialog.add(scroll, BorderLayout.CENTER);
+        dialog.add(footer, BorderLayout.SOUTH);
+
+        dialog.setSize(640, 480);
+        dialog.setLocationRelativeTo(chrome.getFrame());
+        dialog.setVisible(true);
+    }
+
+    // Simple container for notifications
+    private static class NotificationEntry {
+        final NotificationRole role;
+        final String message;
+        final long timestamp;
+        final boolean read;
+
+        NotificationEntry(NotificationRole role, String message, long timestamp, boolean read) {
+            this.role = role;
+            this.message = message;
+            this.timestamp = timestamp;
+            this.read = read;
+        }
     }
 
     private static String escapeHtml(String s) {

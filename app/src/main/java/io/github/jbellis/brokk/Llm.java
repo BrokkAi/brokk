@@ -38,6 +38,7 @@ import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -1313,17 +1314,19 @@ public class Llm {
                                 .formatted(modelName, uncached, cached, output, think);
                     } else {
                         double cost = pricing.estimateCost(uncached, cached, output);
-                        String costStr = new java.text.DecimalFormat("#,##0.0000").format(cost);
+                        java.text.DecimalFormat df = (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
+                        df.applyPattern("#,##0.0000");
+                        String costStr = df.format(cost);
                         message = "$" + costStr + " for " + modelName
                                 + " (in %,d uncached, %,d cached, out %,d, think %,d)"
                                 .formatted(uncached, cached, output, think);
                     }
 
                     try {
-                        io.systemOutput("LLM cost: " + message);
+                        io.showNotification(HistoryOutputPanel.NotificationRole.COST, message);
                     } catch (Throwable t) {
                         logger.debug("Unable to show cost notification; falling back to system output", t);
-                        io.systemOutput("LLM cost: " + message);
+                        io.systemOutput(message);
                     }
                     logger.debug("LLM cost: {}", message);
                 }
