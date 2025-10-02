@@ -46,6 +46,7 @@ import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview */
 public class SessionsDialog extends JDialog {
+    private static final int SEARCH_DEBOUNCE_DELAY = 300;
     private final Chrome chrome;
     private final ContextManager contextManager;
 
@@ -54,6 +55,7 @@ public class SessionsDialog extends JDialog {
     private DefaultTableModel sessionsTableModel;
     private LoadingTextBox searchBox;
     private MaterialButton closeButton;
+    private Timer searchDebounceTimer;
 
     // Activity history components
     private JTable activityTable;
@@ -168,6 +170,10 @@ public class SessionsDialog extends JDialog {
 
         // Initialize buttons
         closeButton = new MaterialButton("Close");
+
+        // Initialize timer
+        searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> refreshSessionsTable());
+        searchDebounceTimer.setRepeats(false);
     }
 
     private void layoutComponents() {
@@ -289,6 +295,24 @@ public class SessionsDialog extends JDialog {
             }
         });
 
+        // Search box listener with debounce
+        searchBox.addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                scheduleSessionsTableRefresh();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                scheduleSessionsTableRefresh();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                scheduleSessionsTableRefresh();
+            }
+        });
+
         // Button listeners
         closeButton.addActionListener(e -> dispose());
 
@@ -304,6 +328,10 @@ public class SessionsDialog extends JDialog {
                 dispose();
             }
         });
+    }
+
+    private void scheduleSessionsTableRefresh() {
+        searchDebounceTimer.restart();
     }
 
     private void loadSessionHistory(UUID sessionId) {
