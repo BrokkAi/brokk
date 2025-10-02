@@ -452,7 +452,7 @@ public abstract class TreeSitterAnalyzer
         return fileProperties(file).topLevelCodeUnits();
     }
 
-    protected List<String> importStatementsOf(ProjectFile file) {
+    public List<String> importStatementsOf(ProjectFile file) {
         return fileProperties(file).importStatements();
     }
 
