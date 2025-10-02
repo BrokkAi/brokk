@@ -1010,6 +1010,7 @@ public abstract class TreeSitterAnalyzer
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
 
     /** Get the project this analyzer is associated with. */
+    @Override
     public IProject getProject() {
         return project;
     }
@@ -2855,30 +2856,49 @@ public abstract class TreeSitterAnalyzer
         }
     }
 
+    // Helper container to track depth alongside the matching CodeUnit
+    private static final class CUWithDepth {
+        final CodeUnit cu;
+        final int depth;
+        CUWithDepth(CodeUnit cu, int depth) {
+            this.cu = cu;
+            this.depth = depth;
+        }
+    }
+
     @Override
     public @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
         if (range.isEmpty()) return null;
 
-        for (var declaration : getDeclarationsInFile(file)) {
-            // Check if the provided range lies within this declaration's range
-            if (rangesOf(declaration).stream().anyMatch(declRange -> range.isContainedWithin(declRange))) {
-                // Try to find a deeper child; if none, the declaration itself is the enclosing unit
-                var candidate = enclosingCodeUnit(declaration, range);
-                return candidate != null ? candidate : declaration;
+        CodeUnit best = null;
+        int bestDepth = -1;
+
+        // Start from top-level declarations to ensure deterministic traversal order
+        for (var top : topLevelCodeUnitsOf(file)) {
+            var res = findDeepestEnclosing(top, range, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
             }
         }
 
-        return null;
+        return best;
     }
 
-    private @Nullable CodeUnit enclosingCodeUnit(CodeUnit parent, Range range) {
-        for (var child : childrenOf(parent)) {
-            if (rangesOf(child).stream().anyMatch(childRange -> range.isContainedWithin(childRange))) {
-                var deeper = enclosingCodeUnit(child, range);
-                return deeper != null ? deeper : child;
+    private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {
+        // If the range is not contained within this CU, skip
+        boolean containsCurrent = rangesOf(current).stream().anyMatch(r -> range.isContainedWithin(r));
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosing(child, range, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
             }
         }
-        // No deeper child matched; caller should treat 'parent' as enclosing if needed
-        return null;
+        return best;
     }
 }
