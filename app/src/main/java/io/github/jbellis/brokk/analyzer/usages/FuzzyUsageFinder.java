@@ -50,10 +50,19 @@ public final class FuzzyUsageFinder {
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
     private FuzzyResult findUsages(CodeUnit target, int maxCallsites) {
-        var identifier = target.identifier();
+        // non-nested identifier
+        var shortName = target.identifier().replace("$", ".");
+        if (shortName.contains(".")) {
+            // shortName format is "Class.member" or "simpleFunction"
+            int lastDot = shortName.lastIndexOf('.');
+            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
+        }
+        final String identifier = shortName;
         // matches identifier around word boundaries and around common structures
         var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\))?";
-        var matchingCodeUnits = analyzer.searchDefinitions(searchPattern);
+        var matchingCodeUnits = analyzer.searchDefinitions(searchPattern).stream()
+                .filter(cu -> cu.identifier().equals(identifier))
+                .toList();
         var isUnique = matchingCodeUnits.size() == 1;
         final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
                 List.of(searchPattern), analyzer.getProject().getAllFiles());

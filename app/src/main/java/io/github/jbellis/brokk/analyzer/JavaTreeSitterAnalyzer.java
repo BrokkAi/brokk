@@ -244,6 +244,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     protected String normalizeFullName(String fqName) {
         // Normalize: strip generics, anonymous/lambda fragments, and trailing location suffixes
         var s = stripGenericTypeArguments(fqName);
+        s = s.replaceAll("\\$", "."); // replace nested class symbols if any
 
         // Strip anonymous/lambda suffixes like $anon... or $<digits>...
         var matcher = LAMBDA_REGEX.matcher(s);

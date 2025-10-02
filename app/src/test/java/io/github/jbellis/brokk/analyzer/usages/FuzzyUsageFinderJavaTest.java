@@ -1,0 +1,251 @@
+package io.github.jbellis.brokk.analyzer.usages;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.*;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class FuzzyUsageFinderJavaTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(FuzzyUsageFinderJavaTest.class);
+
+    private static IProject testProject;
+    private static TreeSitterAnalyzer analyzer;
+
+    @BeforeAll
+    public static void setup() throws IOException {
+        testProject = createTestProject("testcode-java");
+        analyzer = new JavaTreeSitterAnalyzer(testProject);
+        logger.debug(
+                "Setting up FuzzyUsageFinder tests with test code from {}",
+                testProject.getRoot().toAbsolutePath().normalize());
+    }
+
+    @AfterAll
+    public static void teardown() {
+        try {
+            testProject.close();
+        } catch (Exception e) {
+            logger.error("Exception encountered while closing the test project at the end of testing", e);
+        }
+    }
+
+    private static IProject createTestProject(String subDir) {
+        var testDir = Path.of("./src/test/resources", subDir).toAbsolutePath().normalize();
+        assertTrue(Files.exists(testDir), String.format("Test resource dir missing: %s", testDir));
+        assertTrue(Files.isDirectory(testDir), String.format("%s is not a directory", testDir));
+
+        return new IProject() {
+            @Override
+            public Path getRoot() {
+                return testDir.toAbsolutePath();
+            }
+
+            @Override
+            public Set<ProjectFile> getAllFiles() {
+                var files = testDir.toFile().listFiles();
+                if (files == null) {
+                    return Collections.emptySet();
+                }
+                return Arrays.stream(files)
+                        .map(file -> new ProjectFile(testDir, testDir.relativize(file.toPath())))
+                        .collect(Collectors.toSet());
+            }
+        };
+    }
+
+    private static Set<String> baseNamesFromHits(List<UsageHit> hits) {
+        return hits.stream()
+                .map(hit -> hit.file().absPath().getFileName().toString())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static FuzzyUsageFinder newFinder(IProject project) {
+        return new FuzzyUsageFinder(project, analyzer, null); // No LLM for these tests
+    }
+
+    // Mirrors: getUsesMethodExistingTest from JdtClientTest
+    @Test
+    public void getUsesMethodExistingTest() {
+        var finder = newFinder(testProject);
+        var symbol = "A.method2";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        // Expect references to be in B.java and AnonymousUsage.java (may include others; we assert presence)
+        assertTrue(files.contains("B.java"), "Expected a usage in B.java; actual: " + files);
+        assertTrue(files.contains("AnonymousUsage.java"), "Expected a usage in AnonymousUsage.java; actual: " + files);
+    }
+
+    // Mirrors: getUsesNestedClassConstructorTest
+    @Test
+    public void getUsesNestedClassConstructorTest() {
+        var finder = newFinder(testProject);
+        var symbol = "A$AInner.AInner";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        assertTrue(files.contains("A.java"), "Expected a usage in A.java; actual: " + files);
+    }
+
+    // Mirrors: getUsesMethodNonexistentTest
+    @Test
+    public void getUsesMethodNonexistentTest() {
+        var finder = newFinder(testProject);
+        var symbol = "A.noSuchMethod:java.lang.String()";
+        var result = finder.findUsages(symbol, 10_000);
+
+        assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
+    }
+
+    // Mirrors: getUsesFieldExistingTest
+    @Test
+    public void getUsesFieldExistingTest() {
+        var finder = newFinder(testProject);
+        var symbol = "D.field1";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        assertTrue(files.contains("D.java"), "Expected a usage in D.java; actual: " + files);
+        assertTrue(files.contains("E.java"), "Expected a usage in E.java; actual: " + files);
+    }
+
+    // Mirrors: getUsesFieldNonexistentTest
+    @Test
+    public void getUsesFieldNonexistentTest() {
+        var finder = newFinder(testProject);
+        var symbol = "D.notAField";
+        var result = finder.findUsages(symbol, 10_000);
+
+        assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
+    }
+
+    // Mirrors: getUsesFieldFromUseETest
+    @Test
+    public void getUsesFieldFromUseETest() {
+        var finder = newFinder(testProject);
+        var symbol = "UseE.e";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        assertTrue(files.contains("UseE.java"), "Expected a usage in UseE.java; actual: " + files);
+    }
+
+    // Mirrors: getUsesClassBasicTest
+    @Test
+    public void getUsesClassBasicTest() {
+        var finder = newFinder(testProject);
+        var symbol = "A";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        // Expect references across several files (constructor and method usage)
+        assertTrue(files.contains("B.java"), "Expected usage in B.java; actual: " + files);
+        assertTrue(files.contains("D.java"), "Expected usage in D.java; actual: " + files);
+        assertTrue(files.contains("AnonymousUsage.java"), "Expected usage in AnonymousUsage.java; actual: " + files);
+        assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
+    }
+
+    // Mirrors: getUsesClassNonexistentTest
+    @Test
+    public void getUsesClassNonexistentTest() {
+        var finder = newFinder(testProject);
+        var symbol = "NoSuchClass";
+        var result = finder.findUsages(symbol, 10_000);
+
+        assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
+    }
+
+    // Mirrors: getUsesNestedClassTest
+    @Test
+    public void getUsesNestedClassTest() {
+        var finder = newFinder(testProject);
+        var symbol = "A$AInner";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
+    }
+
+    // Mirrors: getUsesClassWithStaticMembersTest
+    @Test
+    public void getUsesClassWithStaticMembersTest() {
+        var finder = newFinder(testProject);
+        var symbol = "E";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        assertTrue(files.contains("UseE.java"), "Expected usage in UseE.java; actual: " + files);
+    }
+
+    // Mirrors: getUsesClassInheritanceTest
+    @Test
+    public void getUsesClassInheritanceTest() {
+        var finder = newFinder(testProject);
+        var symbol = "BaseClass";
+        var result = finder.findUsages(symbol, 10_000);
+
+        if (result instanceof FuzzyResult.Failure f) {
+            fail("Got failure for " + symbol + " -> " + f.reason());
+        }
+
+        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var files = baseNamesFromHits(hits);
+
+        // Expect a usage in classes that extend or refer to BaseClass
+        assertTrue(files.contains("XExtendsY.java"), "Expected usage in XExtendsY.java; actual: " + files);
+        assertTrue(files.contains("MethodReturner.java"), "Expected usage in MethodReturner.java; actual: " + files);
+    }
+}
