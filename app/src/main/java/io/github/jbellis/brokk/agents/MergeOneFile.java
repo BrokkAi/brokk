@@ -515,7 +515,7 @@ public final class MergeOneFile {
         logger.debug("callCodeAgent invoked for {} with instructions: {}", file, instructions);
 
         instructions +=
-                "\n\nRemember to use the BRK_CONFLICT_BEGIN[n]..BRK_CONFLICT_END[n] markers to simplify your SEARCH/REPLACE blocks!"
+                "\n\nRemember to use the BRK_CONFLICT_BEGIN_[n]..BRK_CONFLICT_END_[n] markers to simplify your SEARCH/REPLACE blocks!"
                         + "\nYou can also make non-conflict edits if necessary to fix related issues caused by the merge.";
         var agent = new CodeAgent(cm, codeModel, cm.getIo());
         var result = agent.runSingleFileEdit(

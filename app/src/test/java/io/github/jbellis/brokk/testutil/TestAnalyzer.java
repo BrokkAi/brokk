@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.testutil;
 
 import io.github.jbellis.brokk.analyzer.*;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,31 +13,19 @@ import org.jetbrains.annotations.Nullable;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider, LintingProvider {
-    private final ProjectFile mockFile;
+public class TestAnalyzer
+        implements io.github.jbellis.brokk.analyzer.IAnalyzer, UsagesProvider, SkeletonProvider, LintingProvider {
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());
 
-    public MockAnalyzer(Path rootDir) {
-        this.mockFile = new ProjectFile(rootDir, "MockFile.java");
-        this.allClasses = List.of(
-                CodeUnit.cls(mockFile, "a.b", "Do"),
-                CodeUnit.cls(mockFile, "a.b", "Do.Re"),
-                CodeUnit.cls(mockFile, "a.b", "Do.Re.Sub"), // nested inside Re
-                CodeUnit.cls(mockFile, "x.y", "Zz"),
-                CodeUnit.cls(mockFile, "w.u", "Zz"),
-                CodeUnit.cls(mockFile, "test", "CamelClass"),
-                CodeUnit.cls(mockFile, "a.b", "Architect"));
-        this.methodsMap = Map.ofEntries(
-                Map.entry(
-                        "a.b.Do",
-                        List.of(CodeUnit.fn(mockFile, "a.b", "Do.foo"), CodeUnit.fn(mockFile, "a.b", "Do.bar"))),
-                Map.entry("a.b.Do.Re", List.of(CodeUnit.fn(mockFile, "a.b", "Do.Re.baz"))),
-                Map.entry("a.b.Do.Re.Sub", List.of(CodeUnit.fn(mockFile, "a.b", "Do.Re.Sub.qux"))),
-                Map.entry("x.y.Zz", List.of()),
-                Map.entry("w.u.Zz", List.of()),
-                Map.entry("test.CamelClass", List.of(CodeUnit.fn(mockFile, "test", "CamelClass.someMethod"))));
+    public TestAnalyzer(List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap) {
+        this.allClasses = allClasses;
+        this.methodsMap = methodsMap;
+    }
+
+    public TestAnalyzer() {
+        this(List.of(), Map.of());
     }
 
     public void setLintBehavior(Function<List<ProjectFile>, LintResult> behavior) {
@@ -63,6 +50,10 @@ public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider
     @Override
     public List<CodeUnit> getMembersInClass(String fqClass) {
         return methodsMap.getOrDefault(fqClass, List.of());
+    }
+
+    public Map<String, List<CodeUnit>> getMethodsMap() {
+        return methodsMap;
     }
 
     @Override

@@ -2,7 +2,10 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.update.UpdateTestUtil;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -11,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -147,6 +151,7 @@ class EditBlockTest {
                       ```
                       filename/to/a/file2.txt
                       <<<<<<< SEARCH
+                      BRK_ENTIRE_FILE
                       =======
                       three
                       >>>>>>> REPLACE
@@ -169,16 +174,16 @@ class EditBlockTest {
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
         assertEquals("filename/to/a/file2.txt", blocks[0].rawFileName());
-        assertEquals("", blocks[0].beforeText().trim());
-        assertEquals("three", blocks[0].afterText().trim());
+        assertEquals("BRK_ENTIRE_FILE\n", blocks[0].beforeText());
+        assertEquals("three\n", blocks[0].afterText());
         assertEquals("filename/to/a/file1.txt", blocks[1].rawFileName());
-        assertEquals("one", blocks[1].beforeText().trim());
-        assertEquals("two", blocks[1].afterText().trim());
+        assertEquals("one\n", blocks[1].beforeText());
+        assertEquals("two\n", blocks[1].afterText());
     }
 
     @Test
     void testApplyEditsCreatesNewFile(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         Files.writeString(existingFile, "Original text\n");
@@ -197,6 +202,7 @@ class EditBlockTest {
                           ```
                           newFile.txt
                           <<<<<<< SEARCH
+                          BRK_ENTIRE_FILE
                           =======
                           Created content
                           >>>>>>> REPLACE
@@ -211,7 +217,7 @@ class EditBlockTest {
 
         // existing filename
         String actualA = Files.readString(existingFile);
-        assertTrue(actualA.contains("Updated"));
+        assertTrue(actualA.contains("Updated"), "Expected fileA.txt to contain 'Updated'. Full content:\n" + actualA);
 
         // new filename
         Path newFile = tempDir.resolve("newFile.txt");
@@ -223,8 +229,7 @@ class EditBlockTest {
     }
 
     @Test
-    void testApplyEditsFailsForUnknownFile(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testApplyEditsFailsForUnknownFile(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
 
         Path existingFile = tempDir.resolve("fileA.txt");
@@ -247,11 +252,11 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
-        assertNotEquals(List.of(), result.failedBlocks());
+        assertFalse(result.failedBlocks().isEmpty(), "Expected failures for unknownFile.txt but got none");
     }
 
     @Test
-    void testApplyEditsFailsForInvalidFilename(@TempDir Path tempDir) throws IOException {
+    void testApplyEditsFailsForInvalidFilename(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
 
         String invalidFilename = "invalid\0filename.txt";
@@ -303,7 +308,7 @@ class EditBlockTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
         var result = EditBlockParser.instance.parseEditBlocks(edit, ctx.getFilesInContext());
-        assertNotEquals(null, result.parseError());
+        assertNotNull(result.parseError(), "Expected parse error for unclosed edit block");
     }
 
     /**
@@ -341,7 +346,7 @@ class EditBlockTest {
 
     @Test
     void testNoMatchFailure(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         Files.writeString(existingFile, "AAA\nBBB\nCCC\n");
@@ -379,7 +384,7 @@ class EditBlockTest {
 
     @Test
     void testEditResultContainsOriginalContents(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         String originalContent = "Original text\n";
@@ -414,7 +419,7 @@ class EditBlockTest {
 
     @Test
     void testApplyEditsEmptySearchReplacesFile(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path testFile = tempDir.resolve("replaceTest.txt");
         String originalContent = "Initial content.\n";
@@ -426,27 +431,26 @@ class EditBlockTest {
                           ```
                           replaceTest.txt
                           <<<<<<< SEARCH
+                          BRK_ENTIRE_FILE
                           =======
                           %s
                           >>>>>>> REPLACE
                           ```
                           """
-                        .formatted(replacementContent.trim()); // Use trim because EditBlock adds newline
+                        .formatted(replacementContent.trim());
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("replaceTest.txt"));
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
         assertEquals(1, blocks.size());
-        assertTrue(blocks.getFirst().beforeText().isEmpty()); // Verify search block is empty
+        assertEquals("BRK_ENTIRE_FILE\n", blocks.getFirst().beforeText()); // now explicit marker
 
         var result = EditBlock.apply(ctx, io, blocks);
 
-        // Verify the file content is now *only* the replacement text
         String actualContent = Files.readString(testFile);
-        assertEquals(replacementContent, actualContent); // Expected content is exactly the replacement
+        assertEquals(replacementContent, actualContent);
 
-        // Verify no failures
         assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
         assertTrue(io.getErrorLog().isEmpty(), "No IO errors expected");
     }
@@ -503,7 +507,7 @@ class EditBlockTest {
 
     @Test
     void testNoMatchFailureWithExistingReplacementText(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         String initialContent = "AAA\nBBB\nCCC\n";
@@ -551,7 +555,7 @@ class EditBlockTest {
 
     @Test
     void testNoMatchFailureWithDiffLikeSearchText(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileB.txt");
         String initialContent = "Line 1\nLine 2\nLine 3\n";
@@ -683,20 +687,20 @@ class EditBlockTest {
     // Tests for BRK_CONFLICT handling
     // ----------------------------------------------------
     @Test
-    void testReplaceBrkConflictBlock(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testReplaceBrkConflictBlock(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path testFile = tempDir.resolve("conf.txt");
 
-        String conflictBlock = "BRK_CONFLICT_BEGIN1\n"
+        String conflictBlock = "BRK_CONFLICT_BEGIN_1\n"
                 + "BRK_OUR_VERSION abc\n"
                 + "abc Some conflicting line\n"
-                + "BRK_CONFLICT_END1\n";
+                + "BRK_CONFLICT_END_1\n";
 
         String originalContent = "start\n" + conflictBlock + "end\n";
         Files.writeString(testFile, originalContent);
 
-        var block = new EditBlock.SearchReplaceBlock("conf.txt", conflictBlock, "Resolved line\n");
+        // New SEARCH syntax: single line identifies the conflict region to replace
+        var block = new EditBlock.SearchReplaceBlock("conf.txt", "BRK_CONFLICT_1\n", "Resolved line\n");
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("conf.txt"));
 
         var result = EditBlock.apply(ctx, io, List.of(block));
@@ -706,6 +710,131 @@ class EditBlockTest {
 
         String finalContent = Files.readString(testFile);
         assertEquals("start\nResolved line\nend\n", finalContent);
+    }
+
+    @Test
+    void testBrkFunctionReplacement_UniqueMethod_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaTreeSitterAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_FUNCTION A.method1
+                =======
+                public int method1() { return 2; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        var content = Files.readString(rootDir.resolve("A.java"));
+        assertTrue(content.contains("return 2;"), "Method body should be updated");
+        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+    }
+
+    @Test
+    void testBrkFunctionReplacement_OverloadedMethod_Ambiguous() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "B.java",
+                """
+                public class B {
+                  public int foo(int x) { return x; }
+                  public String foo(String s) { return s; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaTreeSitterAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "B.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                B.java
+                <<<<<<< SEARCH
+                BRK_FUNCTION B.foo
+                =======
+                public int foo(int x) { return x + 1; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        assertEquals(1, result.failedBlocks().size(), "One failed block expected");
+        assertEquals(
+                EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH,
+                result.failedBlocks().getFirst().reason(),
+                "Overloads must be rejected as ambiguous");
+    }
+
+    @Test
+    void testBrkClassReplacement_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "C.java",
+                """
+                public class C {
+                  public int v() { return 10; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaTreeSitterAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "C.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                C.java
+                <<<<<<< SEARCH
+                BRK_CLASS C
+                =======
+                public class C {
+                  public int v() { return 42; }
+                }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        var content = Files.readString(rootDir.resolve("C.java"));
+        assertTrue(content.contains("return 42;"), "Class body should be replaced");
+        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
     }
 
     // ----------------------------------------------------

@@ -87,9 +87,10 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
+    public Set<String> getMethodSources(String fqName, boolean includeComments) {
         return findFirst(analyzer ->
-                analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName, includeComments)));
+                        analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(fqName, includeComments)))
+                .orElse(Collections.emptySet());
     }
 
     @Override

@@ -3,11 +3,16 @@ package io.github.jbellis.brokk.gui;
 import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -23,6 +28,8 @@ import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.tools.ToolExecutionResult;
+import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -839,7 +846,7 @@ public class HistoryOutputPanel extends JPanel {
         captureButton.setMnemonic(KeyEvent.VK_C);
         captureButton.setToolTipText("Add the output to context");
         captureButton.addActionListener(e -> {
-            contextManager.captureTextFromContextAsync();
+            presentCaptureChoice();
         });
         // Set minimum size
         captureButton.setMinimumSize(captureButton.getPreferredSize());
@@ -1010,6 +1017,116 @@ public class HistoryOutputPanel extends JPanel {
         });
     }
 
+    /** Presents a choice to capture output to Workspace or to Task List. */
+    private void presentCaptureChoice() {
+        var options = new Object[] {"Workspace", "Task List", "Cancel"};
+        int choice = JOptionPane.showOptionDialog(
+                chrome.getFrame(),
+                "Where would you like to capture this output?",
+                "Capture Output",
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]);
+
+        if (choice == 0) { // Workspace
+            contextManager.captureTextFromContextAsync();
+        } else if (choice == 1) { // Task List
+            createTaskListFromOutputAsync();
+        } // else Cancel -> do nothing
+    }
+
+    /** Creates a task list from the currently selected output using the quick model and the createTaskList tool. */
+    private void createTaskListFromOutputAsync() {
+        var selected = contextManager.selectedContext();
+        if (selected == null) {
+            chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        var parsedOutput = selected.getParsedOutput();
+        if (parsedOutput == null) {
+            chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        var captureText = parsedOutput.text();
+        if (captureText.isBlank()) {
+            chrome.systemNotify(
+                    "Nothing to capture from the selected output", "Capture failed", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        chrome.showOutputSpinner("Creating task list...");
+        contextManager.submitLlmAction(() -> {
+            try {
+                var model = contextManager.getService().quickModel();
+                var llm = new Llm(model, "Create Task List", contextManager, false, false);
+                llm.setOutput(chrome);
+
+                var system = new SystemMessage(
+                        "You are generating an actionable, incremental task list based on the provided capture."
+                                + "Do not speculate beyond it. You MUST produce tasks via the tool call createTaskList(List<String>). "
+                                + "Do not output free-form text.");
+                var user = new UserMessage(
+                        """
+                        <capture>
+                        %s
+                        </capture>
+
+                        Instructions:
+                        - Prefer using tasks that are already defined in the capture.
+                        - If no such tasks exist, use your best judgement with the following guidelines:
+                          - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
+                          - Prefer tasks that keep the project buildable and testable after each step.
+                          - Avoid multi-goal items; split if needed.
+                          - Avoid external/non-code tasks.
+                        - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
+
+                        Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
+                        """
+                                .stripIndent()
+                                .formatted(captureText));
+
+                var toolSpecs = contextManager.getToolRegistry().getRegisteredTools(List.of("createTaskList"));
+                if (toolSpecs.isEmpty()) {
+                    chrome.toolError("Required tool 'createTaskList' is not registered.", "Task List");
+                    return;
+                }
+
+                var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
+                var result = llm.sendRequest(List.of(system, user), toolContext, false);
+                if (result.error() != null || result.isEmpty()) {
+                    var msg = result.error() != null
+                            ? String.valueOf(result.error().getMessage())
+                            : "Empty response";
+                    chrome.toolError("Failed to create task list: " + msg, "Task List");
+                } else {
+                    var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+                    assert ai.hasToolExecutionRequests(); // LLM enforces
+                    for (var req : ai.toolExecutionRequests()) {
+                        if (!"createTaskList".equals(req.name())) {
+                            continue;
+                        }
+                        var ter = contextManager.getToolRegistry().executeTool(HistoryOutputPanel.this, req);
+                        if (ter.status() == ToolExecutionResult.Status.FAILURE) {
+                            chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
+                        }
+                    }
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                chrome.systemNotify("Task list creation was interrupted.", "Task List", JOptionPane.WARNING_MESSAGE);
+            } catch (Throwable t) {
+                chrome.systemNotify(
+                        "Unexpected error creating task list: " + t.getMessage(),
+                        "Task List",
+                        JOptionPane.ERROR_MESSAGE);
+            } finally {
+                chrome.hideOutputSpinner();
+            }
+        });
+    }
+
     /** Inner class representing a detached window for viewing output text */
     private static class OutputWindow extends JFrame {
         private final IProject project;
@@ -1064,7 +1181,7 @@ public class HistoryOutputPanel extends JPanel {
                 MaterialButton captureButton = new MaterialButton("Capture");
                 captureButton.setToolTipText("Add the output to context");
                 captureButton.addActionListener(e -> {
-                    parentPanel.contextManager.captureTextFromContextAsync();
+                    parentPanel.presentCaptureChoice();
                 });
                 toolbarPanel.add(captureButton);
             }
@@ -1630,18 +1747,9 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private boolean isGroupingBoundary(Context ctx) {
-        if (ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction())) {
-            return true;
-        }
-        // Use the cached file diffs to determine boundaries.
-        // If we don't have a cached diff yet, schedule it and do not treat as a boundary until available.
-        var diffs = diffCache.get(ctx.id());
-        if (diffs == null) {
-            scheduleDiffComputation(ctx);
-            return false;
-        }
-        // Boundary only when there are actual file changes
-        return !diffs.isEmpty();
+        // Grouping boundaries are independent of diff presence.
+        // Boundary when this is an AI result, or an explicit "dropped all context" separator.
+        return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
     }
 
     private static String firstWord(String text) {

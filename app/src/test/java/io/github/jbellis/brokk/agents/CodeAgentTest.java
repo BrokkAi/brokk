@@ -283,7 +283,7 @@ class CodeAgentTest {
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(List.of(nonMatchingBlock), 0);
 
-        var result = codeAgent.applyPhase(cs, es, parser, null);
+        var result = codeAgent.applyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -312,7 +312,7 @@ class CodeAgentTest {
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(List.of(successBlock, failureBlock), 0);
 
-        var result = codeAgent.applyPhase(cs, es, parser, null);
+        var result = codeAgent.applyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -504,7 +504,7 @@ class CodeAgentTest {
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(List.of(block), 0);
 
-        var result = codeAgent.applyPhase(cs, es, parser, null);
+        var result = codeAgent.applyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
@@ -610,7 +610,7 @@ class CodeAgentTest {
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
         var es1 = new CodeAgent.EditState(
                 new ArrayList<>(List.of(block1)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
-        var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, parser, null);
+        var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
 
@@ -625,7 +625,7 @@ class CodeAgentTest {
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
         var es2 = new CodeAgent.EditState(
                 new ArrayList<>(List.of(block2)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
-        var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, parser, null);
+        var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
 

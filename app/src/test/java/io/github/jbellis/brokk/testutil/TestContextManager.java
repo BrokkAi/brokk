@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
@@ -26,10 +27,10 @@ import java.util.concurrent.Future;
  */
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
-    private final MockAnalyzer mockAnalyzer;
+    private final IAnalyzer analyzer;
     private final InMemoryRepo inMemoryRepo;
-    private final Set<ProjectFile> editableFiles = new HashSet<>();
-    private final Set<ProjectFile> readonlyFiles = new HashSet<>();
+    private final Set<ProjectFile> editableFiles;
+    private final Set<ProjectFile> readonlyFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
     private final Context liveContext;
@@ -38,12 +39,16 @@ public final class TestContextManager implements IContextManager {
     private final AnalyzerWrapper analyzerWrapper;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
-        this(new TestProject(projectRoot, Languages.JAVA), consoleIO);
+        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, new HashSet<>(), new TestAnalyzer());
     }
 
-    public TestContextManager(TestProject project, IConsoleIO consoleIO) {
+    public TestContextManager(
+            TestProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles, IAnalyzer analyzer) {
         this.project = project;
-        this.mockAnalyzer = new MockAnalyzer(project.getRoot());
+        this.analyzer = analyzer;
+        this.editableFiles = editableFiles;
+
+        this.readonlyFiles = new HashSet<>();
         this.inMemoryRepo = new InMemoryRepo();
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
@@ -56,7 +61,7 @@ public final class TestContextManager implements IContextManager {
             public <T> Future<T> submit(String taskDescription, Callable<T> task) {
                 CompletableFuture<T> f = new CompletableFuture<>();
                 @SuppressWarnings("unchecked")
-                T cast = (T) mockAnalyzer;
+                T cast = (T) analyzer;
                 f.complete(cast);
                 return f;
             }
@@ -65,11 +70,14 @@ public final class TestContextManager implements IContextManager {
         this.analyzerWrapper = new AnalyzerWrapper(this.project, quickRunner, /*listener=*/ null, this.consoleIO);
     }
 
-    public TestContextManager(Path tempDir, Set<String> files) {
-        this(tempDir, new TestConsoleIO());
-        for (var filename : files) {
-            addEditableFile(new ProjectFile(tempDir, filename));
-        }
+    public TestContextManager(Path projectRoot, Set<String> editableFiles) {
+        this(
+                new TestProject(projectRoot, Languages.JAVA),
+                new TestConsoleIO(),
+                new HashSet<>(editableFiles.stream()
+                        .map(s -> new ProjectFile(projectRoot, s))
+                        .toList()),
+                new TestAnalyzer());
     }
 
     @Override
@@ -92,8 +100,9 @@ public final class TestContextManager implements IContextManager {
         this.readonlyFiles.remove(file); // Cannot be both
     }
 
-    public MockAnalyzer getMockAnalyzer() {
-        return mockAnalyzer;
+    public void addReadonlyFile(ProjectFile file) {
+        this.readonlyFiles.add(file);
+        this.editableFiles.remove(file); // Cannot be both
     }
 
     @Override
@@ -103,12 +112,12 @@ public final class TestContextManager implements IContextManager {
 
     @Override
     public IAnalyzer getAnalyzerUninterrupted() {
-        return mockAnalyzer;
+        return analyzer;
     }
 
     @Override
     public IAnalyzer getAnalyzer() {
-        return mockAnalyzer;
+        return analyzer;
     }
 
     @Override
