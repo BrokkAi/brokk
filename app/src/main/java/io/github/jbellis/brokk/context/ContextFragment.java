@@ -1231,7 +1231,6 @@ public interface ContextFragment {
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
-        public static double CONFIDENCE_THRESHOLD = 0.6;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, false);
@@ -1270,23 +1269,12 @@ public interface ContextFragment {
             }
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, 100);
 
-            if (usageResult instanceof FuzzyResult.Failure failure) {
-                return "No relevant usages found for symbol: " + targetIdentifier + " - " + failure.reason();
-            } else if (usageResult instanceof FuzzyResult.TooManyCallsites tooManyCallsites) {
-                return "Too many call sites for symbol: " + targetIdentifier + " - " + tooManyCallsites.totalCallsites()
-                        + "(limit " + tooManyCallsites.limit() + ")";
+            var either = usageResult.toEither();
+            if (either.hasErrorMessage()) {
+                return either.getErrorMessage();
             }
 
-            List<UsageHit> uses = new ArrayList<>();
-            if (usageResult instanceof FuzzyResult.Success(List<UsageHit> hits)) {
-                uses.addAll(hits);
-            } else if (usageResult instanceof FuzzyResult.Ambiguous ambiguous) {
-                var filteredHits = ambiguous.hits().stream()
-                        .filter(x -> x.confidence() > CONFIDENCE_THRESHOLD)
-                        .toList();
-                uses.addAll(filteredHits);
-            }
-
+            List<UsageHit> uses = either.getUsages();
             if (!includeTestFiles) {
                 uses = uses.stream()
                         .filter(cu -> !ContextManager.isTestFile(cu.file()))
@@ -1308,21 +1296,12 @@ public interface ContextFragment {
             var analyzer = getAnalyzer();
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, 100);
 
-            if (usageResult instanceof FuzzyResult.Failure) {
-                return Collections.emptySet();
-            } else if (usageResult instanceof FuzzyResult.TooManyCallsites) {
+            var either = usageResult.toEither();
+            if (either.hasErrorMessage()) {
                 return Collections.emptySet();
             }
 
-            List<UsageHit> uses = new ArrayList<>();
-            if (usageResult instanceof FuzzyResult.Success(List<UsageHit> hits)) {
-                uses.addAll(hits);
-            } else if (usageResult instanceof FuzzyResult.Ambiguous ambiguous) {
-                var filteredHits = ambiguous.hits().stream()
-                        .filter(x -> x.confidence() > CONFIDENCE_THRESHOLD)
-                        .toList();
-                uses.addAll(filteredHits);
-            }
+            List<UsageHit> uses = either.getUsages();
 
             if (!includeTestFiles) {
                 uses = uses.stream()

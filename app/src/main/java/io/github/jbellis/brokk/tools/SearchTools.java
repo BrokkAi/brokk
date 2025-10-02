@@ -6,6 +6,9 @@ import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.usages.FuzzyResult;
+import io.github.jbellis.brokk.analyzer.usages.FuzzyUsageFinder;
+import io.github.jbellis.brokk.analyzer.usages.UsageHit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -274,8 +277,6 @@ public class SearchTools {
                     List<String> symbols,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assert getAnalyzer().as(UsagesProvider.class).isPresent()
-                : "Cannot search usages: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -286,11 +287,17 @@ public class SearchTools {
         }
 
         List<CodeUnit> allUses = new ArrayList<>();
-        if (getAnalyzer() instanceof UsagesProvider usagesProvider) {
-            for (String symbol : symbols) {
-                if (!symbol.isBlank()) {
-                    allUses.addAll(usagesProvider.getUses(symbol));
+
+        for (String symbol : symbols) {
+            if (!symbol.isBlank()) {
+                FuzzyResult usageResult =
+                        FuzzyUsageFinder.create(contextManager).findUsages(symbol, 100);
+                var either = usageResult.toEither();
+                if (either.hasErrorMessage()) {
+                    return either.getErrorMessage();
                 }
+                allUses.addAll(
+                        either.getUsages().stream().map(UsageHit::enclosing).toList());
             }
         }
 
