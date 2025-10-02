@@ -3,33 +3,36 @@ package io.github.jbellis.brokk.analyzer.usages;
 import static io.github.jbellis.brokk.util.HtmlUtil.escapeXml;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 /**
- * Builds an XML-styled prompt for LLM-based usage disambiguation.
+ * Builds a single-usage prompt record for LLM-based relevance scoring.
  *
- * <p>The output consists of a sequence of <file> blocks, each containing:
+ * The builder emits:
+ * - filterDescription: concise text describing the intended target (e.g., the short name and optional candidates)
+ * - candidateText: the snippet representing this single usage
+ * - promptText: an XML-like block including file path, imports, and a single <usage> block (no IDs)
  *
- * <ul>
- *   <li>an <code>&lt;imports&gt;</code> section with the file's import statements (from
- *       TreeSitterAnalyzer.importStatementsOf)
- *   <li>multiple <code>&lt;usage id="..."&gt;</code> blocks embedding snippets (3 lines above and below the occurrence)
- * </ul>
- *
- * All text content is XML-escaped. A rough token budget (maxTokens) is enforced using a conservative character limit
- * (approx 4 chars per token).
+ * All textual XML content is escaped, and a conservative token-to-character budget is enforced.
  */
 public final class UsagePromptBuilder {
 
     private UsagePromptBuilder() {}
 
-    public static String buildPrompt(
-            Map<ProjectFile, List<UsageHit>> hitsByFile,
+    /**
+     * Build a prompt for a single usage hit.
+     *
+     * @param hit single usage occurrence (snippet should contain ~3 lines above/below already if desired)
+     * @param candidateTargets optional list of candidate targets to include in a comment header
+     * @param analyzer used to retrieve import statements for the file containing the usage
+     * @param shortName the short name being searched (e.g., "A.method2")
+     * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
+     * @return UsagePrompt containing filterDescription, candidateText, and promptText (no IDs)
+     */
+    public static UsagePrompt buildPrompt(
+            UsageHit hit,
             List<CodeUnit> candidateTargets,
             TreeSitterAnalyzer analyzer,
             String shortName,
@@ -37,14 +40,18 @@ public final class UsagePromptBuilder {
 
         // Approximate token-to-character budget (very conservative)
         final int maxChars = (maxTokens <= 0) ? Integer.MAX_VALUE : Math.max(512, maxTokens * 4);
+        var sb = new StringBuilder(Math.min(maxChars, 32_000));
 
-        var sb = new StringBuilder(Math.min(maxChars, 64_000));
+        // Filter description for RelevanceClassifier.relevanceScore
+        String filterDescription = buildFilterDescription(shortName, candidateTargets);
 
-        // Small context header (comment) to aid the model; escape defensively
+        // Candidate text is the raw snippet for this single usage (unescaped)
+        String candidateText = hit.snippet() == null ? "" : hit.snippet();
+
+        // Header comments
         sb.append("<!-- shortName: ").append(escapeXml(shortName)).append(" -->\n");
         if (candidateTargets != null && !candidateTargets.isEmpty()) {
             sb.append("<!-- candidates: ");
-            // Keep candidate summary concise
             var names = new ArrayList<String>(candidateTargets.size());
             for (var cu : candidateTargets) {
                 names.add(escapeXml(cu.fqName()));
@@ -53,71 +60,58 @@ public final class UsagePromptBuilder {
             sb.append(" -->\n");
         }
 
-        // Deterministic ordering: sort files by path string
-        var entries = new ArrayList<>(hitsByFile.entrySet());
-        entries.sort(Comparator.comparing(e -> e.getKey().absPath().toString(), String.CASE_INSENSITIVE_ORDER));
-
-        int usageId = 1;
-
-        for (var entry : entries) {
-            if (sb.length() >= maxChars) break;
-
-            ProjectFile file = entry.getKey();
-            List<UsageHit> hits = entry.getValue();
-            if (hits == null || hits.isEmpty()) {
-                continue;
-            }
-
-            // Gather imports via analyzer (best effort)
-            List<String> imports;
-            try {
-                imports = analyzer.importStatementsOf(file);
-            } catch (Throwable t) {
-                imports = List.of(); // fail open
-            }
-
-            // Start file block
-            sb.append("<file path=\"")
-                    .append(escapeXml(file.absPath().toString()))
-                    .append("\">\n");
-
-            // Imports block
-            sb.append("<imports>\n");
-            for (String imp : imports) {
-                sb.append(escapeXml(imp)).append("\n");
-            }
-            sb.append("</imports>\n\n");
-
-            // Usage blocks for this file, preserving input order
-            for (UsageHit hit : hits) {
-                int beforeUsageLen = sb.length();
-
-                sb.append("<usage id=\"").append(usageId).append("\">\n");
-                String snippet = hit.snippet() == null ? "" : hit.snippet();
-                sb.append(escapeXml(snippet)).append("\n");
-                sb.append("</usage>\n");
-
-                // Enforce budget; if we exceed, roll back this usage and close file with truncation note
-                if (sb.length() > maxChars) {
-                    sb.setLength(beforeUsageLen);
-                    sb.append("<!-- truncated due to token limit -->\n");
-                    sb.append("</file>\n");
-                    return sb.toString();
-                }
-
-                usageId++;
-            }
-
-            sb.append("</file>\n\n");
-
-            // If we exceeded after closing file, append a truncation note and stop
-            if (sb.length() > maxChars) {
-                // Keep well-formedness – last block already closed
-                sb.append("<!-- truncated due to token limit -->\n");
-                break;
-            }
+        // Gather imports (best effort)
+        List<String> imports;
+        try {
+            imports = analyzer.importStatementsOf(hit.file());
+        } catch (Throwable t) {
+            imports = List.of(); // fail open
         }
 
+        // Start file block
+        sb.append("<file path=\"")
+                .append(escapeXml(hit.file().absPath().toString()))
+                .append("\">\n");
+
+        // Imports block
+        sb.append("<imports>\n");
+        for (String imp : imports) {
+            sb.append(escapeXml(imp)).append("\n");
+        }
+        sb.append("</imports>\n\n");
+
+        // Single usage block, no id attribute
+        int beforeUsageLen = sb.length();
+        sb.append("<usage>\n");
+        sb.append(escapeXml(candidateText)).append("\n");
+        sb.append("</usage>\n");
+        if (sb.length() > maxChars) {
+            sb.setLength(beforeUsageLen);
+            sb.append("<!-- truncated due to token limit -->\n");
+            sb.append("</file>\n");
+            return new UsagePrompt(filterDescription, candidateText, sb.toString());
+        }
+
+        sb.append("</file>\n");
+        if (sb.length() > maxChars) {
+            sb.append("<!-- truncated due to token limit -->\n");
+        }
+
+        return new UsagePrompt(filterDescription, candidateText, sb.toString());
+    }
+
+    private static String buildFilterDescription(String shortName, List<CodeUnit> candidateTargets) {
+        var sb = new StringBuilder(256);
+        sb.append("Determine if the snippet represents a usage of ").append(shortName).append(".");
+        if (candidateTargets != null && !candidateTargets.isEmpty()) {
+            sb.append(" Candidates: ");
+            var names = new ArrayList<String>(candidateTargets.size());
+            for (var cu : candidateTargets) {
+                names.add(cu.fqName());
+            }
+            sb.append(String.join(", ", names));
+            sb.append(".");
+        }
         return sb.toString();
     }
 }
