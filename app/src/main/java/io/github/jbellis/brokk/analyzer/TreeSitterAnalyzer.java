@@ -1011,7 +1011,7 @@ public abstract class TreeSitterAnalyzer
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
 
     /** Get the project this analyzer is associated with. */
-    protected IProject getProject() {
+    public IProject getProject() {
         return project;
     }
 

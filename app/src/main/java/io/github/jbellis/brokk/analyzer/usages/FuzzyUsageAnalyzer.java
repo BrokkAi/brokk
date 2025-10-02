@@ -5,8 +5,11 @@ import static java.util.Objects.requireNonNull;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
+import io.github.jbellis.brokk.tools.SearchTools;
 import java.util.List;
+import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -48,15 +51,18 @@ public final class FuzzyUsageAnalyzer {
      */
     private FuzzyResult findUsages(CodeUnit target, int maxCallsites) {
         var identifier = target.identifier();
-        var isUnique = analyzer.searchDefinitions(".*" + identifier + "$").size() == 1;
-        final List<UsageHit> candidates = List.of(); // TODO: Get call/usage sites for this identifier
+        // matches identifier around word boundaries and around common structures
+        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\))?";
+        var isUnique = analyzer.searchDefinitions(searchPattern).size() == 1;
+        final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
+                List.of(searchPattern), analyzer.getProject().getAllFiles());
 
         if (isUnique) {
             // Case 1: This is a uniquely named code unit, no need to check with LLM.
         }
 
         if (llm != null) {
-            // TODO: Consult LLM if ambiguous possible
+            // TODO: Consult LLM if ambiguous
         }
 
         return new FuzzyResult.Ambiguous(target.shortName(), List.of());
