@@ -1122,7 +1122,14 @@ public class HistoryOutputPanel extends JPanel {
 
         var dismissBtn = new MaterialButton();
         dismissBtn.setToolTipText("Dismiss");
-        SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLOSE));
+        SwingUtilities.invokeLater(() -> {
+            var icon = Icons.CLOSE;
+            if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                dismissBtn.setIcon(themedIcon.withSize(18));
+            } else {
+                dismissBtn.setIcon(icon);
+            }
+        });
         dismissBtn.addActionListener(e -> removeNotificationCard());
         actions.add(dismissBtn);
 
@@ -1311,6 +1318,7 @@ public class HistoryOutputPanel extends JPanel {
                 var card = new RoundedPanel(12, bg, border);
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
+                card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
 
                 // Left: unread indicator (if unread) + message with bold timestamp at end
                 var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
