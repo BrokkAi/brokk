@@ -77,11 +77,7 @@ public class UsagePromptBuilderJavaTest {
 
         // When
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit,
-                target,
-                analyzer,
-                "A.method2",
-                10_000 // generous token budget
+                hit, target, analyzer, "A.method2", 10_000 // generous token budget
                 );
 
         // Then: record has the three expected accessors and nothing else
@@ -138,8 +134,7 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
         assertTrue(text.contains("<usage>") && text.contains("</usage>"), "Expected a single <usage> block");
