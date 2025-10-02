@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer.usages;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
@@ -70,12 +71,14 @@ public class UsagePromptBuilderJavaTest {
         // Given a single file with a snippet containing XML special chars
         ProjectFile file = fileInProject("A.java");
         String snippet = "line1\n<T> & \"quotes\" and 'single'\nline3";
-        UsageHit hit = new UsageHit(file, 10, 0, snippet.length(), 1.0, snippet);
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+        UsageHit hit = new UsageHit(file, 10, 0, snippet.length(), enclosing, 1.0, snippet);
 
         // When
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
                 hit,
-                Collections.emptyList(), // no candidates
+                target,
                 analyzer,
                 "A.method2",
                 10_000 // generous token budget
@@ -91,7 +94,9 @@ public class UsagePromptBuilderJavaTest {
 
         // Field-level assertions
         assertNotNull(prompt.filterDescription(), "filterDescription should not be null");
-        assertTrue(prompt.filterDescription().contains("A.method2"), "filterDescription should include the short name");
+        assertTrue(
+                prompt.filterDescription().contains(target.toString()),
+                "filterDescription should include the target code unit");
         assertEquals(snippet, prompt.candidateText(), "candidateText should equal the usage snippet");
 
         String text = prompt.promptText();
@@ -115,10 +120,12 @@ public class UsagePromptBuilderJavaTest {
         ProjectFile file = fileInProject("A.java");
         // Create a very large snippet to force truncation given a tiny token budget
         String largeSnippet = "x".repeat(10_000);
-        UsageHit hit = new UsageHit(file, 1, 0, largeSnippet.length(), 1.0, largeSnippet);
+        CodeUnit enclosing = CodeUnit.cls(file, "", "A");
+        CodeUnit target = CodeUnit.fn(file, "", "A.method2");
+        UsageHit hit = new UsageHit(file, 1, 0, largeSnippet.length(), enclosing, 1.0, largeSnippet);
 
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, Collections.emptyList(), analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
+                hit, target, analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
                 );
 
         assertTrue(prompt.promptText().contains("truncated due to token limit"), "Expected truncation note in prompt");
@@ -127,10 +134,12 @@ public class UsagePromptBuilderJavaTest {
     @Test
     public void buildHasNoIdsInPromptText() {
         ProjectFile file = fileInProject("A.java");
-        UsageHit hit = new UsageHit(file, 5, 0, 3, 1.0, "sa");
+        CodeUnit enclosing = CodeUnit.cls(file, "", "A");
+        CodeUnit target = CodeUnit.fn(file, "", "A.method2");
+        UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
         UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(hit, Collections.emptyList(), analyzer, "A.method2", 10_000);
+                UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
         assertTrue(text.contains("<usage>") && text.contains("</usage>"), "Expected a single <usage> block");

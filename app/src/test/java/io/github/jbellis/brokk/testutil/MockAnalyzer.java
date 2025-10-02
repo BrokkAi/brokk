@@ -14,7 +14,7 @@ import org.jetbrains.annotations.Nullable;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider, LintingProvider {
+public class MockAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvider {
     private final ProjectFile mockFile;
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
@@ -48,11 +48,6 @@ public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider
     @Override
     public boolean isEmpty() {
         return false;
-    }
-
-    @Override
-    public List<CodeUnit> getUses(String fqName) {
-        return List.of(); // Return empty list for test purposes
     }
 
     @Override
