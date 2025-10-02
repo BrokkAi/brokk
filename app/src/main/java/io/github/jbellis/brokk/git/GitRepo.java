@@ -1363,7 +1363,13 @@ public class GitRepo implements Closeable, IGitRepo {
                     throw new GitWrappedIOException(ex);
                 }
                 if (head != null) {
-                    return head.getName(); // Return the commit SHA in detached HEAD state
+                    try (var reader = repository.newObjectReader()) {
+                        var abbrev = reader.abbreviate(head);
+                        return abbrev.name();
+                    } catch (IOException ioEx) {
+                        // Fallback to full SHA on error
+                        return head.getName();
+                    }
                 }
                 throw new GitRepoException("Repository has no HEAD", new NullPointerException());
             }

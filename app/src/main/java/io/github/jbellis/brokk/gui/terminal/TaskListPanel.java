@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -23,7 +24,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.FontMetrics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -103,8 +102,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Timer runningFadeTimer;
     private long runningAnimStartMs = 0L;
 
-    private @Nullable JTextArea inlineEditor = null;
-    private int editingIndex = -1;
     private @Nullable Integer runningIndex = null;
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
     private boolean queueActive = false;
@@ -125,9 +122,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setCellRenderer(new TaskRenderer());
         list.setVisibleRowCount(12);
         list.setFixedCellHeight(-1);
+        list.setToolTipText("Double-click to edit");
         list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Update button states based on selection
-        list.addListSelectionListener(e -> updateButtonStates());
+        list.addListSelectionListener(e -> {
+            updateButtonStates();
+        });
 
         // Enable drag-and-drop reordering
         list.setDragEnabled(true);
@@ -412,6 +412,30 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var scroll =
                 new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         add(scroll, BorderLayout.CENTER);
+
+        // Recompute wrapping and ellipsis when the viewport/list width changes
+        var vp = scroll.getViewport();
+        vp.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                // Trigger layout and re-render so the renderer recalculates available width per row
+                list.revalidate();
+                list.repaint();
+                // Force recalculation of variable row heights and ellipsis on width change
+                TaskListPanel.this.forceRowHeightsRecalc();
+            }
+        });
+        // Also listen on the JList itself in case LAF resizes the list directly
+        list.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                list.revalidate();
+                list.repaint();
+                // Force recalculation of variable row heights and ellipsis on width change
+                TaskListPanel.this.forceRowHeightsRecalc();
+            }
+        });
+
         add(controls, BorderLayout.SOUTH);
 
         // Ensure correct initial layout with wrapped rows after the panel becomes visible
@@ -424,14 +448,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Edit on double-click only to avoid interfering with multi-select
+        // Double-click opens modal edit dialog; single-click only selects.
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2 && javax.swing.SwingUtilities.isLeftMouseButton(e)) {
-                    int index = list.locationToIndex(e.getPoint());
-                    if (index < 0) return;
-                    startInlineEdit(index);
+                if (!javax.swing.SwingUtilities.isLeftMouseButton(e)) return;
+
+                int index = list.locationToIndex(e.getPoint());
+                if (index < 0) return;
+                java.awt.Rectangle cell = list.getCellBounds(index, index);
+                if (cell == null || !cell.contains(e.getPoint())) return;
+
+                if (e.getClickCount() == 2) {
+                    list.setSelectedIndex(index);
+                    editSelected();
                 }
             }
         });
@@ -534,6 +564,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (added > 0) {
             input.setText("");
             input.requestFocusInWindow();
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
         }
     }
@@ -589,6 +620,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
             if (removedAny) {
+                clearExpansionOnStructureChange();
                 updateButtonStates();
                 saveTasksForCurrentSession();
             } else {
@@ -641,124 +673,70 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        startInlineEdit(idx);
+
+        // Open modal edit dialog
+        openEditDialog(idx);
     }
 
-    private void startInlineEdit(int index) {
-        if (runningIndex != null && index == runningIndex.intValue()) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Cannot edit a task that is currently running.",
-                    "Edit Disabled",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        if (pendingQueue.contains(index)) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Cannot edit a task that is queued for running.",
-                    "Edit Disabled",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        if (index < 0 || index >= model.size()) return;
+    private void openEditDialog(int index) {
+        TaskItem current = model.get(index);
+        if (current == null) return;
 
-        // Commit any existing editor first
-        if (inlineEditor != null) {
-            stopInlineEdit(true);
-        }
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        javax.swing.JDialog dialog = (owner != null)
+                ? new javax.swing.JDialog(owner, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL)
+                : new javax.swing.JDialog(
+                        (java.awt.Window) null, "Edit Task", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
 
-        editingIndex = index;
-        var item = model.get(index);
+        javax.swing.JTextArea ta = new javax.swing.JTextArea(current.text());
+        ta.setLineWrap(true);
+        ta.setWrapStyleWord(true);
+        ta.setFont(list.getFont());
 
-        // Use a wrapped JTextArea so the inline editor preserves word-wrap like the renderer.
-        inlineEditor = new JTextArea(item.text());
-        inlineEditor.setLineWrap(true);
-        inlineEditor.setWrapStyleWord(true);
-        inlineEditor.setOpaque(false);
-        inlineEditor.setEditable(true);
-        inlineEditor.setBorder(BorderFactory.createEmptyBorder());
-        inlineEditor.setFont(list.getFont());
+        javax.swing.JScrollPane sp = new javax.swing.JScrollPane(
+                ta,
+                javax.swing.JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                javax.swing.JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        sp.setPreferredSize(new java.awt.Dimension(520, 220));
 
-        // Position editor over the cell (to the right of the checkbox area)
-        java.awt.Rectangle cell = list.getCellBounds(index, index);
-        int checkboxRegionWidth = 28;
-        int editorX = cell.x + checkboxRegionWidth;
-        int editorY = cell.y;
+        javax.swing.JPanel content = new javax.swing.JPanel(new java.awt.BorderLayout(6, 6));
+        content.add(new javax.swing.JLabel("Edit task:"), java.awt.BorderLayout.NORTH);
+        content.add(sp, java.awt.BorderLayout.CENTER);
 
-        int availableWidth = Math.max(10, cell.width - checkboxRegionWidth - 4);
-        // Size the text area to compute wrapped preferred height so the editor shows multiple lines if needed.
-        inlineEditor.setSize(availableWidth, Short.MAX_VALUE);
-        int prefH = inlineEditor.getPreferredSize().height;
-        int editorH = Math.max(cell.height - 2, prefH);
+        javax.swing.JPanel buttons = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT));
+        MaterialButton saveBtn = new MaterialButton("Save");
+        SwingUtil.applyPrimaryButtonStyle(saveBtn);
+        MaterialButton cancelBtn = new MaterialButton("Cancel");
 
-        // Ensure list can host an overlay component
-        if (list.getLayout() != null) {
-            list.setLayout(null);
-        }
-
-        inlineEditor.setBounds(editorX, editorY, availableWidth, editorH);
-        list.add(inlineEditor);
-        inlineEditor.requestFocusInWindow();
-        inlineEditor.selectAll();
-
-        // Key bindings for commit/cancel
-        // Map Enter (and platform menu shortcut + Enter) to commitEdit so Enter does NOT insert a newline.
-        inlineEditor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "commitEdit");
-        inlineEditor
-                .getInputMap()
-                .put(
-                        KeyStroke.getKeyStroke(
-                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                        "commitEdit");
-        inlineEditor.getActionMap().put("commitEdit", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                stopInlineEdit(true);
-            }
-        });
-        inlineEditor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancelEdit");
-        inlineEditor.getActionMap().put("cancelEdit", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                stopInlineEdit(false);
-            }
-        });
-
-        // Commit on focus loss
-        inlineEditor.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                stopInlineEdit(true);
-            }
-        });
-
-        list.repaint(cell);
-    }
-
-    private void stopInlineEdit(boolean commit) {
-        if (inlineEditor == null) return;
-        int index = editingIndex;
-        var editor = inlineEditor;
-
-        if (commit && index >= 0 && index < model.size()) {
-            var cur = model.get(index);
-            String newText = editor.getText();
+        saveBtn.addActionListener(e -> {
+            String newText = ta.getText();
             if (newText != null) {
                 newText = newText.strip();
-                if (!newText.isEmpty() && !newText.equals(cur.text())) {
-                    model.set(index, new TaskItem(newText, cur.done()));
+                if (!newText.isEmpty() && !newText.equals(current.text())) {
+                    model.set(index, new TaskItem(newText, current.done()));
                     saveTasksForCurrentSession();
+                    list.revalidate();
+                    list.repaint();
                 }
             }
-        }
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> dialog.dispose());
 
-        list.remove(editor);
-        inlineEditor = null;
-        editingIndex = -1;
-        list.revalidate();
-        list.repaint();
-        input.requestFocusInWindow();
+        buttons.add(saveBtn);
+        buttons.add(cancelBtn);
+        content.add(buttons, java.awt.BorderLayout.SOUTH);
+
+        dialog.setContentPane(content);
+        dialog.setResizable(true);
+        dialog.getRootPane().setDefaultButton(saveBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+
+        ta.requestFocusInWindow();
+        ta.selectAll();
+
+        dialog.setVisible(true);
     }
 
     private void updateButtonStates() {
@@ -856,6 +834,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             logger.debug("Failed loading tasks for session {} from {}", sid, file, e);
         } finally {
             isLoadingTasks = false;
+            clearExpansionOnStructureChange();
             updateButtonStates();
         }
     }
@@ -896,6 +875,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
         if (added) {
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
             updateButtonStates();
         }
@@ -1120,6 +1100,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (selFg == null) selFg = dark ? Color.WHITE : Color.BLACK;
         list.setSelectionBackground(selBg);
         list.setSelectionForeground(selFg);
+
         revalidate();
         repaint();
     }
@@ -1149,9 +1130,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         protected @Nullable Transferable createTransferable(JComponent c) {
-            // Commit any inline edit before starting a drag
-            stopInlineEdit(true);
-
             indices = list.getSelectedIndices();
 
             // Disallow dragging if selection includes the running task
@@ -1279,6 +1257,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             indices = null;
             addIndex = -1;
             addCount = 0;
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
         }
     }
@@ -1344,6 +1323,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Select the combined task
         list.setSelectedIndex(firstIdx);
 
+        clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
     }
@@ -1383,8 +1363,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-
-        stopInlineEdit(true);
 
         if (idx < 0 || idx >= model.size()) {
             return;
@@ -1428,6 +1406,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Select the new block
         list.setSelectionInterval(idx, idx + lines.size() - 1);
 
+        clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
         list.revalidate();
@@ -1441,6 +1420,45 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
     }
+
+    /**
+     * Clears all per-row expansion state. Call this after structural changes that may affect row indices (e.g.,
+     * reorders) to avoid stale mappings.
+     */
+    private void clearExpansionOnStructureChange() {
+        assert SwingUtilities.isEventDispatchThread();
+        list.revalidate();
+        list.repaint();
+    }
+
+    /**
+     * Nudge the list to recompute per-row preferred heights when the width changes, ensuring wrapping and the
+     * third-line "....." ellipsis are recalculated for visible rows. This avoids cases where the renderer wants to draw
+     * 3 lines but the UI has not yet updated the cached row heights, which would clip the ellipsis.
+     */
+    private void forceRowHeightsRecalc() {
+        // Defer to ensure the viewport/list have the final width before we nudge rows
+        SwingUtilities.invokeLater(() -> {
+            int first = list.getFirstVisibleIndex();
+            int last = list.getLastVisibleIndex();
+            int size = model.getSize();
+            if (first == -1 || last == -1 || size == 0) {
+                list.invalidate();
+                list.revalidate();
+                list.repaint();
+                return;
+            }
+            // Fire a lightweight contentsChanged for visible rows by setting each element to itself.
+            // This forces BasicListUI to recompute row heights for just the visible range.
+            for (int i = Math.max(0, first); i <= last && i < size; i++) {
+                TaskItem it = model.get(i);
+                // set the same object to trigger a change event without altering data
+                model.set(i, it);
+            }
+        });
+    }
+
+    // endregion
 
     /**
      * Compute vertical padding to center content within a cell of a given minimum height. If contentHeight >=
@@ -1514,6 +1532,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         if (removedAny) {
+            clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
         }
         updateButtonStates();
@@ -1590,6 +1609,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             add(check, BorderLayout.WEST);
 
             view.setOpaque(false);
+            view.setMaxVisibleLines(3);
             add(view, BorderLayout.CENTER);
         }
 
@@ -1616,26 +1636,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
+            view.setExpanded(false);
+            view.setMaxVisibleLines(3);
 
-            // Set text and editing visibility
-            view.setText(value.text());
-            boolean isEditingRow =
-                    (TaskListPanel.this.inlineEditor != null && TaskListPanel.this.editingIndex == index);
-            view.setVisible(!isEditingRow);
-
-            // Font and strike-through
+            // Font and strike-through first (affects metrics)
             Font base = list.getFont();
             view.setFont(base.deriveFont(Font.PLAIN));
             view.setStrikeThrough(value.done());
 
             // Compute wrapping height based on available width (with safe fallbacks for first render)
             int checkboxRegionWidth = 28;
-            int width = list.getWidth();
-            if (width <= 0) {
-                java.awt.Container parent = list.getParent();
-                if (parent instanceof javax.swing.JViewport vp) {
-                    width = vp.getWidth();
-                }
+            // Prefer the viewport's width — that's the visible region we should wrap to.
+            java.awt.Container parent = list.getParent();
+            int width;
+            if (parent instanceof javax.swing.JViewport vp) {
+                width = vp.getWidth();
+            } else {
+                width = list.getWidth();
             }
             if (width <= 0) {
                 // Final fallback to a reasonable width to avoid giant first row
@@ -1643,8 +1660,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             int available = Math.max(1, width - checkboxRegionWidth - 8);
 
-            // Measure content height for the width and compute minHeight invariant
+            // Apply width before text so measurement uses the correct wrap width immediately
             view.setAvailableWidth(available);
+
+            // Set text after width so measure() reflects current width and font
+            view.setText(value.text());
+            view.setVisible(true);
+
+            // Measure content height for the width and compute minHeight invariant
             int contentH = view.getContentHeight();
 
             // Ensure minimum height to show full checkbox icon and preserve wrapping behavior.
@@ -1652,16 +1675,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             int minHeight = Math.max(contentH, 48);
             assert minHeight == Math.max(contentH, 48)
                     : "minHeight must remain Math.max(contentH, 48) to keep wrapping stable";
-            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, minHeight));
+            // Add a descent-based buffer when expanded to ensure the bottom line is never clipped.
+            // Using the font descent gives a robust buffer across LAFs and DPI settings.
+            int heightToSet = minHeight;
+            this.setPreferredSize(new java.awt.Dimension(available + checkboxRegionWidth, heightToSet));
 
             // Vertically center the text within the row by applying top padding as a paint offset.
             // We intentionally avoid changing layouts or switching to HTML so that wrapping remains predictable
             // and rendering stays lightweight. The paint offset gives the same visual effect as a dynamic
             // EmptyBorder without incurring layout churn.
             Insets pad = verticalPaddingForCell(contentH, minHeight);
-            if (isEditingRow) {
-                pad = new Insets(0, 0, 0, 0);
-            }
             view.setTopPadding(pad.top);
 
             // State coloring and subtle running animation
@@ -1700,199 +1723,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             return this;
-        }
-    }
-
-    /**
-     * Lightweight wrapped text painter used in the renderer (no JTextArea). - Measures wrapped content height for a
-     * given available width. - Applies vertical centering by honoring a top padding paint offset. - Keeps rendering
-     * fast and stable; avoids layout churn and preserves wrap behavior consistent with the inline editor (which uses
-     * JTextArea only while editing).
-     */
-    private static final class WrappedTextView extends JComponent {
-        private String text = "";
-        private int availableWidth = 0;
-        private int contentHeight = 0;
-        private boolean strikeThrough = false;
-        private int topPadding = 0;
-
-        void setText(String text) {
-            this.text = text;
-            // Re-measure on text change
-            measure();
-            repaint();
-        }
-
-        void setAvailableWidth(int w) {
-            if (w < 1) w = 1;
-            if (this.availableWidth != w) {
-                this.availableWidth = w;
-                measure();
-                revalidate();
-                repaint();
-            }
-        }
-
-        void setStrikeThrough(boolean on) {
-            if (this.strikeThrough != on) {
-                this.strikeThrough = on;
-                repaint();
-            }
-        }
-
-        void setTopPadding(int padTop) {
-            this.topPadding = Math.max(0, padTop);
-            repaint();
-        }
-
-        int getContentHeight() {
-            return contentHeight;
-        }
-
-        @Override
-        public void setFont(Font font) {
-            super.setFont(font);
-            measure();
-            revalidate();
-            repaint();
-        }
-
-        private void measure() {
-            Font f = getFont();
-            if (f == null) {
-                contentHeight = 0;
-                return;
-            }
-            FontMetrics fm = getFontMetrics(f);
-            int lineHeight = fm.getHeight();
-            if (availableWidth <= 0 || text.isEmpty()) {
-                contentHeight = lineHeight;
-                return;
-            }
-
-            var lines = wrapLines(text, fm, availableWidth);
-            contentHeight = Math.max(lineHeight, lines.size() * lineHeight);
-        }
-
-        @Override
-        public java.awt.Dimension getPreferredSize() {
-            // The parent panel dictates minHeight; this view reports its content height and width.
-            return new java.awt.Dimension(Math.max(1, availableWidth), Math.max(0, topPadding + contentHeight));
-        }
-
-        @Override
-        protected void paintComponent(java.awt.Graphics g) {
-            super.paintComponent(g);
-            if (text.isEmpty()) return;
-
-            java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
-            try {
-                g2.setColor(getForeground());
-                g2.setFont(getFont());
-                FontMetrics fm = g2.getFontMetrics();
-                int lineHeight = fm.getHeight();
-                int y = topPadding + fm.getAscent();
-
-                var lines = wrapLines(text, fm, availableWidth);
-                for (var line : lines) {
-                    g2.drawString(line, 0, y);
-                    if (strikeThrough) {
-                        int yStrike = y - Math.round(fm.getAscent() * 0.4f);
-                        int w = fm.stringWidth(line);
-                        g2.drawLine(0, yStrike, w, yStrike);
-                    }
-                    y += lineHeight;
-                }
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        private List<String> wrapLines(String text, FontMetrics fm, int maxWidth) {
-            // Handle explicit newlines as hard breaks first.
-            var paragraphs = text.split("\\R", -1);
-            var result = new ArrayList<String>(paragraphs.length);
-            for (var para : paragraphs) {
-                wrapParagraph(para, fm, maxWidth, result);
-            }
-            if (result.isEmpty()) {
-                result.add("");
-            }
-            return result;
-        }
-
-        private void wrapParagraph(String para, FontMetrics fm, int maxWidth, List<String> out) {
-            if (para.isEmpty()) {
-                out.add("");
-                return;
-            }
-            var breaker = BreakIterator.getLineInstance(java.util.Locale.ROOT);
-            breaker.setText(para);
-            int start = breaker.first();
-            int end = breaker.next();
-            StringBuilder current = new StringBuilder();
-            while (end != BreakIterator.DONE) {
-                String word = para.substring(start, end);
-                String candidate = current + word;
-                int w = fm.stringWidth(candidate);
-                if (w <= maxWidth) {
-                    current.append(word);
-                    start = end;
-                    end = breaker.next();
-                } else {
-                    if (current.length() == 0) {
-                        // Single word longer than maxWidth: hard-break by characters
-                        end = hardBreakByChars(para, start, fm, maxWidth, out);
-                        start = end;
-                        current.setLength(0);
-                        end = breaker.following(start);
-                        if (end == BreakIterator.DONE && start < para.length()) {
-                            end = para.length();
-                        }
-                    } else {
-                        out.add(current.toString().stripTrailing());
-                        current.setLength(0);
-                        // keep evaluating the same word on next loop
-                    }
-                }
-            }
-            if (start < para.length()) {
-                current.append(para.substring(start));
-            }
-            if (current.length() > 0) {
-                out.add(current.toString().stripTrailing());
-            }
-        }
-
-        private int hardBreakByChars(String text, int start, FontMetrics fm, int maxWidth, List<String> out) {
-            int i = start;
-            StringBuilder sb = new StringBuilder();
-            while (i < text.length()) {
-                char ch = text.charAt(i);
-                int w = fm.stringWidth(sb.toString() + ch);
-                if (w > maxWidth) {
-                    if (sb.length() == 0) {
-                        // Always place at least one char to make progress
-                        sb.append(ch);
-                        i++;
-                    }
-                    out.add(sb.toString());
-                    sb.setLength(0);
-                    // Continue building next line without incrementing i
-                } else {
-                    sb.append(ch);
-                    i++;
-                }
-                // If next char would overflow and we already have content, flush
-                if (i < text.length() && fm.stringWidth(sb.toString() + text.charAt(i)) > maxWidth && sb.length() > 0) {
-                    out.add(sb.toString());
-                    sb.setLength(0);
-                }
-            }
-            if (sb.length() > 0) {
-                out.add(sb.toString());
-            }
-            return i;
         }
     }
 

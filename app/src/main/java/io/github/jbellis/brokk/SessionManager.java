@@ -134,9 +134,9 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public void deleteSession(UUID sessionId) {
+    public void deleteSession(UUID sessionId) throws Exception {
         sessionsCache.remove(sessionId);
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             try {
                 boolean deleted = Files.deleteIfExists(historyZipPath);
@@ -148,8 +148,10 @@ public class SessionManager implements AutoCloseable {
                 }
             } catch (IOException e) {
                 logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+                throw new RuntimeException("Failed to delete session " + sessionId, e);
             }
         });
+        deleteFuture.get(); // Wait for deletion to complete
     }
 
     /**
