@@ -467,6 +467,7 @@ public abstract class TreeSitterAnalyzer
         return fileProperties(file).topLevelCodeUnits();
     }
 
+    @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return fileProperties(file).importStatements();
     }

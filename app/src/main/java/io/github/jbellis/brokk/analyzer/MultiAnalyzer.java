@@ -1,6 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.io.Files;
+import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
+
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -8,12 +11,11 @@ import java.util.stream.Stream;
 
 public class MultiAnalyzer
         implements IAnalyzer,
-                CallGraphProvider,
-                UsagesProvider,
-                SkeletonProvider,
-                SourceCodeProvider,
-                IncrementalUpdateProvider,
-                TypeAliasProvider {
+        CallGraphProvider,
+        SkeletonProvider,
+        SourceCodeProvider,
+        IncrementalUpdateProvider,
+        TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -49,16 +51,21 @@ public class MultiAnalyzer
     }
 
     @Override
-    public List<CodeUnit> getUses(String fqName) {
-        return delegates.values().stream()
-                .flatMap(
-                        analyzer1 -> analyzer1
-                                .as(UsagesProvider.class)
-                                .map(up -> up.getUses(fqName))
-                                .orElse(Collections.emptyList())
-                                .stream())
-                .distinct()
-                .collect(Collectors.toList());
+    public List<String> importStatementsOf(ProjectFile file) {
+        return delegates.values().stream().flatMap(analyzer -> analyzer.importStatementsOf(file).stream()).toList();
+    }
+
+    @Override
+    public @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
+        return delegates.values().stream().map(analyzer -> analyzer.enclosingCodeUnit(file, range))
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    @Override
+    public IProject getProject() {
+        return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
     }
 
     @Override
@@ -255,7 +262,9 @@ public class MultiAnalyzer
         return false;
     }
 
-    /** @return a copy of the delegates of this analyzer. */
+    /**
+     * @return a copy of the delegates of this analyzer.
+     */
     public Map<Language, IAnalyzer> getDelegates() {
         return Collections.unmodifiableMap(delegates);
     }
