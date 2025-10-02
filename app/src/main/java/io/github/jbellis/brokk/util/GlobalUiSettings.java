@@ -38,6 +38,9 @@ public final class GlobalUiSettings {
     private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
     private static final String KEYBIND_PREFIX = "keybinding.";
     private static final String KEY_SHOW_COST_NOTIFICATIONS = "notifications.cost.enabled";
+    private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
+    private static final String KEY_SHOW_CONFIRM_NOTIFICATIONS = "notifications.confirm.enabled";
+    private static final String KEY_SHOW_INFO_NOTIFICATIONS = "notifications.info.enabled";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -244,6 +247,30 @@ public final class GlobalUiSettings {
 
     public static void saveShowCostNotifications(boolean show) {
         setBoolean(KEY_SHOW_COST_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowErrorNotifications() {
+        return getBoolean(KEY_SHOW_ERROR_NOTIFICATIONS, true);
+    }
+
+    public static void saveShowErrorNotifications(boolean show) {
+        setBoolean(KEY_SHOW_ERROR_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowConfirmNotifications() {
+        return getBoolean(KEY_SHOW_CONFIRM_NOTIFICATIONS, true);
+    }
+
+    public static void saveShowConfirmNotifications(boolean show) {
+        setBoolean(KEY_SHOW_CONFIRM_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowInfoNotifications() {
+        return getBoolean(KEY_SHOW_INFO_NOTIFICATIONS, true);
+    }
+
+    public static void saveShowInfoNotifications(boolean show) {
+        setBoolean(KEY_SHOW_INFO_NOTIFICATIONS, show);
     }
 
     private static int getInt(String key) {

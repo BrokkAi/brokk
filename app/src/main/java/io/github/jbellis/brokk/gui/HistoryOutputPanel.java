@@ -833,7 +833,7 @@ public class HistoryOutputPanel extends JPanel {
         captureDescriptionArea.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         captureDescriptionArea.setLineWrap(true);
         captureDescriptionArea.setWrapStyleWord(true);
-        panel.add(captureDescriptionArea, BorderLayout.CENTER);
+        // notification area now occupies the CENTER; description area removed
 
         // Buttons panel on the right
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
@@ -903,7 +903,7 @@ public class HistoryOutputPanel extends JPanel {
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
         // Add notification area to the east of the buttons panel
-        panel.add(notificationAreaPanel, BorderLayout.EAST);
+        panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
         return panel;
     }
@@ -953,7 +953,7 @@ public class HistoryOutputPanel extends JPanel {
         p.setOpaque(false);
         p.setBorder(new EmptyBorder(0, 5, 0, 0));
         // Preferred width to allow message text and controls; height flexes with content
-        p.setPreferredSize(new Dimension(220, 0));
+        p.setPreferredSize(new Dimension(0, 0));
         return p;
     }
 
@@ -971,7 +971,8 @@ public class HistoryOutputPanel extends JPanel {
         card.setOpaque(true);
         card.setBackground(bg);
 
-        var msg = new JLabel("<html><body style='width:200px'>" + escapeHtml(message) + "</body></html>");
+        var msg = new JLabel("<html><div style='text-align:center;'>" + escapeHtml(message) + "</div></html>");
+        msg.setHorizontalAlignment(SwingConstants.CENTER);
         msg.setForeground(fg);
         card.add(msg, BorderLayout.CENTER);
 
@@ -1012,7 +1013,7 @@ public class HistoryOutputPanel extends JPanel {
                 new EmptyBorder(6, 8, 6, 8)));
 
         // Keep card compact and responsive
-        card.setMaximumSize(new Dimension(260, Integer.MAX_VALUE));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         return card;
     }
 

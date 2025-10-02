@@ -2654,6 +2654,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
+        boolean allowed = switch (role) {
+            case COST -> GlobalUiSettings.isShowCostNotifications();
+            case ERROR -> GlobalUiSettings.isShowErrorNotifications();
+            case CONFIRM -> GlobalUiSettings.isShowConfirmNotifications();
+            case INFO -> GlobalUiSettings.isShowInfoNotifications();
+        };
+        if (!allowed) return;
+
         SwingUtilities.invokeLater(() -> historyOutputPanel.showNotification(role, message));
     }
 
