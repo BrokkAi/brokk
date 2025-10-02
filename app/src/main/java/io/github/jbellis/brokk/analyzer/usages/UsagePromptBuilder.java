@@ -11,9 +11,11 @@ import java.util.List;
  * Builds a single-usage prompt record for LLM-based relevance scoring.
  *
  * The builder emits:
- * - filterDescription: concise text describing the intended target (e.g., the short name and optional candidates)
- * - candidateText: the snippet representing this single usage
- * - promptText: an XML-like block including file path, imports, and a single <usage> block (no IDs)
+ * <ul>
+ *   <li>filterDescription: concise text describing the intended target (e.g., the short name and optional candidates)</li>
+ *   <li>candidateText: the snippet representing this single usage</li>
+ *   <li>promptText: an XML-like block including file path, imports, and a single &lt;usage&gt; block (no IDs)</li>
+ * </ul>
  *
  * All textual XML content is escaped, and a conservative token-to-character budget is enforced.
  */
