@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.MappingIterator;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.*;
@@ -76,7 +77,7 @@ public final class HistoryIo {
 
     private static ContextHistory readZipV3(Path zip, IContextManager mgr) throws IOException {
         AllFragmentsDto allFragmentsDto = null;
-        var compactContextDtoLines = new ArrayList<String>();
+        String contextsJsonl = null;
         var imageBytesMap = new HashMap<String, byte[]>();
         var resetEdges = new ArrayList<ContextHistory.ResetEdge>();
         Map<String, ContextHistory.GitState> gitStateDtos = new HashMap<>();
@@ -96,8 +97,7 @@ public final class HistoryIo {
                         contentMetadata = objectMapper.readValue(zis.readAllBytes(), typeRef);
                     }
                     case CONTEXTS_FILENAME -> {
-                        var content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
-                        content.lines().filter(line -> !line.trim().isEmpty()).forEach(compactContextDtoLines::add);
+                        contextsJsonl = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
                     }
                     case RESET_EDGES_FILENAME -> {
                         record EdgeDto(String sourceId, String targetId) {}
@@ -172,8 +172,12 @@ public final class HistoryIo {
                                 contentReader)));
 
         var contexts = new ArrayList<Context>();
-        for (String line : compactContextDtoLines) {
-            CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);
+        if (contextsJsonl == null) {
+            throw new InvalidObjectException("No contexts found");
+        }
+        MappingIterator<CompactContextDto> it = objectMapper.readerFor(CompactContextDto.class).readValues(contextsJsonl);
+        while (it.hasNextValue()) {
+            CompactContextDto compactDto = it.nextValue();
             contexts.add(DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader));
         }
 
