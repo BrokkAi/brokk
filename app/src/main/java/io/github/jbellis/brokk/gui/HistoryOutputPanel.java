@@ -1027,8 +1027,8 @@ public class HistoryOutputPanel extends JPanel {
         card.putClientProperty("notificationOpacity", 0.0f);
         
         final int fadeInDuration = 1000;  // 1 second
-        final int holdDuration = 3000;    // 3 seconds
-        final int fadeOutDuration = 1000; // 1 second
+        final int holdDuration = 10000;   // 10 seconds
+        final int fadeOutDuration = 2000; // 2 seconds
         final int fps = 30;
         final int fadeInFrames = (fadeInDuration * fps) / 1000;
         final int fadeOutFrames = (fadeOutDuration * fps) / 1000;
