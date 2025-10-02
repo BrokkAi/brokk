@@ -4,7 +4,6 @@ import static io.github.jbellis.brokk.util.HtmlUtil.escapeXml;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -28,40 +27,30 @@ public final class UsagePromptBuilder {
      * Build a prompt for a single usage hit.
      *
      * @param hit single usage occurrence (snippet should contain ~3 lines above/below already if desired)
-     * @param candidateTargets optional list of candidate targets to include in a comment header
+     * @param codeUnitTarget optional list of candidate targets to include in a comment header
      * @param analyzer used to retrieve import statements for the file containing the usage
      * @param shortName the short name being searched (e.g., "A.method2")
      * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
      * @return UsagePrompt containing filterDescription, candidateText, and promptText (no IDs)
      */
     public static UsagePrompt buildPrompt(
-            UsageHit hit,
-            List<CodeUnit> candidateTargets,
-            TreeSitterAnalyzer analyzer,
-            String shortName,
-            int maxTokens) {
+            UsageHit hit, CodeUnit codeUnitTarget, TreeSitterAnalyzer analyzer, String shortName, int maxTokens) {
 
         // Approximate token-to-character budget (very conservative)
         final int maxChars = (maxTokens <= 0) ? Integer.MAX_VALUE : Math.max(512, maxTokens * 4);
         var sb = new StringBuilder(Math.min(maxChars, 32_000));
 
         // Filter description for RelevanceClassifier.relevanceScore
-        String filterDescription = buildFilterDescription(shortName, candidateTargets);
+        String filterDescription = buildFilterDescription(codeUnitTarget);
 
         // Candidate text is the raw snippet for this single usage (unescaped)
         String candidateText = hit.snippet() == null ? "" : hit.snippet();
 
         // Header comments
         sb.append("<!-- shortName: ").append(escapeXml(shortName)).append(" -->\n");
-        if (candidateTargets != null && !candidateTargets.isEmpty()) {
-            sb.append("<!-- candidates: ");
-            var names = new ArrayList<String>(candidateTargets.size());
-            for (var cu : candidateTargets) {
-                names.add(escapeXml(cu.fqName()));
-            }
-            sb.append(String.join(", ", names));
-            sb.append(" -->\n");
-        }
+        sb.append("<!-- codeUnit: ")
+                .append(escapeXml(codeUnitTarget.toString()))
+                .append(" -->\n");
 
         // Gather imports (best effort)
         List<String> imports;
@@ -103,20 +92,7 @@ public final class UsagePromptBuilder {
         return new UsagePrompt(filterDescription, candidateText, sb.toString());
     }
 
-    private static String buildFilterDescription(String shortName, List<CodeUnit> candidateTargets) {
-        var sb = new StringBuilder(256);
-        sb.append("Determine if the snippet represents a usage of ")
-                .append(shortName)
-                .append(".");
-        if (candidateTargets != null && !candidateTargets.isEmpty()) {
-            sb.append(" Candidates: ");
-            var names = new ArrayList<String>(candidateTargets.size());
-            for (var cu : candidateTargets) {
-                names.add(cu.fqName());
-            }
-            sb.append(String.join(", ", names));
-            sb.append(".");
-        }
-        return sb.toString();
+    private static String buildFilterDescription(CodeUnit targetCodeUnit) {
+        return "Determine if the snippet represents a usage of " + targetCodeUnit + ".";
     }
 }

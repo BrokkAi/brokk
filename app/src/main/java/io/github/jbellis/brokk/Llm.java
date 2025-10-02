@@ -1452,4 +1452,9 @@ public class Llm {
             return new StreamingResult(chatResponse, error, retries);
         }
     }
+
+    @Override
+    public String toString() {
+        return "LLM[" + model.provider().toString() + "]";
+    }
 }

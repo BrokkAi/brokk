@@ -4,11 +4,13 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
+import io.github.jbellis.brokk.agents.RelevanceClassifier;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
 import io.github.jbellis.brokk.tools.SearchTools;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -85,13 +87,27 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.Success(hits);
         }
 
+        var scoredHits = new HashSet<>(hits);
         if (llm != null) {
             // Case 3: This symbol is not unique among code units, disambiguate with LLM if possible
-            // (LLM-based classification to be implemented in follow-up)
+            hits.forEach(hit -> {
+                var prompt = UsagePromptBuilder.buildPrompt(hit, target, analyzer, identifier, 8_000);
+                try {
+                    var score =
+                            RelevanceClassifier.relevanceScore(llm, prompt.filterDescription(), prompt.candidateText());
+                    scoredHits.add(hit.withConfidence(score));
+                } catch (InterruptedException e) {
+                    logger.error(
+                            "Unable to classify relevance of {} with {} due to exception. Assuming score of 1.0.",
+                            hit,
+                            llm,
+                            e);
+                    scoredHits.add(hit);
+                }
+            });
         }
-
-        // Case 4: If still ambiguous, return result describing it as such
-        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, hits);
+        return new FuzzyResult.Ambiguous(
+                target.shortName(), matchingCodeUnits, scoredHits.stream().toList());
     }
 
     /**

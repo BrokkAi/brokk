@@ -12,4 +12,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
  * @param confidence [0.0, 1.0], 1.0 for exact/unique matches; may be lower when disambiguated
  * @param snippet short text snippet around the usage location
  */
-public record UsageHit(ProjectFile file, int line, int startOffset, int endOffset, double confidence, String snippet) {}
+public record UsageHit(ProjectFile file, int line, int startOffset, int endOffset, double confidence, String snippet) {
+    public UsageHit withConfidence(double confidence) {
+        return new UsageHit(file, line, startOffset, endOffset, confidence, snippet);
+    }
+}
