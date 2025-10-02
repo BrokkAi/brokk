@@ -242,6 +242,10 @@ class CompletionsFuzzyTest {
         var chromeMatcher = new FuzzyMatcher("chrome");
         assertTrue(chromeMatcher.matches("chrome.ts"), "chrome should match chrome.ts");
         assertNotEquals(Integer.MAX_VALUE, chromeMatcher.score("chrome.ts"), "chrome.ts score must not be MAX_VALUE");
+        // Added: ensure lowercase 'chrome' matches CamelCase Java filename
+        assertTrue(chromeMatcher.matches("Chrome.java"), "chrome should match Chrome.java");
+        assertNotEquals(
+                Integer.MAX_VALUE, chromeMatcher.score("Chrome.java"), "Chrome.java score must not be MAX_VALUE");
 
         var contextMatcher = new FuzzyMatcher("context");
         assertTrue(contextMatcher.matches("context.json"), "context should match context.json");
@@ -251,6 +255,14 @@ class CompletionsFuzzyTest {
         var csTestMatcher = new FuzzyMatcher("cstest");
         assertTrue(csTestMatcher.matches("cstest.rs"), "cstest should match cstest.rs");
         assertNotEquals(Integer.MAX_VALUE, csTestMatcher.score("cstest.rs"), "cstest.rs score must not be MAX_VALUE");
+        // Added: ensure lowercase 'cstest' matches CamelCase Java filename
+        assertTrue(
+                csTestMatcher.matches("ContextSerializationTest.java"),
+                "cstest should match ContextSerializationTest.java");
+        assertNotEquals(
+                Integer.MAX_VALUE,
+                csTestMatcher.score("ContextSerializationTest.java"),
+                "ContextSerializationTest.java score must not be MAX_VALUE");
     }
 
     @Test
