@@ -11,6 +11,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,11 +94,11 @@ public class FuzzyUsageFinderJavaTest {
         assertTrue(files.contains("AnonymousUsage.java"), "Expected a usage in AnonymousUsage.java; actual: " + files);
     }
 
-    // Mirrors: getUsesNestedClassConstructorTest
+
     @Test
     public void getUsesNestedClassConstructorTest() {
         var finder = newFinder(testProject);
-        var symbol = "A$AInner.AInner";
+        var symbol = "A$AInner$AInnerInner";
         var result = finder.findUsages(symbol, 10_000);
 
         if (result instanceof FuzzyResult.Failure f) {
