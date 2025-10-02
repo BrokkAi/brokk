@@ -1286,23 +1286,46 @@ public class HistoryOutputPanel extends JPanel {
         if (notifications.isEmpty()) {
             listPanel.add(new JLabel("No notifications."));
         } else {
-            for (var n : notifications) {
-                var itemPanel = new JPanel(new BorderLayout());
-                itemPanel.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(new Color(0xDDDDDD)),
-                        new EmptyBorder(6, 8, 6, 8)));
-                itemPanel.setOpaque(true);
-                itemPanel.setBackground(UIManager.getColor("Panel.background"));
+            for (int i = 0; i < notifications.size(); i++) {
+                var n = notifications.get(i);
+                var colors = resolveNotificationColors(n.role);
+                Color bg = colors.get(0);
+                Color fg = colors.get(1);
+                Color border = colors.get(2);
 
-                String header = "[" + n.role.name() + "] " + formatModified(n.timestamp);
-                var titleLabel = new JLabel(header);
-                titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
-                var msgLabel = new JLabel("<html><body style='width:500px'>" + escapeHtml(n.message) + "</body></html>");
+                var card = new RoundedPanel(12, bg, border);
+                card.setLayout(new BorderLayout(8, 4));
+                card.setBorder(new EmptyBorder(4, 8, 4, 8));
 
-                itemPanel.add(titleLabel, BorderLayout.NORTH);
-                itemPanel.add(msgLabel, BorderLayout.CENTER);
+                // Center: message with bold timestamp at end
+                String timeStr = formatModified(n.timestamp);
+                String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
+                var msgLabel = new JLabel("<html><div style='width:500px; word-wrap: break-word; white-space: normal; text-align: center;'>" + combined + "</div></html>");
+                msgLabel.setForeground(fg);
+                msgLabel.setHorizontalAlignment(JLabel.CENTER);
+                msgLabel.setVerticalAlignment(JLabel.CENTER);
 
-                listPanel.add(itemPanel);
+                card.add(msgLabel, BorderLayout.CENTER);
+
+                // Right: dismiss button
+                var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+                actions.setOpaque(false);
+
+                final int index = i;
+                var dismissBtn = new MaterialButton();
+                dismissBtn.setToolTipText("Dismiss");
+                SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLOSE));
+                dismissBtn.addActionListener(e -> {
+                    notifications.remove(index);
+                    persistNotificationsAsync();
+                    dialog.dispose();
+                    showNotificationsDialog();
+                });
+                actions.add(dismissBtn);
+
+                card.add(actions, BorderLayout.EAST);
+
+                listPanel.add(card);
                 listPanel.add(Box.createVerticalStrut(6));
             }
         }
