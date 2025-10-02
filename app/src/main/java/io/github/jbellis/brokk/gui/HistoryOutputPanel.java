@@ -101,9 +101,6 @@ public class HistoryOutputPanel extends JPanel {
     private final MaterialButton copyButton;
     private final JPanel notificationAreaPanel;
 
-    @Nullable
-    private JScrollPane notificationScrollPane;
-
     private final MaterialButton notificationsButton = new MaterialButton();
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
     private int unreadNotificationCount = 0;
@@ -943,16 +940,8 @@ public class HistoryOutputPanel extends JPanel {
 
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
-        // Add scrollable notification area to the right of the buttons panel
-        notificationScrollPane = new JScrollPane(
-                notificationAreaPanel,
-                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        notificationScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        notificationScrollPane.setOpaque(false);
-        notificationScrollPane.getViewport().setOpaque(false);
-        panel.add(notificationScrollPane, BorderLayout.CENTER);
-        updateNotificationScrollSize();
+        // Add notification area to the right of the buttons panel
+        panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
         return panel;
     }
@@ -991,7 +980,6 @@ public class HistoryOutputPanel extends JPanel {
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
-            updateNotificationScrollSize();
 
             persistNotificationsAsync();
         };
@@ -1012,27 +1000,6 @@ public class HistoryOutputPanel extends JPanel {
         return p;
     }
 
-    // Keep the toolbar compact by capping height and letting content scroll when needed
-    private void updateNotificationScrollSize() {
-        if (notificationScrollPane == null) return;
-
-        int count = notificationAreaPanel.getComponentCount();
-        if (count == 0) {
-            notificationScrollPane.setPreferredSize(new Dimension(0, 0));
-            notificationScrollPane.revalidate();
-            return;
-        }
-
-        int total = 0;
-        for (Component comp : notificationAreaPanel.getComponents()) {
-            total += comp.getPreferredSize().height;
-        }
-
-        int max = 160; // do not let toolbar grow too tall; scroll instead
-        int desired = Math.min(total, max);
-        notificationScrollPane.setPreferredSize(new Dimension(0, desired));
-        notificationScrollPane.revalidate();
-    }
 
     // Show only the latest unread notification in the toolbar
     private void refreshLatestUnreadNotificationCard() {
@@ -1053,7 +1020,6 @@ public class HistoryOutputPanel extends JPanel {
         }
         notificationAreaPanel.revalidate();
         notificationAreaPanel.repaint();
-        updateNotificationScrollSize();
     }
 
     // Marks the latest unread notification as read (used on dismiss) and updates counters
@@ -1319,6 +1285,7 @@ public class HistoryOutputPanel extends JPanel {
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
                 card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+                card.setMinimumSize(new Dimension(0, 30));
 
                 // Left: unread indicator (if unread) + message with bold timestamp at end
                 var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -1334,7 +1301,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
                 String timeStr = formatModified(n.timestamp);
                 String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
-                var msgLabel = new JLabel("<html><div style='width:500px; word-wrap: break-word; white-space: normal;'>"
+                var msgLabel = new JLabel("<html><div style='width:100%; word-wrap: break-word; white-space: normal;'>"
                         + combined + "</div></html>");
                 msgLabel.setForeground(fg);
                 msgLabel.setHorizontalAlignment(JLabel.LEFT);

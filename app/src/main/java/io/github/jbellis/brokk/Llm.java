@@ -1323,8 +1323,8 @@ public class Llm {
 
                     String message;
                     if (pricing.bands().isEmpty()) {
-                        message = "Cost unknown for %s (in %,d uncached, %,d cached, out %,d, think %,d)"
-                                .formatted(modelName, uncached, cached, output, think);
+                        message = "Cost unknown for %s (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
+                                .formatted(modelName, input, uncached, cached, output, think);
                     } else {
                         double cost = pricing.estimateCost(uncached, cached, output);
                         java.text.DecimalFormat df =
@@ -1332,8 +1332,8 @@ public class Llm {
                         df.applyPattern("#,##0.0000");
                         String costStr = df.format(cost);
                         message = "$" + costStr + " for " + modelName
-                                + " (in %,d uncached, %,d cached, out %,d, think %,d)"
-                                        .formatted(uncached, cached, output, think);
+                                + " (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
+                                        .formatted(input, uncached, cached, output, think);
                     }
 
                     try {
