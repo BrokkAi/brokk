@@ -1072,13 +1072,15 @@ public class HistoryOutputPanel extends JPanel {
 
         // Rounded, modern container
         var card = new RoundedPanel(12, bg, border);
-        card.setLayout(new BorderLayout(10, 6));
-        card.setBorder(new EmptyBorder(6, 10, 6, 10));
+        card.setLayout(new BorderLayout(8, 4));
+        card.setBorder(new EmptyBorder(4, 8, 4, 8));
 
         // Center: show full message (including full cost details for COST)
         String display = compactMessageForToolbar(role, message);
         var msg = new JLabel("<html><div style='width:480px; word-wrap: break-word; white-space: normal;'>" + escapeHtml(display) + "</div></html>");
         msg.setForeground(fg);
+        msg.setVerticalAlignment(JLabel.CENTER);
+        msg.setHorizontalAlignment(JLabel.CENTER);
         card.add(msg, BorderLayout.CENTER);
 
         // Right: actions
@@ -1106,7 +1108,7 @@ public class HistoryOutputPanel extends JPanel {
 
         var dismissBtn = new MaterialButton();
         dismissBtn.setToolTipText("Dismiss");
-        SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLEAR_ALL));
+        SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLOSE));
         dismissBtn.addActionListener(e -> removeNotificationCard());
         actions.add(dismissBtn);
 
