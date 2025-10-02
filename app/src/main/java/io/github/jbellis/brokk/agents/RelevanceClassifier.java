@@ -6,6 +6,8 @@ import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.Llm;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -86,5 +88,114 @@ public final class RelevanceClassifier {
                         .stripIndent();
 
         return classifyRelevant(llm, systemPrompt, userPrompt);
+    }
+
+    /**
+     * Low-level API: ask the model to score the relevance of the candidate text to the filter as a real number between
+     * 0.0 and 1.0 (inclusive). Retries on ambiguous responses.
+     */
+    public static double scoreRelevance(Llm llm, String systemPrompt, String userPrompt) throws InterruptedException {
+        List<ChatMessage> messages = new ArrayList<>(2);
+        messages.add(new SystemMessage(systemPrompt));
+        messages.add(new UserMessage(userPrompt));
+
+        for (int attempt = 1; attempt <= MAX_RELEVANCE_TRIES; attempt++) {
+            logger.trace("Invoking relevance scorer (attempt {}/{})", attempt, MAX_RELEVANCE_TRIES);
+            var result = llm.sendRequest(messages);
+
+            if (result.error() != null) {
+                logger.debug("Error scoring response (attempt {}): {}", attempt, result);
+                continue;
+            }
+
+            var response = result.text().strip();
+            logger.trace("Relevance scorer response (attempt {}): {}", attempt, response);
+
+            // Accept marker-based outputs as degenerate cases
+            boolean hasRel = response.contains(RELEVANT_MARKER);
+            boolean hasIrr = response.contains(IRRELEVANT_MARKER);
+            if (hasRel && !hasIrr) return 1.0;
+            if (!hasRel && hasIrr) return 0.0;
+
+            double parsed = extractScore(response);
+            if (!Double.isNaN(parsed)) return parsed;
+
+            logger.debug("Ambiguous scoring response, retrying...");
+            messages.add(new UserMessage(response));
+            messages.add(new UserMessage("Respond with only a single number between 0.0 and 1.0, inclusive."));
+        }
+
+        logger.debug("Defaulting to score=0.0 after {} attempts", MAX_RELEVANCE_TRIES);
+        return 0.0;
+    }
+
+    /**
+     * Convenience wrapper for scoring relevance. The {@code filterDescription} describes what we are looking for and
+     * {@code candidateText} is the text to score.
+     */
+    public static double relevanceScore(Llm llm, String filterDescription, String candidateText)
+            throws InterruptedException {
+        var systemPrompt =
+                """
+                           You are an assistant that scores how relevant the candidate text is,
+                           given a user-provided filter description.
+                           Respond with only a single number between 0.0 and 1.0 (inclusive),
+                           where 0.0 means not relevant and 1.0 means highly relevant.
+                           """
+                        .stripIndent();
+
+        var userPrompt =
+                """
+                         <filter>
+                         %s
+                         </filter>
+
+                         <candidate>
+                         %s
+                         </candidate>
+
+                         Output only a single number in [0.0, 1.0].
+                         """
+                        .formatted(filterDescription, candidateText)
+                        .stripIndent();
+
+        return scoreRelevance(llm, systemPrompt, userPrompt);
+    }
+
+    private static double extractScore(String response) {
+        if (response.isEmpty()) return Double.NaN;
+
+        // Try JSON-like "score": <num>
+        try {
+            Pattern p = Pattern.compile("\"score\"\\s*:\\s*([-+]?\\d+(?:\\.\\d+)?)", Pattern.CASE_INSENSITIVE);
+            Matcher m = p.matcher(response);
+            if (m.find()) {
+                double v = Double.parseDouble(m.group(1));
+                return clamp01(v);
+            }
+        } catch (Throwable t) {
+            logger.trace("Failed to parse JSON-style score", t);
+        }
+
+        // Try first number present
+        try {
+            Pattern p = Pattern.compile("([-+]?\\d+(?:\\.\\d+)?)");
+            Matcher m = p.matcher(response);
+            if (m.find()) {
+                double v = Double.parseDouble(m.group(1));
+                return clamp01(v);
+            }
+        } catch (Throwable t) {
+            logger.trace("Failed to extract numeric score", t);
+        }
+
+        return Double.NaN;
+    }
+
+    private static double clamp01(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return 0.0;
+        if (v < 0.0) return 0.0;
+        if (v > 1.0) return 1.0;
+        return v;
     }
 }
