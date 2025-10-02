@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -49,6 +50,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Base64;
+import java.io.IOException;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -96,16 +103,33 @@ public class HistoryOutputPanel extends JPanel {
     private final MaterialButton notificationsButton = new MaterialButton();
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
     private int unreadNotificationCount = 0;
+    private final Path notificationsFile;
 
     public static enum NotificationRole { ERROR, CONFIRM, COST, INFO }
 
-    // Role color mapping: List.of(background, foreground, border)
-    private static final java.util.Map<NotificationRole, java.util.List<Color>> NOTIFICATION_COLORS = java.util.Map.of(
-            NotificationRole.ERROR, java.util.List.of(new Color(0xFFEBEE), new Color(0xB71C1C), new Color(0xEF9A9A)),
-            NotificationRole.CONFIRM, java.util.List.of(new Color(0xE8F5E9), new Color(0x1B5E20), new Color(0xA5D6A7)),
-            NotificationRole.COST, java.util.List.of(new Color(0xE3F2FD), new Color(0x0D47A1), new Color(0x90CAF9)),
-            NotificationRole.INFO, java.util.List.of(new Color(0xFFF3E0), new Color(0xE65100), new Color(0xFFCC80))
-    );
+    // Resolve notification colors from ThemeColors for current theme.
+    // Returns a list of [background, foreground, border] colors.
+    private java.util.List<Color> resolveNotificationColors(NotificationRole role) {
+        boolean isDark = chrome.themeManager.isDarkTheme();
+        return switch (role) {
+            case ERROR -> java.util.List.of(
+                    ThemeColors.getColor(isDark, "notif_error_bg"),
+                    ThemeColors.getColor(isDark, "notif_error_fg"),
+                    ThemeColors.getColor(isDark, "notif_error_border"));
+            case CONFIRM -> java.util.List.of(
+                    ThemeColors.getColor(isDark, "notif_confirm_bg"),
+                    ThemeColors.getColor(isDark, "notif_confirm_fg"),
+                    ThemeColors.getColor(isDark, "notif_confirm_border"));
+            case COST -> java.util.List.of(
+                    ThemeColors.getColor(isDark, "notif_cost_bg"),
+                    ThemeColors.getColor(isDark, "notif_cost_fg"),
+                    ThemeColors.getColor(isDark, "notif_cost_border"));
+            case INFO -> java.util.List.of(
+                    ThemeColors.getColor(isDark, "notif_info_bg"),
+                    ThemeColors.getColor(isDark, "notif_info_fg"),
+                    ThemeColors.getColor(isDark, "notif_info_border"));
+        };
+    }
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
@@ -156,6 +180,10 @@ public class HistoryOutputPanel extends JPanel {
         this.notificationAreaPanel = buildNotificationAreaPanel();
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
+
+        // Initialize notification persistence and load saved notifications
+        this.notificationsFile = computeNotificationsFile();
+        loadPersistedNotifications();
 
         // Build session controls and activity panel (East)
         this.historyModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
@@ -920,6 +948,7 @@ public class HistoryOutputPanel extends JPanel {
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
+            persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
@@ -939,6 +968,7 @@ public class HistoryOutputPanel extends JPanel {
             notificationAreaPanel.add(card);
             notificationAreaPanel.revalidate();
             notificationAreaPanel.repaint();
+            persistNotificationsAsync();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
@@ -958,28 +988,34 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private JPanel createNotificationCard(NotificationRole role, String message, @Nullable Runnable onAccept, @Nullable Runnable onReject) {
-        var colors = NOTIFICATION_COLORS.getOrDefault(role, java.util.List.of(
-                UIManager.getColor("Info.background") != null ? UIManager.getColor("Info.background") : new Color(0xE3F2FD),
-                UIManager.getColor("Info.foreground") != null ? UIManager.getColor("Info.foreground") : new Color(0x0D47A1),
-                new Color(0x90CAF9)
-        ));
+        var colors = resolveNotificationColors(role);
         Color bg = colors.get(0);
         Color fg = colors.get(1);
         Color border = colors.get(2);
 
-        var card = new JPanel(new BorderLayout(8, 4));
-        card.setOpaque(true);
-        card.setBackground(bg);
+        // Rounded, modern container
+        var card = new RoundedPanel(12, bg, border);
+        card.setLayout(new BorderLayout(10, 6));
+        card.setBorder(new EmptyBorder(6, 10, 6, 10));
 
-        var msg = new JLabel("<html><div style='text-align:center;'>" + escapeHtml(message) + "</div></html>");
-        msg.setHorizontalAlignment(SwingConstants.CENTER);
+        // Left: role icon
+        var iconLabel = new JLabel();
+        iconLabel.setForeground(fg);
+        SwingUtilities.invokeLater(() -> iconLabel.setIcon(getNotificationIcon(role)));
+        iconLabel.setBorder(new EmptyBorder(0, 0, 0, 2));
+        card.add(iconLabel, BorderLayout.WEST);
+
+        // Center: compact message (cost is condensed in toolbar)
+        String compact = compactMessageForToolbar(role, message);
+        var msg = new JLabel("<html><div style='width:280px;'>" + escapeHtml(compact) + "</div></html>");
         msg.setForeground(fg);
         card.add(msg, BorderLayout.CENTER);
 
-        var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        buttons.setOpaque(false);
+        // Right: actions
+        var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        actions.setOpaque(false);
 
-        if (onAccept != null || role == NotificationRole.CONFIRM) {
+        if (role == NotificationRole.CONFIRM) {
             var acceptBtn = new MaterialButton();
             acceptBtn.setToolTipText("Accept");
             SwingUtilities.invokeLater(() -> acceptBtn.setIcon(Icons.CHECK));
@@ -987,10 +1023,8 @@ public class HistoryOutputPanel extends JPanel {
                 if (onAccept != null) onAccept.run();
                 removeNotificationCard(card);
             });
-            buttons.add(acceptBtn);
-        }
+            actions.add(acceptBtn);
 
-        if (onReject != null || role == NotificationRole.CONFIRM) {
             var rejectBtn = new MaterialButton();
             rejectBtn.setToolTipText("Reject");
             SwingUtilities.invokeLater(() -> rejectBtn.setIcon(Icons.REMOVE));
@@ -998,23 +1032,79 @@ public class HistoryOutputPanel extends JPanel {
                 if (onReject != null) onReject.run();
                 removeNotificationCard(card);
             });
-            buttons.add(rejectBtn);
+            actions.add(rejectBtn);
+        } else if (role == NotificationRole.COST) {
+            // Keep toolbar compact: provide a shortcut to open the dialog for full details
+            var detailsBtn = new MaterialButton();
+            detailsBtn.setToolTipText("Open cost details");
+            SwingUtilities.invokeLater(() -> detailsBtn.setIcon(Icons.LIST));
+            detailsBtn.addActionListener(e -> showNotificationsDialog());
+            actions.add(detailsBtn);
         }
 
         var dismissBtn = new MaterialButton();
         dismissBtn.setToolTipText("Dismiss");
         SwingUtilities.invokeLater(() -> dismissBtn.setIcon(Icons.CLEAR_ALL));
         dismissBtn.addActionListener(e -> removeNotificationCard(card));
-        buttons.add(dismissBtn);
+        actions.add(dismissBtn);
 
-        card.add(buttons, BorderLayout.SOUTH);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(border, 1),
-                new EmptyBorder(6, 8, 6, 8)));
+        card.add(actions, BorderLayout.EAST);
 
-        // Keep card compact and responsive
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        // Keep card compact
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
         return card;
+    }
+
+    private static String compactMessageForToolbar(NotificationRole role, String message) {
+        // Cost details are verbose; keep toolbar concise and let the dialog show full content
+        if (role == NotificationRole.COST) {
+            return "Cost details available";
+        }
+        // Trim overly long messages to avoid a tall toolbar
+        int max = 160;
+        if (message.length() <= max) return message;
+        return message.substring(0, max - 3) + "...";
+    }
+
+    private static Icon getNotificationIcon(NotificationRole role) {
+        // Reuse existing icons to avoid new dependencies
+        return switch (role) {
+            case ERROR -> Icons.REMOVE;
+            case CONFIRM -> Icons.CHECK;
+            case COST -> Icons.LIST;
+            case INFO -> Icons.CHAT_BUBBLE;
+        };
+    }
+
+    private static class RoundedPanel extends JPanel {
+        private final int radius;
+        private final Color bg;
+        private final Color border;
+
+        RoundedPanel(int radius, Color bg, Color border) {
+            super();
+            this.radius = radius;
+            this.bg = bg;
+            this.border = border;
+            setOpaque(false);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int w = getWidth();
+                int h = getHeight();
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, radius, radius);
+                g2.setColor(border);
+                g2.drawRoundRect(0, 0, w - 1, h - 1, radius, radius);
+            } finally {
+                g2.dispose();
+            }
+            super.paintComponent(g);
+        }
     }
 
     // Update the notifications counter button (icon text and enabled state)
@@ -1030,6 +1120,97 @@ public class HistoryOutputPanel extends JPanel {
         notificationsButton.repaint();
     }
 
+    // Notification persistence
+
+    private Path computeNotificationsFile() {
+        var dir = Paths.get(System.getProperty("user.home"), ".brokk");
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            logger.warn("Unable to create notifications directory {}", dir, e);
+        }
+        return dir.resolve("notifications.log");
+    }
+
+    private void persistNotificationsAsync() {
+        CompletableFuture.runAsync(this::persistNotifications);
+    }
+
+    private void persistNotifications() {
+        try {
+            var lines = notifications.stream()
+                    .map(n -> {
+                        var msgB64 = Base64.getEncoder()
+                                .encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
+                        var readFlag = n.read ? "1" : "0";
+                        return "1|" + n.role.name() + "|" + n.timestamp + "|" + readFlag + "|" + msgB64;
+                    })
+                    .toList();
+            Files.write(notificationsFile, lines, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            logger.warn("Failed to persist notifications to {}", notificationsFile, e);
+        }
+    }
+
+    private void loadPersistedNotifications() {
+        try {
+            if (!Files.exists(notificationsFile)) {
+                return;
+            }
+            var lines = Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
+            for (var line : lines) {
+                if (line == null || line.isBlank()) continue;
+                var parts = line.split("\\|", 5);
+                if (parts.length < 5) continue;
+                if (!"1".equals(parts[0])) continue;
+
+                NotificationRole role;
+                try {
+                    role = NotificationRole.valueOf(parts[1]);
+                } catch (IllegalArgumentException iae) {
+                    continue;
+                }
+
+                long ts;
+                try {
+                    ts = Long.parseLong(parts[2]);
+                } catch (NumberFormatException nfe) {
+                    ts = System.currentTimeMillis();
+                }
+
+                boolean read = "1".equals(parts[3]);
+
+                String message;
+                try {
+                    var bytes = Base64.getDecoder().decode(parts[4]);
+                    message = new String(bytes, StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException iae) {
+                    message = parts[4];
+                }
+
+                notifications.add(new NotificationEntry(role, message, ts, read));
+            }
+
+            // Rebuild toolbar with unread items only
+            SwingUtilities.invokeLater(() -> {
+                notificationAreaPanel.removeAll();
+                unreadNotificationCount = 0;
+                for (var n : notifications) {
+                    if (!n.read) {
+                        unreadNotificationCount++;
+                        var card = createNotificationCard(n.role, n.message, null, null);
+                        notificationAreaPanel.add(card);
+                    }
+                }
+                updateNotificationsButton();
+                notificationAreaPanel.revalidate();
+                notificationAreaPanel.repaint();
+            });
+        } catch (Exception e) {
+            logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
+        }
+    }
+
     // Dialog showing a list of all notifications (marks all as read)
     private void showNotificationsDialog() {
         // Mark all as read and reset counter
@@ -1041,6 +1222,7 @@ public class HistoryOutputPanel extends JPanel {
         }
         unreadNotificationCount = 0;
         updateNotificationsButton();
+        persistNotificationsAsync();
 
         var dialog = new JDialog(chrome.getFrame(), "Notifications", true);
         dialog.setLayout(new BorderLayout(8, 8));
