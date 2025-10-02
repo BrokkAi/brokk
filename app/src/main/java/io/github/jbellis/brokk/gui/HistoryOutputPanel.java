@@ -1298,9 +1298,9 @@ public class HistoryOutputPanel extends JPanel {
         dialog.setLayout(new BorderLayout(8, 8));
 
         // Build list panel
-        var listPanel = new JPanel(new GridBagLayout());
+        var listPanel = new ScrollableWidthPanel(new GridBagLayout());
         listPanel.setOpaque(false);
-        listPanel.setBorder(new EmptyBorder(0, 8, 0, 8));
+        listPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
 
         if (notifications.isEmpty()) {
             GridBagConstraints gbcEmpty = new GridBagConstraints();
@@ -1375,16 +1375,22 @@ public class HistoryOutputPanel extends JPanel {
                 gbc.gridy = i;
                 gbc.weightx = 1.0;
                 gbc.fill = GridBagConstraints.HORIZONTAL;
-                int bottomInset = (i == sortedNotifications.size() - 1) ? 0 : 6;
-                gbc.insets = new Insets(0, 0, bottomInset, 0);
+                gbc.insets = new Insets(0, 0, 6, 0);
                 listPanel.add(card, gbc);
             }
 
+            // Add a filler component that takes up all extra vertical space
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.gridx = 0;
+            gbc.gridy = sortedNotifications.size();
+            gbc.weighty = 1.0;
+            gbc.fill = GridBagConstraints.VERTICAL;
+            var filler = new JPanel();
+            filler.setOpaque(false);
+            listPanel.add(filler, gbc);
         }
 
-        var listContainer = new ScrollableWidthPanel(new BorderLayout());
-        listContainer.add(listPanel, BorderLayout.NORTH);
-        var scroll = new JScrollPane(listContainer);
+        var scroll = new JScrollPane(listPanel);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
