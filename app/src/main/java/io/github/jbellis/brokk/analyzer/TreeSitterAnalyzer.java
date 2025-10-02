@@ -2860,6 +2860,7 @@ public abstract class TreeSitterAnalyzer
     private static final class CUWithDepth {
         final CodeUnit cu;
         final int depth;
+
         CUWithDepth(CodeUnit cu, int depth) {
             this.cu = cu;
             this.depth = depth;
@@ -2887,7 +2888,7 @@ public abstract class TreeSitterAnalyzer
 
     private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {
         // If the range is not contained within this CU, skip
-        boolean containsCurrent = rangesOf(current).stream().anyMatch(r -> range.isContainedWithin(r));
+        boolean containsCurrent = rangesOf(current).stream().anyMatch(range::isContainedWithin);
         if (!containsCurrent) {
             return null;
         }

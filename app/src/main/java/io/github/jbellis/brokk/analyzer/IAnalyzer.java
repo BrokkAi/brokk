@@ -265,7 +265,7 @@ public interface IAnalyzer {
         }
 
         public boolean isContainedWithin(Range other) {
-            return startByte <= other.startByte && endByte >= other.endByte;
+            return startByte >= other.startByte && endByte <= other.endByte;
         }
     }
 }
