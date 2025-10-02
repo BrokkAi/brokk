@@ -1,16 +1,13 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-
-import io.github.jbellis.brokk.IProject;
 import org.jetbrains.annotations.Nullable;
 
 public interface IAnalyzer {
-    /**
-     * Record representing a code unit relevance result with a code unit and its score.
-     */
+    /** Record representing a code unit relevance result with a code unit and its score. */
     record FileRelevance(ProjectFile file, double score) implements Comparable<FileRelevance> {
         @Override
         public int compareTo(FileRelevance other) {
@@ -30,34 +27,26 @@ public interface IAnalyzer {
 
     // Summarization
 
-    /**
-     * The project this analyzer targets
-     */
+    /** The project this analyzer targets */
     IProject getProject();
 
     default List<CodeUnit> getMembersInClass(String fqClass) {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * All top-level declarations in the project.
-     */
+    /** All top-level declarations in the project. */
     default List<CodeUnit> getAllDeclarations() {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * The metrics around the codebase as determined by the analyzer.
-     */
+    /** The metrics around the codebase as determined by the analyzer. */
     default CodeBaseMetrics getMetrics() {
         final var declarations = getAllDeclarations();
         final var codeUnits = declarations.stream().map(CodeUnit::source).distinct();
         return new CodeBaseMetrics((int) codeUnits.count(), declarations.size());
     }
 
-    /**
-     * Gets top-level declarations in a given file.
-     */
+    /** Gets top-level declarations in a given file. */
     default Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
         throw new UnsupportedOperationException();
     }
@@ -70,7 +59,7 @@ public interface IAnalyzer {
      * Finds a single CodeUnit definition matching the exact symbol name.
      *
      * @param fqName The exact, case-sensitive FQ name of the class, method, or field. Symbols are checked in that
-     *               order, so if you have a field and a method with the same name, the method will be returned.
+     *     order, so if you have a field and a method with the same name, the method will be returned.
      * @return An Optional containing the CodeUnit if exactly one match is found, otherwise empty.
      */
     default Optional<CodeUnit> getDefinition(String fqName) {
@@ -196,9 +185,7 @@ public interface IAnalyzer {
         return List.of();
     }
 
-    /**
-     * Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set.
-     */
+    /** Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set. */
     private static void addShort(String full, Set<String> out) {
         if (full.isEmpty()) return;
 
@@ -256,16 +243,15 @@ public interface IAnalyzer {
         return Optional.empty();
     }
 
-    /**
-     * @return the import snippets for the given file where other code units may be referred to by.
-     */
+    /** @return the import snippets for the given file where other code units may be referred to by. */
     List<String> importStatementsOf(ProjectFile file);
 
     /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
-     * invalid.
+     *     invalid.
      */
-    @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range);
+    @Nullable
+    CodeUnit enclosingCodeUnit(ProjectFile file, Range range);
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {

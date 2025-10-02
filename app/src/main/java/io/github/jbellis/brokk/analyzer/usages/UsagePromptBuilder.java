@@ -4,10 +4,6 @@ import static io.github.jbellis.brokk.util.HtmlUtil.escapeXml;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.MultiAnalyzer;
-import io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer;
-
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -20,22 +16,21 @@ import java.util.List;
  *   <li>candidateText: the snippet representing this single usage
  *   <li>promptText: an XML-like block including file path, imports, and a single &lt;usage&gt; block (no IDs)
  * </ul>
- * <p>
- * All textual XML content is escaped, and a conservative token-to-character budget is enforced.
+ *
+ * <p>All textual XML content is escaped, and a conservative token-to-character budget is enforced.
  */
 public final class UsagePromptBuilder {
 
-    private UsagePromptBuilder() {
-    }
+    private UsagePromptBuilder() {}
 
     /**
      * Build a prompt for a single usage hit.
      *
-     * @param hit            single usage occurrence (snippet should contain ~3 lines above/below already if desired)
+     * @param hit single usage occurrence (snippet should contain ~3 lines above/below already if desired)
      * @param codeUnitTarget optional list of candidate targets to include in a comment header
-     * @param analyzer       used to retrieve import statements for the file containing the usage
-     * @param shortName      the short name being searched (e.g., "A.method2")
-     * @param maxTokens      rough token budget (approx 4 characters per token); non-positive to disable
+     * @param analyzer used to retrieve import statements for the file containing the usage
+     * @param shortName the short name being searched (e.g., "A.method2")
+     * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
      * @return UsagePrompt containing filterDescription, candidateText, and promptText (no IDs)
      */
     public static UsagePrompt buildPrompt(
