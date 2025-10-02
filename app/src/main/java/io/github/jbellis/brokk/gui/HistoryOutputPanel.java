@@ -105,6 +105,7 @@ public class HistoryOutputPanel extends JPanel {
     private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
     private final java.util.Set<Integer> displayedNotificationIndices = new java.util.HashSet<>();
     private final Path notificationsFile;
+    private boolean isDisplayingNotification = false;
 
     public static enum NotificationRole {
         ERROR,
@@ -992,6 +993,10 @@ public class HistoryOutputPanel extends JPanel {
 
     // Show the next unshown notification in the toolbar
     private void refreshLatestNotificationCard() {
+        if (isDisplayingNotification) {
+            return;
+        }
+
         // Find the latest notification that hasn't been displayed yet
         NotificationEntry nextToShow = null;
         int nextIndex = -1;
@@ -1007,6 +1012,7 @@ public class HistoryOutputPanel extends JPanel {
 
         notificationAreaPanel.removeAll();
         if (nextToShow != null) {
+            isDisplayingNotification = true;
             displayedNotificationIndices.add(nextIndex);
             JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
             notificationAreaPanel.add(card);
@@ -1060,6 +1066,7 @@ public class HistoryOutputPanel extends JPanel {
                 
                 if (currentOpacity <= 0.0f) {
                     timerHolder[0].stop();
+                    isDisplayingNotification = false;
                     // Show the next notification (if any)
                     removeNotificationCard();
                 }
@@ -1301,7 +1308,7 @@ public class HistoryOutputPanel extends JPanel {
                 var card = new RoundedPanel(12, bg, border);
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
-                card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+                card.setMaximumSize(new Dimension(320, 120));
                 card.setMinimumSize(new Dimension(0, 30));
 
                 // Left: unread indicator (if unread) + message with bold timestamp at end
