@@ -12,6 +12,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -20,6 +21,7 @@ import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -27,6 +29,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTParser;
+import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -222,6 +230,18 @@ public class CodeAgent {
                 }
             }
 
+            // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
+            var parseJavaOutcome = parseJavaPhase(cs, es, metrics);
+            if (parseJavaOutcome instanceof Step.Retry retryJava) {
+                cs = retryJava.cs();
+                es = retryJava.es();
+                continue;
+            }
+            if (parseJavaOutcome instanceof Step.Fatal fatalJava) {
+                stopDetails = fatalJava.stopDetails();
+                break;
+            }
+
             // VERIFY or finish if build is deferred
             assert es.pendingBlocks().isEmpty() : es;
 
@@ -357,6 +377,20 @@ public class CodeAgent {
             }
             if (step instanceof Step.Fatal fatal3) {
                 stopDetails = fatal3.stopDetails();
+                break;
+            }
+            conversationState = step.cs();
+            editState = step.es();
+
+            // ----- 1-e.5.  PARSE-JAVA PHASE ----------------------------------
+            step = parseJavaPhase(conversationState, editState, null);
+            if (step instanceof Step.Retry retryJava) {
+                conversationState = retryJava.cs();
+                editState = retryJava.es();
+                continue;
+            }
+            if (step instanceof Step.Fatal fatalJava) {
+                stopDetails = fatalJava.stopDetails();
                 break;
             }
             conversationState = step.cs();
@@ -792,6 +826,117 @@ public class CodeAgent {
             Thread.currentThread().interrupt(); // Preserve interrupt status
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+    }
+
+    /**
+     * If any edited files in this turn include Java sources, run a parse-only check before attempting a full build. On
+     * syntax errors, we construct a diagnostic summary and ask the LLM to fix those first.
+     */
+    Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
+        // Only run if there were edits since the last build attempt
+        if (es.blocksAppliedWithoutBuild() == 0) {
+            return new Step.Continue(cs, es);
+        }
+
+        // Collect changed .java files
+        var javaFiles = es.changedFiles().stream()
+                .filter(f -> Languages.JAVA.getExtensions().contains(f.extension()))
+                .toList();
+
+        if (javaFiles.isEmpty()) {
+            return new Step.Continue(cs, es);
+        }
+
+        // Use Eclipse JDT ASTParser without classpath/bindings
+        var projectRoot = contextManager.getProject().getRoot();
+        var allProblems = new ArrayList<String>();
+
+        javaFiles.parallelStream().forEach(file -> {
+            var absPath = projectRoot.resolve(file.toString());
+            String src = file.read().orElse("");
+            if (src.isBlank()) {
+                return;
+            }
+            char[] sourceChars = src.toCharArray();
+
+            ASTParser parser = ASTParser.newParser(AST.JLS24);
+            parser.setKind(ASTParser.K_COMPILATION_UNIT);
+            parser.setSource(sourceChars);
+            // Enable binding resolution with recovery and use the running JVM's boot classpath.
+            // This allows JDT to surface undefined identifier errors without requiring a project classpath.
+            parser.setResolveBindings(true);
+            parser.setStatementsRecovery(true);
+            parser.setBindingsRecovery(true);
+            parser.setUnitName(absPath.getFileName().toString());
+            // Provide minimal environment: no explicit classpath/sourcepath, but include current JVM bootclasspath
+            parser.setEnvironment(new String[0], new String[0], null, true);
+            var options = JavaCore.getOptions();
+            JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
+            parser.setCompilerOptions(options);
+
+            CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+
+            // - Exclude import problems
+            // - Exclude type errors
+            // - Keep syntax errors and local identifier/undefined-name errors
+            for (IProblem prob : cu.getProblems()) {
+                if (!prob.isError()) {
+                    continue;
+                }
+                int id = prob.getID();
+                boolean isUndefinedIdentifier = (id == IProblem.UndefinedName);
+                var msg = Objects.toString(prob.getMessage(), "");
+                boolean isCannotResolveVariable = msg.contains("cannot be resolved to a variable");
+
+                if (prob instanceof CategorizedProblem cp) {
+                    int cat = cp.getCategoryID();
+                    if (cat == CategorizedProblem.CAT_IMPORT) {
+                        continue; // ignore import issues outright
+                    }
+                    if (cat == CategorizedProblem.CAT_TYPE && !(isUndefinedIdentifier || isCannotResolveVariable)) {
+                        // general type problems can be noisy without a classpath; skip unless it's clearly an undefined
+                        // identifier
+                        continue;
+                    }
+                }
+
+                var summary = formatJdtProblem(absPath, cu, prob);
+                allProblems.add(summary);
+            }
+        });
+
+        if (allProblems.isEmpty()) {
+            // clean parse; proceed
+            return new Step.Continue(cs, es);
+        }
+
+        // Build a concise diagnostic summary for the LLM
+        var summary = String.join("\n", allProblems);
+
+        var prompt =
+                """
+                Java syntax or identifier errors were detected in the edited files. Please fix these before we proceed to the full build.
+
+                %s
+                """
+                        .stripIndent()
+                        .formatted(summary);
+
+        var nextRequest = new UserMessage(prompt);
+        var nextCs = new ConversationState(
+                cs.taskMessages(), nextRequest, cs.taskMessages().size());
+        var nextEs = es.afterBuildFailure(summary); // reuse to reset state and per-turn baseline
+
+        report("Java parse errors detected; asking LLM to fix syntax/identifier issues before building.");
+        return new Step.Retry(nextCs, nextEs);
+    }
+
+    private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob) {
+        int start = Math.max(0, prob.getSourceStart());
+        long line = Math.max(1, cu.getLineNumber(start));
+        long col = Math.max(1, cu.getColumnNumber(start));
+        var message = Objects.toString(prob.getMessage(), "Problem");
+        return "%s:%d:%d: %s".formatted(absPath.toString(), line, col, message);
     }
 
     /** next FSM state */

@@ -801,4 +801,178 @@ class CodeAgentTest {
                 "BuildOutputPreprocessor.processForLlm should only be called once per build failure "
                         + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
     }
+
+    // PJ-1: parseJavaPhase retries on syntax errors
+    @Test
+    void testParseJavaPhase_withSyntaxErrors_requestsRetry() throws IOException {
+        var javaFile = contextManager.toFile("Bad.java");
+        // Intentionally broken Java (missing closing paren)
+        var badSource = "class Bad { void m( { } }\n";
+        javaFile.write(badSource);
+        contextManager.addEditableFile(javaFile);
+
+        // Prepare state indicating edits since last build and that Bad.java was changed
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = new CodeAgent.EditState(
+                List.of(), // pending blocks
+                0, // parse failures
+                0, // apply failures
+                0, // build failures
+                1, // blocksAppliedWithoutBuild
+                "", // lastBuildError
+                new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
+                new HashMap<>() // originalFileContents
+                );
+
+        var result = codeAgent.parseJavaPhase(cs, es, null);
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+
+        var retry = (CodeAgent.Step.Retry) result;
+        var retryText = Messages.getText(requireNonNull(retry.cs().nextRequest()));
+        assertNotNull(retryText);
+        assertTrue(
+                retryText.contains("Java syntax or identifier errors were detected"),
+                "Expected syntax/identifier error prompt in nextRequest");
+        assertTrue(!retry.es().lastBuildError().isEmpty(), "Expected diagnostic summary to be captured");
+        assertEquals(1, retry.es().consecutiveBuildFailures(), "Should increment consecutive build failures");
+        assertEquals(0, retry.es().blocksAppliedWithoutBuild(), "Should reset edits-since-last-build to 0");
+        assertTrue(retry.es().changedFiles().contains(javaFile), "Changed files should still include the Java file");
+    }
+
+    // PJ-1b: parseJavaPhase retries on undefined variable (identifier) errors
+    @Test
+    void testParseJavaPhase_withUndefinedVariable_requestsRetry() throws IOException {
+        var javaFile = contextManager.toFile("Undeclared.java");
+        var src = "class Undeclared { void m(){ x = 42; } }\n";
+        javaFile.write(src);
+        contextManager.addEditableFile(javaFile);
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(javaFile)), new HashMap<>());
+
+        var result = codeAgent.parseJavaPhase(cs, es, null);
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+
+        var retry = (CodeAgent.Step.Retry) result;
+        var retryText = Messages.getText(requireNonNull(retry.cs().nextRequest()));
+        assertNotNull(retryText);
+        assertTrue(
+                retryText.contains("Java syntax or identifier errors were detected"),
+                "Expected identifier error prompt");
+        assertTrue(!retry.es().lastBuildError().isEmpty(), "Expected diagnostic summary to be captured");
+    }
+
+    // PJ-2: parseJavaPhase continues on clean parse (no syntax errors)
+    @Test
+    void testParseJavaPhase_cleanParse_continues() throws IOException {
+        var javaFile = contextManager.toFile("Ok.java");
+        var okSource = "class Ok { void m() {} }\n";
+        javaFile.write(okSource);
+        contextManager.addEditableFile(javaFile);
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = new CodeAgent.EditState(
+                List.of(),
+                0,
+                0,
+                0,
+                1, // indicate there were edits this turn
+                "",
+                new HashSet<>(Set.of(javaFile)),
+                new HashMap<>());
+
+        var result = codeAgent.parseJavaPhase(cs, es, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, result);
+
+        var cont = (CodeAgent.Step.Continue) result;
+        assertEquals(0, cont.es().consecutiveBuildFailures(), "No build failure should be recorded");
+        assertEquals(1, cont.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
+        assertEquals("", cont.es().lastBuildError(), "No diagnostic summary should be present");
+        assertTrue(cont.es().changedFiles().contains(javaFile), "Changed files should remain unchanged");
+    }
+
+    // PJ-3: parseJavaPhase - blank file is OK (should continue)
+    @Test
+    void testParseJavaPhase_blankFile_ok() throws IOException {
+        var javaFile = contextManager.toFile("Blank.java");
+        javaFile.write(""); // blank content
+        contextManager.addEditableFile(javaFile);
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(javaFile)), new HashMap<>());
+
+        var result = codeAgent.parseJavaPhase(cs, es, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, result);
+
+        var cont = (CodeAgent.Step.Continue) result;
+        assertEquals(0, cont.es().consecutiveBuildFailures());
+        assertEquals("", cont.es().lastBuildError());
+    }
+
+    // PJ-4: parseJavaPhase - import resolution errors are ignored (should continue)
+    @Test
+    void testParseJavaPhase_importErrorsIgnored_continue() throws IOException {
+        var javaFile = contextManager.toFile("ImportErr.java");
+        var src = "" + "import not.exists.Missing;\n" + "class ImportErr { void m() {} }\n";
+        javaFile.write(src);
+        contextManager.addEditableFile(javaFile);
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(javaFile)), new HashMap<>());
+
+        var result = codeAgent.parseJavaPhase(cs, es, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, result);
+
+        var cont = (CodeAgent.Step.Continue) result;
+        assertEquals("", cont.es().lastBuildError(), "Import errors should be ignored and not reported");
+    }
+
+    // PJ-5: parseJavaPhase - type mismatch errors are ignored (should continue)
+    @Test
+    void testParseJavaPhase_typeMismatchIgnored_continue() throws IOException {
+        var javaFile = contextManager.toFile("TypeMismatch.java");
+        var src = "class TypeMismatch { void m(){ int x = \"s\"; } }\n";
+        javaFile.write(src);
+        contextManager.addEditableFile(javaFile);
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(javaFile)), new HashMap<>());
+
+        var result = codeAgent.parseJavaPhase(cs, es, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, result);
+
+        var cont = (CodeAgent.Step.Continue) result;
+        assertEquals("", cont.es().lastBuildError(), "Type mismatch errors should be ignored and not reported");
+    }
+
+    // PJ-6: parseJavaPhase - multiple files with syntax/identifier errors aggregate diagnostics
+    @Test
+    void testParseJavaPhase_multipleFiles_collectsDiagnostics() throws IOException {
+        var f1 = contextManager.toFile("Bad1.java");
+        var s1 = "class Bad1 { void m( { int a = b; } }\n"; // syntax + undefined identifier
+        f1.write(s1);
+        contextManager.addEditableFile(f1);
+
+        var f2 = contextManager.toFile("Bad2.java");
+        var s2 = "class Bad2 { void n(){ y++; }\n"; // missing closing brace + undefined identifier
+        f2.write(s2);
+        contextManager.addEditableFile(f2);
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>());
+
+        var result = codeAgent.parseJavaPhase(cs, es, null);
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+
+        var retry = (CodeAgent.Step.Retry) result;
+        var retryText = Messages.getText(requireNonNull(retry.cs().nextRequest()));
+        assertNotNull(retryText);
+        assertTrue(retryText.contains("Java syntax or identifier errors were detected"));
+
+        var diag = retry.es().lastBuildError();
+        assertTrue(diag.contains("Bad1.java"), "Diagnostics should include Bad1.java");
+        assertTrue(diag.contains("Bad2.java"), "Diagnostics should include Bad2.java");
+        assertEquals(1, retry.es().consecutiveBuildFailures(), "Build failures counter should increment");
+        assertEquals(0, retry.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should reset");
+    }
 }
