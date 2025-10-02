@@ -836,7 +836,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         updateButtonStates();
                     } finally {
                         isLoadingTasks = false;
-            clearExpansionOnStructureChange();
+                        clearExpansionOnStructureChange();
                     }
                 });
             }
