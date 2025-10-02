@@ -70,6 +70,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
+    private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
 
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
@@ -605,6 +606,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             servicePanel.add(forceToolEmulationCheckbox, gbc);
         }
 
+        // Show cost notifications checkbox
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        servicePanel.add(showCostNotificationsCheckbox, gbc);
+
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
@@ -924,6 +932,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (forceToolEmulationCheckbox != null) {
             forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
         }
+        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
 
         // Appearance Tab
         if (MainProject.getTheme().equals("dark")) {
@@ -1048,6 +1057,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             MainProject.setForceToolEmulation(forceToolEmulationCheckbox.isSelected());
             logger.debug("Applied Force Tool Emulation: {}", forceToolEmulationCheckbox.isSelected());
         }
+
+        // Save cost notifications preference
+        GlobalUiSettings.saveShowCostNotifications(showCostNotificationsCheckbox.isSelected());
 
         // Appearance Tab
         boolean newIsDark = darkThemeRadio.isSelected();

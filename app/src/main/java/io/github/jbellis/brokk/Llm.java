@@ -39,6 +39,7 @@ import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -1300,6 +1301,16 @@ public class Llm {
                 if (usage != null) {
                     var service = contextManager.getService();
                     var modelName = service.nameOf(model);
+                    // Filter out notifications for gemini-2.0-flash-lite
+                    if ("gemini-2.0-flash-lite".equals(modelName)) {
+                        logger.debug("Skipping cost notification for {}", modelName);
+                        return;
+                    }
+                    // Respect user preference for cost notifications
+                    if (!GlobalUiSettings.isShowCostNotifications()) {
+                        logger.debug("Cost notifications disabled by user settings");
+                        return;
+                    }
                     var pricing = service.getModelPricing(modelName);
 
                     int input = usage.inputTokens();
