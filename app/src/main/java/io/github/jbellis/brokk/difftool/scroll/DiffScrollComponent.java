@@ -379,7 +379,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
                 if (canMergeRight) {
                     if (original.size() > 0 || revised.size() > 0) { // Show if there's something to merge
                         int chevronX = xRightEdge - 8;
-                        int chevronY = yRight + hRight / 2; // Center vertically
+                        int chevronY = (hRight <= 2) ? yRight + hRight + 8 : yRight + hRight / 2; // Below bar for tiny heights, centered otherwise
                         float scale = hovered ? 1.3f : 1.0f; // Scale up on hover
 
                         var oldStroke = g2.getStroke();
@@ -400,7 +400,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
                 if (canMergeLeft) {
                     if (original.size() > 0 || revised.size() > 0) {
                         int chevronX = xLeftEdge + 8;
-                        int chevronY = yLeft + hLeft / 2;
+                        int chevronY = (hLeft <= 2) ? yLeft + hLeft + 8 : yLeft + hLeft / 2; // Below bar for tiny heights, centered otherwise
                         float scale = hovered ? 1.3f : 1.0f;
 
                         var oldStroke = g2.getStroke();
