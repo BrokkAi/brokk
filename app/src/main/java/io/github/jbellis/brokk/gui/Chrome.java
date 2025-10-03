@@ -1991,7 +1991,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // Do not restore Terminal drawer here.
-        // TerminalDrawerPanel.restoreInitialState() handles per-project-first, then global fallback.
     }
 
     /** Adds property change listeners to split panes for saving positions (global-first). */

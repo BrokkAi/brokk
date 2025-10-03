@@ -35,6 +35,7 @@ public final class GlobalUiSettings {
     private static final String KEY_TERM_OPEN = "drawers.terminal.open";
     private static final String KEY_TERM_PROP = "drawers.terminal.proportion";
     private static final String KEY_TERM_LASTTAB = "drawers.terminal.lastTab";
+    private static final String KEY_TOOLS_LASTTAB = "tools.lastTab";
     private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
     private static final String KEYBIND_PREFIX = "keybinding.";
 
@@ -183,13 +184,7 @@ public final class GlobalUiSettings {
         setBoolean(KEY_DEP_OPEN, open);
     }
 
-    public static boolean isTerminalDrawerOpen() {
-        return getBoolean(KEY_TERM_OPEN, false);
-    }
 
-    public static void saveTerminalDrawerOpen(boolean open) {
-        setBoolean(KEY_TERM_OPEN, open);
-    }
 
     // Drawers: proportions (0..1)
     public static double getDependenciesDrawerProportion() {
@@ -200,6 +195,27 @@ public final class GlobalUiSettings {
         setDouble(KEY_DEP_PROP, clampProportion(prop));
     }
 
+    // Terminal drawer: last tab (string identifier), open flag, and proportion
+    public static String getTerminalDrawerLastTab() {
+        var props = loadProps();
+        var raw = props.getProperty(KEY_TERM_LASTTAB);
+        return (raw == null) ? "" : raw;
+    }
+
+    public static void saveTerminalDrawerLastTab(String tab) {
+        var props = loadProps();
+        props.setProperty(KEY_TERM_LASTTAB, tab);
+        saveProps(props);
+    }
+
+    public static boolean isTerminalDrawerOpen() {
+        return getBoolean(KEY_TERM_OPEN, false);
+    }
+
+    public static void saveTerminalDrawerOpen(boolean open) {
+        setBoolean(KEY_TERM_OPEN, open);
+    }
+
     public static double getTerminalDrawerProportion() {
         return getDouble(KEY_TERM_PROP, -1.0);
     }
@@ -208,23 +224,14 @@ public final class GlobalUiSettings {
         setDouble(KEY_TERM_PROP, clampProportion(prop));
     }
 
-    // Drawer: last tab ("terminal" or "tasks")
-    public static @Nullable String getTerminalDrawerLastTab() {
-        var props = loadProps();
-        var raw = props.getProperty(KEY_TERM_LASTTAB);
-        if (raw == null || raw.isBlank()) return null;
-        var norm = raw.trim().toLowerCase(Locale.ROOT);
-        return ("terminal".equals(norm) || "tasks".equals(norm)) ? norm : null;
+    // Tools tab: last selected index (0-based)
+    public static int getLastToolsTabIndex() {
+        return getInt(KEY_TOOLS_LASTTAB, 0);
     }
 
-    public static void saveTerminalDrawerLastTab(String tab) {
-        var norm = tab.trim().toLowerCase(Locale.ROOT);
-        if (!"terminal".equals(norm) && !"tasks".equals(norm)) {
-            return;
-        }
-        var props = loadProps();
-        props.setProperty(KEY_TERM_LASTTAB, norm);
-        saveProps(props);
+    public static void saveLastToolsTabIndex(int index) {
+        // Allow 0 as a valid value
+        setIntAllowZero(KEY_TOOLS_LASTTAB, index);
     }
 
     // Window bounds persistence preference (default: true = per-project)
@@ -247,8 +254,26 @@ public final class GlobalUiSettings {
         }
     }
 
+    private static int getInt(String key, int def) {
+        var props = loadProps();
+        try {
+            var raw = props.getProperty(key);
+            if (raw == null || raw.isBlank()) return def;
+            return Integer.parseInt(raw.trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
     private static void setInt(String key, int value) {
         if (value <= 0) return;
+        var props = loadProps();
+        props.setProperty(key, Integer.toString(value));
+        saveProps(props);
+    }
+
+    // Allows storing zero (e.g., tab index) as a legitimate value
+    private static void setIntAllowZero(String key, int value) {
         var props = loadProps();
         props.setProperty(key, Integer.toString(value));
         saveProps(props);

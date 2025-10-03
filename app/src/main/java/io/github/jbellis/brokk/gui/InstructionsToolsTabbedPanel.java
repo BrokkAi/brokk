@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.nio.file.Path;
@@ -65,6 +66,14 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         // Terminal tab placeholder; lazily replace with TerminalPanel
         terminalPlaceholder.setOpaque(false);
         tabs.addTab("Terminal", Icons.TERMINAL, terminalPlaceholder, "Integrated terminal");
+
+        // Restore last selected tab (default to Instructions=0) and persist on change
+        int savedIndex = GlobalUiSettings.getLastToolsTabIndex();
+        if (savedIndex < 0 || savedIndex >= tabs.getTabCount()) {
+            savedIndex = TAB_INSTRUCTIONS;
+        }
+        tabs.setSelectedIndex(savedIndex);
+        tabs.addChangeListener(e -> GlobalUiSettings.saveLastToolsTabIndex(tabs.getSelectedIndex()));
 
         add(tabs, BorderLayout.CENTER);
     }
