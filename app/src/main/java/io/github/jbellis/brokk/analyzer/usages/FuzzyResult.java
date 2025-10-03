@@ -1,9 +1,9 @@
 package io.github.jbellis.brokk.analyzer.usages;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+
+import java.util.*;
+
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -21,13 +21,13 @@ public sealed interface FuzzyResult
 
     double CONFIDENCE_THRESHOLD = 0.5;
 
-    record EitherUsagesOrError(@Nullable List<UsageHit> usages, @Nullable String errorMessage) {
+    record EitherUsagesOrError(@Nullable Set<UsageHit> usages, @Nullable String errorMessage) {
 
         public static EitherUsagesOrError from(String reason) {
             return new EitherUsagesOrError(null, reason);
         }
 
-        public static EitherUsagesOrError from(List<UsageHit> usages) {
+        public static EitherUsagesOrError from(Set<UsageHit> usages) {
             return new EitherUsagesOrError(usages, null);
         }
 
@@ -44,7 +44,7 @@ public sealed interface FuzzyResult
             return errorMessage;
         }
 
-        public List<UsageHit> getUsages() {
+        public Set<UsageHit> getUsages() {
             Objects.requireNonNull(usages);
             return usages;
         }
@@ -58,8 +58,8 @@ public sealed interface FuzzyResult
                     + "(limit " + tooManyCallsites.limit() + ")");
         }
 
-        List<UsageHit> uses = new ArrayList<>();
-        if (this instanceof FuzzyResult.Success(List<UsageHit> hits)) {
+        Set<UsageHit> uses = new HashSet<>();
+        if (this instanceof FuzzyResult.Success(Set<UsageHit> hits)) {
             uses.addAll(hits);
         } else if (this instanceof FuzzyResult.Ambiguous ambiguous) {
             var filteredHits = ambiguous.hits().stream()
@@ -71,9 +71,9 @@ public sealed interface FuzzyResult
     }
 
     /** Successful resolution of usages (possibly empty). */
-    record Success(List<UsageHit> hits) implements FuzzyResult {
-        public Success(List<UsageHit> hits) {
-            this.hits = List.copyOf(hits);
+    record Success(Set<UsageHit> hits) implements FuzzyResult {
+        public Success(Set<UsageHit> hits) {
+            this.hits = Set.copyOf(hits);
         }
 
         @Override
@@ -91,11 +91,11 @@ public sealed interface FuzzyResult
     }
 
     /** Ambiguous result: indicates multiple candidate targets. */
-    record Ambiguous(String shortName, List<CodeUnit> candidateTargets, List<UsageHit> hits) implements FuzzyResult {
-        public Ambiguous(String shortName, List<CodeUnit> candidateTargets, List<UsageHit> hits) {
+    record Ambiguous(String shortName, Set<CodeUnit> candidateTargets, Set<UsageHit> hits) implements FuzzyResult {
+        public Ambiguous(String shortName, Set<CodeUnit> candidateTargets, Set<UsageHit> hits) {
             this.shortName = shortName;
-            this.candidateTargets = List.copyOf(candidateTargets);
-            this.hits = List.copyOf(hits);
+            this.candidateTargets = Set.copyOf(candidateTargets);
+            this.hits = Set.copyOf(hits);
         }
 
         @Override

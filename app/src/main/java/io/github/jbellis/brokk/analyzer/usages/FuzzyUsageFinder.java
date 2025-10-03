@@ -42,13 +42,7 @@ public final class FuzzyUsageFinder {
     public static FuzzyUsageFinder create(IContextManager ctx) {
         var service = ctx.getService();
         var quickestModel = service.quickestModel();
-        Llm llm;
-        try {
-            llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false);
-        } catch (Exception e) {
-            logger.error("Could not create LLM due to exception. Proceeding without LLM capabilities.", e);
-            llm = null;
-        }
+        var llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false);
         return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), service, llm);
     }
 
@@ -86,7 +80,7 @@ public final class FuzzyUsageFinder {
         var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
         var matchingCodeUnits = analyzer.searchDefinitions(searchPattern).stream()
                 .filter(cu -> cu.shortName().equals(identifier))
-                .toList();
+                .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
         final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
                 List.of(searchPattern), analyzer.getProject().getAllFiles());
@@ -100,7 +94,7 @@ public final class FuzzyUsageFinder {
         // Extract raw usage hits from candidate files using the provided pattern
         var hits = extractUsageHits(candidateFiles, searchPattern).stream()
                 .filter(h -> !h.enclosing().fqName().equals(target.fqName()))
-                .toList();
+                .collect(Collectors.toSet());
 
         logger.debug(
                 "Extracted {} usage hits for {} from {} candidate files",
@@ -146,8 +140,7 @@ public final class FuzzyUsageFinder {
                 Thread.currentThread().interrupt();
             }
         }
-        return new FuzzyResult.Ambiguous(
-                target.shortName(), matchingCodeUnits, scoredHits.stream().toList());
+        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, scoredHits);
     }
 
     /**
@@ -160,8 +153,8 @@ public final class FuzzyUsageFinder {
      *   <li>Confidence is 1.0 by default; LLM will adjust if needed later.
      * </ul>
      */
-    private List<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, String searchPattern) {
-        var hits = new ConcurrentLinkedQueue<UsageHit>();
+    private Set<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, String searchPattern) {
+        var hits = new ConcurrentHashMap<UsageHit, Boolean>(); // no ConcurrentHashSet exists
         final var pattern = Pattern.compile(searchPattern);
 
         candidateFiles.parallelStream().forEach(file -> {
@@ -217,8 +210,8 @@ public final class FuzzyUsageFinder {
                     var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);
                     var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
 
-                    if (enclosingCodeUnit != null) {
-                        hits.add(new UsageHit(file, lineIdx + 1, start, end, enclosingCodeUnit, 1.0, snippet));
+                    if (enclosingCodeUnit.isPresent()) {
+                        hits.put(new UsageHit(file, lineIdx + 1, start, end, enclosingCodeUnit.get(), 1.0, snippet), true);
                     } else {
                         logger.warn(
                                 "Unable to find enclosing code unit for {} in {}. Not registering hit.",
@@ -231,7 +224,7 @@ public final class FuzzyUsageFinder {
             }
         });
 
-        return List.copyOf(hits);
+        return Set.copyOf(hits.keySet());
     }
 
     /**
@@ -242,7 +235,7 @@ public final class FuzzyUsageFinder {
     public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
-            return new FuzzyResult.Success(List.of());
+            return new FuzzyResult.Success(Set.of());
         }
         var maybeCodeUnit = analyzer.getDefinition(fqName);
         if (maybeCodeUnit.isEmpty()) {

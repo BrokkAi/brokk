@@ -64,7 +64,7 @@ public class FuzzyUsageFinderJavaTest {
         };
     }
 
-    private static Set<String> baseNamesFromHits(List<UsageHit> hits) {
+    private static Set<String> baseNamesFromHits(Set<UsageHit> hits) {
         return hits.stream()
                 .map(hit -> hit.file().absPath().getFileName().toString())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
