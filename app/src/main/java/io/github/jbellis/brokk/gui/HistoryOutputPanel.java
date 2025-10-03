@@ -1073,18 +1073,23 @@ public class HistoryOutputPanel extends JPanel {
 
                 if (currentOpacity <= 0.0f) {
                     timerHolder[0].stop();
-                    isDisplayingNotification = false;
-                    notificationAreaPanel.removeAll();
-                    notificationAreaPanel.revalidate();
-                    notificationAreaPanel.repaint();
-                    // Show the next notification (if any)
-                    refreshLatestNotificationCard();
+                    dismissCurrentNotification();
                 }
             }
         });
 
         timerHolder[0] = timer;
+        card.putClientProperty("notificationTimer", timer);
         timer.start();
+    }
+
+    private void dismissCurrentNotification() {
+        isDisplayingNotification = false;
+        notificationAreaPanel.removeAll();
+        notificationAreaPanel.revalidate();
+        notificationAreaPanel.repaint();
+        // Show the next notification (if any)
+        refreshLatestNotificationCard();
     }
 
     private JPanel createNotificationCard(
@@ -1101,8 +1106,9 @@ public class HistoryOutputPanel extends JPanel {
 
         // Center: show full message (including full cost details for COST)
         String display = compactMessageForToolbar(role, message);
-        var msg = new JLabel("<html><div style='width:100%; word-wrap: break-word; white-space: normal;'>"
-                + escapeHtml(display) + "</div></html>");
+        var msg = new JLabel(
+                "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
+                        + escapeHtml(display) + "</div></html>");
         msg.setForeground(fg);
         msg.setVerticalAlignment(JLabel.CENTER);
         msg.setHorizontalAlignment(JLabel.LEFT);
@@ -1128,9 +1134,27 @@ public class HistoryOutputPanel extends JPanel {
                 removeNotificationCard();
             });
             actions.add(rejectBtn);
-
-            card.add(actions, BorderLayout.EAST);
+        } else {
+            var closeBtn = new MaterialButton();
+            closeBtn.setToolTipText("Dismiss");
+            SwingUtilities.invokeLater(() -> {
+                var icon = Icons.CLOSE;
+                if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                    closeBtn.setIcon(themedIcon.withSize(18));
+                } else {
+                    closeBtn.setIcon(icon);
+                }
+            });
+            closeBtn.addActionListener(e -> {
+                var timer = (Timer) card.getClientProperty("notificationTimer");
+                if (timer != null) {
+                    timer.stop();
+                }
+                dismissCurrentNotification();
+            });
+            actions.add(closeBtn);
         }
+        card.add(actions, BorderLayout.EAST);
 
         // Allow card to grow vertically; overall area scrolls when necessary
         return card;
