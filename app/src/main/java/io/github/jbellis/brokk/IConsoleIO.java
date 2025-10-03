@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import java.awt.*;
 import java.util.List;
@@ -63,6 +64,14 @@ public interface IConsoleIO {
      * messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)
      */
     default void systemNotify(String message, String title, int messageType) {
+        systemOutput(message);
+    }
+
+    /**
+     * Generic, non-blocking notifications for output panels or headless use. Default implementation forwards to
+     * systemOutput.
+     */
+    default void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
         systemOutput(message);
     }
 

@@ -531,7 +531,7 @@ public class AttachContextDialog extends JDialog {
             var pattern = getAlreadyEnteredText(tc).trim();
             if (pattern.isEmpty() || !cm.getProject().hasGit()) return List.of();
 
-            Set<ProjectFile> candidates = cm.getProject().getRepo().getTrackedFiles();
+            Set<ProjectFile> candidates = cm.getProject().getAllFiles();
             var scored = io.github.jbellis.brokk.Completions.scoreShortAndLong(
                     pattern,
                     candidates,

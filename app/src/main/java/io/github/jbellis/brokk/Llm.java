@@ -35,7 +35,9 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
+import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.ByteArrayOutputStream;
@@ -1290,6 +1292,62 @@ public class Llm {
             Files.writeString(filePath, formattedRequest + formattedTools + formattedResponse, options);
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
+        }
+
+        // Compute and show cost notification if usage/pricing are available
+        try {
+            if (result != null) {
+                var usage = result.tokenUsage();
+                if (usage != null) {
+                    var service = contextManager.getService();
+                    var modelName = service.nameOf(model);
+                    // Filter out cost notifications for Gemini Flash Lite unless explicitly enabled
+                    boolean isGeminiLite =
+                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.5-flash-lite".equals(modelName);
+                    if (isGeminiLite && !GlobalUiSettings.isShowGeminiLiteCostNotifications()) {
+                        logger.debug("Skipping cost notification for {} (user preference for Gemini Lite)", modelName);
+                        return;
+                    }
+                    // Respect user preference for cost notifications
+                    if (!GlobalUiSettings.isShowCostNotifications()) {
+                        logger.debug("Cost notifications disabled by user settings");
+                        return;
+                    }
+                    var pricing = service.getModelPricing(modelName);
+
+                    int input = usage.inputTokens();
+                    int cached = usage.cachedInputTokens();
+                    int uncached = Math.max(0, input - cached);
+                    int output = usage.outputTokens();
+                    int think = usage.thinkingTokens();
+
+                    String message;
+                    if (pricing.bands().isEmpty()) {
+                        message =
+                                "Cost unknown for %s (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
+                                        .formatted(modelName, input, uncached, cached, output, think);
+                    } else {
+                        double cost = pricing.estimateCost(uncached, cached, output);
+                        java.text.DecimalFormat df =
+                                (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
+                        df.applyPattern("#,##0.0000");
+                        String costStr = df.format(cost);
+                        message = "$" + costStr + " for " + modelName
+                                + " (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
+                                        .formatted(input, uncached, cached, output, think);
+                    }
+
+                    try {
+                        io.showNotification(HistoryOutputPanel.NotificationRole.COST, message);
+                    } catch (Throwable t) {
+                        logger.debug("Unable to show cost notification; falling back to system output", t);
+                        io.systemOutput(message);
+                    }
+                    logger.debug("LLM cost: {}", message);
+                }
+            }
+        } catch (Throwable t) {
+            logger.debug("Unable to compute cost notification", t);
         }
     }
 

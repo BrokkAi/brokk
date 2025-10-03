@@ -34,6 +34,7 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -360,7 +361,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         combineBtn.setIcon(Icons.CELL_MERGE);
         combineBtn.setToolTipText(
-                "<html><body style='width:300px'>Combine two selected tasks into one new task.<br>The text from both tasks will be merged and the originals deleted.<br>Enabled only when exactly 2 tasks are selected.</body></html>");
+                "<html><body style='width:300px'>Combine selected tasks into one new task.<br>The text from all tasks will be merged and the originals deleted.<br>Enabled when 2 or more tasks are selected.</body></html>");
         combineBtn.addActionListener(e -> combineSelectedTasks());
 
         splitBtn.setIcon(Icons.FORK_RIGHT);
@@ -774,8 +775,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean hasTasks = model.getSize() > 0;
         playAllBtn.setEnabled(hasTasks && !llmBusy && !queueActive);
 
-        // Combine enabled only if exactly 2 tasks selected and no running/pending in selection
-        combineBtn.setEnabled(selIndices.length == 2 && !blockEdits);
+        // Combine enabled only if 2 or more tasks selected and no running/pending in selection
+        combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
         // Split enabled only if exactly 1 task selected and no running/pending in selection and no active queue
         splitBtn.setEnabled(selIndices.length == 1 && !blockEdits && !queueActive);
 
@@ -861,7 +862,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var sessionManager = chrome.getContextManager().getProject().getSessionManager();
 
-        var dtos = new java.util.ArrayList<TaskListEntryDto>(model.size());
+        var dtos = new ArrayList<TaskListEntryDto>(model.size());
         for (int i = 0; i < model.size(); i++) {
             TaskItem it = model.get(i);
             if (it != null && !it.text().isBlank()) {
@@ -928,7 +929,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void runArchitectOnIndices(int[] selected) {
         // Build the ordered list of indices to run: valid, not done
         Arrays.sort(selected);
-        var toRun = new java.util.ArrayList<Integer>(selected.length);
+        var toRun = new ArrayList<Integer>(selected.length);
         for (int idx : selected) {
             if (idx >= 0 && idx < model.getSize()) {
                 TaskItem it = model.get(idx);
@@ -1233,7 +1234,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             // Snapshot the items being moved
-            var items = new java.util.ArrayList<TaskItem>(indices.length);
+            var items = new ArrayList<TaskItem>(indices.length);
             for (int i : indices) {
                 if (i >= 0 && i < model.size()) {
                     items.add(model.get(i));
@@ -1282,13 +1283,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void combineSelectedTasks() {
         int[] indices = list.getSelectedIndices();
-        if (indices.length != 2) {
+        if (indices.length < 2) {
             JOptionPane.showMessageDialog(
-                    this, "Select exactly two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+                    this, "Select at least two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        // Check if either task is running or pending
+        // Check if any task is running or pending
         for (int idx : indices) {
             if (runningIndex != null && idx == runningIndex) {
                 JOptionPane.showMessageDialog(
@@ -1310,33 +1311,44 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         Arrays.sort(indices);
         int firstIdx = indices[0];
-        int secondIdx = indices[1];
 
-        if (firstIdx < 0 || secondIdx >= model.size()) {
+        if (firstIdx < 0 || firstIdx >= model.size()) {
             return;
         }
 
-        TaskItem firstTask = model.get(firstIdx);
-        TaskItem secondTask = model.get(secondIdx);
+        // Collect all task texts
+        var taskTexts = new ArrayList<String>(indices.length);
+        for (int idx : indices) {
+            if (idx < 0 || idx >= model.size()) {
+                continue;
+            }
+            TaskItem task = model.get(idx);
+            if (task == null) {
+                continue;
+            }
+            taskTexts.add(task.text());
+        }
 
-        if (firstTask == null || secondTask == null) {
+        if (taskTexts.isEmpty()) {
             return;
         }
 
         // Combine the text with a separator
-        String combinedText = firstTask.text() + " | " + secondTask.text();
+        String combinedText = String.join(" | ", taskTexts);
 
-        // Both tasks are considered done if either one is done
-        boolean combinedDone = firstTask.done() || secondTask.done();
+        // Create the new combined task (always marked as not done)
+        TaskItem combinedTask = new TaskItem(combinedText, false);
 
-        // Create the new combined task
-        TaskItem combinedTask = new TaskItem(combinedText, combinedDone);
-
-        // Add the combined task at the position of the first selected task
+        // Replace the first task with the combined task
         model.set(firstIdx, combinedTask);
 
-        // Remove the second task (higher index first to keep indices valid)
-        model.remove(secondIdx);
+        // Remove all other tasks (from highest index to lowest to keep indices valid)
+        for (int i = indices.length - 1; i > 0; i--) {
+            int idx = indices[i];
+            if (idx >= 0 && idx < model.size()) {
+                model.remove(idx);
+            }
+        }
 
         // Select the combined task
         list.setSelectedIndex(firstIdx);
@@ -1562,7 +1574,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        var taskTexts = new java.util.ArrayList<String>(indices.length);
+        var taskTexts = new ArrayList<String>(indices.length);
         for (int idx : indices) {
             if (idx >= 0 && idx < model.getSize()) {
                 var item = model.get(idx);

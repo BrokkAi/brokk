@@ -23,15 +23,19 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.ToolRegistry.SignatureUnit;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -72,6 +76,7 @@ public class SearchAgent {
     private final IConsoleIO io;
     private final String goal;
     private final Set<Terminal> allowedTerminals;
+    private final List<McpPrompts.McpTool> mcpTools;
 
     // Session-local conversation for this agent
     private final List<ChatMessage> sessionMessages = new ArrayList<>();
@@ -96,6 +101,17 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
+
+        var mcpConfig = cm.getProject().getMcpConfig();
+        List<McpPrompts.McpTool> tools = new ArrayList<>();
+        for (var server : mcpConfig.servers()) {
+            if (server.tools() != null) {
+                for (var toolName : server.tools()) {
+                    tools.add(new McpPrompts.McpTool(server, toolName));
+                }
+            }
+        }
+        this.mcpTools = List.copyOf(tools);
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -284,6 +300,12 @@ public class SearchAgent {
                                 .collect(Collectors.joining(", "))));
         messages.add(sys);
 
+        // Describe available MCP tools
+        var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
+        if (mcpToolPrompt != null) {
+            messages.add(new SystemMessage(mcpToolPrompt));
+        }
+
         // Current Workspace contents
         messages.addAll(precomputedWorkspaceMessages);
 
@@ -447,6 +469,10 @@ public class SearchAgent {
         names.add("addTextToWorkspace");
         names.add("dropWorkspaceFragments");
 
+        if (!mcpTools.isEmpty()) {
+            names.add("callMcpTool");
+        }
+
         logger.debug("Allowed tool names: {}", names);
         return names;
     }
@@ -552,6 +578,41 @@ public class SearchAgent {
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
         logger.debug("abortSearch selected with explanation length {}", explanation.length());
         return explanation;
+    }
+
+    @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
+    public String callMcpTool(
+            @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
+            @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
+                    @Nullable
+                    Map<String, Object> arguments) {
+        Map<String, Object> args = Objects.requireNonNullElseGet(arguments, HashMap::new);
+        var mcpToolOptional =
+                mcpTools.stream().filter(t -> t.toolName().equals(toolName)).findFirst();
+
+        if (mcpToolOptional.isEmpty()) {
+            var err = "Error: MCP tool '" + toolName + "' not found in configuration.";
+            if (toolName.contains("(") || toolName.contains("{")) {
+                err = err
+                        + " Possible arguments found in the tool name. Hint: The first argument, 'toolName', is the tool name only. Any arguments must be defined as a map in the second argument, named 'arguments'.";
+            }
+            logger.warn(err);
+            return err;
+        }
+
+        var server = mcpToolOptional.get().server();
+        try {
+            var projectRoot = this.cm.getProject().getRoot();
+            var result = McpUtils.callTool(server, toolName, args, projectRoot);
+            var preamble = McpPrompts.mcpToolPreamble();
+            var msg = preamble + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
+            logger.info("MCP tool '{}' executed successfully via server '{}'", toolName, server.name());
+            return msg;
+        } catch (IOException | RuntimeException e) {
+            var err = "Error calling MCP tool '" + toolName + "': " + e.getMessage();
+            logger.error(err, e);
+            return err;
+        }
     }
 
     // =======================

@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -37,10 +38,16 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -92,6 +99,48 @@ public class HistoryOutputPanel extends JPanel {
     private JTextArea captureDescriptionArea;
 
     private final MaterialButton copyButton;
+    private final JPanel notificationAreaPanel;
+
+    private final MaterialButton notificationsButton = new MaterialButton();
+    private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
+    private final java.util.Queue<NotificationEntry> notificationQueue = new java.util.ArrayDeque<>();
+    private final Path notificationsFile;
+    private boolean isDisplayingNotification = false;
+
+    public static enum NotificationRole {
+        ERROR,
+        CONFIRM,
+        COST,
+        INFO
+    }
+
+    // Resolve notification colors from ThemeColors for current theme.
+    // Returns a list of [background, foreground, border] colors.
+    private java.util.List<Color> resolveNotificationColors(NotificationRole role) {
+        boolean isDark = chrome.themeManager.isDarkTheme();
+        return switch (role) {
+            case ERROR ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_error_bg"),
+                        ThemeColors.getColor(isDark, "notif_error_fg"),
+                        ThemeColors.getColor(isDark, "notif_error_border"));
+            case CONFIRM ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_confirm_bg"),
+                        ThemeColors.getColor(isDark, "notif_confirm_fg"),
+                        ThemeColors.getColor(isDark, "notif_confirm_border"));
+            case COST ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_cost_bg"),
+                        ThemeColors.getColor(isDark, "notif_cost_fg"),
+                        ThemeColors.getColor(isDark, "notif_cost_border"));
+            case INFO ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_info_bg"),
+                        ThemeColors.getColor(isDark, "notif_info_fg"),
+                        ThemeColors.getColor(isDark, "notif_info_border"));
+        };
+    }
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
@@ -139,8 +188,13 @@ public class HistoryOutputPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
+        this.notificationAreaPanel = buildNotificationAreaPanel();
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
+
+        // Initialize notification persistence and load saved notifications
+        this.notificationsFile = computeNotificationsFile();
+        loadPersistedNotifications();
 
         // Build session controls and activity panel (East)
         this.historyModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
@@ -818,7 +872,7 @@ public class HistoryOutputPanel extends JPanel {
         captureDescriptionArea.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         captureDescriptionArea.setLineWrap(true);
         captureDescriptionArea.setWrapStyleWord(true);
-        panel.add(captureDescriptionArea, BorderLayout.CENTER);
+        // notification area now occupies the CENTER; description area removed
 
         // Buttons panel on the right
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
@@ -885,10 +939,566 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
+        // Notifications button
+        notificationsButton.setToolTipText("Show notifications");
+        notificationsButton.addActionListener(e -> showNotificationsDialog());
+        SwingUtilities.invokeLater(() -> {
+            notificationsButton.setIcon(Icons.NOTIFICATIONS);
+            notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+        });
+        buttonsPanel.add(notificationsButton);
+
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
+        // Add notification area to the right of the buttons panel
+        panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
         return panel;
+    }
+
+    // Notification API
+    public void showNotification(NotificationRole role, String message) {
+        Runnable r = () -> {
+            var entry = new NotificationEntry(role, message, System.currentTimeMillis());
+            notifications.add(entry);
+            notificationQueue.offer(entry);
+            updateNotificationsButton();
+            persistNotificationsAsync();
+            refreshLatestNotificationCard();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
+        Runnable r = () -> {
+            var entry = new NotificationEntry(NotificationRole.CONFIRM, message, System.currentTimeMillis());
+            notifications.add(entry);
+            updateNotificationsButton();
+            persistNotificationsAsync();
+
+            if (isDisplayingNotification) {
+                notificationQueue.offer(entry);
+            } else {
+                notificationAreaPanel.removeAll();
+                isDisplayingNotification = true;
+                JPanel card = createNotificationCard(NotificationRole.CONFIRM, message, onAccept, onReject);
+                notificationAreaPanel.add(card);
+                animateNotificationCard(card);
+                notificationAreaPanel.revalidate();
+                notificationAreaPanel.repaint();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    private JPanel buildNotificationAreaPanel() {
+        var p = new JPanel();
+        p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+        p.setOpaque(false);
+        p.setBorder(new EmptyBorder(0, 5, 0, 0));
+        // Preferred width to allow message text and controls; height flexes with content
+        p.setPreferredSize(new Dimension(0, 0));
+        return p;
+    }
+
+    // Show the next notification from the queue
+    private void refreshLatestNotificationCard() {
+        if (isDisplayingNotification || notificationQueue.isEmpty()) {
+            return;
+        }
+
+        var nextToShow = notificationQueue.poll();
+        if (nextToShow == null) {
+            return;
+        }
+
+        notificationAreaPanel.removeAll();
+        isDisplayingNotification = true;
+        JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
+        notificationAreaPanel.add(card);
+        animateNotificationCard(card);
+        notificationAreaPanel.revalidate();
+        notificationAreaPanel.repaint();
+    }
+
+    private void animateNotificationCard(JPanel card) {
+        card.putClientProperty("notificationOpacity", 0.0f);
+
+        final int fadeInDuration = 2000; // 2 seconds
+        final int holdDuration = 1000; // 10 seconds
+        final int fadeOutDuration = 2000; // 2 seconds
+        final int fps = 30;
+        final int fadeInFrames = (fadeInDuration * fps) / 1000;
+        final int fadeOutFrames = (fadeOutDuration * fps) / 1000;
+        final float fadeInStep = 1.0f / fadeInFrames;
+        final float fadeOutStep = 1.0f / fadeOutFrames;
+
+        final Timer[] timerHolder = new Timer[1];
+        final int[] frameCounter = {0};
+        final int[] phase = {0}; // 0=fade in, 1=hold, 2=fade out
+
+        Timer timer = new Timer(1000 / fps, e -> {
+            float currentOpacity = (Float) card.getClientProperty("notificationOpacity");
+
+            if (phase[0] == 0) {
+                // Fade in
+                currentOpacity = Math.min(1.0f, currentOpacity + fadeInStep);
+                card.putClientProperty("notificationOpacity", currentOpacity);
+                card.repaint();
+
+                if (currentOpacity >= 1.0f) {
+                    phase[0] = 1;
+                    frameCounter[0] = 0;
+                }
+            } else if (phase[0] == 1) {
+                // Hold
+                frameCounter[0]++;
+                if (frameCounter[0] >= (holdDuration / (1000 / fps))) {
+                    phase[0] = 2;
+                    frameCounter[0] = 0;
+                }
+            } else if (phase[0] == 2) {
+                // Fade out
+                currentOpacity = Math.max(0.0f, currentOpacity - fadeOutStep);
+                card.putClientProperty("notificationOpacity", currentOpacity);
+                card.repaint();
+
+                if (currentOpacity <= 0.0f) {
+                    timerHolder[0].stop();
+                    dismissCurrentNotification();
+                }
+            }
+        });
+
+        timerHolder[0] = timer;
+        card.putClientProperty("notificationTimer", timer);
+        timer.start();
+    }
+
+    private void dismissCurrentNotification() {
+        isDisplayingNotification = false;
+        notificationAreaPanel.removeAll();
+        notificationAreaPanel.revalidate();
+        notificationAreaPanel.repaint();
+        // Show the next notification (if any)
+        refreshLatestNotificationCard();
+    }
+
+    private JPanel createNotificationCard(
+            NotificationRole role, String message, @Nullable Runnable onAccept, @Nullable Runnable onReject) {
+        var colors = resolveNotificationColors(role);
+        Color bg = colors.get(0);
+        Color fg = colors.get(1);
+        Color border = colors.get(2);
+
+        // Rounded, modern container
+        var card = new RoundedPanel(12, bg, border);
+        card.setLayout(new BorderLayout(8, 4));
+        card.setBorder(new EmptyBorder(2, 8, 2, 8));
+
+        // Center: show full message (including full cost details for COST)
+        String display = compactMessageForToolbar(role, message);
+        var msg = new JLabel(
+                "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
+                        + escapeHtml(display) + "</div></html>");
+        msg.setForeground(fg);
+        msg.setVerticalAlignment(JLabel.CENTER);
+        msg.setHorizontalAlignment(JLabel.LEFT);
+        card.add(msg, BorderLayout.CENTER);
+
+        // Right: actions
+        var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        actions.setOpaque(false);
+
+        if (role == NotificationRole.CONFIRM) {
+            var acceptBtn = new MaterialButton("Accept");
+            acceptBtn.setToolTipText("Accept");
+            acceptBtn.addActionListener(e -> {
+                if (onAccept != null) onAccept.run();
+                removeNotificationCard();
+            });
+            actions.add(acceptBtn);
+
+            var rejectBtn = new MaterialButton("Reject");
+            rejectBtn.setToolTipText("Reject");
+            rejectBtn.addActionListener(e -> {
+                if (onReject != null) onReject.run();
+                removeNotificationCard();
+            });
+            actions.add(rejectBtn);
+        } else {
+            var closeBtn = new MaterialButton();
+            closeBtn.setToolTipText("Dismiss");
+            SwingUtilities.invokeLater(() -> {
+                var icon = Icons.CLOSE;
+                if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                    closeBtn.setIcon(themedIcon.withSize(18));
+                } else {
+                    closeBtn.setIcon(icon);
+                }
+            });
+            closeBtn.addActionListener(e -> {
+                var timer = (Timer) card.getClientProperty("notificationTimer");
+                if (timer != null) {
+                    timer.stop();
+                }
+                dismissCurrentNotification();
+            });
+            actions.add(closeBtn);
+        }
+        card.add(actions, BorderLayout.EAST);
+
+        // Allow card to grow vertically; overall area scrolls when necessary
+        return card;
+    }
+
+    private static String compactMessageForToolbar(NotificationRole role, String message) {
+        // Show full details for COST; compact other long messages to keep the toolbar tidy
+        if (role == NotificationRole.COST) {
+            return message;
+        }
+        int max = 160;
+        if (message.length() <= max) return message;
+        return message.substring(0, max - 3) + "...";
+    }
+
+    private static class RoundedPanel extends JPanel {
+        private final int radius;
+        private final Color bg;
+        private final Color border;
+
+        RoundedPanel(int radius, Color bg, Color border) {
+            super();
+            this.radius = radius;
+            this.bg = bg;
+            this.border = border;
+            setOpaque(false);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                // Apply opacity animation if present
+                Float opacity = (Float) getClientProperty("notificationOpacity");
+                if (opacity != null && opacity < 1.0f) {
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity));
+                }
+
+                int w = getWidth();
+                int h = getHeight();
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, radius, radius);
+                g2.setColor(border);
+                g2.drawRoundRect(0, 0, w - 1, h - 1, radius, radius);
+            } finally {
+                g2.dispose();
+            }
+            super.paintComponent(g);
+        }
+    }
+
+    private static class ScrollableWidthPanel extends JPanel implements Scrollable {
+        ScrollableWidthPanel(LayoutManager layout) {
+            super(layout);
+            setOpaque(false);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 64;
+        }
+    }
+
+    // Update the notifications button (removed count display)
+    private void updateNotificationsButton() {
+        // No-op: button just shows icon without count
+    }
+
+    // Notification persistence
+
+    private Path computeNotificationsFile() {
+        var dir = Paths.get(System.getProperty("user.home"), ".brokk");
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            logger.warn("Unable to create notifications directory {}", dir, e);
+        }
+        return dir.resolve("notifications.log");
+    }
+
+    private void persistNotificationsAsync() {
+        CompletableFuture.runAsync(this::persistNotifications);
+    }
+
+    private void persistNotifications() {
+        try {
+            var linesToPersist = notifications.stream()
+                    .sorted(Comparator.comparingLong((NotificationEntry n) -> n.timestamp)
+                            .reversed())
+                    .limit(100)
+                    .map(n -> {
+                        var msgB64 = Base64.getEncoder().encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
+                        return "2|" + n.role.name() + "|" + n.timestamp + "|" + msgB64;
+                    })
+                    .toList();
+            Files.write(notificationsFile, linesToPersist, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            logger.warn("Failed to persist notifications to {}", notificationsFile, e);
+        }
+    }
+
+    private void loadPersistedNotifications() {
+        try {
+            if (!Files.exists(notificationsFile)) {
+                return;
+            }
+            var lines = Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
+            for (var line : lines) {
+                if (line == null || line.isBlank()) continue;
+                var parts = line.split("\\|", 4);
+                if (parts.length < 4) continue;
+
+                // Skip old format (version 1)
+                if ("1".equals(parts[0])) continue;
+                if (!"2".equals(parts[0])) continue;
+
+                NotificationRole role;
+                try {
+                    role = NotificationRole.valueOf(parts[1]);
+                } catch (IllegalArgumentException iae) {
+                    continue;
+                }
+
+                long ts;
+                try {
+                    ts = Long.parseLong(parts[2]);
+                } catch (NumberFormatException nfe) {
+                    ts = System.currentTimeMillis();
+                }
+
+                String message;
+                try {
+                    var bytes = Base64.getDecoder().decode(parts[3]);
+                    message = new String(bytes, StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException iae) {
+                    message = parts[3];
+                }
+
+                notifications.add(new NotificationEntry(role, message, ts));
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                updateNotificationsButton();
+            });
+        } catch (Exception e) {
+            logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
+        }
+    }
+
+    // Dialog showing a list of all notifications
+    private void showNotificationsDialog() {
+        var dialog = new JDialog(chrome.getFrame(), "Notifications (" + notifications.size() + ")", true);
+        dialog.setLayout(new BorderLayout(8, 8));
+
+        // Build list panel
+        var listPanel = new ScrollableWidthPanel(new GridBagLayout());
+        listPanel.setOpaque(false);
+        listPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        rebuildNotificationsList(dialog, listPanel);
+
+        var scroll = new JScrollPane(listPanel);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        // Footer with limit note and buttons
+        var footer = new JPanel(new BorderLayout());
+        footer.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        var noteLabel = new JLabel("The most recent 100 notifications are retained.");
+        noteLabel.setFont(noteLabel.getFont().deriveFont(Font.ITALIC));
+        noteLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        footer.add(noteLabel, BorderLayout.WEST);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+
+        var closeBtn = new MaterialButton("Ok");
+        SwingUtil.applyPrimaryButtonStyle(closeBtn);
+        closeBtn.addActionListener(e -> dialog.dispose());
+        buttonPanel.add(closeBtn);
+
+        var clearAllBtn = new MaterialButton("Clear All");
+        clearAllBtn.addActionListener(e -> {
+            notifications.clear();
+            notificationQueue.clear();
+            updateNotificationsButton();
+            persistNotificationsAsync();
+            dialog.dispose();
+        });
+        buttonPanel.add(clearAllBtn);
+
+        footer.add(buttonPanel, BorderLayout.EAST);
+
+        dialog.add(scroll, BorderLayout.CENTER);
+        dialog.add(footer, BorderLayout.SOUTH);
+
+        dialog.setSize(640, 480);
+        dialog.setLocationRelativeTo(chrome.getFrame());
+        dialog.setVisible(true);
+    }
+
+    private void rebuildNotificationsList(JDialog dialog, JPanel listPanel) {
+        listPanel.removeAll();
+        dialog.setTitle("Notifications (" + notifications.size() + ")");
+
+        if (notifications.isEmpty()) {
+            GridBagConstraints gbcEmpty = new GridBagConstraints();
+            gbcEmpty.gridx = 0;
+            gbcEmpty.gridy = 0;
+            gbcEmpty.weightx = 1.0;
+            gbcEmpty.fill = GridBagConstraints.HORIZONTAL;
+            listPanel.add(new JLabel("No notifications."), gbcEmpty);
+        } else {
+            // Sort by timestamp descending (newest first)
+            var sortedNotifications = new ArrayList<>(notifications);
+            sortedNotifications.sort(Comparator.comparingLong((NotificationEntry n) -> n.timestamp)
+                    .reversed());
+
+            for (int i = 0; i < sortedNotifications.size(); i++) {
+                var n = sortedNotifications.get(i);
+                var colors = resolveNotificationColors(n.role);
+                Color bg = colors.get(0);
+                Color fg = colors.get(1);
+                Color border = colors.get(2);
+
+                var card = new RoundedPanel(12, bg, border);
+                card.setLayout(new BorderLayout(8, 4));
+                card.setBorder(new EmptyBorder(4, 8, 4, 8));
+                card.setMinimumSize(new Dimension(0, 30));
+
+                // Left: unread indicator (if unread) + message with bold timestamp at end
+                var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                leftPanel.setOpaque(false);
+
+                String timeStr = formatModified(n.timestamp);
+                String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
+                var msgLabel = new JLabel("<html><div style='width:100%; word-wrap: break-word; white-space: normal;'>"
+                        + combined + "</div></html>");
+                msgLabel.setForeground(fg);
+                msgLabel.setHorizontalAlignment(JLabel.LEFT);
+                msgLabel.setVerticalAlignment(JLabel.CENTER);
+
+                leftPanel.add(msgLabel);
+                card.add(leftPanel, BorderLayout.CENTER);
+
+                // Right: close button (half size)
+                var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+                actions.setOpaque(false);
+
+                var closeBtn = new MaterialButton();
+                closeBtn.setToolTipText("Remove this notification");
+                SwingUtilities.invokeLater(() -> {
+                    var icon = Icons.CLOSE;
+                    if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                        closeBtn.setIcon(themedIcon.withSize(12));
+                    } else {
+                        closeBtn.setIcon(icon);
+                    }
+                });
+                closeBtn.addActionListener(e -> {
+                    notifications.remove(n);
+                    notificationQueue.removeIf(entry -> entry == n);
+                    updateNotificationsButton();
+                    persistNotificationsAsync();
+                    rebuildNotificationsList(dialog, listPanel);
+                });
+                closeBtn.setPreferredSize(new Dimension(24, 24));
+                actions.add(closeBtn);
+
+                card.add(actions, BorderLayout.EAST);
+
+                GridBagConstraints gbc = new GridBagConstraints();
+                gbc.gridx = 0;
+                gbc.gridy = i;
+                gbc.weightx = 1.0;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.insets = new Insets(0, 0, 6, 0);
+                listPanel.add(card, gbc);
+            }
+
+            // Add a filler component that takes up all extra vertical space
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.gridx = 0;
+            gbc.gridy = sortedNotifications.size();
+            gbc.weighty = 1.0;
+            gbc.fill = GridBagConstraints.VERTICAL;
+            var filler = new JPanel();
+            filler.setOpaque(false);
+            listPanel.add(filler, gbc);
+        }
+        listPanel.revalidate();
+        listPanel.repaint();
+    }
+
+    // Simple container for notifications
+    private static class NotificationEntry {
+        final NotificationRole role;
+        final String message;
+        final long timestamp;
+
+        NotificationEntry(NotificationRole role, String message, long timestamp) {
+            this.role = role;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private void removeNotificationCard() {
+        Runnable r = () -> {
+            refreshLatestNotificationCard();
+            updateNotificationsButton();
+            persistNotificationsAsync();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     public List<ChatMessage> getLlmRawMessages() {
