@@ -23,7 +23,7 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
-import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
+import io.github.jbellis.brokk.gui.InstructionsToolsTabbedPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
@@ -223,9 +223,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
 
-    // Right-hand drawer (tools) - split and content
-    private DrawerSplitPanel instructionsDrawerSplit;
-    private TerminalDrawerPanel terminalDrawer;
+    // Tools tabs (Instructions, Tasks, Terminal)
+    private InstructionsToolsTabbedPanel instructionsToolsPanel;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
@@ -430,17 +429,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
 
-        // Create terminal drawer panel
-        instructionsDrawerSplit = new DrawerSplitPanel();
-        terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
+        // Create instructions/tools tabbed panel
+        instructionsToolsPanel = new InstructionsToolsTabbedPanel(this, instructionsPanel);
 
-        // Attach instructions (left) and drawer (right)
-        instructionsDrawerSplit.setParentComponent(instructionsPanel);
-        instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
-
-        // Attach the combined instructions+drawer split as the bottom component
+        // Attach the combined instructions+tools tabs as the bottom component
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
+        workspaceInstructionsSplit.setBottomComponent(instructionsToolsPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
         // Keep reference so existing persistence logic still works
@@ -791,7 +785,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
-            terminalDrawer.disablePlay();
+            var tlp = instructionsToolsPanel.getTaskListPanelOrNull();
+            if (tlp != null) {
+                tlp.disablePlay();
+            }
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
             }
@@ -804,7 +801,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
-            terminalDrawer.enablePlay();
+            var tlp = instructionsToolsPanel.getTaskListPanelOrNull();
+            if (tlp != null) {
+                tlp.enablePlay();
+            }
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();
             }
@@ -1076,7 +1076,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("toggleTerminalDrawer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                terminalDrawer.openTerminal();
+                instructionsToolsPanel.openTerminal();
             }
         });
 
@@ -1103,7 +1103,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                terminalDrawer.openTerminal();
+                instructionsToolsPanel.openTerminal();
             }
         });
 
@@ -1116,7 +1116,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                terminalDrawer.openTaskList();
+                instructionsToolsPanel.openTaskList();
             }
         });
 
@@ -2050,22 +2050,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
         });
 
-        // Persist Terminal drawer open/proportion globally
-        instructionsDrawerSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (instructionsDrawerSplit.isShowing()) {
-                int total = instructionsDrawerSplit.getWidth();
-                if (total > 0) {
-                    double prop = Math.max(
-                            0.05,
-                            Math.min(0.95, (double) instructionsDrawerSplit.getDividerLocation() / (double) total));
-                    GlobalUiSettings.saveTerminalDrawerProportion(prop);
-                    GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
-                }
-            }
-        });
-        instructionsDrawerSplit.addPropertyChangeListener("dividerSize", e -> {
-            GlobalUiSettings.saveTerminalDrawerOpen(instructionsDrawerSplit.getDividerSize() > 0);
-        });
     }
 
     @Override
@@ -2310,14 +2294,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return historyOutputPanel;
     }
 
-    public TerminalDrawerPanel getTerminalDrawer() {
-        return terminalDrawer;
-    }
 
     /** Append tasks to the Task List panel, if present. Tasks are appended to the current session's list. */
     public void appendTasksToTaskList(List<String> tasks) {
         SwingUtilities.invokeLater(() -> {
-            var taskPanel = terminalDrawer.openTaskList();
+            var taskPanel = instructionsToolsPanel.openTaskList();
             taskPanel.appendTasks(tasks);
         });
     }
@@ -2790,8 +2771,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Updates the terminal font size for all active terminals. */
     public void updateTerminalFontSize() {
-        SwingUtilities.invokeLater(() -> {
-            terminalDrawer.updateTerminalFontSize();
-        });
+        SwingUtilities.invokeLater(() -> instructionsToolsPanel.updateTerminalFontSize());
+    }
+
+    /**
+     * Backward-compatibility adapter for legacy callers that used a terminal "drawer".
+     * Only implements the minimal API used by ContextManager: openTerminalAndPasteText(String).
+     *
+     * Note: This does not create or manage any drawer UI; it delegates to the tabbed panel terminal.
+     */
+    public class TerminalAdapter {
+        public void openTerminalAndPasteText(String text) {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    var tp = instructionsToolsPanel.openTerminal();
+                    tp.pasteText(text);
+                } catch (Exception ex) {
+                    logger.debug("Failed to open terminal and paste text via adapter", ex);
+                }
+            });
+        }
+    }
+
+    /**
+     * Provides a lightweight adapter for terminal operations expected by legacy code.
+     * This replaces the old TerminalDrawerPanel access point.
+     */
+    public TerminalAdapter getTerminalDrawer() {
+        return new TerminalAdapter();
     }
 }
