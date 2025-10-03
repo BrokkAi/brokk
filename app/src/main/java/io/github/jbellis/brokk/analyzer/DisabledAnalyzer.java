@@ -49,7 +49,7 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
-        return null;
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        return Optional.empty();
     }
 }

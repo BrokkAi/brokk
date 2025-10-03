@@ -52,12 +52,10 @@ public class MultiAnalyzer
     }
 
     @Override
-    public @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         return delegates.values().stream()
-                .map(analyzer -> analyzer.enclosingCodeUnit(file, range))
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
+                .flatMap(analyzer -> analyzer.enclosingCodeUnit(file, range).stream())
+                .findFirst();
     }
 
     @Override

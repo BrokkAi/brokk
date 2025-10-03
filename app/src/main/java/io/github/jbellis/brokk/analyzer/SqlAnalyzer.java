@@ -189,7 +189,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         var declarations = declarationsByFile.get(file);
         if (declarations == null || declarations.isEmpty()) {
             logger.debug(
@@ -197,7 +197,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                     file.absPath(),
                     range.startByte(),
                     range.endByte());
-            return null;
+            return Optional.empty();
         }
 
         var best = declarations.stream()
@@ -224,7 +224,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                     file.absPath());
         }
 
-        return best;
+        return Optional.ofNullable(best);
     }
 
     @Override

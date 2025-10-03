@@ -272,8 +272,7 @@ public interface IAnalyzer {
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      *     invalid.
      */
-    @Nullable
-    default CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
+    default Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         throw new UnsupportedOperationException();
     }
 

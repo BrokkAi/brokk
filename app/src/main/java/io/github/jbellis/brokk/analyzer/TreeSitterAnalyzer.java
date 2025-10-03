@@ -2870,8 +2870,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public @Nullable CodeUnit enclosingCodeUnit(ProjectFile file, Range range) {
-        if (range.isEmpty()) return null;
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        if (range.isEmpty()) return Optional.empty();
 
         CodeUnit best = null;
         int bestDepth = -1;
@@ -2885,7 +2885,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         }
 
-        return best;
+        return Optional.ofNullable(best);
     }
 
     private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {
