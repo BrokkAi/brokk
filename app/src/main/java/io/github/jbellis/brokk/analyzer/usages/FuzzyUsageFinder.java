@@ -3,7 +3,9 @@ package io.github.jbellis.brokk.analyzer.usages;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.RelevanceClassifier;
+import io.github.jbellis.brokk.agents.RelevanceTask;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -27,13 +29,17 @@ import org.jetbrains.annotations.Nullable;
 public final class FuzzyUsageFinder {
 
     private static final Logger logger = LogManager.getLogger(FuzzyUsageFinder.class);
+    public static final int DEFAULT_MAX_FILES = 100;
+    public static final int DEFAULT_MAX_USAGES = 1000;
 
     private final IProject project;
     private final IAnalyzer analyzer;
+    private final @Nullable Service service;
     private final @Nullable Llm llm;
 
     public static FuzzyUsageFinder create(IContextManager ctx) {
-        var quickestModel = ctx.getService().quickestModel();
+        var service = ctx.getService();
+        var quickestModel = service.quickestModel();
         Llm llm;
         try {
             llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false);
@@ -41,7 +47,7 @@ public final class FuzzyUsageFinder {
             logger.error("Could not create LLM due to exception. Proceeding without LLM capabilities.", e);
             llm = null;
         }
-        return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), llm);
+        return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), service, llm);
     }
 
     /**
@@ -49,11 +55,13 @@ public final class FuzzyUsageFinder {
      *
      * @param project the project providing files and configuration
      * @param analyzer the analyzer providing declarations/definitions
+     * @param service the LLM service.
      * @param llm optional LLM for future disambiguation
      */
-    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, @Nullable Llm llm) {
+    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, @Nullable Service service, @Nullable Llm llm) {
         this.project = project;
         this.analyzer = analyzer;
+        this.service = service;
         this.llm = llm; // optional
         logger.debug("Initialized FuzzyUsageAnalyzer (llmPresent={}): {}", llm != null, this);
     }
@@ -63,7 +71,7 @@ public final class FuzzyUsageFinder {
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
-    private FuzzyResult findUsages(CodeUnit target, int maxCallsites) {
+    private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) {
         // non-nested identifier
         var shortName = target.identifier().replace("$", ".");
         if (shortName.contains(".")) {
@@ -81,10 +89,10 @@ public final class FuzzyUsageFinder {
         final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
                 List.of(searchPattern), analyzer.getProject().getAllFiles());
 
-        if (maxCallsites < candidateFiles.size()) {
+        if (maxFiles < candidateFiles.size()) {
             // Case 1: Too many call sites
             logger.debug("Too many call sites found for {}: {} files matched", target, candidateFiles.size());
-            return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxCallsites);
+            return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
         }
 
         // Extract raw usage hits from candidate files using the provided pattern
@@ -102,11 +110,18 @@ public final class FuzzyUsageFinder {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
             logger.debug("Found {} hits for unique code unit {}", hits.size(), target);
             return new FuzzyResult.Success(hits);
+        } else if (hits.size() > maxUsages) {
+            // Case 3: Too many call sites to disambiguate with the LLM
+            logger.debug(
+                    "Too many call sites to disambiguate with the LLM {}: {} usage locations matched",
+                    target,
+                    hits.size());
+            return new FuzzyResult.TooManyCallsites(target.shortName(), hits.size(), maxUsages);
         }
 
         var scoredHits = new HashSet<>(hits);
-        if (llm != null) {
-            // Case 3: This symbol is not unique among code units, disambiguate with LLM if possible
+        if (llm != null && service != null) {
+            // Case 4: This symbol is not unique among code units, disambiguate with LLM if possible
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
             try {
                 var tasks = new ArrayList<RelevanceTask>(hits.size());
@@ -116,7 +131,7 @@ public final class FuzzyUsageFinder {
                     tasks.add(new RelevanceTask(prompt.filterDescription(), prompt.candidateText()));
                     mapping.add(hit);
                 }
-                var scores = RelevanceClassifier.relevanceScoreBatch(llm, tasks);
+                var scores = RelevanceClassifier.relevanceScoreBatch(llm, service, tasks);
                 for (int i = 0; i < tasks.size(); i++) {
                     var task = tasks.get(i);
                     var score = scores.getOrDefault(task, 0.0);
@@ -222,7 +237,7 @@ public final class FuzzyUsageFinder {
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
-    public FuzzyResult findUsages(String fqName, int maxCallsites) {
+    public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(List.of());
@@ -232,7 +247,11 @@ public final class FuzzyUsageFinder {
             logger.warn("Unable to find code unit for fqName={}", fqName);
             return new FuzzyResult.Failure(fqName, "Unable to find associated code unit for the given name");
         }
-        return findUsages(maybeCodeUnit.get(), maxCallsites);
+        return findUsages(maybeCodeUnit.get(), maxFiles, maxUsages);
+    }
+
+    public FuzzyResult findUsages(String fqName) {
+        return findUsages(fqName, DEFAULT_MAX_FILES, DEFAULT_MAX_USAGES);
     }
 
     private boolean isEffectivelyEmpty() {

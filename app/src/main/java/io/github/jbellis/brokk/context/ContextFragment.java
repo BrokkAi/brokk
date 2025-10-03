@@ -1231,7 +1231,6 @@ public interface ContextFragment {
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
-        private static final int MAX_CALL_SITES = 100;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, false);
@@ -1268,8 +1267,7 @@ public interface ContextFragment {
             if (analyzer.isEmpty()) {
                 return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
             }
-            FuzzyResult usageResult =
-                    FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, MAX_CALL_SITES);
+            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
             var either = usageResult.toEither();
             if (either.hasErrorMessage()) {
@@ -1291,12 +1289,7 @@ public interface ContextFragment {
                         .toList();
             }
             return AnalyzerUtil.processUsages(
-                    analyzer,
-                    uses.stream()
-                            .map(UsageHit::enclosing)
-                            .distinct()
-                            .limit(MAX_CALL_SITES)
-                            .toList());
+                    analyzer, uses.stream().map(UsageHit::enclosing).distinct().toList());
         }
 
         @Override
@@ -1310,8 +1303,7 @@ public interface ContextFragment {
             if (analyzer.isEmpty()) {
                 return Collections.emptySet();
             }
-            FuzzyResult usageResult =
-                    FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, MAX_CALL_SITES);
+            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
             var either = usageResult.toEither();
             if (either.hasErrorMessage()) {

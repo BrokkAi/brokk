@@ -293,7 +293,7 @@ public class SearchTools {
         for (String symbol : symbols) {
             if (!symbol.isBlank()) {
                 FuzzyResult usageResult =
-                        FuzzyUsageFinder.create(contextManager).findUsages(symbol, 100);
+                        FuzzyUsageFinder.create(contextManager).findUsages(symbol, 100, 1000);
                 var either = usageResult.toEither();
                 if (either.hasErrorMessage()) {
                     return either.getErrorMessage();

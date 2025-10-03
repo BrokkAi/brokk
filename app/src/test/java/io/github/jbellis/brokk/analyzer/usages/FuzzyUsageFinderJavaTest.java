@@ -71,14 +71,14 @@ public class FuzzyUsageFinderJavaTest {
     }
 
     private static FuzzyUsageFinder newFinder(IProject project) {
-        return new FuzzyUsageFinder(project, analyzer, null); // No LLM for these tests
+        return new FuzzyUsageFinder(project, analyzer, null, null); // No LLM for these tests
     }
 
     @Test
     public void getUsesMethodExistingTest() {
         var finder = newFinder(testProject);
         var symbol = "A.method2";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
@@ -96,7 +96,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesNestedClassConstructorTest() {
         var finder = newFinder(testProject);
         var symbol = "A$AInner$AInnerInner";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
@@ -112,7 +112,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesMethodNonexistentTest() {
         var finder = newFinder(testProject);
         var symbol = "A.noSuchMethod:java.lang.String()";
-        var result = finder.findUsages(symbol, 10_000);
+        var result = finder.findUsages(symbol);
 
         assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
     }
@@ -121,7 +121,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesFieldExistingTest() {
         var finder = newFinder(testProject);
         var symbol = "D.field1";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
@@ -139,7 +139,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesFieldNonexistentTest() {
         var finder = newFinder(testProject);
         var symbol = "D.notAField";
-        var result = finder.findUsages(symbol, 10_000);
+        var result = finder.findUsages(symbol);
 
         assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
     }
@@ -148,7 +148,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesFieldFromUseETest() {
         var finder = newFinder(testProject);
         var symbol = "UseE.e";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
@@ -164,7 +164,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesClassBasicTest() {
         var finder = newFinder(testProject);
         var symbol = "A";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
@@ -184,7 +184,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesClassNonexistentTest() {
         var finder = newFinder(testProject);
         var symbol = "NoSuchClass";
-        var result = finder.findUsages(symbol, 10_000);
+        var result = finder.findUsages(symbol);
 
         assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
     }
@@ -193,7 +193,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesNestedClassTest() {
         var finder = newFinder(testProject);
         var symbol = "A$AInner";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
@@ -209,7 +209,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesClassWithStaticMembersTest() {
         var finder = newFinder(testProject);
         var symbol = "E";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
@@ -225,7 +225,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesClassInheritanceTest() {
         var finder = newFinder(testProject);
         var symbol = "BaseClass";
-        var either = finder.findUsages(symbol, 10_000).toEither();
+        var either = finder.findUsages(symbol).toEither();
 
         if (either.hasErrorMessage()) {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());

@@ -1481,6 +1481,10 @@ public class Llm {
         }
     }
 
+    public StreamingChatModel getModel() {
+        return this.model;
+    }
+
     @Override
     public String toString() {
         return "LLM[" + model.provider().toString() + "]";
