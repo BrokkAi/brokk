@@ -819,19 +819,32 @@ public class GitRepo implements Closeable, IGitRepo {
         pullCommand.call();
     }
 
-    /** Get a set of commit IDs that exist in the local branch but not in its remote tracking branch */
+    /** Get a set of commit IDs that exist in the local branch but not in its target remote branch */
     public Set<String> getUnpushedCommitIds(String branchName) throws GitAPIException {
         var unpushedCommits = new HashSet<String>();
-        var trackingBranch = getTrackingBranch(branchName);
-        if (trackingBranch == null) {
+
+        // Get the target remote name (with built-in fallback logic)
+        var targetRemoteBranchName = getTargetRemoteBranchName(branchName);
+        if (targetRemoteBranchName == null) {
+            return unpushedCommits;
+        }
+
+        // Check if the resolved remote branch actually exists
+        try {
+            var remoteRef = "refs/remotes/" + targetRemoteBranchName;
+            if (repository.findRef(remoteRef) == null) {
+                return unpushedCommits; // No remote branch to compare against
+            }
+        } catch (Exception e) {
+            logger.debug("Error checking remote branch existence for {}: {}", targetRemoteBranchName, e.getMessage());
             return unpushedCommits;
         }
 
         var branchRef = "refs/heads/" + branchName;
-        var trackingRef = "refs/remotes/" + trackingBranch;
+        var remoteRef = "refs/remotes/" + targetRemoteBranchName;
 
         var localObjectId = resolve(branchRef);
-        var remoteObjectId = resolve(trackingRef);
+        var remoteObjectId = resolve(remoteRef);
 
         try (var revWalk = new RevWalk(repository)) {
             try {
@@ -867,6 +880,101 @@ public class GitRepo implements Closeable, IGitRepo {
             return null;
         } catch (Exception e) {
             // Return null if there's any unexpected config or parse issue
+            return null;
+        }
+    }
+
+    /**
+     * Get the target remote name and branch following Git's standard remote resolution order, with fallback to the next
+     * option if a remote branch doesn't exist. Returns remote/branch format (e.g., "origin/main").
+     *
+     * <p>Resolution order:
+     *
+     * <ol>
+     *   <li>Configured upstream branch if it exists
+     *   <li>remote.pushDefault with branch name if it exists
+     *   <li>Single remote with branch name if it exists
+     *   <li>origin with branch name if it exists
+     *   <li>Configured upstream even if it doesn't exist (for push targets)
+     *   <li>pushDefault even if it doesn't exist
+     *   <li>origin even if it doesn't exist
+     * </ol>
+     */
+    private @Nullable String getTargetRemoteBranchName(String branchName) {
+        try {
+            var config = repository.getConfig();
+            var remoteNames = repository.getRemoteNames();
+
+            // 1. Check for configured upstream first
+            var configuredRemote = config.getString("branch", branchName, "remote");
+            var configuredMerge = config.getString("branch", branchName, "merge");
+
+            if (configuredRemote != null && configuredMerge != null && remoteNames.contains(configuredRemote)) {
+                var remoteBranch = configuredMerge;
+                if (remoteBranch.startsWith("refs/heads/")) {
+                    remoteBranch = remoteBranch.substring("refs/heads/".length());
+                }
+                var upstreamTarget = configuredRemote + "/" + remoteBranch;
+
+                // Check if upstream branch exists, if so use it
+                if (repository.findRef("refs/remotes/" + upstreamTarget) != null) {
+                    return upstreamTarget;
+                }
+                // If upstream is configured but branch doesn't exist, fall through to other options
+            }
+
+            // 2. Check for remote.pushDefault
+            var pushDefault = config.getString("remote", null, "pushDefault");
+            if (pushDefault != null && remoteNames.contains(pushDefault)) {
+                var pushDefaultTarget = pushDefault + "/" + branchName;
+                if (repository.findRef("refs/remotes/" + pushDefaultTarget) != null) {
+                    return pushDefaultTarget;
+                }
+            }
+
+            // 3. If exactly one remote exists, use that
+            if (remoteNames.size() == 1) {
+                var remoteName = remoteNames.iterator().next();
+                var singleRemoteTarget = remoteName + "/" + branchName;
+                if (repository.findRef("refs/remotes/" + singleRemoteTarget) != null) {
+                    return singleRemoteTarget;
+                }
+            }
+
+            // 4. Fall back to origin if it exists
+            if (remoteNames.contains("origin")) {
+                var originTarget = "origin/" + branchName;
+                if (repository.findRef("refs/remotes/" + originTarget) != null) {
+                    return originTarget;
+                }
+            }
+
+            // 5. No suitable remote branch found - return the first preference even if it doesn't exist
+            // This preserves the resolution order for cases where no remote branch exists yet
+            if (configuredRemote != null && configuredMerge != null && remoteNames.contains(configuredRemote)) {
+                var remoteBranch = configuredMerge;
+                if (remoteBranch.startsWith("refs/heads/")) {
+                    remoteBranch = remoteBranch.substring("refs/heads/".length());
+                }
+                return configuredRemote + "/" + remoteBranch;
+            }
+
+            if (pushDefault != null && remoteNames.contains(pushDefault)) {
+                return pushDefault + "/" + branchName;
+            }
+
+            if (remoteNames.size() == 1) {
+                var remoteName = remoteNames.iterator().next();
+                return remoteName + "/" + branchName;
+            }
+
+            if (remoteNames.contains("origin")) {
+                return "origin/" + branchName;
+            }
+
+            return null;
+        } catch (Exception e) {
+            logger.debug("Error resolving target remote branch name for {}: {}", branchName, e.getMessage());
             return null;
         }
     }
@@ -2104,6 +2212,92 @@ public class GitRepo implements Closeable, IGitRepo {
         return results;
     }
 
+    /**
+     * Get the target remote name following Git's standard remote resolution order: Uses current branch for upstream
+     * resolution, falls back to general resolution
+     */
+    private @Nullable String getTargetRemoteName() {
+        try {
+            var currentBranch = getCurrentBranch();
+            return getTargetRemoteNameWithUpstream(currentBranch);
+        } catch (GitAPIException e) {
+            logger.debug("Error getting current branch, falling back to upstream-less resolution: {}", e.getMessage());
+
+            // Fallback to upstream-less resolution if no current branch
+            try {
+                var config = repository.getConfig();
+                var remoteNames = repository.getRemoteNames();
+
+                // 1. Check for remote.pushDefault
+                var pushDefault = config.getString("remote", null, "pushDefault");
+                if (pushDefault != null && remoteNames.contains(pushDefault)) {
+                    return pushDefault;
+                }
+
+                // 2. If exactly one remote exists, use that
+                if (remoteNames.size() == 1) {
+                    return remoteNames.iterator().next();
+                }
+
+                // 3. Fall back to origin if it exists
+                if (remoteNames.contains("origin")) {
+                    return "origin";
+                }
+
+                return null;
+            } catch (Exception ex) {
+                logger.debug("Error resolving target remote name: {}", ex.getMessage());
+                return null;
+            }
+        }
+    }
+
+    /**
+     * Get the target remote name following Git's standard remote resolution order including upstream:
+     *
+     * <ol>
+     *   <li>If upstream exists for branch (branch.&lt;name&gt;.remote), use that
+     *   <li>Else if remote.pushDefault is configured, use that
+     *   <li>Else if exactly one remote exists, use that
+     *   <li>Else if "origin" exists, use "origin"
+     *   <li>Else return null
+     * </ol>
+     */
+    private @Nullable String getTargetRemoteNameWithUpstream(String branchName) {
+        try {
+            var config = repository.getConfig();
+            var remoteNames = repository.getRemoteNames();
+
+            // 1. Check for configured upstream first
+            var configuredRemote = config.getString("branch", branchName, "remote");
+            if (configuredRemote != null && remoteNames.contains(configuredRemote)) {
+                return configuredRemote;
+            }
+
+            // 2. Check for remote.pushDefault
+            var pushDefault = config.getString("remote", null, "pushDefault");
+            if (pushDefault != null && remoteNames.contains(pushDefault)) {
+                return pushDefault;
+            }
+
+            // 3. If exactly one remote exists, use that
+            if (remoteNames.size() == 1) {
+                return remoteNames.iterator().next();
+            }
+
+            // 4. Fall back to origin if it exists
+            if (remoteNames.contains("origin")) {
+                return "origin";
+            }
+
+            // 5. No suitable remote found
+            return null;
+        } catch (Exception e) {
+            logger.debug("Error resolving target remote name with upstream for {}: {}", branchName, e.getMessage());
+            return null;
+        }
+    }
+
     /** Get the URL of the specified remote (defaults to "origin") */
     public @Nullable String getRemoteUrl(String remoteName) {
         try {
@@ -2115,10 +2309,13 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Get the URL of the origin remote */
+    /**
+     * Get the URL of the target remote using Git's standard remote resolution including upstream from current branch
+     */
     @Override
     public @Nullable String getRemoteUrl() {
-        return getRemoteUrl("origin");
+        var targetRemote = getTargetRemoteName();
+        return targetRemote != null ? getRemoteUrl(targetRemote) : null;
     }
 
     /**
@@ -2668,7 +2865,8 @@ public class GitRepo implements Closeable, IGitRepo {
             SessionRegistry.release(path);
         } catch (Environment.SubprocessException e) {
             String output = e.getOutput();
-            // If 'force' was false and the command failed because force is needed, throw WorktreeNeedsForceException
+            // If 'force' was false and the command failed because force is needed,
+            // throw WorktreeNeedsForceException
             if (!force
                     && (output.contains("use --force")
                             || output.contains("not empty")
@@ -2835,15 +3033,33 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * True when the local branch has no upstream or is ahead of its upstream. Returns false if the provided branch name
-     * is not a local branch.
+     * True when no target remote branch exists or the local branch is ahead of its target remote. Returns false if the
+     * provided branch name is not a local branch.
      */
     public boolean branchNeedsPush(String branch) throws GitAPIException {
         if (!listLocalBranches().contains(branch)) {
             return false; // Not a local branch, so it cannot need pushing
         }
-        return !hasUpstreamBranch(branch) // never pushed → no upstream
-                || !getUnpushedCommitIds(branch).isEmpty(); // ahead of remote
+
+        // Get the target remote name (with built-in fallback logic)
+        var targetRemoteBranchName = getTargetRemoteBranchName(branch);
+        if (targetRemoteBranchName == null) {
+            return true; // No target remote found, so needs push
+        }
+
+        // Check if the resolved remote branch exists
+        try {
+            var remoteRef = "refs/remotes/" + targetRemoteBranchName;
+            if (repository.findRef(remoteRef) == null) {
+                return true; // Remote branch doesn't exist, so needs push
+            }
+        } catch (Exception e) {
+            logger.debug("Error checking remote branch existence for {}: {}", targetRemoteBranchName, e.getMessage());
+            return true; // Assume needs push on error
+        }
+
+        // Remote branch exists, check if local has unpushed commits
+        return !getUnpushedCommitIds(branch).isEmpty();
     }
 
     /**
@@ -2913,7 +3129,8 @@ public class GitRepo implements Closeable, IGitRepo {
                     // Skip /dev/null paths, which can appear for add/delete of binary files or certain modes
                     // Handled by only using relevant paths (getOldPath for DELETE, getNewPath for
                     // ADD/COPY/MODIFY/RENAME's new side)
-                    // and relying on toProjectFile which would inherently handle or error on /dev/null if it were a
+                    // and relying on toProjectFile which would inherently handle or error on
+                    // /dev/null if it were a
                     // real project path.
                     // The main concern is ensuring we use the correct path (old vs new) based on ChangeType.
 
