@@ -10,7 +10,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);

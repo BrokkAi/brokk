@@ -16,7 +16,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -211,7 +210,9 @@ public final class FuzzyUsageFinder {
                     var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
 
                     if (enclosingCodeUnit.isPresent()) {
-                        hits.put(new UsageHit(file, lineIdx + 1, start, end, enclosingCodeUnit.get(), 1.0, snippet), true);
+                        hits.put(
+                                new UsageHit(file, lineIdx + 1, start, end, enclosingCodeUnit.get(), 1.0, snippet),
+                                true);
                     } else {
                         logger.warn(
                                 "Unable to find enclosing code unit for {} in {}. Not registering hit.",

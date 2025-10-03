@@ -1,9 +1,7 @@
 package io.github.jbellis.brokk.analyzer.usages;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-
 import java.util.*;
-
 import org.jetbrains.annotations.Nullable;
 
 /**
