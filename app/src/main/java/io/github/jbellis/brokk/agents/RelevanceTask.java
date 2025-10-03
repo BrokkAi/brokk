@@ -1,11 +1,11 @@
 package io.github.jbellis.brokk.agents;
 
 /**
- * A single relevance scoring task used by batch scoring APIs and intentionally lives in the 'agents' package
- * to avoid coupling with analyzer-specific classes.
+ * A single relevance scoring task used by batch scoring APIs and intentionally lives in the 'agents' package to avoid
+ * coupling with analyzer-specific classes.
  *
  * @param filterDescription: description of what we are looking for
- * @param candidateText:     the text to score against the filter
+ * @param candidateText: the text to score against the filter
  */
 public record RelevanceTask(String filterDescription, String candidateText) {
 
