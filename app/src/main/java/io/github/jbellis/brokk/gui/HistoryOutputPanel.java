@@ -92,6 +92,7 @@ public class HistoryOutputPanel extends JPanel {
     private JTextArea captureDescriptionArea;
 
     private final MaterialButton copyButton;
+    private final MaterialButton clearButton;
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
@@ -136,6 +137,7 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new MaterialButton();
+        this.clearButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
@@ -885,6 +887,40 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
+        // "Clear Output" button (drop Task History)
+        SwingUtilities.invokeLater(() -> {
+            // Prefer TRASH icon; fallback to CLEAR_ALL if anything goes wrong
+            try {
+                clearButton.setIcon(Icons.TRASH);
+            } catch (Throwable t) {
+                try {
+                    clearButton.setIcon(Icons.CLEAR_ALL);
+                } catch (Throwable ignore) {
+                    // leave icon unset if no fallback is available
+                }
+            }
+        });
+        clearButton.setToolTipText("Clear the output");
+        clearButton.addActionListener(e -> {
+            var ctx = contextManager.selectedContext();
+            if (ctx == null) {
+                chrome.systemOutput("No active context to clear from.");
+                return;
+            }
+            var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
+                    .reduce((first, second) -> second); // most recent HISTORY fragment
+            if (historyOpt.isEmpty()) {
+                chrome.systemOutput("No conversation history found in the current workspace.");
+                return;
+            }
+            var historyFrag = historyOpt.get();
+            chrome.getContextPanel().performContextActionAsync(
+                    WorkspacePanel.ContextAction.DROP, java.util.List.of(historyFrag));
+        });
+        clearButton.setMinimumSize(clearButton.getPreferredSize());
+        buttonsPanel.add(clearButton);
+
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
 
@@ -917,6 +953,13 @@ public class HistoryOutputPanel extends JPanel {
     /** Sets the enabled state of the copy text button */
     public void setCopyButtonEnabled(boolean enabled) {
         copyButton.setEnabled(enabled);
+        // Mirror the same enable/disable behavior for Clear Output
+        clearButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the clear output button */
+    public void setClearButtonEnabled(boolean enabled) {
+        clearButton.setEnabled(enabled);
     }
 
     /** Shows the loading spinner with a message in the Markdown area. */

@@ -56,4 +56,5 @@ public final class Icons {
     public static final Icon NAVIGATE_BEFORE = SwingUtil.uiIcon("Brokk.navigate_before");
     public static final Icon CHEVRON_RIGHT = SwingUtil.uiIcon("Brokk.chevron_right");
     public static final Icon CHEVRON_LEFT = SwingUtil.uiIcon("Brokk.chevron_left");
+    public static final Icon TRASH = SwingUtil.uiIcon("Brokk.trash");
 }
