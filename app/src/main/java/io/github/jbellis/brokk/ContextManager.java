@@ -102,10 +102,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } catch (Exception ex) {
                 logger.debug("Failed to clear Tests tab", ex);
             }
-            chrome.appendToTestRunner("Running tests:\n" + cmd + "\n\n");
+            int fileCount = testFiles.size();
+            String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s") + "...\n";
+            chrome.appendToTestRunner(heading);
+            chrome.appendToTestRunner(cmd + "\n\n");
         } else {
             // Headless or non-Chrome I/O
-            io.systemOutput("Running tests:\n" + cmd);
+            int fileCount = testFiles.size();
+            String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s") + "...\n";
+            io.systemOutput(heading + cmd);
         }
 
         // Run the test command in the background and stream output to the Tests tab
