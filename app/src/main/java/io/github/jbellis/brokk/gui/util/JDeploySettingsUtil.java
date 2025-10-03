@@ -1,132 +1,126 @@
 package io.github.jbellis.brokk.gui.util;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.util.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-/** Utility to update the per-user JDeploy argument file (e.g. ~/.brokk/jdeploy.args) with JVM memory settings. */
+/**
+ * Utility to update the per-user JDeploy JSON config file (e.g. ~/.config/brokk/jdeploy.json) with JVM memory settings.
+ */
 public class JDeploySettingsUtil {
     private static final Logger logger = LogManager.getLogger(JDeploySettingsUtil.class);
 
-    // Argfile we maintain in the user's home directory
-    private static final String ARGFILE_NAME = "jdeploy.args";
+    // JSON config file we maintain in the user's config directory
+    private static final String CONFIG_FILE_NAME = "jdeploy.json";
 
     private JDeploySettingsUtil() {
         // utility
     }
 
     /**
-     * Update the per-user argfile with the provided JVM memory settings.
+     * Update the per-user JSON config file with the provided JVM memory settings.
      *
-     * <p>Behavior: - Ensures the user's ~/.brokk directory exists. - Reads existing ~/.brokk/jdeploy.args if present,
-     * preserving all non -Xmx lines. - Removes any existing -Xmx* lines. - If settings.automatic() is false and
-     * manualMb() > 0, appends a single -XmxNNNm line.
+     * <p>Behavior: - Ensures the user's ~/.config/brokk directory exists. - Reads existing ~/.config/brokk/jdeploy.json
+     * if present, preserving all non -Xmx args. - Removes any existing -Xmx* args. - If settings.automatic() is false
+     * and manualMb() > 0, appends a single -XmxNNNm arg.
      */
     public static void updateJvmMemorySettings(MainProject.JvmMemorySettings settings) {
-        Objects.requireNonNull(settings, "settings");
-
         var home = System.getProperty("user.home");
         if (home == null || home.isBlank()) {
-            logger.warn("Cannot determine user.home; skipping JDeploy user-argfile update");
+            logger.warn("Cannot determine user.home; skipping JDeploy config update");
             return;
         }
 
         try {
-            updateUserJdeployArgs(settings);
+            updateUserJdeployConfig(settings);
         } catch (Exception e) {
-            logger.warn("Failed to update user jdeploy argfile", e);
+            logger.warn("Failed to update user jdeploy config file", e);
         }
     }
 
     /**
-     * Update the per-user jdeploy args file at ~/.brokk/jdeploy.args so a centralized per-user argfile may be used.
-     * This preserves all non -Xmx lines, removes any existing -Xmx lines, and appends a single -XmxNNNm when manual
-     * memory is selected with a positive size. If the file or directory do not exist they will be created.
+     * Update the per-user jdeploy config file at ~/.config/brokk/jdeploy.json. This preserves all non -Xmx args,
+     * removes any existing -Xmx args, and appends a single -XmxNNNm when manual memory is selected with a positive
+     * size. If the file or directory do not exist they will be created.
      */
-    private static void updateUserJdeployArgs(MainProject.JvmMemorySettings settings) {
+    private static void updateUserJdeployConfig(MainProject.JvmMemorySettings settings) {
         var home = System.getProperty("user.home");
         if (home == null || home.isBlank()) {
-            logger.warn("Cannot determine user.home; skipping user jdeploy args update");
+            logger.warn("Cannot determine user.home; skipping user jdeploy config update");
             return;
         }
 
-        var jdeployDir = Path.of(home, ".jdeploy", "gh-packages");
+        var configDir = Path.of(home, ".config", "brokk");
         try {
-            Files.createDirectories(jdeployDir);
+            Files.createDirectories(configDir);
         } catch (IOException e) {
-            logger.warn("Failed to create user .jdeploy directory {}: {}", jdeployDir, e.getMessage());
+            logger.warn("Failed to create user config directory {}: {}", configDir, e.getMessage());
             return;
         }
 
-        Optional<Path> maybeAppDir;
-        try (var childStream = Files.list(jdeployDir)) {
-            maybeAppDir = childStream
-                    .filter(Files::isDirectory)
-                    .filter(dir -> dir.getFileName().toString().endsWith(".brokk"))
-                    .findFirst();
-            if (maybeAppDir.isEmpty())
-                throw new RuntimeException(
-                        "Unable to find Brokk JDeploy directory! Brokk must not be running via JDeploy.");
-        } catch (Exception e) {
-            logger.error(
-                    "Exception encountered while determining application directory! Memory settings will not be persisted.");
-            return;
-        }
-        final Path appDir = maybeAppDir.get();
+        var configFile = configDir.resolve(CONFIG_FILE_NAME);
+        ObjectNode config;
 
-        var userArgfile = appDir.resolve(ARGFILE_NAME);
-        List<String> existingLines = new ArrayList<>();
-        if (Files.exists(userArgfile)) {
+        // Read existing config or create new one
+        if (Files.exists(configFile)) {
             try {
-                existingLines = Files.readAllLines(userArgfile, StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                logger.warn("Failed to read existing user argfile {}: {}", userArgfile, e.getMessage());
-                // fallthrough to create/overwrite below
+                String content = Files.readString(configFile, StandardCharsets.UTF_8);
+                JsonNode root = Json.getMapper().readTree(content);
+                config = root.isObject() ? (ObjectNode) root : Json.getMapper().createObjectNode();
+            } catch (Exception e) {
+                logger.warn("Failed to read existing config file {}: {}", configFile, e.getMessage());
+                config = Json.getMapper().createObjectNode();
             }
         } else {
-            // Provide a minimal header so file is never empty unless we decide to write no content.
-            existingLines.add("# Brokk JVM argument file (managed by Brokk)");
-            existingLines.add("");
+            config = Json.getMapper().createObjectNode();
         }
 
-        // Filter out existing -Xmx lines (trimmed)
-        var preserved = new ArrayList<String>();
-        for (var line : existingLines) {
-            var t = line.trim();
-            if (!t.startsWith("-Xmx")) {
-                preserved.add(line);
+        // Get existing args array or create new one
+        ArrayNode args;
+        if (config.has("args") && config.get("args").isArray()) {
+            args = (ArrayNode) config.get("args");
+        } else {
+            args = Json.getMapper().createArrayNode();
+        }
+
+        // Filter out existing -Xmx args
+        ArrayNode filteredArgs = Json.getMapper().createArrayNode();
+        for (JsonNode arg : args) {
+            String argStr = arg.asText();
+            if (!argStr.trim().startsWith("-Xmx")) {
+                filteredArgs.add(argStr);
             }
         }
 
-        var sb = new StringBuilder();
-        for (var line : preserved) {
-            sb.append(line).append('\n');
-        }
-
+        // Add new -Xmx arg if manual memory is set
         if (!settings.automatic()) {
             int mb = settings.manualMb();
             if (mb > 0) {
-                sb.append("-Xmx").append(mb).append("m").append('\n');
-                logger.info("Updated user argfile {}: wrote -Xmx{}m", userArgfile, mb);
+                filteredArgs.add("-Xmx" + mb + "m");
+                logger.info("Updated user config {}: wrote -Xmx{}m", configFile, mb);
             } else {
-                logger.info("Manual memory was non-positive ({} MB); not adding -Xmx to {}", mb, userArgfile);
+                logger.info("Manual memory was non-positive ({} MB); not adding -Xmx to {}", mb, configFile);
             }
         } else {
-            logger.info("Automatic memory selected; ensuring no -Xmx in {}", userArgfile);
+            logger.info("Automatic memory selected; ensuring no -Xmx in {}", configFile);
         }
 
+        // Update config and write to file
+        config.set("args", filteredArgs);
+
         try {
-            Files.writeString(userArgfile, sb.toString(), StandardCharsets.UTF_8);
+            String json = Json.toJson(config);
+            Files.writeString(configFile, json, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            logger.warn("Failed to write user argfile {}: {}", userArgfile, e.getMessage());
+            logger.warn("Failed to write user config file {}: {}", configFile, e.getMessage());
         }
     }
 }
