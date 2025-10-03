@@ -34,6 +34,7 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -861,7 +862,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var sessionManager = chrome.getContextManager().getProject().getSessionManager();
 
-        var dtos = new java.util.ArrayList<TaskListEntryDto>(model.size());
+        var dtos = new ArrayList<TaskListEntryDto>(model.size());
         for (int i = 0; i < model.size(); i++) {
             TaskItem it = model.get(i);
             if (it != null && !it.text().isBlank()) {
@@ -928,7 +929,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private void runArchitectOnIndices(int[] selected) {
         // Build the ordered list of indices to run: valid, not done
         Arrays.sort(selected);
-        var toRun = new java.util.ArrayList<Integer>(selected.length);
+        var toRun = new ArrayList<Integer>(selected.length);
         for (int idx : selected) {
             if (idx >= 0 && idx < model.getSize()) {
                 TaskItem it = model.get(idx);
@@ -1233,7 +1234,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             // Snapshot the items being moved
-            var items = new java.util.ArrayList<TaskItem>(indices.length);
+            var items = new ArrayList<TaskItem>(indices.length);
             for (int i : indices) {
                 if (i >= 0 && i < model.size()) {
                     items.add(model.get(i));
@@ -1316,7 +1317,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         // Collect all task texts
-        var taskTexts = new java.util.ArrayList<String>(indices.length);
+        var taskTexts = new ArrayList<String>(indices.length);
         for (int idx : indices) {
             if (idx < 0 || idx >= model.size()) {
                 continue;
@@ -1573,7 +1574,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        var taskTexts = new java.util.ArrayList<String>(indices.length);
+        var taskTexts = new ArrayList<String>(indices.length);
         for (int idx : indices) {
             if (idx >= 0 && idx < model.getSize()) {
                 var item = model.get(idx);
