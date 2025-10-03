@@ -958,7 +958,6 @@ public class HistoryOutputPanel extends JPanel {
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
 
-
         // Add notification area to the right of the buttons panel
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
