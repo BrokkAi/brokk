@@ -44,7 +44,7 @@ public final class UsagePromptBuilder {
         String filterDescription = buildFilterDescription(codeUnitTarget);
 
         // Candidate text is the raw snippet for this single usage (unescaped)
-        String candidateText = hit.snippet() == null ? "" : hit.snippet();
+        String candidateText = hit.snippet();
 
         // Header comments
         sb.append("<!-- shortName: ").append(escapeXml(shortName)).append(" -->\n");

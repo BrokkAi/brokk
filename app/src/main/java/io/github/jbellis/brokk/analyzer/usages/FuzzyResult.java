@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.analyzer.usages;
 
-import static java.util.Objects.requireNonNull;
-
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,9 +19,9 @@ import org.jetbrains.annotations.Nullable;
 public sealed interface FuzzyResult
         permits FuzzyResult.Success, FuzzyResult.Failure, FuzzyResult.Ambiguous, FuzzyResult.TooManyCallsites {
 
-    public static double CONFIDENCE_THRESHOLD = 0.6;
+    double CONFIDENCE_THRESHOLD = 0.6;
 
-    public record EitherUsagesOrError(@Nullable List<UsageHit> usages, @Nullable String errorMessage) {
+    record EitherUsagesOrError(@Nullable List<UsageHit> usages, @Nullable String errorMessage) {
 
         public static EitherUsagesOrError from(String reason) {
             return new EitherUsagesOrError(null, reason);
@@ -75,7 +73,7 @@ public sealed interface FuzzyResult
     /** Successful resolution of usages (possibly empty). */
     record Success(List<UsageHit> hits) implements FuzzyResult {
         public Success(List<UsageHit> hits) {
-            this.hits = List.copyOf(requireNonNull(hits, "hits"));
+            this.hits = List.copyOf(hits);
         }
 
         @Override
@@ -95,9 +93,9 @@ public sealed interface FuzzyResult
     /** Ambiguous result: indicates multiple candidate targets. */
     record Ambiguous(String shortName, List<CodeUnit> candidateTargets, List<UsageHit> hits) implements FuzzyResult {
         public Ambiguous(String shortName, List<CodeUnit> candidateTargets, List<UsageHit> hits) {
-            this.shortName = requireNonNull(shortName, "shortName");
-            this.candidateTargets = List.copyOf(requireNonNull(candidateTargets, "candidateTargets"));
-            this.hits = List.copyOf(requireNonNull(hits, "hits"));
+            this.shortName = shortName;
+            this.candidateTargets = List.copyOf(candidateTargets);
+            this.hits = List.copyOf(hits);
         }
 
         @Override
@@ -110,7 +108,7 @@ public sealed interface FuzzyResult
     /** Too-many-callsites guardrail. */
     record TooManyCallsites(String shortName, int totalCallsites, int limit) implements FuzzyResult {
         public TooManyCallsites(String shortName, int totalCallsites, int limit) {
-            this.shortName = requireNonNull(shortName, "shortName");
+            this.shortName = shortName;
             this.totalCallsites = totalCallsites;
             this.limit = limit;
         }

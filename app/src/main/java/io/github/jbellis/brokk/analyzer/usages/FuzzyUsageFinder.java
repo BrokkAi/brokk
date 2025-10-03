@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.analyzer.usages;
 
-import static java.util.Objects.requireNonNull;
-
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
@@ -54,8 +52,8 @@ public final class FuzzyUsageFinder {
      * @param llm optional LLM for future disambiguation
      */
     public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, @Nullable Llm llm) {
-        this.project = requireNonNull(project, "project");
-        this.analyzer = requireNonNull(analyzer, "analyzer");
+        this.project = project;
+        this.analyzer = analyzer;
         this.llm = llm; // optional
         logger.debug("Initialized FuzzyUsageAnalyzer (llmPresent={}): {}", llm != null, this);
     }
@@ -214,7 +212,6 @@ public final class FuzzyUsageFinder {
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
     public FuzzyResult findUsages(String fqName, int maxCallsites) {
-        requireNonNull(fqName, "fqName");
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(List.of());
