@@ -1264,7 +1264,7 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            if (!analyzer.isEmpty()) {
+            if (analyzer.isEmpty()) {
                 return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
             }
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, 100);
@@ -1294,6 +1294,9 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             var analyzer = getAnalyzer();
+            if (analyzer.isEmpty()) {
+                return Collections.emptySet();
+            }
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, 100);
 
             var either = usageResult.toEither();
