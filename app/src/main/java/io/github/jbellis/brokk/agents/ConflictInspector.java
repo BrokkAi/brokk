@@ -193,19 +193,29 @@ public final class ConflictInspector {
 
         var ourCommitId = repo.resolve("HEAD").getName();
 
-        var candidates = List.of(
-                Map.entry("MERGE_HEAD", MergeAgent.MergeMode.MERGE),
-                Map.entry("REBASE_HEAD", MergeAgent.MergeMode.REBASE),
-                Map.entry("CHERRY_PICK_HEAD", MergeAgent.MergeMode.CHERRY_PICK),
-                Map.entry("REVERT_HEAD", MergeAgent.MergeMode.REVERT));
         MergeAgent.MergeMode state = null;
         Path headFile = null;
-        for (var entry : candidates) {
-            var candidatePath = gitDir.resolve(entry.getKey());
-            if (Files.exists(candidatePath)) {
-                state = entry.getValue();
-                headFile = candidatePath;
-                break;
+
+        // Detect squash merge first: presence of SQUASH_MSG indicates a squash merge in progress.
+        if (Files.exists(gitDir.resolve("SQUASH_MSG"))) {
+            state = MergeAgent.MergeMode.SQUASH;
+            // MERGE_HEAD may or may not be present during a squash merge; don't require it here.
+            headFile = gitDir.resolve("MERGE_HEAD");
+        }
+
+        if (state == null) {
+            var candidates = List.of(
+                    Map.entry("MERGE_HEAD", MergeAgent.MergeMode.MERGE),
+                    Map.entry("REBASE_HEAD", MergeAgent.MergeMode.REBASE),
+                    Map.entry("CHERRY_PICK_HEAD", MergeAgent.MergeMode.CHERRY_PICK),
+                    Map.entry("REVERT_HEAD", MergeAgent.MergeMode.REVERT));
+            for (var entry : candidates) {
+                var candidatePath = gitDir.resolve(entry.getKey());
+                if (Files.exists(candidatePath)) {
+                    state = entry.getValue();
+                    headFile = candidatePath;
+                    break;
+                }
             }
         }
         if (state == null) {
@@ -213,13 +223,23 @@ public final class ConflictInspector {
                     "Repository is not in a merge/rebase/cherry-pick/revert conflict state (no *_HEAD found)");
         }
 
-        String originalOtherCommitId = readSingleHead(requireNonNull(headFile), state);
+        String originalOtherCommitId;
+        if (state == MergeAgent.MergeMode.SQUASH) {
+            // Prefer MERGE_HEAD when available; otherwise derive from staged 'theirs' blob by scanning local branches.
+            if (Files.exists(requireNonNull(headFile))) {
+                originalOtherCommitId = readSingleHead(headFile, state);
+            } else {
+                originalOtherCommitId = deriveOtherForSquash(repo, repository);
+            }
+        } else {
+            originalOtherCommitId = readSingleHead(requireNonNull(headFile), state);
+        }
 
         String effectiveOtherCommitId = originalOtherCommitId;
         @Nullable String baseCommitId;
 
         switch (state) {
-            case MERGE -> {
+            case MERGE, SQUASH -> {
                 try {
                     baseCommitId = repo.getMergeBase("HEAD", originalOtherCommitId);
                 } catch (GitAPIException e) {
@@ -331,6 +351,54 @@ public final class ConflictInspector {
         } catch (IOException e) {
             throw new RuntimeException("Failed to read " + headPath.getFileName() + " for state " + state, e);
         }
+    }
+
+    /**
+     * Derive the OTHER commit id for a SQUASH merge when MERGE_HEAD is absent by:
+     *  - finding a stage-3 (theirs) blob in the index, then
+     *  - scanning local branches for a tip commit whose tree contains that blob.
+     */
+    private static String deriveOtherForSquash(GitRepo repo, Repository repository) throws GitAPIException {
+        DirCache dirCache;
+        try {
+            dirCache = repository.readDirCache();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read DirCache while deriving OTHER for SQUASH", e);
+        }
+
+        ObjectId theirBlob = null;
+        String anyIndexPath = null;
+        for (int i = 0; i < dirCache.getEntryCount(); i++) {
+            var entry = dirCache.getEntry(i);
+            if (entry.getStage() == 3) {
+                theirBlob = entry.getObjectId();
+                anyIndexPath = entry.getPathString();
+                break;
+            }
+        }
+
+        if (theirBlob == null) {
+            throw new IllegalStateException("Unable to derive OTHER commit for SQUASH: no stage-3 entries in index");
+        }
+
+        for (var branch : repo.listLocalBranches()) {
+            try {
+                var tip = repository.resolve(branch);
+                if (tip == null) continue;
+                try {
+                    // If this succeeds, the blob is present in this branch tip's tree; treat as OTHER.
+                    findPathForBlobInCommit(repository, tip.getName(), theirBlob, requireNonNull(anyIndexPath));
+                    logger.debug("deriveOtherForSquash: resolved OTHER={} via branch {}", tip.getName(), branch);
+                    return tip.getName();
+                } catch (GitRepo.GitRepoException ignore) {
+                    // not found in this branch tip; continue scanning
+                }
+            } catch (Exception ex) {
+                // resolve failure; ignore and continue
+            }
+        }
+
+        throw new IllegalStateException("Unable to determine other side commit for SQUASH (MERGE_HEAD missing)");
     }
 
     /** Return the first parent commit id (hex) of the given commit, or null if none. */

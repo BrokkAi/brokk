@@ -399,6 +399,47 @@ class ConflictInspectorTest {
      * BRK_OUR_VERSION header. Verify header ids and per-line blame on both sides.
      */
     @Test
+    void detectsSquashMergeConflict() throws Exception {
+        Path projectRoot = Files.createTempDirectory("ci-squash");
+        initRepo(projectRoot);
+
+        try (var repo = new GitRepo(projectRoot)) {
+            // base
+            Files.writeString(projectRoot.resolve("sq.txt"), "A\nB\n");
+            runGit(projectRoot, "add sq.txt");
+            runGit(projectRoot, "commit -m base");
+            var baseSha = runGitCapture(projectRoot, "rev-parse HEAD").trim();
+            var mainBranch = getCurrentBranch(projectRoot);
+
+            // feature from base: modify B -> Y
+            runGit(projectRoot, "branch feature");
+            runGit(projectRoot, "checkout feature");
+            Files.writeString(projectRoot.resolve("sq.txt"), "A\nY\n");
+            runGit(projectRoot, "commit -am c_feature");
+            var featureSha = runGitCapture(projectRoot, "rev-parse HEAD").trim();
+
+            // back to main: modify B -> X
+            runGit(projectRoot, "checkout " + mainBranch);
+            Files.writeString(projectRoot.resolve("sq.txt"), "A\nX\n");
+            runGit(projectRoot, "commit -am c_main");
+            var mainSha = runGitCapture(projectRoot, "rev-parse HEAD").trim();
+
+            // squash merge -> expect conflict
+            runGitAllowFail(projectRoot, "merge --squash feature");
+
+            var conflict = ConflictInspector.inspectFromProject(makeProject(projectRoot, repo));
+            assertEquals(MergeAgent.MergeMode.SQUASH, conflict.state());
+            assertEquals(mainSha, conflict.ourCommitId());
+            assertEquals(featureSha, conflict.otherCommitId());
+            assertEquals(repo.shortHash(baseSha), repo.shortHash(conflict.baseCommitId()));
+            assertEquals(1, conflict.files().size());
+
+            var cf = conflict.files().iterator().next();
+            assertTrue(cf.isContentConflict());
+        }
+    }
+
+    @Test
     void annotateHeaderUsesOntoInRebase() throws Exception {
         Path projectRoot = Files.createTempDirectory("ci-rebase");
         initRepo(projectRoot);

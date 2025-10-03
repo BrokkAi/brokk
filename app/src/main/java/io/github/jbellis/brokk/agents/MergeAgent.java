@@ -48,6 +48,7 @@ public class MergeAgent {
 
     public enum MergeMode {
         MERGE,
+        SQUASH,
         REBASE,
         REVERT,
         CHERRY_PICK
@@ -372,7 +373,7 @@ public class MergeAgent {
 
     private static void validateOtherIsNotMergeCommitForNonMergeMode(
             GitRepo repo, MergeMode mode, String otherCommitId) {
-        if (mode == MergeMode.MERGE) return;
+        if (mode == MergeMode.MERGE || mode == MergeMode.SQUASH) return;
         try (var rw = new RevWalk(repo.getGit().getRepository())) {
             var oid = repo.getGit().getRepository().resolve(otherCommitId);
             if (oid == null) {
