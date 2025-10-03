@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -159,7 +161,7 @@ public final class FuzzyUsageFinder {
      * </ul>
      */
     private List<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, String searchPattern) {
-        var hits = new ArrayList<UsageHit>();
+        var hits = new ConcurrentLinkedQueue<UsageHit>();
         final var pattern = Pattern.compile(searchPattern);
 
         candidateFiles.parallelStream().forEach(file -> {
@@ -229,7 +231,7 @@ public final class FuzzyUsageFinder {
             }
         });
 
-        return hits;
+        return List.copyOf(hits);
     }
 
     /**
