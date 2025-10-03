@@ -1221,7 +1221,7 @@ public final class MainProject extends AbstractProject {
 
     public static boolean getHistoryAutoCompress() {
         var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "false"));
+        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
     }
 
     public static void setHistoryAutoCompress(boolean autoCompress) {
