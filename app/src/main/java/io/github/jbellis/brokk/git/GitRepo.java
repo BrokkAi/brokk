@@ -36,6 +36,7 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
@@ -60,6 +61,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Repository repository;
     private final Git git;
     private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
+    private final java.util.function.Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
 
     /**
@@ -128,7 +130,12 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     public GitRepo(Path projectRoot) {
+        this(projectRoot, () -> io.github.jbellis.brokk.MainProject.getGitHubToken());
+    }
+
+    GitRepo(Path projectRoot, java.util.function.Supplier<String> tokenSupplier) {
         this.projectRoot = projectRoot;
+        this.tokenSupplier = tokenSupplier;
 
         try {
             var builder = new FileRepositoryBuilder()
@@ -642,10 +649,9 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.debug("Pushing branch {} to origin", branchName);
         var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", branchName, branchName));
 
-        Iterable<PushResult> results = git.push()
-                .setRemote("origin") // Default to "origin"
-                .setRefSpecs(refSpec)
-                .call();
+        var pushCommand = git.push().setRemote("origin").setRefSpecs(refSpec);
+        applyGitHubAuthentication(pushCommand, getRemoteUrl("origin"));
+        Iterable<PushResult> results = pushCommand.call();
         List<String> rejectionMessages = new ArrayList<>();
 
         for (var result : results) {
@@ -698,8 +704,10 @@ public class GitRepo implements Closeable, IGitRepo {
         var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", localBranchName, remoteBranchName));
 
         // 1. Push the branch
-        Iterable<PushResult> results =
-                git.push().setRemote(remoteName).setRefSpecs(refSpec).call();
+        var pushCommand = git.push().setRemote(remoteName).setRefSpecs(refSpec);
+        var remoteUrl = getRemoteUrl(remoteName);
+
+        Iterable<PushResult> results = performPushWithAuthentication(pushCommand, remoteUrl);
 
         List<String> rejectionMessages = new ArrayList<>();
         for (var result : results) {
@@ -751,6 +759,42 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Applies GitHub token authentication to a git transport command if the remote URL is a GitHub HTTPS URL. For all
+     * other URLs (SSH, non-GitHub HTTPS, file, etc.), does nothing and lets JGit use its default handling.
+     *
+     * @param command The git transport command (push, pull, fetch, clone)
+     * @param remoteUrl The remote URL to check
+     * @throws GitHubAuthenticationException if GitHub HTTPS URL is detected but no token is configured
+     */
+    public <T, C extends org.eclipse.jgit.api.TransportCommand<C, T>> void applyGitHubAuthentication(
+            C command, @Nullable String remoteUrl) throws GitHubAuthenticationException {
+        // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
+        if (remoteUrl == null || !remoteUrl.startsWith("https://") || !remoteUrl.contains("github.com")) {
+            return;
+        }
+
+        // GitHub HTTPS requires token
+        logger.debug("Using GitHub token authentication for: {}", remoteUrl);
+        var githubToken = tokenSupplier.get();
+        if (!githubToken.trim().isEmpty()) {
+            command.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", githubToken));
+        } else {
+            throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
+                    + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+        }
+    }
+
+    /**
+     * Performs push with authentication for HTTPS URLs using GitHub token. SSH URLs use JGit's default SSH
+     * authentication.
+     */
+    private Iterable<PushResult> performPushWithAuthentication(PushCommand pushCommand, @Nullable String remoteUrl)
+            throws GitAPIException {
+        applyGitHubAuthentication(pushCommand, remoteUrl);
+        return pushCommand.call();
+    }
+
+    /**
      * Fetches all remotes with pruning, reporting progress to the given monitor.
      *
      * @param pm The progress monitor to report to.
@@ -758,18 +802,21 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public void fetchAll(ProgressMonitor pm) throws GitAPIException {
         for (String remote : repository.getRemoteNames()) {
-            git.fetch()
+            var fetchCommand = git.fetch()
                     .setRemote(remote)
                     .setRemoveDeletedRefs(true) // --prune
-                    .setProgressMonitor(pm)
-                    .call();
+                    .setProgressMonitor(pm);
+            applyGitHubAuthentication(fetchCommand, getRemoteUrl(remote));
+            fetchCommand.call();
         }
         invalidateCaches(); // Invalidate caches & ref-db
     }
 
     /** Pull changes from the remote repository for the current branch */
     public void pull() throws GitAPIException {
-        git.pull().call();
+        var pullCommand = git.pull();
+        applyGitHubAuthentication(pullCommand, getRemoteUrl("origin"));
+        pullCommand.call();
     }
 
     /** Get a set of commit IDs that exist in the local branch but not in its remote tracking branch */
@@ -1170,7 +1217,7 @@ public class GitRepo implements Closeable, IGitRepo {
                         .collect(Collectors.joining(", "));
                 logger.error("Squash merge conflicts: {}", errorDetails);
                 invalidateCaches();
-                throw new GitAPIException("Squash merge failed due to conflicts in: " + errorDetails) {};
+                throw new GitOperationException("Squash merge failed due to conflicts in: " + errorDetails);
             }
 
             invalidateCaches();
@@ -1224,8 +1271,8 @@ public class GitRepo implements Closeable, IGitRepo {
                 } catch (GitAPIException abortEx) {
                     logger.error("Failed to abort rebase for {}", tempRebaseBranchName, abortEx);
                 }
-                throw new GitAPIException("Rebase of '" + branchName + "' onto '" + targetBranch + "' failed: "
-                        + rebaseResult.getStatus()) {};
+                throw new GitOperationException("Rebase of '" + branchName + "' onto '" + targetBranch + "' failed: "
+                        + rebaseResult.getStatus());
             }
 
             // Switch back to target branch and fast-forward merge
@@ -1233,8 +1280,8 @@ public class GitRepo implements Closeable, IGitRepo {
             MergeResult ffMergeResult = mergeIntoHead(tempRebaseBranchName);
 
             if (!ffMergeResult.getMergeStatus().isSuccessful()) {
-                throw new GitAPIException("Fast-forward merge of rebased '" + tempRebaseBranchName + "' into '"
-                        + targetBranch + "' failed: " + ffMergeResult.getMergeStatus()) {};
+                throw new GitOperationException("Fast-forward merge of rebased '" + tempRebaseBranchName + "' into '"
+                        + targetBranch + "' failed: " + ffMergeResult.getMergeStatus());
             }
 
             invalidateCaches();
@@ -2211,9 +2258,15 @@ public class GitRepo implements Closeable, IGitRepo {
      * automatically append “.git”.
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
+        return cloneRepo(() -> io.github.jbellis.brokk.MainProject.getGitHubToken(), remoteUrl, directory, depth);
+    }
+
+    static GitRepo cloneRepo(
+            java.util.function.Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
+            throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
-        // Ensure the target directory is empty (or doesn’t yet exist)
+        // Ensure the target directory is empty (or doesn't yet exist)
         if (Files.exists(directory)
                 && directory.toFile().list() != null
                 && directory.toFile().list().length > 0) {
@@ -2225,6 +2278,18 @@ public class GitRepo implements Closeable, IGitRepo {
                     .setURI(effectiveUrl)
                     .setDirectory(directory.toFile())
                     .setCloneAllBranches(depth <= 0);
+
+            // Apply GitHub authentication if needed
+            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
+                var token = tokenSupplier.get();
+                if (!token.trim().isEmpty()) {
+                    cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
+                } else {
+                    throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
+                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+                }
+            }
+
             if (depth > 0) {
                 cloneCmd.setDepth(depth);
                 cloneCmd.setNoTags();
@@ -2233,7 +2298,7 @@ public class GitRepo implements Closeable, IGitRepo {
             try (var ignored = cloneCmd.call()) {
                 // nothing – resources closed via try-with-resources
             }
-            return new GitRepo(directory);
+            return new GitRepo(directory, tokenSupplier);
         } catch (GitAPIException e) {
             logger.error("Failed to clone {} into {}: {}", effectiveUrl, directory, e.getMessage(), e);
             throw e;
@@ -2252,6 +2317,17 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
+        return cloneRepo(
+                () -> io.github.jbellis.brokk.MainProject.getGitHubToken(), remoteUrl, directory, depth, branchOrTag);
+    }
+
+    static GitRepo cloneRepo(
+            java.util.function.Supplier<String> tokenSupplier,
+            String remoteUrl,
+            Path directory,
+            int depth,
+            @Nullable String branchOrTag)
+            throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
         // Ensure the target directory is empty (or doesn't yet exist)
@@ -2267,6 +2343,17 @@ public class GitRepo implements Closeable, IGitRepo {
                     .setDirectory(directory.toFile())
                     .setCloneAllBranches(depth <= 0);
 
+            // Apply GitHub authentication if needed
+            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
+                var token = tokenSupplier.get();
+                if (!token.trim().isEmpty()) {
+                    cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
+                } else {
+                    throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
+                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+                }
+            }
+
             if (branchOrTag != null && !branchOrTag.trim().isEmpty()) {
                 cloneCmd.setBranch(branchOrTag);
             }
@@ -2279,7 +2366,7 @@ public class GitRepo implements Closeable, IGitRepo {
             try (var ignored = cloneCmd.call()) {
                 // nothing – resources closed via try-with-resources
             }
-            return new GitRepo(directory);
+            return new GitRepo(directory, tokenSupplier);
         } catch (GitAPIException e) {
             logger.error(
                     "Failed to clone {} (branch/tag: {}) into {}: {}",

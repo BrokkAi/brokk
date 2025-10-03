@@ -299,4 +299,228 @@ class EditBlockParserTest {
                 editsOnly.parseError().toUpperCase().contains("SEARCH/REPLACE"),
                 "Error message should mention SEARCH/REPLACE");
     }
+
+    @Test
+    void testParseThreeFilesOneBlockEach() {
+        String input =
+                """
+        ```
+        src/main/java/io/github/jbellis/brokk/ContextManager.java
+        <<<<<<< SEARCH
+            static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
+        =======
+            public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
+        >>>>>>> REPLACE
+        ```
+        ```
+        src/main/java/io/github/jbellis/brokk/agents/CodeAgent.java
+        <<<<<<< SEARCH
+            private List<ChatMessage> prepareMessagesForTaskEntryLog() {
+        =======
+            /**
+             * Prepares messages for storage in a TaskEntry.
+             * This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI messages.
+             * AI messages containing edit blocks will have those blocks replaced by redaction placeholders.
+             */
+            private List<ChatMessage> prepareMessagesForTaskEntryLog() {
+        >>>>>>> REPLACE
+        ```
+        ```
+        src/test/java/io/github/jbellis/brokk/ContextManagerRedactionTest.java
+        <<<<<<< SEARCH
+        package io.github.jbellis.brokk;
+
+        class ContextManagerRedactionTest {
+            private String createSingleBlockMessage(String filename, String search, String replace) {
+                return ""
+                   ```
+                   %s
+                    <<<<<<< SEARCH
+                            %s
+                    =======
+                    %s
+                    >>>>>>> REPLACE
+                   ```
+        "".formatted(filename, search, replace);
+        }
+
+        @Test
+        =======
+        package io.github.jbellis.brokk;
+
+        import java.util.Optional;
+
+        class ContextManagerRedactionTest {
+            private String createSingleBlockMessage(String filename, String search, String replace) {
+                return ""
+                    ```
+                    %s
+                    <<<<<<< SEARCH
+                    %s
+                    =======
+                    %s
+                    >>>>>>> REPLACE
+                    ```
+                    "".formatted(filename, search, replace);
+            }
+
+            @Test
+            >>>>>>> REPLACE
+            ```
+        """;
+
+        var editsOnly = io.github.jbellis.brokk.prompts.EditBlockParser.instance.parseEditBlocks(input, Set.of());
+        assertNull(editsOnly.parseError(), "No parse errors expected");
+        var blocks = editsOnly.blocks();
+        assertEquals(3, blocks.size(), "Should parse exactly three edit blocks");
+
+        // Block 1 assertions
+        var b1 = blocks.get(0);
+        assertEquals("src/main/java/io/github/jbellis/brokk/ContextManager.java", b1.rawFileName());
+        assertEquals(
+                "    static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {\n",
+                b1.beforeText());
+        assertEquals(
+                "    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {\n",
+                b1.afterText());
+
+        // Block 2 assertions
+        var b2 = blocks.get(1);
+        assertEquals("src/main/java/io/github/jbellis/brokk/agents/CodeAgent.java", b2.rawFileName());
+        assertEquals("    private List<ChatMessage> prepareMessagesForTaskEntryLog() {\n", b2.beforeText());
+        String expectedAfter2 =
+                """
+                    /**
+                     * Prepares messages for storage in a TaskEntry.
+                     * This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI messages.
+                     * AI messages containing edit blocks will have those blocks replaced by redaction placeholders.
+                     */
+                    private List<ChatMessage> prepareMessagesForTaskEntryLog() {
+                """;
+        assertEquals(expectedAfter2, b2.afterText());
+
+        // Block 3 assertions
+        var b3 = blocks.get(2);
+        assertEquals("src/test/java/io/github/jbellis/brokk/ContextManagerRedactionTest.java", b3.rawFileName());
+        String expectedBefore3 =
+                """
+        package io.github.jbellis.brokk;
+
+        class ContextManagerRedactionTest {
+            private String createSingleBlockMessage(String filename, String search, String replace) {
+                return ""
+                   ```
+                   %s
+                    <<<<<<< SEARCH
+                            %s
+                    =======
+                    %s
+                    >>>>>>> REPLACE
+                   ```
+        "".formatted(filename, search, replace);
+        }
+
+        @Test
+        """;
+        String expectedAfter3 =
+                """
+        package io.github.jbellis.brokk;
+
+        import java.util.Optional;
+
+        class ContextManagerRedactionTest {
+            private String createSingleBlockMessage(String filename, String search, String replace) {
+                return ""
+                    ```
+                    %s
+                    <<<<<<< SEARCH
+                    %s
+                    =======
+                    %s
+                    >>>>>>> REPLACE
+                    ```
+                    "".formatted(filename, search, replace);
+            }
+
+            @Test
+        """;
+        assertEquals(expectedBefore3, b3.beforeText());
+        assertEquals(expectedAfter3, b3.afterText());
+    }
+
+    @Test
+    void testContextManagerRedactionExampleParsesToSingleBlock() {
+        // This mirrors the snippet from ContextManagerRedactionTest.java in the goal:
+        // a single fenced SEARCH/REPLACE block targeting that file path.
+        String input =
+                """
+                ```
+                src/test/java/io/github/jbellis/brokk/ContextManagerRedactionTest.java
+                <<<<<<< SEARCH
+                private String createSingleBlockMessage(String filename, String search, String replace) {
+                    return \"\"\"
+                           ```
+                           %s
+                           <<<<<<< SEARCH
+                           %s
+                           =======
+                           %s
+                           >>>>>>> REPLACE
+                           ```
+                           \"\"\".formatted(filename, search, replace);
+                }
+                =======
+                private String createSingleBlockMessage(String filename, String search, String replace) {
+                    return \"\"\"
+                           ```
+                           %s
+                           <<<<<<< SEARCH
+                           %s
+                           =======
+                           %s
+                           >>>>>>> REPLACE
+                           ```
+                           \"\"\".formatted(filename, search, replace);
+                }
+
+                @Test
+                void handlesBlockWithNullFilename() {
+                    // Create a block without a filename line. EditBlockParser will parse this with a null filename.
+                    String blockWithNullFilename = \"\"\"
+                                               ```
+                                               <<<<<<< SEARCH
+                                               old code
+                                               =======
+                                               new code
+                                               >>>>>>> REPLACE
+                                               ```
+                                               \"\"\";
+                    AiMessage originalMessage = new AiMessage(blockWithNullFilename);
+
+                    Optional<AiMessage> redactedMessage = ContextManager.redactAiMessage(originalMessage, parser);
+
+                    assertTrue(redactedMessage.isPresent(), "Message with only block (null filename) should be present.");
+                    assertEquals(ELIDED_NULL_BLOCK_PLACEHOLDER, redactedMessage.get().text(), "Message content should be the null filename placeholder.");
+                }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var editsOnly = EditBlockParser.instance.parseEditBlocks(input, Set.of());
+        assertNull(editsOnly.parseError(), "No parse errors expected for a well-formed fenced block");
+        var blocks = editsOnly.blocks();
+        assertEquals(1, blocks.size(), "The example should parse to exactly one SEARCH/REPLACE block");
+
+        var b = blocks.getFirst();
+        assertEquals(
+                "src/test/java/io/github/jbellis/brokk/ContextManagerRedactionTest.java",
+                b.rawFileName(),
+                "Filename line inside the fence should be captured as rawFileName");
+        assertTrue(
+                b.beforeText().contains("createSingleBlockMessage"),
+                "Before side should include the helper method body");
+        assertTrue(
+                b.afterText().contains("handlesBlockWithNullFilename"),
+                "After side should include the replacement test method");
+    }
 }

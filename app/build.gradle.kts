@@ -37,10 +37,12 @@ javafx {
 
 node {
     version.set(libs.versions.nodejs.get())
-    npmVersion.set(libs.versions.npm.get())
+    npmVersion.set("")
+    pnpmVersion.set(libs.versions.pnpm.get())
     download.set(true)
     workDir.set(file("${project.rootDir}/.gradle/nodejs"))
     npmWorkDir.set(file("${project.rootDir}/.gradle/npm"))
+    pnpmWorkDir.set(file("${project.rootDir}/.gradle/pnpm"))
     nodeProjectDir.set(file("${project.rootDir}/frontend-mop"))
 }
 
@@ -137,16 +139,8 @@ buildConfig {
     className("BuildInfo")
 }
 
-tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
-    args.set(listOf("install", "--silent"))
-    inputs.file("${project.rootDir}/frontend-mop/package.json")
-    inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
-    outputs.dir("${project.rootDir}/frontend-mop/node_modules")
-    outputs.cacheIf { true }
-}
-
 tasks.register("frontendPatch") {
-    dependsOn("frontendInstall")
+    dependsOn(tasks.pnpmInstall)
 
     inputs.dir("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown").optional(true)
     outputs.file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json").optional(true)
@@ -162,10 +156,10 @@ tasks.register("frontendPatch") {
     }
 }
 
-tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
+tasks.register<com.github.gradle.node.pnpm.task.PnpmTask>("frontendBuild") {
     description = "Build frontend with Vite"
     group = "frontend"
-    dependsOn("frontendInstall", "frontendPatch")
+    dependsOn(tasks.pnpmInstall, "frontendPatch")
 
     args.set(listOf("run", "build"))
 

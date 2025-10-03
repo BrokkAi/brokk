@@ -235,28 +235,32 @@ public class EditBlockParser {
 
     /**
      * Scan lines starting immediately after "<<<<<<< SEARCH" until we find the matching top-level ">>>>>>> REPLACE".
-     * While scanning, we treat "=======" as the divider between before/after only when we are at top-level
-     * (nestingDepth == 0).
+     * While scanning, we treat "=======" as the divider between before/after only when we are at top-level (depth ==
+     * 0).
      *
-     * <p>We increase nestingDepth at any line starting with "<<<<<<< " that is NOT our own "<<<<<<< SEARCH". We
-     * decrease nestingDepth at any ">>>>>>>" that is NOT our own ">>>>>>> REPLACE".
+     * <p>Nesting rules:
      *
-     * <p>Nested conflict markers therefore do not interfere with our parsing.
+     * <ul>
+     *   <li>Any subsequent "<<<<<<< SEARCH" inside the payload increases depth (nested edit block literal).
+     *   <li>Any ">>>>>>> REPLACE" decreases depth; it only terminates the scan when depth == 0 (the top-level end).
+     *   <li>Generic git-conflict markers (e.g., "<<<<<<< HEAD" / ">>>>>>> branch") also adjust depth.
+     * </ul>
+     *
+     * <p>Nested markers therefore do not interfere with our parsing and are preserved verbatim in the payload.
      */
     private static ScanResult scanSearchReplaceBody(String[] lines, int startIndex) {
         var before = new ArrayList<String>();
         var after = new ArrayList<String>();
         boolean inAfter = false;
-        int depth = 0; // depth of nested conflict markers not belonging to this edit block
+        int depth = 0; // depth of nested markers (either our own SEARCH/REPLACE or generic git conflict)
         int i = startIndex;
 
         while (i < lines.length) {
             var raw = lines[i];
             var trimmed = raw.trim();
 
-            // Our end marker takes precedence only at top-level (depth == 0)
+            // Top-level end marker closes the block only when not nested
             if (depth == 0 && isReplace(trimmed)) {
-                // found end of block; do not consume this line into payload
                 return new ScanResult(i + 1, before, after, ensureHasTopLevelDivider(inAfter));
             }
 
@@ -267,11 +271,20 @@ public class EditBlockParser {
                 continue;
             }
 
-            // Maintain nesting for any conflict markers that are NOT our own edit markers
-            if (looksLikeAnyConflictStart(raw) && !isSearch(trimmed)) {
-                depth++;
-            } else if (looksLikeAnyConflictEnd(raw) && !isReplace(trimmed)) {
-                if (depth > 0) depth--;
+            // Maintain nesting for our own markers when they appear inside the payload
+            if (isSearch(trimmed)) {
+                depth++; // nested edit block (literal) begins
+            } else if (isReplace(trimmed)) {
+                if (depth > 0) {
+                    depth--; // nested edit block (literal) ends
+                }
+            } else {
+                // Maintain nesting for generic git conflict markers that are not our own
+                if (looksLikeAnyConflictStart(raw)) {
+                    depth++;
+                } else if (looksLikeAnyConflictEnd(raw)) {
+                    if (depth > 0) depth--;
+                }
             }
 
             if (!inAfter) before.add(raw);
@@ -279,7 +292,7 @@ public class EditBlockParser {
             i++;
         }
 
-        // If we exit the loop, we never saw the matching ">>>>>>> REPLACE"
+        // If we exit the loop, we never saw the matching top-level ">>>>>>> REPLACE"
         return new ScanResult(i, before, after, "Expected >>>>>>> REPLACE");
     }
 

@@ -350,7 +350,7 @@ public final class BrokkCli implements Callable<Integer> {
         } else if (askPrompt != null) {
             scopeInput = requireNonNull(askPrompt);
         } else if (merge) {
-            scopeInput = "";
+            scopeInput = "Merge";
         } else if (searchAnswerPrompt != null) {
             scopeInput = requireNonNull(searchAnswerPrompt);
         } else { // searchTasksPrompt != null

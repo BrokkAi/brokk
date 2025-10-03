@@ -13,7 +13,6 @@ public class MultiAnalyzer
                 CallGraphProvider,
                 SkeletonProvider,
                 SourceCodeProvider,
-                IncrementalUpdateProvider,
                 TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
@@ -96,9 +95,10 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
+    public Set<String> getMethodSources(String fqName, boolean includeComments) {
         return findFirst(analyzer ->
-                analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName, includeComments)));
+                        analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(fqName, includeComments)))
+                .orElse(Collections.emptySet());
     }
 
     @Override
@@ -214,7 +214,7 @@ public class MultiAnalyzer
     @Override
     public IAnalyzer update() {
         for (var an : delegates.values()) {
-            an.as(IncrementalUpdateProvider.class).ifPresent(IncrementalUpdateProvider::update);
+            an.update();
         }
         return this;
     }
@@ -236,9 +236,7 @@ public class MultiAnalyzer
                 continue;
             }
 
-            analyzer.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> {
-                incAnalyzer.update(relevantFiles);
-            });
+            analyzer.update(relevantFiles);
         }
 
         return this;

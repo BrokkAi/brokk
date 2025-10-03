@@ -60,7 +60,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private IConsoleIO io; // for UI feedback - Initialized in createGui
 
     @SuppressWarnings("NullAway.Init")
-    private AnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
+    private IAnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
@@ -173,9 +173,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Model reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
-
-    // Tracks current analyzer readiness for quick non-blocking queries
-    private final AtomicBoolean analyzerReady = new AtomicBoolean(false);
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -353,7 +350,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener, this.getIo());
+        this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, this.getIo());
 
         // Load saved context history or create a new one
         var contextTask =
@@ -449,7 +446,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().showAnalyzerRebuildSpinner();
                 }
-                analyzerReady.set(false);
                 // Notify analyzer callbacks
                 for (var callback : analyzerCallbacks) {
                     try {
@@ -465,7 +461,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().hideAnalyzerRebuildSpinner();
                 }
-                analyzerReady.set(true);
 
                 // Wait for context load to finish, with a timeout
                 long startTime = System.currentTimeMillis();
@@ -499,7 +494,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onAnalyzerReady() {
                 logger.debug("Analyzer became ready, triggering symbol lookup refresh");
-                analyzerReady.set(true);
                 for (var callback : analyzerCallbacks) {
                     try {
                         callback.onAnalyzerReady();
@@ -577,7 +571,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public AnalyzerWrapper getAnalyzerWrapper() {
+    public IAnalyzerWrapper getAnalyzerWrapper() {
         return analyzerWrapper;
     }
 
@@ -1329,7 +1323,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns current analyzer readiness without blocking. */
     public boolean isAnalyzerReady() {
-        return analyzerReady.get();
+        return analyzerWrapper.getNonBlocking() != null;
     }
 
     @Override
@@ -2338,7 +2332,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions.setIo(this.io);
 
         // no AnalyzerListener, instead we will block for it to be ready
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null, this.io);
+        this.analyzerWrapper = new AnalyzerWrapper(project, null, this.io);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {
