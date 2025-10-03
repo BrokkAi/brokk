@@ -74,18 +74,17 @@ public class FuzzyUsageFinderJavaTest {
         return new FuzzyUsageFinder(project, analyzer, null); // No LLM for these tests
     }
 
-    // Mirrors: getUsesMethodExistingTest from JdtClientTest
     @Test
     public void getUsesMethodExistingTest() {
         var finder = newFinder(testProject);
         var symbol = "A.method2";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
         // Expect references to be in B.java and AnonymousUsage.java (may include others; we assert presence)
@@ -97,19 +96,18 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesNestedClassConstructorTest() {
         var finder = newFinder(testProject);
         var symbol = "A$AInner$AInnerInner";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
-        assertTrue(files.contains("A.java"), "Expected a usage in A.java; actual: " + files);
+        assertFalse(files.contains("A.java"), "Declaration should not be counted as usage; actual: " + files);
     }
 
-    // Mirrors: getUsesMethodNonexistentTest
     @Test
     public void getUsesMethodNonexistentTest() {
         var finder = newFinder(testProject);
@@ -119,18 +117,17 @@ public class FuzzyUsageFinderJavaTest {
         assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
     }
 
-    // Mirrors: getUsesFieldExistingTest
     @Test
     public void getUsesFieldExistingTest() {
         var finder = newFinder(testProject);
         var symbol = "D.field1";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
         assertTrue(files.contains("D.java"), "Expected a usage in D.java; actual: " + files);
@@ -147,35 +144,33 @@ public class FuzzyUsageFinderJavaTest {
         assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
     }
 
-    // Mirrors: getUsesFieldFromUseETest
     @Test
     public void getUsesFieldFromUseETest() {
         var finder = newFinder(testProject);
         var symbol = "UseE.e";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
         assertTrue(files.contains("UseE.java"), "Expected a usage in UseE.java; actual: " + files);
     }
 
-    // Mirrors: getUsesClassBasicTest
     @Test
     public void getUsesClassBasicTest() {
         var finder = newFinder(testProject);
         var symbol = "A";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
         // Expect references across several files (constructor and method usage)
@@ -185,7 +180,6 @@ public class FuzzyUsageFinderJavaTest {
         assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
     }
 
-    // Mirrors: getUsesClassNonexistentTest
     @Test
     public void getUsesClassNonexistentTest() {
         var finder = newFinder(testProject);
@@ -195,52 +189,49 @@ public class FuzzyUsageFinderJavaTest {
         assertTrue(result instanceof FuzzyResult.Failure, "Expected Failure for " + symbol);
     }
 
-    // Mirrors: getUsesNestedClassTest
     @Test
     public void getUsesNestedClassTest() {
         var finder = newFinder(testProject);
         var symbol = "A$AInner";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
         assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
     }
 
-    // Mirrors: getUsesClassWithStaticMembersTest
     @Test
     public void getUsesClassWithStaticMembersTest() {
         var finder = newFinder(testProject);
         var symbol = "E";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
         assertTrue(files.contains("UseE.java"), "Expected usage in UseE.java; actual: " + files);
     }
 
-    // Mirrors: getUsesClassInheritanceTest
     @Test
     public void getUsesClassInheritanceTest() {
         var finder = newFinder(testProject);
         var symbol = "BaseClass";
-        var result = finder.findUsages(symbol, 10_000);
+        var either = finder.findUsages(symbol, 10_000).toEither();
 
-        if (result instanceof FuzzyResult.Failure f) {
-            fail("Got failure for " + symbol + " -> " + f.reason());
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = ((result instanceof FuzzyResult.Success s) ? s.hits() : ((FuzzyResult.Ambiguous) result).hits());
+        var hits = either.getUsages();
         var files = baseNamesFromHits(hits);
 
         // Expect a usage in classes that extend or refer to BaseClass
