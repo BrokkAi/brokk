@@ -2784,7 +2784,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /**
      * Appends text to the Tests panel, opening/focusing the tab if necessary.
-     * Safe to call from any thread.
+     *
+     * This method is display-only and does not execute tests. Other components should
+     * trigger test execution (e.g., Gradle/Maven/CLI/background task) and pipe logs
+     * to this panel via repeated calls to this method.
+     *
+     * Threading: safe to call from any thread; internally marshals to the EDT and
+     * ensures the Tests tab is visible before appending.
+     *
+     * @param text output text to append (null-safe; null is treated as empty)
      */
     public void appendToTestRunner(String text) {
         if (SwingUtilities.isEventDispatchThread()) {

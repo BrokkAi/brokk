@@ -30,6 +30,12 @@ import org.apache.logging.log4j.Logger;
  * Thread-safety: public mutating methods marshal updates to the EDT.
  * This panel is display-only; execution of tests should be handled elsewhere,
  * piping logs to this component.
+ *
+ * Usage:
+ * - Trigger test execution from another component (e.g., menu action, toolbar, Gradle/Maven/CLI runner, or background task).
+ * - Stream or append test output to this panel using appendOutput(String) as it becomes available.
+ * - Prefer using Chrome.appendToTestRunner(String) to ensure the Tests tab is opened/focused and updates occur on the EDT.
+ * - Do not attempt to modify the JTextArea directly; use the provided methods which are EDT-safe.
  */
 public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TestRunnerPanel.class);
