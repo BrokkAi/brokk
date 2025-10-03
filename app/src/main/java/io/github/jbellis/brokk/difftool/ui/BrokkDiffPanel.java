@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.awt.*;
@@ -64,8 +65,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JCheckBox showAllLinesCheckBox = new JCheckBox("Show all lines");
     private final JToggleButton viewModeToggle = new JToggleButton("Unified View");
 
-    // Global preference for unified view context mode
-    private boolean globalShowAllLinesInUnified = false; // Default to 3-line context
+    // Global preferences loaded from GlobalUiSettings
+    private boolean globalShowAllLinesInUnified = GlobalUiSettings.isDiffShowAllLines();
 
     // Toolbar for UI controls
     @Nullable
@@ -83,8 +84,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final SlidingWindowCache<Integer, IDiffPanel> panelCache =
             new SlidingWindowCache<>(MAX_CACHED_PANELS, WINDOW_SIZE);
 
-    // View mode state
-    private boolean isUnifiedView = false; // Default to side-by-side view
+    // View mode state loaded from GlobalUiSettings
+    private boolean isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
 
     /**
      * Inner class to hold a single file comparison metadata Note: No longer holds the diffPanel directly - that's
@@ -191,9 +192,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             public void ancestorRemoved(AncestorEvent event) {}
         });
 
-        showBlankLineDiffsCheckBox.setSelected(!JMDiffNode.isIgnoreBlankLineDiffs());
+        showBlankLineDiffsCheckBox.setSelected(GlobalUiSettings.isDiffShowBlankLines());
+        JMDiffNode.setIgnoreBlankLineDiffs(!GlobalUiSettings.isDiffShowBlankLines());
         showBlankLineDiffsCheckBox.addActionListener(e -> {
             boolean show = showBlankLineDiffsCheckBox.isSelected();
+            GlobalUiSettings.saveDiffShowBlankLines(show);
             JMDiffNode.setIgnoreBlankLineDiffs(!show);
             refreshAllDiffPanels();
         });
@@ -203,6 +206,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         showAllLinesCheckBox.addActionListener(e -> {
             boolean showAll = showAllLinesCheckBox.isSelected();
             globalShowAllLinesInUnified = showAll;
+            GlobalUiSettings.saveDiffShowAllLines(showAll);
             var targetMode = showAll
                     ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
                     : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
@@ -215,7 +219,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         });
 
         // Set up view mode toggle with icons
-        viewModeToggle.setSelected(false); // Default to side-by-side view
+        viewModeToggle.setSelected(isUnifiedView); // Load from global preference
         viewModeToggle.setIcon(Icons.VIEW_UNIFIED); // Show unified icon when in side-by-side mode
         viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE); // Show side-by-side icon when in unified mode
         viewModeToggle.setText(null); // Remove text, use icon only
@@ -718,10 +722,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             toolBar.add(Box.createHorizontalStrut(10));
         }
 
-        // Add both view mode controls (they will be enabled/disabled based on current mode)
+        // Add view mode controls
         toolBar.add(showBlankLineDiffsCheckBox);
         toolBar.add(Box.createHorizontalStrut(5));
-        toolBar.add(showAllLinesCheckBox);
+        // showAllLinesCheckBox is only for unified view, which is dev-mode only
+        if (isDevMode) {
+            toolBar.add(showAllLinesCheckBox);
+        }
 
         // Update control enable/disable state based on view mode
         updateToolbarForViewMode();
@@ -1892,6 +1899,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         this.isUnifiedView = useUnifiedView;
+        GlobalUiSettings.saveDiffUnifiedView(useUnifiedView);
 
         // Update toolbar controls for the new view mode
         updateToolbarForViewMode();
