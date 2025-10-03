@@ -467,9 +467,8 @@ public class HistoryOutputPanel extends JPanel {
             }
         });
 
-        // Add footer with left (Undo/Redo) and right (Compress/Auto)
-        // Left panel: Undo/Redo share width equally
-        var leftButtonsPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
+        // Add undo/redo buttons at the bottom, side by side
+        var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
@@ -489,18 +488,14 @@ public class HistoryOutputPanel extends JPanel {
             redoButton.setIcon(Icons.REDO);
         });
 
-        leftButtonsPanel.add(undoButton);
-        leftButtonsPanel.add(redoButton);
-
-        // Footer container
-        var footerPanel = new JPanel(new BorderLayout(5, 0));
-        footerPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
-        footerPanel.add(leftButtonsPanel, BorderLayout.WEST);
+        buttonPanel.add(undoButton);
+        buttonPanel.add(redoButton);
+        buttonPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
 
         historyLayeredPane.add(layer, JLayeredPane.DEFAULT_LAYER);
 
         panel.add(historyLayeredPane, BorderLayout.CENTER);
-        panel.add(footerPanel, BorderLayout.SOUTH);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
 
         // Calculate preferred width for the history panel
         // Table width (30 + 150) + scrollbar (~20) + padding = ~210
