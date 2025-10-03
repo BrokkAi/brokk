@@ -119,9 +119,7 @@ public final class FuzzyUsageFinder {
                 }
             } catch (InterruptedException e) {
                 logger.error(
-                        "Unable to batch classify relevance with {} due to exception. Assuming score of 1.0.",
-                        llm,
-                        e);
+                        "Unable to batch classify relevance with {} due to exception. Assuming score of 1.0.", llm, e);
                 // scoredHits already contains unscored hits; leave as-is
                 Thread.currentThread().interrupt();
             }

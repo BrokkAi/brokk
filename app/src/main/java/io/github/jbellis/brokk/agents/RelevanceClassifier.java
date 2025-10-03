@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.agents;
 
-import com.google.common.collect.ImmutableMap;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -236,23 +235,30 @@ public final class RelevanceClassifier {
             Map<String, Double> idToScore = null;
 
             for (int attempt = 1; attempt <= MAX_RELEVANCE_TRIES; attempt++) {
-                logger.trace("Invoking batch relevance scorer (chunk offset={}, attempt {}/{})", offset, attempt, MAX_RELEVANCE_TRIES);
+                logger.trace(
+                        "Invoking batch relevance scorer (chunk offset={}, attempt {}/{})",
+                        offset,
+                        attempt,
+                        MAX_RELEVANCE_TRIES);
                 var result = llm.sendRequest(messages);
 
                 if (result.error() != null) {
-                    logger.debug("Error batch scoring response (chunk offset={}, attempt {}): {}", offset, attempt, result);
+                    logger.debug(
+                            "Error batch scoring response (chunk offset={}, attempt {}): {}", offset, attempt, result);
                     continue;
                 }
 
                 var response = result.text().strip();
-                logger.trace("Batch relevance scorer response (chunk offset={}, attempt {}): {}", offset, attempt, response);
+                logger.trace(
+                        "Batch relevance scorer response (chunk offset={}, attempt {}): {}", offset, attempt, response);
 
                 // Try to parse a JSON-like object with "Ti": <num> pairs
                 var parsed = new LinkedHashMap<String, Double>(ids.size());
                 boolean allFound = true;
                 for (var id : ids) {
                     try {
-                        Pattern p = Pattern.compile("\"%s\"\\s*:\\s*([-+]?\\d+(?:\\.\\d+)?)".formatted(Pattern.quote(id)));
+                        Pattern p =
+                                Pattern.compile("\"%s\"\\s*:\\s*([-+]?\\d+(?:\\.\\d+)?)".formatted(Pattern.quote(id)));
                         Matcher m = p.matcher(response);
                         if (m.find()) {
                             double v = Double.parseDouble(m.group(1));
@@ -310,7 +316,10 @@ public final class RelevanceClassifier {
                 results.put(task, score);
             }
             if (idToScore == null) {
-                logger.debug("Defaulted chunk scores to 0.0 after {} attempts (chunk offset={})", MAX_RELEVANCE_TRIES, offset);
+                logger.debug(
+                        "Defaulted chunk scores to 0.0 after {} attempts (chunk offset={})",
+                        MAX_RELEVANCE_TRIES,
+                        offset);
             }
         }
 
