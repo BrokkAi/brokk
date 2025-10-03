@@ -91,6 +91,12 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         if (taskListPanel == null) {
             taskListPanel = new TaskListPanel(chrome);
             replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", Icons.LIST);
+            // Apply current theme to the newly created panel
+            try {
+                taskListPanel.applyTheme(chrome.getTheme());
+            } catch (Exception ex) {
+                logger.debug("Failed to apply theme to TaskListPanel", ex);
+            }
         }
         tabs.setSelectedIndex(TAB_TASKS);
         return taskListPanel;
@@ -145,7 +151,9 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         if (terminalPanel != null) {
             terminalPanel.applyTheme(guiTheme);
         }
-        // InstructionsPanel manages its own visuals; nothing to do here.
+        if (instructionsPanel instanceof ThemeAware ta) {
+            ta.applyTheme(guiTheme);
+        }
         revalidate();
         repaint();
     }
@@ -175,6 +183,17 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
             // Show header so capture button is available; onClose disposes and clears the tab content.
             terminalPanel = new TerminalPanel(chrome, this::disposeTerminal, true, cwd);
             replaceTabComponent(TAB_TERMINAL, terminalPanel, "Terminal", Icons.TERMINAL);
+            // Apply current theme and font size to the newly created terminal
+            try {
+                terminalPanel.applyTheme(chrome.getTheme());
+            } catch (Exception ex) {
+                logger.debug("Failed to apply theme to TerminalPanel", ex);
+            }
+            try {
+                terminalPanel.updateTerminalFontSize();
+            } catch (Exception ex) {
+                logger.debug("Failed to apply terminal font size setting", ex);
+            }
         } catch (Exception ex) {
             logger.warn("Failed to create terminal in tab: {}", ex.getMessage());
         }
