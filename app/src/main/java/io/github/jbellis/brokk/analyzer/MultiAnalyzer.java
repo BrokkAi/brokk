@@ -9,11 +9,7 @@ import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 
 public class MultiAnalyzer
-        implements IAnalyzer,
-                CallGraphProvider,
-                SkeletonProvider,
-                SourceCodeProvider,
-                TypeAliasProvider {
+        implements IAnalyzer, CallGraphProvider, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
