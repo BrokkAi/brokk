@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.agents.RelevanceClassifier;
+import io.github.jbellis.brokk.agents.RelevanceTask;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -102,21 +103,28 @@ public final class FuzzyUsageFinder {
         var scoredHits = new HashSet<>(hits);
         if (llm != null) {
             // Case 3: This symbol is not unique among code units, disambiguate with LLM if possible
-            hits.forEach(hit -> {
-                var prompt = UsagePromptBuilder.buildPrompt(hit, target, analyzer, identifier, 8_000);
-                try {
-                    var score =
-                            RelevanceClassifier.relevanceScore(llm, prompt.filterDescription(), prompt.candidateText());
-                    scoredHits.add(hit.withConfidence(score));
-                } catch (InterruptedException e) {
-                    logger.error(
-                            "Unable to classify relevance of {} with {} due to exception. Assuming score of 1.0.",
-                            hit,
-                            llm,
-                            e);
-                    scoredHits.add(hit);
+            try {
+                var tasks = new ArrayList<RelevanceTask>(hits.size());
+                var mapping = new ArrayList<UsageHit>(hits.size());
+                for (var hit : hits) {
+                    var prompt = UsagePromptBuilder.buildPrompt(hit, target, analyzer, identifier, 8_000);
+                    tasks.add(new RelevanceTask(prompt.filterDescription(), prompt.candidateText()));
+                    mapping.add(hit);
                 }
-            });
+                var scores = RelevanceClassifier.relevanceScoreBatch(llm, tasks);
+                for (int i = 0; i < tasks.size(); i++) {
+                    var task = tasks.get(i);
+                    var score = scores.getOrDefault(task, 0.0);
+                    scoredHits.add(mapping.get(i).withConfidence(score));
+                }
+            } catch (InterruptedException e) {
+                logger.error(
+                        "Unable to batch classify relevance with {} due to exception. Assuming score of 1.0.",
+                        llm,
+                        e);
+                // scoredHits already contains unscored hits; leave as-is
+                Thread.currentThread().interrupt();
+            }
         }
         return new FuzzyResult.Ambiguous(
                 target.shortName(), matchingCodeUnits, scoredHits.stream().toList());
