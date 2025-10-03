@@ -1097,7 +1097,7 @@ public class HistoryOutputPanel extends JPanel {
         // Rounded, modern container
         var card = new RoundedPanel(12, bg, border);
         card.setLayout(new BorderLayout(8, 4));
-        card.setBorder(new EmptyBorder(4, 8, 4, 8));
+        card.setBorder(new EmptyBorder(2, 8, 2, 8));
 
         // Center: show full message (including full cost details for COST)
         String display = compactMessageForToolbar(role, message);
