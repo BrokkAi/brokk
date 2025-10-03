@@ -24,6 +24,7 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.InstructionsToolsTabbedPanel;
+import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
@@ -2774,6 +2775,36 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Updates the terminal font size for all active terminals. */
     public void updateTerminalFontSize() {
         SwingUtilities.invokeLater(() -> instructionsToolsPanel.updateTerminalFontSize());
+    }
+
+    /** Returns the TestRunnerPanel if created; else null. */
+    public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrNull() {
+        return instructionsToolsPanel.getTestRunnerPanelOrNull();
+    }
+
+    /**
+     * Appends text to the Tests panel, opening/focusing the tab if necessary.
+     * Safe to call from any thread.
+     */
+    public void appendToTestRunner(String text) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            appendToTestRunnerEdt(text);
+        } else {
+            SwingUtilities.invokeLater(() -> appendToTestRunnerEdt(text));
+        }
+    }
+
+    private void appendToTestRunnerEdt(String text) {
+        // Ensure Tests tab is open/selected so the user sees updates
+        try {
+            instructionsToolsPanel.openTests();
+        } catch (Exception ex) {
+            logger.debug("Failed to open Tests tab", ex);
+        }
+        var panel = instructionsToolsPanel.getTestRunnerPanelOrNull();
+        if (panel != null) {
+            panel.appendOutput(text);
+        }
     }
 
     /**

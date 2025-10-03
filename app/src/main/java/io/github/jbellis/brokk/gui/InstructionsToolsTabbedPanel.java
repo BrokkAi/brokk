@@ -173,6 +173,22 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         return testRunnerPanel;
     }
 
+    /** Open or focus the Tests tab, creating it if needed; returns the panel. */
+    public TestRunnerPanel openTests() {
+        assert SwingUtilities.isEventDispatchThread() : "Must run on EDT";
+        if (testRunnerPanel == null) {
+            testRunnerPanel = new TestRunnerPanel();
+            replaceTabComponent(TAB_TESTS, testRunnerPanel, "Tests", Icons.CHECK);
+            try {
+                testRunnerPanel.applyTheme(chrome.getTheme());
+            } catch (Exception ex) {
+                logger.debug("Failed to apply theme to TestRunnerPanel", ex);
+            }
+        }
+        tabs.setSelectedIndex(TAB_TESTS);
+        return testRunnerPanel;
+    }
+
     /** Updates terminal font size if a terminal exists. Safe to call any time. */
     public void updateTerminalFontSize() {
         SwingUtilities.invokeLater(() -> {
