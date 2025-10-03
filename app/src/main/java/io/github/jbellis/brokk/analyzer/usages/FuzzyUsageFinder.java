@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.agents.RelevanceClassifier;
-import io.github.jbellis.brokk.agents.RelevanceTask;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
