@@ -13,7 +13,6 @@ import io.github.jbellis.brokk.analyzer.usages.UsageHit;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;
-
 import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -26,7 +25,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -139,34 +137,22 @@ public interface ContextFragment {
      */
     String id();
 
-    /**
-     * The type of this fragment.
-     */
+    /** The type of this fragment. */
     FragmentType getType();
 
-    /**
-     * short description in history
-     */
+    /** short description in history */
     String shortDescription();
 
-    /**
-     * longer description displayed in context table
-     */
+    /** longer description displayed in context table */
     String description();
 
-    /**
-     * raw content for preview
-     */
+    /** raw content for preview */
     String text() throws UncheckedIOException, CancellationException;
 
-    /**
-     * content formatted for LLM
-     */
+    /** content formatted for LLM */
     String format() throws UncheckedIOException, CancellationException;
 
-    /**
-     * fragment toc entry, usually id + description
-     */
+    /** fragment toc entry, usually id + description */
     default String formatToc() {
         // ACHTUNG! if we ever start overriding this, we'll need to serialize it into FrozenFragment
         return """
@@ -175,9 +161,7 @@ public interface ContextFragment {
                 .formatted(description(), id());
     }
 
-    /**
-     * Indicates if the fragment's content can change based on project/file state.
-     */
+    /** Indicates if the fragment's content can change based on project/file state. */
     boolean isDynamic();
 
     /**
@@ -251,7 +235,7 @@ public interface ContextFragment {
      * Convenience method to get the analyzer in a non-blocking way using the fragment's context manager.
      *
      * @return The IAnalyzer instance if available, or null if it's not ready yet or if the context manager is not
-     * available.
+     *     available.
      */
     default IAnalyzer getAnalyzer() {
         var cm = getContextManager();
@@ -418,9 +402,7 @@ public interface ContextFragment {
         }
     }
 
-    /**
-     * Represents a specific revision of a ProjectFile from Git history. This is non-dynamic.
-     */
+    /** Represents a specific revision of a ProjectFile from Git history. This is non-dynamic. */
     record GitFileFragment(ProjectFile file, String revision, String content, String id) implements PathFragment {
         public GitFileFragment(ProjectFile file, String revision, String content) {
             this(
@@ -433,7 +415,7 @@ public interface ContextFragment {
                             content, // text content for hash
                             FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
                             GitFileFragment.class.getName() // original class name for hash
-                    ));
+                            ));
         }
 
         @Override
@@ -581,9 +563,7 @@ public interface ContextFragment {
         }
     }
 
-    /**
-     * Represents an image file, either from the project or external. This is dynamic.
-     */
+    /** Represents an image file, either from the project or external. This is dynamic. */
     record ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) implements PathFragment {
         // Primary constructor for new dynamic fragments
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -1288,7 +1268,8 @@ public interface ContextFragment {
             if (analyzer.isEmpty()) {
                 return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
             }
-            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, MAX_CALL_SITES);
+            FuzzyResult usageResult =
+                    FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, MAX_CALL_SITES);
 
             var either = usageResult.toEither();
             if (either.hasErrorMessage()) {
@@ -1310,7 +1291,12 @@ public interface ContextFragment {
                         .toList();
             }
             return AnalyzerUtil.processUsages(
-                    analyzer, uses.stream().map(UsageHit::enclosing).distinct().limit(MAX_CALL_SITES).toList());
+                    analyzer,
+                    uses.stream()
+                            .map(UsageHit::enclosing)
+                            .distinct()
+                            .limit(MAX_CALL_SITES)
+                            .toList());
         }
 
         @Override
@@ -1324,7 +1310,8 @@ public interface ContextFragment {
             if (analyzer.isEmpty()) {
                 return Collections.emptySet();
             }
-            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, MAX_CALL_SITES);
+            FuzzyResult usageResult =
+                    FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier, MAX_CALL_SITES);
 
             var either = usageResult.toEither();
             if (either.hasErrorMessage()) {
@@ -1374,9 +1361,7 @@ public interface ContextFragment {
         }
     }
 
-    /**
-     * Dynamic fragment that wraps a single CodeUnit and renders the full source
-     */
+    /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
     class CodeFragment extends VirtualFragment { // Dynamic, uses nextId
         private final CodeUnit unit;
 
@@ -1675,23 +1660,26 @@ public interface ContextFragment {
         @Override
         public Set<ProjectFile> files() {
             return switch (summaryType) {
-                case CODEUNIT_SKELETON -> sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+                case CODEUNIT_SKELETON ->
+                    sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
                 case FILE_SKELETONS ->
-                        targetIdentifiers.stream().map(contextManager::toFile).collect(Collectors.toSet());
+                    targetIdentifiers.stream().map(contextManager::toFile).collect(Collectors.toSet());
             };
         }
 
         @Override
         public String repr() {
             return switch (summaryType) {
-                case CODEUNIT_SKELETON -> "ClassSummaries([%s])"
-                        .formatted(targetIdentifiers.stream()
-                                .map(s -> "'" + s + "'")
-                                .collect(Collectors.joining(", ")));
-                case FILE_SKELETONS -> "FileSummaries([%s])"
-                        .formatted(targetIdentifiers.stream()
-                                .map(s -> "'" + s + "'")
-                                .collect(Collectors.joining(", ")));
+                case CODEUNIT_SKELETON ->
+                    "ClassSummaries([%s])"
+                            .formatted(targetIdentifiers.stream()
+                                    .map(s -> "'" + s + "'")
+                                    .collect(Collectors.joining(", ")));
+                case FILE_SKELETONS ->
+                    "FileSummaries([%s])"
+                            .formatted(targetIdentifiers.stream()
+                                    .map(s -> "'" + s + "'")
+                                    .collect(Collectors.joining(", ")));
             };
         }
 
@@ -1708,7 +1696,7 @@ public interface ContextFragment {
             // AutoContext itself isn't represented by a SkeletonFragment that users add via tools.
             return summaryType
                     != SummaryType
-                    .CODEUNIT_SKELETON; // A heuristic: auto-context typically CLASS_SKELETON of many classes
+                            .CODEUNIT_SKELETON; // A heuristic: auto-context typically CLASS_SKELETON of many classes
         }
 
         @Override
@@ -1797,17 +1785,13 @@ public interface ContextFragment {
     interface OutputFragment {
         List<TaskEntry> entries();
 
-        /**
-         * Should raw HTML inside markdown be escaped before rendering?
-         */
+        /** Should raw HTML inside markdown be escaped before rendering? */
         default boolean isEscapeHtml() {
             return true;
         }
     }
 
-    /**
-     * represents the entire Task History
-     */
+    /** represents the entire Task History */
     class HistoryFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
         private final List<TaskEntry> history; // Content is fixed once created
 
@@ -1896,9 +1880,7 @@ public interface ContextFragment {
         }
     }
 
-    /**
-     * represents a single session's Task History
-     */
+    /** represents a single session's Task History */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
         private final List<ChatMessage> messages; // Content is fixed once created
 
@@ -1917,7 +1899,7 @@ public interface ContextFragment {
                     TaskFragment.class
                             .getName() // Note: SearchFragment might want its own class name if it were hashing
                     // independently
-            );
+                    );
         }
 
         public TaskFragment(
