@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -68,6 +69,8 @@ public class HistoryOutputPanel extends JPanel {
     private final DefaultTableModel historyModel;
     private final MaterialButton undoButton;
     private final MaterialButton redoButton;
+    private final MaterialButton compressButton;
+    private final JCheckBox autoCompressCheckbox;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
@@ -139,6 +142,8 @@ public class HistoryOutputPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
+        this.compressButton = new MaterialButton("Compress");
+        this.autoCompressCheckbox = new JCheckBox("Auto");
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
 
@@ -462,10 +467,9 @@ public class HistoryOutputPanel extends JPanel {
             }
         });
 
-        // Add undo/redo buttons at the bottom, side by side
-        // Use GridLayout to make buttons share width equally
-        var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
-        buttonPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
+        // Add footer with left (Undo/Redo) and right (Compress/Auto)
+        // Left panel: Undo/Redo share width equally
+        var leftButtonsPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
@@ -485,13 +489,18 @@ public class HistoryOutputPanel extends JPanel {
             redoButton.setIcon(Icons.REDO);
         });
 
-        buttonPanel.add(undoButton);
-        buttonPanel.add(redoButton);
+        leftButtonsPanel.add(undoButton);
+        leftButtonsPanel.add(redoButton);
+
+        // Footer container
+        var footerPanel = new JPanel(new BorderLayout(5, 0));
+        footerPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
+        footerPanel.add(leftButtonsPanel, BorderLayout.WEST);
 
         historyLayeredPane.add(layer, JLayeredPane.DEFAULT_LAYER);
 
         panel.add(historyLayeredPane, BorderLayout.CENTER);
-        panel.add(buttonPanel, BorderLayout.SOUTH);
+        panel.add(footerPanel, BorderLayout.SOUTH);
 
         // Calculate preferred width for the history panel
         // Table width (30 + 150) + scrollbar (~20) + padding = ~210
@@ -820,7 +829,7 @@ public class HistoryOutputPanel extends JPanel {
         captureDescriptionArea.setWrapStyleWord(true);
         panel.add(captureDescriptionArea, BorderLayout.CENTER);
 
-        // Buttons panel on the right
+        // Buttons panel on the left
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
 
         copyButton.setMnemonic(KeyEvent.VK_T);
@@ -887,6 +896,40 @@ public class HistoryOutputPanel extends JPanel {
 
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
+
+        // Right-aligned panel: Compress + Auto on the right of the same row
+        var rightButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+
+        // Auto checkbox
+        boolean autoInitial = MainProject.getHistoryAutoCompress();
+        autoCompressCheckbox.setSelected(autoInitial);
+        autoCompressCheckbox.setToolTipText(
+                "Automatically compress when history exceeds 10% of the model context window and before Task List runs");
+        // Ensure single listener (avoid duplicates if panel rebuilt)
+        for (var al : autoCompressCheckbox.getActionListeners()) {
+            autoCompressCheckbox.removeActionListener(al);
+        }
+        autoCompressCheckbox.addActionListener(e -> {
+            MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
+        });
+
+        // Compress button
+        compressButton.setToolTipText("Compress conversation history now");
+        // Ensure single listener (avoid duplicates if panel rebuilt)
+        for (var al : compressButton.getActionListeners()) {
+            compressButton.removeActionListener(al);
+        }
+        compressButton.addActionListener(e -> {
+            contextManager.compressHistoryAsync();
+        });
+        // Set minimum size similar to other buttons
+        compressButton.setMinimumSize(compressButton.getPreferredSize());
+        rightButtonsPanel.add(compressButton);
+
+        // Add Auto to the right of Compress
+        rightButtonsPanel.add(autoCompressCheckbox);
+
+        panel.add(rightButtonsPanel, BorderLayout.EAST);
 
         return panel;
     }
@@ -1289,6 +1332,8 @@ public class HistoryOutputPanel extends JPanel {
             historyTable.setEnabled(false);
             undoButton.setEnabled(false);
             redoButton.setEnabled(false);
+            compressButton.setEnabled(false);
+            autoCompressCheckbox.setEnabled(false);
             // Optionally change appearance to indicate disabled state
             historyTable.setForeground(UIManager.getColor("Label.disabledForeground"));
             // Make the table visually distinct when disabled
@@ -1303,6 +1348,8 @@ public class HistoryOutputPanel extends JPanel {
             // Restore appearance
             historyTable.setForeground(UIManager.getColor("Table.foreground"));
             historyTable.setBackground(UIManager.getColor("Table.background"));
+            compressButton.setEnabled(true);
+            autoCompressCheckbox.setEnabled(true);
             updateUndoRedoButtonStates();
         });
     }
