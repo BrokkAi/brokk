@@ -182,6 +182,10 @@ public class HistoryOutputPanel extends JPanel {
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
+
+        // Initialize capture controls to disabled until output is available
+        setCopyButtonEnabled(false);
+        setClearButtonEnabled(false);
     }
 
     private void buildSessionSwitchPanel() {
