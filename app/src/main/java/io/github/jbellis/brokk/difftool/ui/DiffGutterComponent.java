@@ -381,7 +381,8 @@ public class DiffGutterComponent extends JComponent {
             return;
         }
 
-        Color backgroundColor = UnifiedDiffColorResolver.getEnhancedBackgroundColor(diffLine.getType(), isDarkTheme);
+        // Use same colors as text area highlights for consistency (no enhancement)
+        Color backgroundColor = UnifiedDiffColorResolver.getBackgroundColor(diffLine.getType(), isDarkTheme);
 
         if (backgroundColor != null) {
             g.setColor(backgroundColor);

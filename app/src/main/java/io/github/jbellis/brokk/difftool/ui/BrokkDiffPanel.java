@@ -338,11 +338,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnSaveAll = new MaterialButton("Save");
 
     // Components for undo/redo/save group that need to be hidden together
-    private @Nullable Component undoRedoGroupSeparator;
-    private @Nullable Component undoRedoGroupStrutBefore;
-    private @Nullable Component undoRedoGroupStrutAfter1;
-    private @Nullable Component undoRedoGroupStrutAfter2;
-    private @Nullable Component undoRedoGroupStrutAfter3;
     private final MaterialButton captureDiffButton = new MaterialButton("Capture Diff");
     private final MaterialButton btnNext = new MaterialButton("Next Change");
     private final MaterialButton btnPrevious = new MaterialButton("Previous Change");
@@ -702,19 +697,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             toolBar.add(fileIndicatorLabel);
         }
 
-        undoRedoGroupStrutBefore = Box.createHorizontalStrut(20); // 20px spacing
-        toolBar.add(undoRedoGroupStrutBefore);
-        toolBar.addSeparator(); // Adds space between groups
-        // Get reference to the separator that was just added
-        undoRedoGroupSeparator = toolBar.getComponent(toolBar.getComponentCount() - 1);
-        undoRedoGroupStrutAfter1 = Box.createHorizontalStrut(10); // 10px spacing
-        toolBar.add(undoRedoGroupStrutAfter1);
+        toolBar.add(Box.createHorizontalStrut(20));
+        toolBar.addSeparator();
+        toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(btnUndo);
-        undoRedoGroupStrutAfter2 = Box.createHorizontalStrut(10); // 10px spacing
-        toolBar.add(undoRedoGroupStrutAfter2);
+        toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(btnRedo);
-        undoRedoGroupStrutAfter3 = Box.createHorizontalStrut(10); // spacing
-        toolBar.add(undoRedoGroupStrutAfter3);
+        toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(btnSaveAll);
 
         toolBar.add(Box.createHorizontalStrut(20));
@@ -744,13 +733,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnUndo.setEnabled(currentPanel != null && currentPanel.isUndoEnabled());
         btnRedo.setEnabled(currentPanel != null && currentPanel.isRedoEnabled());
 
-        // Hide undo/redo completely when both sides are read-only
-        boolean showUndoRedo = false;
+        // Disable undo/redo when in unified mode or when both sides are read-only
+        boolean enableUndoRedo = false;
         if (currentPanel instanceof BufferDiffPanel bp) {
-            showUndoRedo = bp.atLeastOneSideEditable();
+            enableUndoRedo = bp.atLeastOneSideEditable();
         }
-        btnUndo.setVisible(showUndoRedo);
-        btnRedo.setVisible(showUndoRedo);
+        if (!enableUndoRedo) {
+            btnUndo.setEnabled(false);
+            btnRedo.setEnabled(false);
+        }
 
         if (currentPanel != null) {
             var isFirstChangeOverall = currentFileIndex == 0 && currentPanel.isAtFirstLogicalChange();
@@ -788,27 +779,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         String baseSaveText = fileComparisons.size() > 1 ? "Save All" : "Save";
         btnSaveAll.setText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
-        btnSaveAll.setEnabled(dirtyCount > 0);
-
-        // Hide save button when all sides are read-only (like PR diffs)
-        btnSaveAll.setVisible(showUndoRedo);
-
-        // Hide separator and struts for undo/redo/save group when buttons are hidden
-        if (undoRedoGroupSeparator != null) {
-            undoRedoGroupSeparator.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutBefore != null) {
-            undoRedoGroupStrutBefore.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter1 != null) {
-            undoRedoGroupStrutAfter1.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter2 != null) {
-            undoRedoGroupStrutAfter2.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter3 != null) {
-            undoRedoGroupStrutAfter3.setVisible(showUndoRedo);
-        }
+        // Disable save button when in unified mode, when all sides are read-only, or when there are no changes
+        btnSaveAll.setEnabled(enableUndoRedo && dirtyCount > 0);
 
         // Update per-file dirty indicators in the file tree (only when multiple files are shown)
         if (fileComparisons.size() > 1) {
@@ -1076,6 +1048,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void loadFileOnDemand(int fileIndex) {
+        loadFileOnDemand(fileIndex, false);
+    }
+
+    private void loadFileOnDemand(int fileIndex, boolean skipLoadingUI) {
 
         if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
             logger.warn("loadFileOnDemand called with invalid index: {}", fileIndex);
@@ -1098,13 +1074,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (nowCachedPanel != null) {
                 displayCachedFile(fileIndex, nowCachedPanel);
             } else {
-                // Reserved by another thread, show loading and wait
-                showLoadingForFile(fileIndex);
+                // Reserved by another thread, show loading and wait (unless skipping loading UI)
+                if (!skipLoadingUI) {
+                    showLoadingForFile(fileIndex);
+                }
             }
             return;
         }
 
-        showLoadingForFile(fileIndex);
+        // Show loading UI only if not skipping (e.g., during view mode switch)
+        if (!skipLoadingUI) {
+            showLoadingForFile(fileIndex);
+        }
 
         // Use hybrid approach - sync for small files, async for large files
         HybridFileComparison.createDiffPanel(
@@ -1930,7 +1911,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         } else {
         }
 
-        // Refresh the current file with the new view mode
-        loadFileOnDemand(currentFileIndex);
+        // Refresh the current file with the new view mode (skip loading UI since we already have the data)
+        loadFileOnDemand(currentFileIndex, true);
     }
 }
