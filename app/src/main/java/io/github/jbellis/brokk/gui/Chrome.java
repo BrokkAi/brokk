@@ -2093,7 +2093,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public void updateCaptureButtons() {
         var messageSize = historyOutputPanel.getLlmRawMessages().size();
-        SwingUtilities.invokeLater(() -> historyOutputPanel.setCopyButtonEnabled(messageSize > 0));
+        SwingUtilities.invokeLater(() -> {
+            var enabled = messageSize > 0;
+            historyOutputPanel.setCopyButtonEnabled(enabled);
+            historyOutputPanel.setClearButtonEnabled(enabled);
+            historyOutputPanel.setCaptureButtonEnabled(enabled);
+            historyOutputPanel.setOpenWindowButtonEnabled(enabled);
+        });
     }
 
     public JFrame getFrame() {

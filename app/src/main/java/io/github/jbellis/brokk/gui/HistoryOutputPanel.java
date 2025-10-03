@@ -102,6 +102,9 @@ public class HistoryOutputPanel extends JPanel {
     private JTextArea captureDescriptionArea;
 
     private final MaterialButton copyButton;
+    private final MaterialButton clearButton;
+    private final MaterialButton captureButton;
+    private final MaterialButton openWindowButton;
     private final JPanel notificationAreaPanel;
 
     private final MaterialButton notificationsButton = new MaterialButton();
@@ -188,6 +191,9 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new MaterialButton();
+        this.clearButton = new MaterialButton();
+        this.captureButton = new MaterialButton();
+        this.openWindowButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
@@ -239,6 +245,12 @@ public class HistoryOutputPanel extends JPanel {
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
+
+        // Initialize capture controls to disabled until output is available
+        setCopyButtonEnabled(false);
+        setClearButtonEnabled(false);
+        setCaptureButtonEnabled(false);
+        setOpenWindowButtonEnabled(false);
     }
 
     private void buildSessionSwitchPanel() {
@@ -884,30 +896,14 @@ public class HistoryOutputPanel extends JPanel {
         copyButton.setMnemonic(KeyEvent.VK_T);
         copyButton.setToolTipText("Copy the output to clipboard");
         copyButton.addActionListener(e -> {
-            var ctx = contextManager.selectedContext();
-            if (ctx == null) {
-                chrome.systemOutput("No active context to copy from.");
-                return;
-            }
-
-            var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
-                    .reduce((first, second) -> second); // use the most recent HISTORY fragment
-
-            if (historyOpt.isEmpty()) {
-                chrome.systemOutput("No conversation history found in the current workspace.");
-                return;
-            }
-
-            var historyFrag = historyOpt.get();
-            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of(historyFrag));
+            performContextActionOnLatestHistoryFragment(
+                    WorkspacePanel.ContextAction.COPY, "No active context to copy from.");
         });
         // Set minimum size
         copyButton.setMinimumSize(copyButton.getPreferredSize());
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             captureButton.setIcon(Icons.CONTENT_CAPTURE);
         });
@@ -921,7 +917,6 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
         });
@@ -943,6 +938,18 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
+        // "Clear Output" button (drop Task History)
+        SwingUtilities.invokeLater(() -> {
+            clearButton.setIcon(Icons.TRASH);
+        });
+        clearButton.setToolTipText("Clear the output");
+        clearButton.addActionListener(e -> {
+            performContextActionOnLatestHistoryFragment(
+                    WorkspacePanel.ContextAction.DROP, "No active context to clear from.");
+        });
+        clearButton.setMinimumSize(clearButton.getPreferredSize());
+        buttonsPanel.add(clearButton);
+
         // Notifications button
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
@@ -954,6 +961,7 @@ public class HistoryOutputPanel extends JPanel {
 
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
+
         // Add notification area to the right of the buttons panel
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
@@ -992,6 +1000,31 @@ public class HistoryOutputPanel extends JPanel {
         panel.add(rightButtonsPanel, BorderLayout.EAST);
 
         return panel;
+    }
+
+    /**
+     * Performs a context action (COPY, DROP, etc.) on the most recent HISTORY fragment in the currently selected
+     * context. Shows appropriate user feedback if there is no active context or no history fragment.
+     */
+    private void performContextActionOnLatestHistoryFragment(
+            WorkspacePanel.ContextAction action, String noContextMessage) {
+        var ctx = contextManager.selectedContext();
+        if (ctx == null) {
+            chrome.systemOutput(noContextMessage);
+            return;
+        }
+
+        var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
+                .reduce((first, second) -> second);
+
+        if (historyOpt.isEmpty()) {
+            chrome.systemOutput("No conversation history found in the current workspace.");
+            return;
+        }
+
+        var historyFrag = historyOpt.get();
+        chrome.getContextPanel().performContextActionAsync(action, List.of(historyFrag));
     }
 
     // Notification API
@@ -1565,6 +1598,21 @@ public class HistoryOutputPanel extends JPanel {
     /** Sets the enabled state of the copy text button */
     public void setCopyButtonEnabled(boolean enabled) {
         copyButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the clear output button */
+    public void setClearButtonEnabled(boolean enabled) {
+        clearButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the capture (add to context) button */
+    public void setCaptureButtonEnabled(boolean enabled) {
+        captureButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the open-in-new-window button */
+    public void setOpenWindowButtonEnabled(boolean enabled) {
+        openWindowButton.setEnabled(enabled);
     }
 
     /** Shows the loading spinner with a message in the Markdown area. */
