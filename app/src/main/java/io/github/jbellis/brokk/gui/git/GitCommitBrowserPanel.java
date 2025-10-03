@@ -1201,12 +1201,19 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     /* package-private so tests in the same package can call it */ void performSearch(String query) {
-        if (!query.isEmpty()) {
-            searchCommitsInPanel(query);
-        } else {
-            reloader.reloadCurrentContext();
-        }
+    // Ensure UI-related actions run on the Event Dispatch Thread.
+    // If called off-EDT, re-dispatch and return immediately.
+    if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+        javax.swing.SwingUtilities.invokeLater(() -> performSearch(query));
+        return;
     }
+
+    if (!query.isEmpty()) {
+        searchCommitsInPanel(query);
+    } else {
+        reloader.reloadCurrentContext();
+    }
+}
 
     private void searchCommitsInPanel(String query) {
         contextManager.submitBackgroundTask("Searching commits for: " + query, () -> {
