@@ -360,7 +360,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         combineBtn.setIcon(Icons.CELL_MERGE);
         combineBtn.setToolTipText(
-                "<html><body style='width:300px'>Combine two selected tasks into one new task.<br>The text from both tasks will be merged and the originals deleted.<br>Enabled only when exactly 2 tasks are selected.</body></html>");
+                "<html><body style='width:300px'>Combine selected tasks into one new task.<br>The text from all tasks will be merged and the originals deleted.<br>Enabled when 2 or more tasks are selected.</body></html>");
         combineBtn.addActionListener(e -> combineSelectedTasks());
 
         splitBtn.setIcon(Icons.FORK_RIGHT);
@@ -774,8 +774,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean hasTasks = model.getSize() > 0;
         playAllBtn.setEnabled(hasTasks && !llmBusy && !queueActive);
 
-        // Combine enabled only if exactly 2 tasks selected and no running/pending in selection
-        combineBtn.setEnabled(selIndices.length == 2 && !blockEdits);
+        // Combine enabled only if 2 or more tasks selected and no running/pending in selection
+        combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
         // Split enabled only if exactly 1 task selected and no running/pending in selection and no active queue
         splitBtn.setEnabled(selIndices.length == 1 && !blockEdits && !queueActive);
 
@@ -1282,13 +1282,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void combineSelectedTasks() {
         int[] indices = list.getSelectedIndices();
-        if (indices.length != 2) {
+        if (indices.length < 2) {
             JOptionPane.showMessageDialog(
-                    this, "Select exactly two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+                    this, "Select at least two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        // Check if either task is running or pending
+        // Check if any task is running or pending
         for (int idx : indices) {
             if (runningIndex != null && idx == runningIndex) {
                 JOptionPane.showMessageDialog(
@@ -1310,33 +1310,48 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         Arrays.sort(indices);
         int firstIdx = indices[0];
-        int secondIdx = indices[1];
 
-        if (firstIdx < 0 || secondIdx >= model.size()) {
+        if (firstIdx < 0 || firstIdx >= model.size()) {
             return;
         }
 
-        TaskItem firstTask = model.get(firstIdx);
-        TaskItem secondTask = model.get(secondIdx);
+        // Collect all task texts and check done status
+        var taskTexts = new java.util.ArrayList<String>(indices.length);
+        boolean anyDone = false;
+        for (int idx : indices) {
+            if (idx < 0 || idx >= model.size()) {
+                continue;
+            }
+            TaskItem task = model.get(idx);
+            if (task == null) {
+                continue;
+            }
+            taskTexts.add(task.text());
+            if (task.done()) {
+                anyDone = true;
+            }
+        }
 
-        if (firstTask == null || secondTask == null) {
+        if (taskTexts.isEmpty()) {
             return;
         }
 
         // Combine the text with a separator
-        String combinedText = firstTask.text() + " | " + secondTask.text();
-
-        // Both tasks are considered done if either one is done
-        boolean combinedDone = firstTask.done() || secondTask.done();
+        String combinedText = String.join(" | ", taskTexts);
 
         // Create the new combined task
-        TaskItem combinedTask = new TaskItem(combinedText, combinedDone);
+        TaskItem combinedTask = new TaskItem(combinedText, anyDone);
 
-        // Add the combined task at the position of the first selected task
+        // Replace the first task with the combined task
         model.set(firstIdx, combinedTask);
 
-        // Remove the second task (higher index first to keep indices valid)
-        model.remove(secondIdx);
+        // Remove all other tasks (from highest index to lowest to keep indices valid)
+        for (int i = indices.length - 1; i > 0; i--) {
+            int idx = indices[i];
+            if (idx >= 0 && idx < model.size()) {
+                model.remove(idx);
+            }
+        }
 
         // Select the combined task
         list.setSelectedIndex(firstIdx);
