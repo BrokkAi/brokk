@@ -797,8 +797,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void loadTasksForCurrentSession() {
         var sid = getCurrentSessionId();
+        var previous = this.sessionIdAtLoad;
         this.sessionIdAtLoad = sid;
         isLoadingTasks = true;
+
+        // Clear immediately when switching sessions to avoid showing stale tasks
+        if (!Objects.equals(previous, sid)) {
+            model.clear();
+            clearExpansionOnStructureChange();
+            updateButtonStates();
+        }
 
         var sessionManager = chrome.getContextManager().getProject().getSessionManager();
         Executor edt = SwingUtilities::invokeLater;
