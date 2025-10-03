@@ -1315,9 +1315,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        // Collect all task texts and check done status
+        // Collect all task texts
         var taskTexts = new java.util.ArrayList<String>(indices.length);
-        boolean anyDone = false;
         for (int idx : indices) {
             if (idx < 0 || idx >= model.size()) {
                 continue;
@@ -1327,9 +1326,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 continue;
             }
             taskTexts.add(task.text());
-            if (task.done()) {
-                anyDone = true;
-            }
         }
 
         if (taskTexts.isEmpty()) {
@@ -1339,8 +1335,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Combine the text with a separator
         String combinedText = String.join(" | ", taskTexts);
 
-        // Create the new combined task
-        TaskItem combinedTask = new TaskItem(combinedText, anyDone);
+        // Create the new combined task (always marked as not done)
+        TaskItem combinedTask = new TaskItem(combinedText, false);
 
         // Replace the first task with the combined task
         model.set(firstIdx, combinedTask);
