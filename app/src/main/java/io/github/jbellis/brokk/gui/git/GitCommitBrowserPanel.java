@@ -166,18 +166,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
 
             MaterialButton commitSearchButton = new MaterialButton("Search");
-            Runnable searchAction = () -> {
-                String query = commitSearchTextField.getText().trim();
-                if (!query.isEmpty()) {
-                    searchCommitsInPanel(query);
-                } else {
-                    reloader.reloadCurrentContext();
-                }
-            };
-
-            // Immediate search from button or Enter key (existing behavior)
-            commitSearchButton.addActionListener(e -> searchAction.run());
-            commitSearchTextField.addActionListener(e -> searchAction.run());
+            // Immediate search from button or Enter key (existing behavior) — call centralized performSearch
+            commitSearchButton.addActionListener(e -> performSearch(commitSearchTextField.getText().trim()));
+            commitSearchTextField.addActionListener(e -> performSearch(commitSearchTextField.getText().trim()));
 
             // Incremental search: schedule searches as the user types (debounced)
             commitSearchTextField.getDocument().addDocumentListener(new DocumentListener() {
@@ -197,10 +188,10 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 }
             });
 
-            // Initialize debounce timer: when it fires, run the searchAction on the EDT.
+            // Initialize debounce timer: when it fires, run the centralized performSearch on the EDT.
             debounceTimer = new javax.swing.Timer(DEBOUNCE_MILLIS, ev -> {
                 ((javax.swing.Timer) ev.getSource()).stop(); // stop after firing
-                SwingUtilities.invokeLater(searchAction);
+                SwingUtilities.invokeLater(() -> performSearch(commitSearchTextField.getText().trim()));
             });
             debounceTimer.setRepeats(false);
 
@@ -1206,8 +1197,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         // Fallback: immediate execution (shouldn't normally happen)
         String q = commitSearchTextField.getText().trim();
-        if (!q.isEmpty()) {
-            searchCommitsInPanel(q);
+        performSearch(q);
+    }
+
+    /* package-private so tests in the same package can call it */ void performSearch(String query) {
+        if (!query.isEmpty()) {
+            searchCommitsInPanel(query);
         } else {
             reloader.reloadCurrentContext();
         }
