@@ -1065,18 +1065,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Drawer navigation shortcuts
-        // Cmd/Ctrl+Shift+T => toggle terminal drawer
+        // Tabbed panel shortcuts
+        // Cmd/Ctrl+Shift+T => open Terminal tab
         KeyStroke toggleTerminalDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "drawer.toggleTerminal",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_T,
                         Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        bindKey(rootPane, toggleTerminalDrawerKeyStroke, "toggleTerminalDrawer");
-        rootPane.getActionMap().put("toggleTerminalDrawer", new AbstractAction() {
+        bindKey(rootPane, toggleTerminalDrawerKeyStroke, "openTerminalTab");
+        rootPane.getActionMap().put("openTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                instructionsToolsPanel.openTerminal();
+                var tp = instructionsToolsPanel.openTerminal();
+                tp.requestFocusInWindow();
             }
         });
 
@@ -1094,7 +1095,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Cmd/Ctrl+T => switch to terminal tab
+        // Cmd/Ctrl+T => switch to Terminal tab and focus it
         KeyStroke switchToTerminalTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "drawer.switchToTerminal",
                 KeyStroke.getKeyStroke(
@@ -1103,11 +1104,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                instructionsToolsPanel.openTerminal();
+                var tp = instructionsToolsPanel.openTerminal();
+                tp.requestFocusInWindow();
             }
         });
 
-        // Cmd/Ctrl+K => switch to tasks tab
+        // Cmd/Ctrl+K => switch to Tasks tab and focus it
         KeyStroke switchToTasksTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "drawer.switchToTasks",
                 KeyStroke.getKeyStroke(
@@ -1116,7 +1118,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                instructionsToolsPanel.openTaskList();
+                var tlp = instructionsToolsPanel.openTaskList();
+                tlp.requestFocusInWindow();
             }
         });
 
