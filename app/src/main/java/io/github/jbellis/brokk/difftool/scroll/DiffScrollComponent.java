@@ -379,7 +379,9 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
                 if (canMergeRight) {
                     if (original.size() > 0 || revised.size() > 0) { // Show if there's something to merge
                         int chevronX = xRightEdge - 8;
-                        int chevronY = (hRight <= 2) ? yRight + hRight + 8 : yRight + hRight / 2; // Below bar for tiny heights, centered otherwise
+                        int chevronY = (hRight <= 2)
+                                ? yRight + hRight + 8
+                                : yRight + hRight / 2; // Below bar for tiny heights, centered otherwise
                         float scale = hovered ? 1.3f : 1.0f; // Scale up on hover
 
                         var oldStroke = g2.getStroke();
@@ -400,7 +402,9 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
                 if (canMergeLeft) {
                     if (original.size() > 0 || revised.size() > 0) {
                         int chevronX = xLeftEdge + 8;
-                        int chevronY = (hLeft <= 2) ? yLeft + hLeft + 8 : yLeft + hLeft / 2; // Below bar for tiny heights, centered otherwise
+                        int chevronY = (hLeft <= 2)
+                                ? yLeft + hLeft + 8
+                                : yLeft + hLeft / 2; // Below bar for tiny heights, centered otherwise
                         float scale = hovered ? 1.3f : 1.0f;
 
                         var oldStroke = g2.getStroke();
@@ -606,16 +610,37 @@ public class DiffScrollComponent extends JComponent implements ChangeListener {
         };
     }
 
-    /** Forward mouse wheel events to the scroll panes for smooth scrolling. */
+    /** Handle mouse wheel events for smooth scrolling over the diff visualization. */
     private MouseWheelListener getMouseWheelListener() {
         return me -> {
-            // Forward scroll events to the left panel's scroll pane for smooth scrolling
-            // The ScrollSynchronizer will keep both sides in sync
+            // Scroll both panels by same pixel amount to avoid line-mapping jumps
+            // Use precise rotation for trackpad smooth scrolling support
             FilePanel leftPanel = getFromPanel();
-            if (leftPanel != null) {
-                var scrollPane = leftPanel.getScrollPane();
-                // Forward the mouse wheel event to the scroll pane
-                scrollPane.dispatchEvent(SwingUtilities.convertMouseEvent(me.getComponent(), me, scrollPane));
+            FilePanel rightPanel = getToPanel();
+            if (leftPanel != null && rightPanel != null) {
+                var leftScrollBar = leftPanel.getScrollPane().getVerticalScrollBar();
+                var rightScrollBar = rightPanel.getScrollPane().getVerticalScrollBar();
+                int unitIncrement = leftScrollBar.getUnitIncrement(1);
+
+                // Use preciseWheelRotation for smooth trackpad scrolling (handles fractional rotations)
+                double preciseRotation = me.getPreciseWheelRotation();
+                int scrollAmount = (int) Math.round(preciseRotation * unitIncrement * 3);
+
+                // Disable scroll synchronization to prevent line-mapping through deltas
+                // This ensures both panels scroll by exact same pixel amount
+                var scrollSync = diffPanel.getScrollSynchronizer();
+                if (scrollSync != null) {
+                    try (var ignored = scrollSync.programmaticSection()) {
+                        leftScrollBar.setValue(leftScrollBar.getValue() + scrollAmount);
+                        rightScrollBar.setValue(rightScrollBar.getValue() + scrollAmount);
+                    } catch (Exception e) {
+                        logger.error("Error in mouse wheel scrolling", e);
+                    }
+                } else {
+                    // Fallback if no synchronizer (shouldn't happen in normal usage)
+                    leftScrollBar.setValue(leftScrollBar.getValue() + scrollAmount);
+                    rightScrollBar.setValue(rightScrollBar.getValue() + scrollAmount);
+                }
             }
         };
     }
