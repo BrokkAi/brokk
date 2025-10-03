@@ -35,8 +35,7 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
     // Use the existing body tokenizer for search/replace content, with fence close guard
     const tokenizeBody = makeEditBlockBodyTokenizer({
         divider: tokenizeDivider,
-        tail: tokenizeTail,
-        fenceClose: tokenizeFenceClose
+        tail: tokenizeTail
     });
 
     // Use strict header tokenizer for unfenced blocks to ensure complete header

@@ -162,8 +162,8 @@ public class LoggingExecutorService implements ExecutorService {
      * @return CompletableFuture that completes when shutdown process finishes
      */
     public CompletableFuture<Void> shutdownAndAwait(long timeoutMillis, String name) {
+        delegate.shutdown();
         return CompletableFuture.runAsync(() -> {
-            delegate.shutdown();
             try {
                 if (!delegate.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
                     logger.warn("{} did not terminate within {}ms; forcing shutdownNow()", name, timeoutMillis);

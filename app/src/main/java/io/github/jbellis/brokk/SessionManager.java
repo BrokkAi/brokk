@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -370,9 +371,38 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+
+                // Snapshot current tasklist.json (if present) before we rewrite the zip
+                String taskListJsonSnapshot = null;
+                if (Files.exists(sessionHistoryPath)) {
+                    try {
+                        taskListJsonSnapshot = readTaskListJson(sessionHistoryPath);
+                    } catch (IOException ioe) {
+                        logger.warn(
+                                "Could not snapshot existing tasklist.json for session {}: {}",
+                                sessionId,
+                                ioe.getMessage());
+                    }
+                }
+
+                // Rewrite history zip
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
+
+                // Write manifest after the rewrite
                 if (finalInfoToSave != null) {
                     writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
+                }
+
+                // Restore tasklist.json if we had one
+                if (taskListJsonSnapshot != null) {
+                    try {
+                        writeTaskListJson(sessionHistoryPath, taskListJsonSnapshot);
+                    } catch (IOException ioe) {
+                        logger.warn(
+                                "Failed restoring tasklist.json for session {} after history save: {}",
+                                sessionId,
+                                ioe.getMessage());
+                    }
                 }
             } catch (IOException e) {
                 logger.error(
@@ -465,6 +495,101 @@ public class SessionManager implements AutoCloseable {
             logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
         }
         return ch;
+    }
+
+    // Internal helpers for synchronous tasklist read/write. These avoid re-entrancy issues when called
+    // inside the per-session serialized executor and allow saveHistory to preserve exact JSON.
+    private @Nullable String readTaskListJson(Path zipPath) throws IOException {
+        if (!Files.exists(zipPath)) {
+            return null;
+        }
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+            Path taskListPath = fs.getPath("tasklist.json");
+            if (Files.exists(taskListPath)) {
+                return Files.readString(taskListPath);
+            }
+            return null;
+        }
+    }
+
+    private void writeTaskListJson(Path zipPath, String json) throws IOException {
+        try (var fs =
+                FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+            Path taskListPath = fs.getPath("tasklist.json");
+            Files.writeString(taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        }
+    }
+
+    /**
+     * Asynchronously write the task list for a session, serialized per session key. Stores tasklist.json inside the
+     * session's zip file.
+     *
+     * <p>Concurrency: this uses {@link SerialByKeyExecutor} with the session UUID string as the key: calls for the same
+     * session are executed in submission order, while calls for different sessions run in parallel. This mirrors how
+     * manifest/history writes are handled elsewhere in this class.
+     *
+     * <pre>{@code
+     * // All I/O for a given sessionId runs serially with respect to that same sessionId:
+     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
+     *     // ... open the session zip and write tasklist.json ...
+     *     return null;
+     * });
+     *
+     * // A different sessionId can proceed concurrently on the same underlying ExecutorService:
+     * sessionExecutorByKey.submit(otherSessionId.toString(), () -> {
+     *     // ... independent I/O for another session ...
+     *     return null;
+     * });
+     * }</pre>
+     */
+    public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskListData data) {
+        Path zipPath = getSessionHistoryPath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            try {
+                var normalized = new TaskListData(List.copyOf(data.tasks()));
+                String json = AbstractProject.objectMapper.writeValueAsString(normalized);
+                writeTaskListJson(zipPath, json);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to write task list for session " + sessionId, e);
+            }
+            return null;
+        });
+    }
+
+    /**
+     * Asynchronously read the task list for a session, serialized per session key. Reads tasklist.json from the
+     * session's zip file. Returns an empty list if not present.
+     *
+     * <p>Concurrency: submitted via {@link SerialByKeyExecutor} using {@code sessionId.toString()} so reads of the same
+     * session are ordered with respect to writes/reads for that session, while reads on different sessions may run in
+     * parallel.
+     *
+     * <pre>{@code
+     * // Serialized with other work for the same session:
+     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
+     *     // ... open the session zip and read tasklist.json ...
+     *     return new TaskListData(List.of());
+     * });
+     * }</pre>
+     */
+    public CompletableFuture<TaskListData> readTaskList(UUID sessionId) {
+        Path zipPath = getSessionHistoryPath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            if (!Files.exists(zipPath)) {
+                return new TaskListData(List.of());
+            }
+            try {
+                String json = readTaskListJson(zipPath);
+                if (json == null || json.isBlank()) {
+                    return new TaskListData(List.of());
+                }
+                var loaded = AbstractProject.objectMapper.readValue(json, TaskListData.class);
+                return new TaskListData(List.copyOf(loaded.tasks()));
+            } catch (IOException e) {
+                logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
+                return new TaskListData(List.of());
+            }
+        });
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {

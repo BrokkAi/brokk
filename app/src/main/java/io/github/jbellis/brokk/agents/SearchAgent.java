@@ -134,19 +134,22 @@ public class SearchAgent {
             var allowedToolNames = calculateAllowedToolNames();
             var toolSpecs = new ArrayList<>(toolRegistry.getRegisteredTools(allowedToolNames));
 
-            var terminalToolNames = new ArrayList<String>();
+            // Agent-owned terminal tools (instance methods)
+            var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
-                terminalToolNames.add("answer");
-            }
-            if (allowedTerminals.contains(Terminal.TASK_LIST)) {
-                terminalToolNames.add("createTaskList");
+                agentTerminalTools.add("answer");
             }
             if (allowedTerminals.contains(Terminal.WORKSPACE)) {
-                terminalToolNames.add("workspaceComplete");
+                agentTerminalTools.add("workspaceComplete");
             }
             // Always allow abort
-            terminalToolNames.add("abortSearch");
-            toolSpecs.addAll(toolRegistry.getTools(this, terminalToolNames));
+            agentTerminalTools.add("abortSearch");
+            toolSpecs.addAll(toolRegistry.getTools(this, agentTerminalTools));
+
+            // Global terminal tool(s) implemented outside SearchAgent (e.g., in SearchTools)
+            if (allowedTerminals.contains(Terminal.TASK_LIST)) {
+                toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("createTaskList")));
+            }
 
             // Decide next action(s)
             io.llmOutput("\n# Planning", ChatMessageType.AI, true, false);
@@ -175,19 +178,16 @@ public class SearchAgent {
                 continue;
             }
 
-            // If the first is a finalizing action, execute it alone and finalize
+            // If the first is an immediate finalizing action (answer/abort), execute it alone and finalize
             var first = next.getFirst();
-            if (first.name().equals("answer")
-                    || first.name().equals("createTaskList")
-                    || first.name().equals("workspaceComplete")
-                    || first.name().equals("abortSearch")) {
+            if (first.name().equals("answer") || first.name().equals("abortSearch")) {
                 // Enforce singularity
                 if (next.size() > 1) {
                     io.systemOutput("Final action returned with other tools; ignoring others and finalizing.");
                 }
                 var exec = toolRegistry.executeTool(this, first);
                 sessionMessages.add(ToolExecutionResultMessage.from(first, exec.resultText()));
-                if (!first.name().equals("abortSearch")) {
+                if (first.name().equals("answer")) {
                     return createResult();
                 } else {
                     var explain = exec.resultText().isBlank() ? "No explanation provided by agent." : exec.resultText();
@@ -195,11 +195,11 @@ public class SearchAgent {
                 }
             }
 
-            // Otherwise execute all tool calls in a deterministic order (Workspace ops before exploration helps
-            // pruning)
+            // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
             var sortedCalls = next.stream()
                     .sorted(Comparator.comparingInt(req -> priority(req.name())))
                     .toList();
+            boolean executedDeferredTerminal = false;
             for (var req : sortedCalls) {
                 // Duplicate guard and class tracking before execution
                 var signatures = createToolCallSignatures(req);
@@ -230,6 +230,16 @@ public class SearchAgent {
 
                 // Light composition: update discovery and flow
                 handleStateAfterTool(exec);
+
+                // Track if we executed a deferred terminal
+                if (req.name().equals("createTaskList") || req.name().equals("workspaceComplete")) {
+                    executedDeferredTerminal = true;
+                }
+            }
+
+            // If we executed a deferred terminal, finalize
+            if (executedDeferredTerminal) {
+                return createResult();
             }
         }
     }
@@ -612,7 +622,7 @@ public class SearchAgent {
 
     private String summarizeResult(
             String query, ToolExecutionRequest request, String rawResult, @Nullable String reasoning)
-            throws RuntimeException {
+            throws InterruptedException {
         var sys = new SystemMessage(
                 """
                         You are a code expert extracting ALL information relevant to the given goal
@@ -638,13 +648,7 @@ public class SearchAgent {
                         """
                         .stripIndent()
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
-        Llm.StreamingResult sr;
-        try {
-            sr = llm.sendRequest(List.of(sys, user));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
-        }
+        Llm.StreamingResult sr = llm.sendRequest(List.of(sys, user));
         if (sr.error() != null) {
             return rawResult; // fallback to raw
         }

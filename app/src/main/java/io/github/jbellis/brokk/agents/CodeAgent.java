@@ -22,11 +22,11 @@ import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -69,6 +69,9 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult runTask(String userInput, Set<Option> options) {
+        // pause watching for external changes (so they don't get added to activity history while we're still making
+        // changes);
+        // this means that we're responsible for refreshing the analyzer when we make changes
         contextManager.getAnalyzerWrapper().pause();
         try {
             return runTaskInternal(userInput, options);
@@ -77,12 +80,12 @@ public class CodeAgent {
         }
     }
 
-    private @NotNull TaskResult runTaskInternal(String userInput, Set<Option> options) {
+    private TaskResult runTaskInternal(String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
-        var io = contextManager.getIo();
         // Create Coder instance with the user's input as the task description
+        var io = contextManager.getIo();
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
         coder.setOutput(io);
 
@@ -99,17 +102,15 @@ public class CodeAgent {
 
         var msg = "Code Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(userInput));
         io.systemOutput(msg);
-        TaskResult.StopDetails stopDetails = null;
+        TaskResult.StopDetails stopDetails;
 
         var parser = EditBlockParser.instance;
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
-        var instructionsFlags = getInstructionsFlags();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
+                contextManager,
                 userInput.trim(),
-                CodePrompts.instance.codeReminder(contextManager.getService(), model),
-                parser,
-                instructionsFlags);
+                CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
@@ -123,17 +124,21 @@ public class CodeAgent {
                 break;
             }
 
+            // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
+            // to date
+            // before we paused it, but empirically that is not the case as of this writing.
+            var filesToRefresh = es.changedFiles().isEmpty() ? contextManager.getFilesInContext() : es.changedFiles();
+            var analyzerFuture = contextManager.getAnalyzerWrapper().updateFiles(filesToRefresh);
+
             // Make the LLM request
             StreamingResult streamingResult;
             try {
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         contextManager,
                         model,
-                        parser,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        es.changedFiles(),
-                        Set.of());
+                        es.changedFiles());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {
@@ -178,8 +183,18 @@ public class CodeAgent {
             cs = parseOutcome.cs();
             es = parseOutcome.es();
 
+            // Wait for analyzer update before applying blocks
+            try {
+                analyzerFuture.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                continue; // let main loop interruption check handle
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+
             // APPLY PHASE applies blocks
-            var applyOutcome = applyPhase(cs, es, parser, metrics);
+            var applyOutcome = applyPhase(cs, es, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
                 stopDetails = fatalApply.stopDetails();
                 break;
@@ -255,26 +270,18 @@ public class CodeAgent {
                 stopDetails);
     }
 
-    private @NotNull Set<CodePrompts.InstructionsFlags> getInstructionsFlags() {
-        var hasMergeMarkers = contextManager
-                        .liveContext()
-                        .fileFragments()
-                        .flatMap(cf -> cf.files().stream())
-                        .anyMatch(f -> f.read()
-                                .map(s -> s.contains("BRK_CONFLICT_BEGIN"))
-                                .orElse(false))
-                && contextManager
-                        .liveContext()
-                        .fileFragments()
-                        .flatMap(cf -> cf.files().stream())
-                        .anyMatch(f -> f.read()
-                                .map(s -> s.contains("BRK_CONFLICT_END"))
-                                .orElse(false));
-        return hasMergeMarkers
-                ? EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS)
-                : Set.<CodePrompts.InstructionsFlags>of();
-    }
-
+    /**
+     * Runs a “single-file edit” session in which the LLM is asked to modify exactly {@code file}. The method drives the
+     * same request / parse / apply FSM that {@link #runTask(String, Set)} uses, but it stops after all SEARCH/REPLACE
+     * blocks have been applied (no build verification is performed).
+     *
+     * @param file the file to edit
+     * @param instructions user instructions describing the desired change
+     * @param readOnlyMessages conversation context that should be provided to the LLM as read-only (e.g., other related
+     *     files, build output, etc.)
+     * @param flags
+     * @return a {@link TaskResult} recording the conversation and the original contents of all files that were changed
+     */
     public TaskResult runSingleFileEdit(
             ProjectFile file,
             String instructions,
@@ -287,7 +294,7 @@ public class CodeAgent {
         EditBlockParser parser = EditBlockParser.instance;
 
         UserMessage initialRequest = CodePrompts.instance.codeRequest(
-                instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, flags);
+                contextManager, instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
         var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
@@ -301,13 +308,11 @@ public class CodeAgent {
         while (true) {
             // ----- 1-a.  Construct messages for this turn --------------------
             List<ChatMessage> llmMessages = CodePrompts.instance.getSingleFileCodeMessages(
-                    contextManager.getProject().getStyleGuide(),
-                    parser,
+                    contextManager.getProject(),
                     readOnlyMessages,
                     conversationState.taskMessages(),
                     requireNonNull(conversationState.nextRequest(), "nextRequest must be set before sending to LLM"),
-                    file,
-                    flags);
+                    file);
 
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
@@ -344,7 +349,7 @@ public class CodeAgent {
             editState = step.es();
 
             // ----- 1-e.  APPLY PHASE -----------------------------------------
-            step = applyPhase(conversationState, editState, parser, null);
+            step = applyPhase(conversationState, editState, null);
             if (step instanceof Step.Retry retry2) {
                 conversationState = retry2.cs();
                 editState = retry2.es();
@@ -439,7 +444,8 @@ public class CodeAgent {
 
             if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
                 reportComplete("Parse error limit reached; ending task.");
-                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+                return new Step.Fatal(new TaskResult.StopDetails(
+                        TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
             }
 
             var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
@@ -465,7 +471,8 @@ public class CodeAgent {
                 updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
                 if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
                     reportComplete("Parse error limit reached; ending task.");
-                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+                    return new Step.Fatal(new TaskResult.StopDetails(
+                            TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
                 }
                 messageForRetry = new UserMessage(
                         "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
@@ -695,7 +702,7 @@ public class CodeAgent {
         }
     }
 
-    Step applyPhase(ConversationState cs, EditState es, EditBlockParser parser, @Nullable Metrics metrics) {
+    Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         if (es.pendingBlocks().isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
             return new Step.Continue(cs, es);
@@ -733,20 +740,20 @@ public class CodeAgent {
                 }
 
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
-                    var msg = "Unable to apply %d blocks to %s"
-                            .formatted(
-                                    failedBlocks.size(),
-                                    failedBlocks.stream()
-                                            .map(b -> b.block().rawFileName())
-                                            .collect(Collectors.joining(",")));
-                    var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, msg);
+                    var files = failedBlocks.stream()
+                            .map(b -> b.block().rawFileName())
+                            .collect(Collectors.joining(","));
+                    var detailMsg = "Apply failed %d consecutive times; unable to apply %d blocks to %s"
+                            .formatted(updatedConsecutiveApplyFailures, failedBlocks.size(), files);
+                    reportComplete(
+                            "Apply failed %d consecutive times; aborting.".formatted(updatedConsecutiveApplyFailures));
+                    var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, detailMsg);
                     return new Step.Fatal(details);
                 } else { // Apply failed, but not yet time for full fallback -> ask LLM to retry
                     if (metrics != null) {
                         metrics.applyRetries++;
                     }
-                    String retryPromptText =
-                            CodePrompts.getApplyFailureMessage(failedBlocks, parser, succeededCount, contextManager);
+                    String retryPromptText = CodePrompts.getApplyFailureMessage(failedBlocks, succeededCount);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
                     csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.turnStartIndex());
                     esForStep = es.afterApply(

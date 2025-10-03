@@ -135,7 +135,7 @@ public final class GitWorkflow {
         // or remote branches directly.
         if (repo.isRemoteBranch(branch) || isSyntheticBranchName(branch)) {
             logger.warn("Push attempted on invalid context: {}", branch);
-            throw new GitAPIException("Push is not supported for this view: " + branch) {};
+            throw new GitOperationException("Push is not supported for this view: " + branch);
         }
 
         if (repo.hasUpstreamBranch(branch)) {
@@ -159,11 +159,11 @@ public final class GitWorkflow {
         // or remote branches directly.
         if (repo.isRemoteBranch(branch) || isSyntheticBranchName(branch)) {
             logger.warn("Pull attempted on invalid context: {}", branch);
-            throw new GitAPIException("Pull is not supported for this view: " + branch) {};
+            throw new GitOperationException("Pull is not supported for this view: " + branch);
         }
 
         if (!repo.hasUpstreamBranch(branch)) {
-            throw new GitAPIException("Branch '" + branch + "' has no upstream branch configured for pull.") {};
+            throw new GitOperationException("Branch '" + branch + "' has no upstream branch configured for pull.");
         }
         repo.pull(); // Assumes pull on current branch is intended if branchName matches
         return "Pulled " + branch;

@@ -3,6 +3,9 @@ package io.github.jbellis.brokk;
 /**
  * Receives notifications from the analyzer about significant events or messages that used to be sent to IConsoleIO.
  * This lets us avoid a direct UI or I/O dependency in AnalyzerWrapper.
+ *
+ * <p>Since these run on the Analyzer update thread, asking for the analyzer (AnalyzerWrapper::get) is NOT allowed until
+ * onAnalyzerReady is called.
  */
 public interface AnalyzerListener {
     /** Called when the Analyzer is requested but it is not yet complete. */

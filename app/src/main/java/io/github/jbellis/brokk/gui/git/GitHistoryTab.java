@@ -11,6 +11,7 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /** A panel representing a single tab showing the Git history for a specific file. */
 public class GitHistoryTab extends JPanel {
@@ -50,7 +51,23 @@ public class GitHistoryTab extends JPanel {
             }
         };
 
-        fileHistoryTable = new JTable(fileHistoryModel);
+        fileHistoryTable = new JTable(fileHistoryModel) {
+            @Override
+            @Nullable
+            public String getToolTipText(java.awt.event.MouseEvent e) {
+                var p = e.getPoint();
+                int row = rowAtPoint(p);
+                int col = columnAtPoint(p);
+                if (row < 0 || col != 0) return null;
+                var value = getValueAt(row, col);
+                if (value == null) return null;
+                var text = value.toString();
+                if (text.indexOf('\n') >= 0) {
+                    text = "<html>" + text.replace("\n", "<br>") + "</html>";
+                }
+                return text;
+            }
+        };
         fileHistoryTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         fileHistoryTable.setRowHeight(18);
 

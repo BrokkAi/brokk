@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
 
+    // TODO make this a Set
     List<String> getExtensions();
 
     String name(); // Human-friendly

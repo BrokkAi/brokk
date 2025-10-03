@@ -59,7 +59,7 @@ class ConflictInspectorTest {
                 section = Section.THEIRS;
                 continue;
             }
-            if (line.startsWith("BRK_CONFLICT_BEGIN") || line.startsWith("BRK_CONFLICT_END")) {
+            if (line.startsWith("BRK_CONFLICT_BEGIN_") || line.startsWith("BRK_CONFLICT_END_")) {
                 continue; // not content
             }
 

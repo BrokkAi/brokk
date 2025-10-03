@@ -50,15 +50,16 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                     });
                 } else {
                     (evt.messages ?? []).forEach(msg => {
+                        const isReasoning = !!msg.reasoning;
                         entries.push({
                             seq: nextHistoryBubbleSeq++,
                             threadId: threadId,
                             type: msg.msgType,
                             markdown: msg.text,
                             streaming: false,
-                            reasoning: msg.reasoning,
-                            reasoningComplete: msg.reasoning,
-                            isCollapsed: msg.reasoning,
+                            reasoning: isReasoning,
+                            reasoningComplete: isReasoning,
+                            isCollapsed: isReasoning,
                         });
                     });
                 }

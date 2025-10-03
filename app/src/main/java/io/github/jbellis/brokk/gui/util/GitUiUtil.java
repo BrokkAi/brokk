@@ -931,11 +931,9 @@ public final class GitUiUtil {
         logger.debug(
                 "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
         try {
-            repo.getGit()
-                    .fetch()
-                    .setRemote(remoteName)
-                    .setRefSpecs(new RefSpec(refSpec))
-                    .call();
+            var fetchCommand = repo.getGit().fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
+            repo.applyGitHubAuthentication(fetchCommand, repo.getRemoteUrl(remoteName));
+            fetchCommand.call();
             // After fetch, verify again
             if (isCommitLocallyAvailable(repo, sha)) {
                 logger.debug("Successfully fetched and verified SHA {}", repo.shortHash(sha));
