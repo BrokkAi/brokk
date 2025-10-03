@@ -52,7 +52,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class BrokkDiffPanel extends JPanel implements ThemeAware {
-    private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);BD
+    private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
     private final JSplitPane mainSplitPane;
@@ -214,8 +214,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
         });
 
-        // Set up view mode toggle
+        // Set up view mode toggle with icons
         viewModeToggle.setSelected(false); // Default to side-by-side view
+        viewModeToggle.setIcon(Icons.VIEW_UNIFIED); // Show unified icon when in side-by-side mode
+        viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE); // Show side-by-side icon when in unified mode
+        viewModeToggle.setText(null); // Remove text, use icon only
+        viewModeToggle.setToolTipText("Toggle Unified View");
         viewModeToggle.addActionListener(e -> {
             switchViewMode(viewModeToggle.isSelected());
         });
@@ -337,19 +341,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnUndo = new MaterialButton(); // Initialize to prevent NullAway issues
     private final MaterialButton btnRedo = new MaterialButton();
     private final MaterialButton btnSaveAll = new MaterialButton();
-
-    // Components for undo/redo/save group that need to be hidden together
-    private @Nullable Component undoRedoGroupSeparator;
-    private @Nullable Component undoRedoGroupStrutBefore;
-    private @Nullable Component undoRedoGroupStrutAfter1;
-    private @Nullable Component undoRedoGroupStrutAfter2;
-    private @Nullable Component undoRedoGroupStrutAfter3;
     private final MaterialButton captureDiffButton = new MaterialButton();
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
     private final MaterialButton btnNextFile = new MaterialButton();
-    private final JLabel fileIndicatorLabel = new JLabel(""); // Initialize
 
     // Flag to track when layout hierarchy needs reset after navigation
     private volatile boolean needsLayoutReset = false;
@@ -480,39 +476,21 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Remove both controls from toolbar
-        toolBar.remove(showBlankLineDiffsCheckBox);
-        toolBar.remove(showAllLinesCheckBox);
-
-        // Find the position where we want to insert the control
-        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-        int insertPosition = -1;
-        Component[] components = toolBar.getComponents();
-
-        // If dev mode is enabled, insert before viewModeToggle; otherwise before captureDiffButton
-        Component targetComponent = isDevMode ? viewModeToggle : captureDiffButton;
-        for (int i = 0; i < components.length; i++) {
-            if (components[i] == targetComponent) {
-                insertPosition = i - 1; // Insert before the horizontal strut that precedes the target
-                break;
-            }
-        }
-
-        if (insertPosition >= 0) {
-            // Add appropriate control based on current view mode
-            if (isUnifiedView) {
-                // Ensure checkbox state matches global preference before adding
-                showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
-                toolBar.add(showAllLinesCheckBox, insertPosition);
-            } else {
-                toolBar.add(showBlankLineDiffsCheckBox, insertPosition);
-            }
-
-            toolBar.revalidate();
-            toolBar.repaint();
+        // Show/hide controls based on current view mode
+        if (isUnifiedView) {
+            // In unified view: show context mode checkbox, hide blank lines checkbox
+            showAllLinesCheckBox.setVisible(true);
+            showBlankLineDiffsCheckBox.setVisible(false);
+            // Ensure checkbox state matches global preference
+            showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
         } else {
-            logger.warn("Could not find position to insert toolbar control");
+            // In side-by-side view: show blank lines checkbox, hide context mode checkbox
+            showBlankLineDiffsCheckBox.setVisible(true);
+            showAllLinesCheckBox.setVisible(false);
         }
+
+        toolBar.revalidate();
+        toolBar.repaint();
     }
 
     /**
@@ -584,9 +562,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private JToolBar createToolbar() {
         // Create toolbar
         toolBar = new JToolBar();
-
-        // Buttons are already initialized as fields
-        fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
         // Configure button icons and tooltips
         btnNext.setIcon(Icons.NAVIGATE_NEXT);
@@ -721,8 +696,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             toolBar.add(btnPreviousFile);
             toolBar.add(Box.createHorizontalStrut(10));
             toolBar.add(btnNextFile);
-            toolBar.add(Box.createHorizontalStrut(15));
-            toolBar.add(fileIndicatorLabel);
         }
 
         toolBar.add(Box.createHorizontalStrut(20));
@@ -738,15 +711,20 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.addSeparator();
         toolBar.add(Box.createHorizontalStrut(10));
 
-        // Add appropriate control based on view mode (will be updated dynamically)
-        updateToolbarForViewMode();
-
         // Only show unified view toggle if dev mode is enabled
         boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
         if (isDevMode) {
-            toolBar.add(Box.createHorizontalStrut(10));
             toolBar.add(viewModeToggle);
+            toolBar.add(Box.createHorizontalStrut(10));
         }
+
+        // Add both view mode controls (they will be enabled/disabled based on current mode)
+        toolBar.add(showBlankLineDiffsCheckBox);
+        toolBar.add(Box.createHorizontalStrut(5));
+        toolBar.add(showAllLinesCheckBox);
+
+        // Update control enable/disable state based on view mode
+        updateToolbarForViewMode();
 
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
         toolBar.add(captureDiffButton);
@@ -809,26 +787,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnSaveAll.setToolTipText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
         // Disable save button when in unified mode, when all sides are read-only, or when there are no changes
         btnSaveAll.setEnabled(enableUndoRedo && dirtyCount > 0);
-
-        // Hide save button when all sides are read-only (like PR diffs)
-        btnSaveAll.setVisible(showUndoRedo);
-
-        // Hide separator and struts for undo/redo/save group when buttons are hidden
-        if (undoRedoGroupSeparator != null) {
-            undoRedoGroupSeparator.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutBefore != null) {
-            undoRedoGroupStrutBefore.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter1 != null) {
-            undoRedoGroupStrutAfter1.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter2 != null) {
-            undoRedoGroupStrutAfter2.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter3 != null) {
-            undoRedoGroupStrutAfter3.setVisible(showUndoRedo);
-        }
 
         // Update per-file dirty indicators in the file tree (only when multiple files are shown)
         if (fileComparisons.size() > 1) {
@@ -1412,8 +1370,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return null;
     }
 
+    @SuppressWarnings("UnusedVariable")
     private void updateFileIndicatorLabel(String text) {
-        fileIndicatorLabel.setText(text);
+        // No-op: filename label removed from toolbar
     }
 
     private void performUndoRedo(java.util.function.Consumer<AbstractContentPanel> action) {
