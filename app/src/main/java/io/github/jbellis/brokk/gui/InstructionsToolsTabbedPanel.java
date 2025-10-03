@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
+import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.BorderLayout;
@@ -37,14 +38,17 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
 
     private final JPanel tasksPlaceholder = new JPanel(new BorderLayout());
     private final JPanel terminalPlaceholder = new JPanel(new BorderLayout());
+    private final JPanel testsPlaceholder = new JPanel(new BorderLayout());
 
     private @Nullable TaskListPanel taskListPanel;
     private @Nullable TerminalPanel terminalPanel;
+    private @Nullable TestRunnerPanel testRunnerPanel;
 
     // Tab indices (fixed order)
     private static final int TAB_INSTRUCTIONS = 0;
     private static final int TAB_TASKS = 1;
     private static final int TAB_TERMINAL = 2;
+    private static final int TAB_TESTS = 3;
 
     public InstructionsToolsTabbedPanel(Chrome chrome, InstructionsPanel instructionsPanel) {
         super(new BorderLayout());
@@ -66,6 +70,9 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         terminalPlaceholder.setOpaque(false);
         tabs.addTab("Terminal", Icons.TERMINAL, terminalPlaceholder, "Integrated terminal");
 
+        testsPlaceholder.setOpaque(false);
+        tabs.addTab("Tests", Icons.CHECK, testsPlaceholder, "Test runner output");
+
         // Eagerly create and install real panels so clicking tabs never shows a blank placeholder
         taskListPanel = new TaskListPanel(chrome);
         replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", Icons.LIST);
@@ -76,6 +83,15 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         }
 
         createTerminalPanel();
+
+        // Eagerly create Tests panel to avoid placeholder gray background
+        testRunnerPanel = new TestRunnerPanel();
+        replaceTabComponent(TAB_TESTS, testRunnerPanel, "Tests", Icons.CHECK);
+        try {
+            testRunnerPanel.applyTheme(chrome.getTheme());
+        } catch (Exception ex) {
+            logger.debug("Failed to apply theme to TestRunnerPanel (eager)", ex);
+        }
 
         // Restore last selected tab (default to Instructions=0) and persist on change
         int savedIndex = GlobalUiSettings.getLastToolsTabIndex();
@@ -152,6 +168,11 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         return taskListPanel;
     }
 
+    /** Returns the TestRunnerPanel if created, else null. */
+    public @Nullable TestRunnerPanel getTestRunnerPanelOrNull() {
+        return testRunnerPanel;
+    }
+
     /** Updates terminal font size if a terminal exists. Safe to call any time. */
     public void updateTerminalFontSize() {
         SwingUtilities.invokeLater(() -> {
@@ -177,6 +198,9 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         }
         if (terminalPanel != null) {
             terminalPanel.applyTheme(guiTheme);
+        }
+        if (testRunnerPanel != null) {
+            testRunnerPanel.applyTheme(guiTheme);
         }
         if (instructionsPanel instanceof ThemeAware ta) {
             ta.applyTheme(guiTheme);
