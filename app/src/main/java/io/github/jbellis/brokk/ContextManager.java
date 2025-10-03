@@ -1375,15 +1375,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
             int tokenCount = Messages.getApproximateTokens(cf.format());
 
-            var svc = getService();
-            var model = getCodeModel();
-            if (model == null) {
-                model = svc.quickModel();
-            }
-
-            int maxInputTokens = svc.getMaxInputTokens(model);
-            if (tokenCount > (int) Math.ceil(maxInputTokens * 0.10)) {
-                compressHistoryAsync();
+            try {
+                var svc = getService();
+                var model = getCodeModel();
+                int maxInputTokens = svc.getMaxInputTokens(model);
+                if (tokenCount > (int) Math.ceil(maxInputTokens * 0.10)) {
+                    compressHistoryAsync();
+                }
+            } catch (ServiceWrapper.ServiceInitializationException e) {
+                // FIXME CI does not have a working Service so this errors out
             }
         }
         return newLiveContext;
