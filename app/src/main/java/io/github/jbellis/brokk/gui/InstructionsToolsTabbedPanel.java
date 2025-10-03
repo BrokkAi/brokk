@@ -59,13 +59,23 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         // Instructions tab uses the existing instance
         tabs.addTab("Instructions", null, this.instructionsPanel, "Instructions and actions");
 
-        // Tasks tab placeholder; lazily replace with TaskListPanel
+        // Add placeholders first so replaceTabComponent can swap content by fixed indices
         tasksPlaceholder.setOpaque(false);
         tabs.addTab("Tasks", Icons.LIST, tasksPlaceholder, "Task list");
 
-        // Terminal tab placeholder; lazily replace with TerminalPanel
         terminalPlaceholder.setOpaque(false);
         tabs.addTab("Terminal", Icons.TERMINAL, terminalPlaceholder, "Integrated terminal");
+
+        // Eagerly create and install real panels so clicking tabs never shows a blank placeholder
+        taskListPanel = new TaskListPanel(chrome);
+        replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", Icons.LIST);
+        try {
+            taskListPanel.applyTheme(chrome.getTheme());
+        } catch (Exception ex) {
+            logger.debug("Failed to apply theme to TaskListPanel (eager)", ex);
+        }
+
+        createTerminalPanel();
 
         // Restore last selected tab (default to Instructions=0) and persist on change
         int savedIndex = GlobalUiSettings.getLastToolsTabIndex();
@@ -73,7 +83,24 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
             savedIndex = TAB_INSTRUCTIONS;
         }
         tabs.setSelectedIndex(savedIndex);
-        tabs.addChangeListener(e -> GlobalUiSettings.saveLastToolsTabIndex(tabs.getSelectedIndex()));
+        tabs.addChangeListener(e -> {
+            int idx = tabs.getSelectedIndex();
+            GlobalUiSettings.saveLastToolsTabIndex(idx);
+            // If the user closed the terminal, selecting the tab should recreate it on demand
+            if (idx == TAB_TERMINAL && terminalPanel == null) {
+                createTerminalPanel();
+            }
+            // Safety: recreate tasks panel if ever cleared (should not normally happen)
+            if (idx == TAB_TASKS && taskListPanel == null) {
+                taskListPanel = new TaskListPanel(chrome);
+                replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", Icons.LIST);
+                try {
+                    taskListPanel.applyTheme(chrome.getTheme());
+                } catch (Exception ex) {
+                    logger.debug("Failed to apply theme to TaskListPanel (on-select)", ex);
+                }
+            }
+        });
 
         add(tabs, BorderLayout.CENTER);
     }
