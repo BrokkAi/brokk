@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -80,6 +82,10 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private JLabel revisionTextLabel;
     private JTextArea revisionIdTextArea;
     private JTextField commitSearchTextField;
+    // Debounce timer used for incremental search-as-you-type (default 300 ms)
+    @Nullable
+    private javax.swing.Timer debounceTimer;
+    private final int DEBOUNCE_MILLIS = 300;
 
     private JMenuItem addToContextItem;
     private JMenuItem softResetItem;
@@ -169,8 +175,34 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 }
             };
 
+            // Immediate search from button or Enter key (existing behavior)
             commitSearchButton.addActionListener(e -> searchAction.run());
             commitSearchTextField.addActionListener(e -> searchAction.run());
+
+            // Incremental search: schedule searches as the user types (debounced)
+            commitSearchTextField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    scheduleSearch();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    scheduleSearch();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    // Plain text components typically do not fire this
+                }
+            });
+
+            // Initialize debounce timer: when it fires, run the searchAction on the EDT.
+            debounceTimer = new javax.swing.Timer(DEBOUNCE_MILLIS, ev -> {
+                ((javax.swing.Timer) ev.getSource()).stop(); // stop after firing
+                SwingUtilities.invokeLater(searchAction);
+            });
+            debounceTimer.setRepeats(false);
 
             commitSearchInputPanel.add(commitSearchButton, BorderLayout.EAST);
             commitsPanel.add(commitSearchInputPanel, BorderLayout.NORTH);
@@ -1156,6 +1188,29 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             }
             return null;
         });
+    }
+
+    /**
+     * Schedule a debounced search based on the current text in the search field.
+     * If the debounce timer is not initialized for some reason, falls back to an immediate search.
+     */
+    private void scheduleSearch() {
+        if (debounceTimer != null) {
+            if (debounceTimer.isRunning()) {
+                debounceTimer.restart();
+            } else {
+                debounceTimer.start();
+            }
+            return;
+        }
+
+        // Fallback: immediate execution (shouldn't normally happen)
+        String q = commitSearchTextField.getText().trim();
+        if (!q.isEmpty()) {
+            searchCommitsInPanel(q);
+        } else {
+            reloader.reloadCurrentContext();
+        }
     }
 
     private void searchCommitsInPanel(String query) {
