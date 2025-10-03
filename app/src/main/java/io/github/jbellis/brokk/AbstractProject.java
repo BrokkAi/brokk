@@ -346,10 +346,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private static final String PROP_COMMAND_EXECUTOR = "commandExecutor";
     private static final String PROP_EXECUTOR_ARGS = "commandExecutorArgs";
 
-    // Terminal drawer per-project persistence
+    // --- Compatibility: Terminal drawer per-project persistence (legacy) ---
     private static final String PROP_DRAWER_TERM_OPEN = "drawers.terminal.open";
     private static final String PROP_DRAWER_TERM_PROP = "drawers.terminal.proportion";
     private static final String PROP_DRAWER_TERM_LASTTAB = "drawers.terminal.lastTab";
+
 
     @Override
     public @Nullable String getJdk() {
@@ -425,19 +426,28 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveWorkspaceProperties();
     }
 
-    // --- Terminal drawer per-project persistence ---
+    // --- Compatibility: Terminal drawer per-project persistence (legacy) ---
 
+    /**
+     * Returns stored open state for the legacy terminal drawer, or null if unset.
+     */
     public @Nullable Boolean getTerminalDrawerOpen() {
         var raw = workspaceProps.getProperty(PROP_DRAWER_TERM_OPEN);
         if (raw == null || raw.isBlank()) return null;
         return Boolean.parseBoolean(raw.trim());
     }
 
+    /**
+     * Saves open state for the legacy terminal drawer.
+     */
     public void setTerminalDrawerOpen(boolean open) {
         workspaceProps.setProperty(PROP_DRAWER_TERM_OPEN, Boolean.toString(open));
         saveWorkspaceProperties();
     }
 
+    /**
+     * Returns a stored proportion for the legacy terminal drawer, or -1.0 if unset/invalid.
+     */
     public double getTerminalDrawerProportion() {
         var raw = workspaceProps.getProperty(PROP_DRAWER_TERM_PROP);
         if (raw == null || raw.isBlank()) return -1.0;
@@ -448,12 +458,18 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    /**
+     * Saves a clamped proportion for the legacy terminal drawer.
+     */
     public void setTerminalDrawerProportion(double prop) {
         var clamped = clampProportion(prop);
         workspaceProps.setProperty(PROP_DRAWER_TERM_PROP, Double.toString(clamped));
         saveWorkspaceProperties();
     }
 
+    /**
+     * Returns the last selected tab for the legacy terminal drawer ("terminal" or "tasks"), or null if unset/invalid.
+     */
     public @Nullable String getTerminalDrawerLastTab() {
         var raw = workspaceProps.getProperty(PROP_DRAWER_TERM_LASTTAB);
         if (raw == null || raw.isBlank()) return null;
@@ -461,6 +477,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return ("terminal".equals(norm) || "tasks".equals(norm)) ? norm : null;
     }
 
+    /**
+     * Saves the last selected tab for the legacy terminal drawer. Only "terminal" or "tasks" are accepted.
+     */
     public void setTerminalDrawerLastTab(String tab) {
         var norm = tab.trim().toLowerCase(Locale.ROOT);
         if (!"terminal".equals(norm) && !"tasks".equals(norm)) {

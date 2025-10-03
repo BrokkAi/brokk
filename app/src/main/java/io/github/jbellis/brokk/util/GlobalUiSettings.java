@@ -32,10 +32,13 @@ public final class GlobalUiSettings {
 
     private static final String KEY_DEP_OPEN = "drawers.dependencies.open";
     private static final String KEY_DEP_PROP = "drawers.dependencies.proportion";
+    private static final String KEY_TOOLS_LASTTAB = "tools.lastTab";
+
+    // --- Compatibility: Terminal drawer global persistence (legacy) ---
     private static final String KEY_TERM_OPEN = "drawers.terminal.open";
     private static final String KEY_TERM_PROP = "drawers.terminal.proportion";
     private static final String KEY_TERM_LASTTAB = "drawers.terminal.lastTab";
-    private static final String KEY_TOOLS_LASTTAB = "tools.lastTab";
+
     private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
     private static final String KEYBIND_PREFIX = "keybinding.";
 
@@ -195,7 +198,8 @@ public final class GlobalUiSettings {
         setDouble(KEY_DEP_PROP, clampProportion(prop));
     }
 
-    // Terminal drawer: last tab (string identifier), open flag, and proportion
+    // --- Compatibility: Terminal drawer (legacy) ---
+
     public static String getTerminalDrawerLastTab() {
         var props = loadProps();
         var raw = props.getProperty(KEY_TERM_LASTTAB);
@@ -223,6 +227,7 @@ public final class GlobalUiSettings {
     public static void saveTerminalDrawerProportion(double prop) {
         setDouble(KEY_TERM_PROP, clampProportion(prop));
     }
+
 
     // Tools tab: last selected index (0-based)
     public static int getLastToolsTabIndex() {
