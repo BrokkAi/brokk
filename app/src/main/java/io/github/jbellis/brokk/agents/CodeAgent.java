@@ -123,7 +123,7 @@ public class CodeAgent {
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
         var es = new EditState(
-                blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+                blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents, Collections.emptyList());
 
         while (true) {
             if (Thread.interrupted()) {
@@ -317,7 +317,7 @@ public class CodeAgent {
                 contextManager, instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyList());
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
                 .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
@@ -708,6 +708,9 @@ public class CodeAgent {
         // Base success/failure decision on raw build result, not processed output
         if (buildError.isEmpty()) {
             // Build succeeded or was skipped by performBuildVerification
+            if (!es.javaLintDiagnostics().isEmpty()) {
+                logger.error("Build succeeded but Java pre-lint detected issues:\n" + String.join("\n", es.javaLintDiagnostics()));
+            }
             logger.debug("Build verification succeeded");
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
@@ -874,13 +877,10 @@ public class CodeAgent {
             parser.setKind(ASTParser.K_COMPILATION_UNIT);
             parser.setSource(sourceChars);
             // Enable binding resolution with recovery and use the running JVM's boot classpath.
-            // This allows JDT to surface local/flow errors and undefined identifiers
-            // without requiring a project classpath.
             parser.setResolveBindings(true);
             parser.setStatementsRecovery(true);
             parser.setBindingsRecovery(true);
             parser.setUnitName(absPath.getFileName().toString());
-            // Provide minimal environment: no explicit classpath/sourcepath, but include current JVM bootclasspath
             parser.setEnvironment(new String[0], new String[0], null, true);
             var options = JavaCore.getOptions();
             JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
@@ -888,9 +888,6 @@ public class CodeAgent {
 
             CompilationUnit cu = (CompilationUnit) parser.createAST(null);
 
-            // - Exclude import problems
-            // - Exclude most type errors (noisy without classpath), except a whitelist of local-only ones
-            // - Explicitly ignore undefined method/field
             for (IProblem prob : cu.getProblems()) {
                 if (!prob.isError()) {
                     continue;
@@ -905,8 +902,7 @@ public class CodeAgent {
                         continue; // ignore import issues outright
                     }
                     if (cat == CategorizedProblem.CAT_TYPE && !localOnlyIds.contains(id)) {
-                        // General type problems are noisy without a classpath; only keep our local-only whitelist.
-                        continue;
+                        continue; // ignore general type problems without a classpath
                     }
                 }
 
@@ -919,30 +915,9 @@ public class CodeAgent {
             }
         });
 
-        if (allProblems.isEmpty()) {
-            // clean parse; proceed
-            return new Step.Continue(cs, es);
-        }
-
-        // Build a concise diagnostic summary for the LLM
-        var summary = String.join("\n", allProblems);
-
-        var prompt =
-                """
-                Java syntax or identifier errors were detected in the edited files. Please fix these before we proceed to the full build.
-
-                %s
-                """
-                        .stripIndent()
-                        .formatted(summary);
-
-        var nextRequest = new UserMessage(prompt);
-        var nextCs = new ConversationState(
-                cs.taskMessages(), nextRequest, cs.taskMessages().size());
-        var nextEs = es.afterBuildFailure(summary); // reuse to reset state and per-turn baseline
-
-        report("Java parse errors detected; asking LLM to fix syntax/identifier issues before building.");
-        return new Step.Retry(nextCs, nextEs);
+        // Save diagnostics and continue (non-blocking pre-lint)
+        var nextEs = es.withJavaLintDiagnostics(allProblems);
+        return new Step.Continue(cs, nextEs);
     }
 
     private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob) {
@@ -1045,7 +1020,8 @@ public class CodeAgent {
             int blocksAppliedWithoutBuild,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
-            Map<ProjectFile, String> originalFileContents) {
+            Map<ProjectFile, String> originalFileContents,
+            List<String> javaLintDiagnostics) {
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
@@ -1056,7 +1032,8 @@ public class CodeAgent {
                     blocksAppliedWithoutBuild,
                     lastBuildError,
                     changedFiles,
-                    originalFileContents);
+                    originalFileContents,
+                    javaLintDiagnostics);
         }
 
         /**
@@ -1072,7 +1049,8 @@ public class CodeAgent {
                     0,
                     newBuildError,
                     changedFiles,
-                    new HashMap<>()); // Clear per-turn baseline
+                    new HashMap<>(), // Clear per-turn baseline
+                    javaLintDiagnostics);
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1089,7 +1067,8 @@ public class CodeAgent {
                     newBlocksApplied,
                     lastBuildError,
                     changedFiles,
-                    newOriginalContents);
+                    newOriginalContents,
+                    javaLintDiagnostics);
         }
 
         /**
@@ -1102,6 +1081,25 @@ public class CodeAgent {
          */
         @VisibleForTesting
         List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+        }
+
+        EditState withJavaLintDiagnostics(List<String> diags) {
+            return new EditState(
+                    pendingBlocks,
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    diags == null ? List.of() : diags);
+        }
+
+        @VisibleForTesting
+        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocksOld() { // placeholder to maintain structure if needed
+            return toSearchReplaceBlocks();
+        }
             var results = new ArrayList<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
 
