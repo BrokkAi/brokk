@@ -9,6 +9,9 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.PlainDocument;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
@@ -30,11 +33,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     private final JTextArea outputArea;
     private final JScrollPane scrollPane;
+    private final DisplayOnlyDocument document;
 
     public TestRunnerPanel() {
         super(new BorderLayout(0, 0));
 
         outputArea = new JTextArea();
+        document = new DisplayOnlyDocument();
+        outputArea.setDocument(document);
         outputArea.setEditable(false);
         outputArea.setLineWrap(false); // Preserve test output formatting
         outputArea.setWrapStyleWord(false);
@@ -63,13 +69,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     public void setOutput(String text) {
         final String safe = text == null ? "" : text;
         if (SwingUtilities.isEventDispatchThread()) {
-            outputArea.setText(safe);
-            scrollToBottom();
-        } else {
-            SwingUtilities.invokeLater(() -> {
+            document.withWritePermission(() -> {
                 outputArea.setText(safe);
                 scrollToBottom();
             });
+        } else {
+            SwingUtilities.invokeLater(() -> document.withWritePermission(() -> {
+                outputArea.setText(safe);
+                scrollToBottom();
+            }));
         }
     }
 
@@ -79,13 +87,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     public void appendOutput(String text) {
         if (text == null || text.isEmpty()) return;
         if (SwingUtilities.isEventDispatchThread()) {
-            outputArea.append(text);
-            scrollToBottom();
-        } else {
-            SwingUtilities.invokeLater(() -> {
+            document.withWritePermission(() -> {
                 outputArea.append(text);
                 scrollToBottom();
             });
+        } else {
+            SwingUtilities.invokeLater(() -> document.withWritePermission(() -> {
+                outputArea.append(text);
+                scrollToBottom();
+            }));
         }
     }
 
@@ -94,9 +104,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      */
     public void clearOutput() {
         if (SwingUtilities.isEventDispatchThread()) {
-            outputArea.setText("");
+            document.withWritePermission(() -> outputArea.setText(""));
         } else {
-            SwingUtilities.invokeLater(() -> outputArea.setText(""));
+            SwingUtilities.invokeLater(() -> document.withWritePermission(() -> outputArea.setText("")));
         }
     }
 
@@ -146,5 +156,47 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private void scrollToBottom() {
         // Move caret to end; this will auto-scroll the viewport
         outputArea.setCaretPosition(outputArea.getDocument().getLength());
+    }
+
+    /**
+     * Display-only document that rejects user edits but allows controlled programmatic updates
+     * via withWritePermission.
+     */
+    private static final class DisplayOnlyDocument extends PlainDocument {
+        private boolean allowWrite = false;
+
+        void withWritePermission(Runnable r) {
+            boolean prev = allowWrite;
+            allowWrite = true;
+            try {
+                r.run();
+            } finally {
+                allowWrite = prev;
+            }
+        }
+
+        @Override
+        public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
+            if (!allowWrite) {
+                return; // ignore any user-initiated insert
+            }
+            super.insertString(offs, str, a);
+        }
+
+        @Override
+        public void remove(int offs, int len) throws BadLocationException {
+            if (!allowWrite) {
+                return; // ignore any user-initiated remove
+            }
+            super.remove(offs, len);
+        }
+
+        @Override
+        public void replace(int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
+            if (!allowWrite) {
+                return; // ignore any user-initiated replace
+            }
+            super.replace(offset, length, text, attrs);
+        }
     }
 }
