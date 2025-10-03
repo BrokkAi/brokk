@@ -381,7 +381,7 @@ public class SessionManager implements AutoCloseable {
                             taskListJsonSnapshot = Files.readString(tlPath);
                         }
                     } catch (IOException ioe) {
-                        logger.debug(
+                        logger.warn(
                                 "Could not snapshot existing tasklist.json for session {}: {}",
                                 sessionId,
                                 ioe.getMessage());

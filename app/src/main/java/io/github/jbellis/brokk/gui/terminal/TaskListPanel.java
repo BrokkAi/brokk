@@ -502,8 +502,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         try {
             modified = repo.getModifiedFiles();
         } catch (GitAPIException e) {
-            SwingUtilities.invokeLater(
-                    () -> chrome.toolError("Unable to determine modified files: " + e.getMessage(), "Commit Error"));
+            chrome.toolError("Unable to determine modified files: " + e.getMessage(), "Commit Error");
             return;
         }
         if (modified.isEmpty()) {
@@ -539,8 +538,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     chrome.selectCurrentBranchInLogTab();
                 });
             } catch (Exception e) {
-                SwingUtilities.invokeLater(
-                        () -> chrome.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error"));
+                chrome.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error");
             }
             return null;
         });
@@ -865,11 +863,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var data = new TaskListData(java.util.List.copyOf(dtos));
 
         final UUID sidFinal = sid;
-        Executor edt = SwingUtilities::invokeLater;
         sessionManager.writeTaskList(sidFinal, data).whenComplete((ignored, ex) -> {
             if (ex != null) {
-                logger.debug("Failed saving tasks for session {}", sidFinal, ex);
-                edt.execute(() -> chrome.toolError("Unable to save task list: " + ex.getMessage(), "Task List"));
+                logger.warn("Failed saving tasks for session {}", sidFinal, ex);
+                chrome.toolError("Unable to save task list: " + ex.getMessage(), "Task List");
             }
         });
     }
