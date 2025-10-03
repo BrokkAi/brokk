@@ -2816,6 +2816,29 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
+     * Clears the Tests tab output and opens/focuses it. Safe to call from any thread.
+     */
+    public void clearTestRunnerOutput() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            try {
+                var panel = instructionsToolsPanel.openTests();
+                panel.clearOutput();
+            } catch (Exception ex) {
+                logger.debug("Failed to clear Tests tab", ex);
+            }
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    var panel = instructionsToolsPanel.openTests();
+                    panel.clearOutput();
+                } catch (Exception ex) {
+                    logger.debug("Failed to clear Tests tab", ex);
+                }
+            });
+        }
+    }
+
+    /**
      * Backward-compatibility adapter for legacy callers that used a terminal "drawer".
      * Only implements the minimal API used by ContextManager: openTerminalAndPasteText(String).
      *

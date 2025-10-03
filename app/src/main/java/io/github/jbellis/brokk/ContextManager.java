@@ -89,13 +89,72 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void runTests(Set<ProjectFile> testFiles) {
         String cmd = BuildAgent.getBuildLintSomeCommand(this, getProject().loadBuildDetails(), testFiles);
         if (cmd.isEmpty()) {
-            getIo().toolError("Run in Shell: build commands are unknown; run Build Setup first");
+            getIo().toolError("Run Tests: build commands are unknown; run Build Setup first");
             return;
         }
+
         var io = getIo();
+
+        // If we have a Chrome UI, clear/open the Tests tab and show a header
         if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.getTerminalDrawer().openTerminalAndPasteText(cmd));
+            try {
+                chrome.clearTestRunnerOutput();
+            } catch (Exception ex) {
+                logger.debug("Failed to clear Tests tab", ex);
+            }
+            chrome.appendToTestRunner("Running tests:\n" + cmd + "\n\n");
+        } else {
+            // Headless or non-Chrome I/O
+            io.systemOutput("Running tests:\n" + cmd);
         }
+
+        // Run the test command in the background and stream output to the Tests tab
+        submitBackgroundTask("Running tests", () -> {
+            try {
+                boolean isWindows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+                String[] shellCommand = isWindows
+                        ? new String[] {"cmd", "/c", cmd}
+                        : new String[] {"sh", "-lc", cmd};
+
+                var pb = new ProcessBuilder(shellCommand);
+                pb.directory(getProject().getRoot().toFile());
+                // Merge stderr into stdout so we can stream a single pipe
+                pb.redirectErrorStream(true);
+
+                Process process = pb.start();
+
+                try (var reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (io instanceof Chrome chrome) {
+                            chrome.appendToTestRunner(line + "\n");
+                        } else {
+                            io.systemOutput(line);
+                        }
+                    }
+                }
+
+                int exit = process.waitFor();
+                if (io instanceof Chrome chrome) {
+                    chrome.appendToTestRunner("\nProcess finished with exit code " + exit + "\n");
+                } else {
+                    io.systemOutput("Process finished with exit code " + exit);
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                if (io instanceof Chrome chrome) {
+                    chrome.appendToTestRunner("\nTest run interrupted.\n");
+                }
+                io.toolError("Test run interrupted.");
+            } catch (java.io.IOException e) {
+                if (io instanceof Chrome chrome) {
+                    chrome.appendToTestRunner("\nError running tests: " + e.getMessage() + "\n");
+                }
+                io.toolError("Error running tests: " + e.getMessage());
+            }
+            return null;
+        });
     }
 
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
