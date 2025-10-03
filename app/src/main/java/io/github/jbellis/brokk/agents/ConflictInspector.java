@@ -172,7 +172,7 @@ public final class ConflictInspector {
         }
     }
 
-    public static MergeAgent.MergeConflict inspectFromProject(IProject project) {
+    public static @Nullable MergeAgent.MergeConflict inspectFromProject(IProject project) {
         try {
             return inspectFromProjectInternal(project);
         } catch (GitAPIException e) {
@@ -186,7 +186,7 @@ public final class ConflictInspector {
      * for our/other/base, and the set of ConflictingFile entries. Unmerged index stages are interpreted as: stage 1 =
      * base, stage 2 = ours, stage 3 = theirs.
      */
-    public static MergeAgent.MergeConflict inspectFromProjectInternal(IProject project) throws GitAPIException {
+    public static @Nullable MergeAgent.MergeConflict inspectFromProjectInternal(IProject project) throws GitAPIException {
         var repo = (GitRepo) project.getRepo();
         var repository = repo.getGit().getRepository();
         var gitDir = repository.getDirectory().toPath();

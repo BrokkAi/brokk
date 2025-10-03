@@ -88,17 +88,6 @@ public class MergeAgent {
         this.scope = scope;
     }
 
-    /** Create a MergeAgent by inspecting the on-disk repository state. */
-    public static MergeAgent inferFromExternal(
-            ContextManager cm,
-            StreamingChatModel planningModel,
-            StreamingChatModel codeModel,
-            ContextManager.TaskScope scope) {
-        var conflict = ConflictInspector.inspectFromProject(cm.getProject());
-        logger.debug(conflict);
-        return new MergeAgent(cm, planningModel, codeModel, conflict, scope);
-    }
-
     /**
      * High-level merge entry point. First annotates all conflicts, then resolves them file-by-file. Also publishes
      * commit explanations for the relevant ours/theirs commits discovered by blame.
