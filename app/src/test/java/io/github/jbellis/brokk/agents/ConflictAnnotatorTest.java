@@ -134,7 +134,7 @@ class ConflictAnnotatorTest {
             var expected =
                     ("""
                     O1
-                    BRK_CONFLICT_BEGIN1
+                    BRK_CONFLICT_BEGIN_1
                     BRK_OUR_VERSION %s
                     %s X2
                     %s X3'
@@ -144,16 +144,16 @@ class ConflictAnnotatorTest {
                     BRK_THEIR_VERSION %s
                     %s Y2
                     %s Y3'
-                    BRK_CONFLICT_END1
+                    BRK_CONFLICT_END_1
                     O4
-                    BRK_CONFLICT_BEGIN2
+                    BRK_CONFLICT_BEGIN_2
                     BRK_OUR_VERSION %s
                     %s X5
                     BRK_BASE_VERSION %s
                     %s O5
                     BRK_THEIR_VERSION %s
                     %s Y5
-                    BRK_CONFLICT_END2
+                    BRK_CONFLICT_END_2
                     O6
                     """)
                             .formatted(
@@ -229,14 +229,14 @@ class ConflictAnnotatorTest {
             var mergedPreview = annotator.annotate(cf);
             var expected = String.join(
                             "\n",
-                            "BRK_CONFLICT_BEGIN1",
+                            "BRK_CONFLICT_BEGIN_1",
                             "BRK_OUR_VERSION %s".formatted(repo.shortHash(mainSha)),
                             "%s Main modification".formatted(repo.shortHash(mainSha)),
                             "BRK_BASE_VERSION %s".formatted(repo.shortHash(baseSha)),
                             "%s Original content".formatted(repo.shortHash(baseSha)),
                             "BRK_THEIR_VERSION %s".formatted(repo.shortHash(featureSha)),
                             "%s Feature modification".formatted(repo.shortHash(featureSha)),
-                            "BRK_CONFLICT_END1")
+                            "BRK_CONFLICT_END_1")
                     .stripTrailing();
             assertEquals(expected, mergedPreview.contents());
         }
@@ -284,14 +284,14 @@ class ConflictAnnotatorTest {
             var mergedPreview = annotator.annotate(cf);
             var expected = String.join(
                             "\n",
-                            "BRK_CONFLICT_BEGIN1",
+                            "BRK_CONFLICT_BEGIN_1",
                             "BRK_OUR_VERSION %s".formatted(repo.shortHash(mainSha)),
                             "%s Main modification".formatted(repo.shortHash(mainSha)),
                             "BRK_BASE_VERSION %s".formatted(repo.shortHash(baseSha)),
                             "%s Original content".formatted(repo.shortHash(baseSha)),
                             "BRK_THEIR_VERSION %s".formatted(repo.shortHash(featureSha)),
                             "%s Feature modification".formatted(repo.shortHash(featureSha)),
-                            "BRK_CONFLICT_END1")
+                            "BRK_CONFLICT_END_1")
                     .stripTrailing();
             assertEquals(expected, mergedPreview.contents());
         }
@@ -335,14 +335,14 @@ class ConflictAnnotatorTest {
             //   theirs= A (B's parent)
             var expected = String.join(
                             "\n",
-                            "BRK_CONFLICT_BEGIN1",
+                            "BRK_CONFLICT_BEGIN_1",
                             "BRK_OUR_VERSION %s".formatted(repo.shortHash(commitCSha)),
                             "%s C".formatted(repo.shortHash(commitCSha)),
                             "BRK_BASE_VERSION %s".formatted(repo.shortHash(commitBSha)),
                             "%s B".formatted(repo.shortHash(commitBSha)),
                             "BRK_THEIR_VERSION %s".formatted(repo.shortHash(commitASha)),
                             "%s A".formatted(repo.shortHash(commitASha)),
-                            "BRK_CONFLICT_END1")
+                            "BRK_CONFLICT_END_1")
                     .stripTrailing();
             assertEquals(expected, mergedPreview.contents());
         }

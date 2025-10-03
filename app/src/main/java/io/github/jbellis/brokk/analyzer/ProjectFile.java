@@ -21,6 +21,9 @@ public class ProjectFile implements BrokkFile {
     /** root must be pre-normalized; we will normalize relPath if it is not already */
     @JsonCreator
     public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
+        if (relPath.toString().contains("%s")) {
+            throw new IllegalArgumentException("RelPath %s contains interpolation markers".formatted(relPath));
+        }
         // Validation and normalization
         if (!root.isAbsolute()) {
             throw new IllegalArgumentException("Root must be absolute, got " + root);

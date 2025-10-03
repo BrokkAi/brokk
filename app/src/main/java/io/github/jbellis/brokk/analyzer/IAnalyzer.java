@@ -24,6 +24,24 @@ public interface IAnalyzer {
         return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
     }
 
+    /**
+     * Update the Analyzer for create/modify/delete activity against `changedFiles`. This is O(M) in the number of
+     * changed files.
+     */
+    default IAnalyzer update(Set<ProjectFile> changedFiles) {
+        // should always be supported; UOE here is for convenience in mocking
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N) in the total
+     * number of files and relatively heavyweight.
+     */
+    default IAnalyzer update() {
+        // should always be supported; UOE here is for convenience in mocking
+        throw new UnsupportedOperationException();
+    }
+
     // Summarization
 
     default List<CodeUnit> getMembersInClass(String fqClass) {

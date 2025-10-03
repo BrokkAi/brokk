@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import static io.github.jbellis.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
 import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -12,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -105,28 +108,33 @@ public class EditBlock {
      * blocks corresponding to new files.
      */
     public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
-            throws IOException {
+            throws IOException, InterruptedException {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
         List<ProjectFile> newFiles = new ArrayList<>();
-
         // Track original file contents before any changes
         Map<ProjectFile, String> changedFiles = new HashMap<>();
 
-        for (SearchReplaceBlock block : blocks) {
-            // 1. Resolve the rawFileName
+        // First pass: resolve files and pre-resolve BRK markers BEFORE any file modifications
+        record ApplyPlan(ProjectFile file, SearchReplaceBlock block, String effectiveBefore) {}
+        List<ApplyPlan> plans = new ArrayList<>();
+
+        for (var block : blocks) {
+            final var rawFileName = block.rawFileName();
             ProjectFile file;
-            final String rawFileName = block.rawFileName();
             try {
                 file = resolveProjectFile(contextManager, rawFileName);
             } catch (SymbolAmbiguousException | SymbolInvalidException e) {
                 logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
                 failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
-                continue; // Skip to the next block
+                continue;
             } catch (SymbolNotFoundException e) {
-                if (rawFileName == null) continue; // should have thrown SymbolInvalidException if this was null.
-
+                if (rawFileName == null) {
+                    // would have thrown SymbolInvalidException if null
+                    failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
+                    continue;
+                }
                 // create new file for the edit block to work on
                 file = contextManager.toFile(rawFileName);
                 try {
@@ -138,44 +146,61 @@ public class EditBlock {
                 }
             }
 
-            // 2. Apply the edit using replaceInFile
+            // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
+            String effectiveBefore = block.beforeText();
             try {
-                // Save original content before attempting change
+                var maybeResolved = resolveBrkSnippet(contextManager, effectiveBefore.strip());
+                if (maybeResolved != null) {
+                    effectiveBefore = maybeResolved;
+                    logger.debug("Pre-resolved BRK target snippet for {}:\n{}", rawFileName, effectiveBefore);
+                }
+            } catch (NoMatchException | AmbiguousMatchException ex) {
+                // Record the failure early since we cannot resolve the target entity
+                var reason = (ex instanceof NoMatchException)
+                        ? EditBlockFailureReason.NO_MATCH
+                        : EditBlockFailureReason.AMBIGUOUS_MATCH;
+                failed.add(new FailedBlock(block, reason, ""));
+                continue;
+            }
+
+            plans.add(new ApplyPlan(file, block, effectiveBefore));
+        }
+
+        // Second pass: apply in the original order using the pre-resolved search text
+        for (var plan : plans) {
+            var file = plan.file();
+            var block = plan.block();
+            var effectiveBefore = plan.effectiveBefore();
+
+            try {
                 if (!changedFiles.containsKey(file)) {
                     changedFiles.put(file, file.exists() ? file.read().orElse("") : "");
                 }
 
-                // Perform the replacement
-                replaceInFile(file, block.beforeText(), block.afterText(), contextManager);
-
-                // add to succeeded list
-                // If it was a deletion, replaceInFile handled it and returned; file will not exist.
-                // If it was a modification or creation, the file will exist with new content.
+                replaceInFile(file, effectiveBefore, block.afterText(), contextManager);
                 succeeded.put(block, file);
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert changedFiles.containsKey(file);
                 var originalContent = changedFiles.get(file);
                 String commentary;
                 try {
-                    replaceMostSimilarChunk(originalContent, block.afterText, "");
-                    // if it didn't throw:
+                    replaceMostSimilarChunk(contextManager, originalContent, block.afterText, "");
                     commentary =
                             """
                                  The replacement text is already present in the file. If we no longer need to apply
                                  this block, omit it from your reply.
                                  """
                                     .stripIndent();
-                } catch (NoMatchException | AmbiguousMatchException e2) {
+                } catch (NoMatchException | AmbiguousMatchException | InterruptedException e2) {
                     commentary = "";
                 }
 
-                // Check if the search block looks like a diff
                 if (block.beforeText().lines().anyMatch(line -> line.startsWith("-") || line.startsWith("+"))) {
                     commentary +=
                             """
-                                  Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
-                                  Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
-                                  """
+                              Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
+                              Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
+                              """
                                     .stripIndent();
                 }
 
@@ -191,8 +216,8 @@ public class EditBlock {
             } catch (IOException e) {
                 var msg = "Error applying edit to " + file;
                 logger.error("{}: {}", msg, e.getMessage());
-                throw new IOException(msg);
-            } catch (GitAPIException e) {
+                throw new IOException(msg, e);
+            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
                 var msg = "Non-fatal error: unable to update `%s` in Git".formatted(file);
                 logger.error("{}: {}", msg, e.getMessage());
                 io.systemOutput(msg);
@@ -203,11 +228,8 @@ public class EditBlock {
         if (!newFiles.isEmpty()) {
             try {
                 contextManager.getRepo().add(newFiles);
-                // the file watcher that normally does this automatically is paused during task execution.
-                // clear the cache manually so BuildAgent's call to CM::getTestFiles sees the new files as part of the
-                // project.
                 contextManager.getRepo().invalidateCaches();
-            } catch (GitAPIException e) {
+            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
                 io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
             }
             contextManager.addFiles(newFiles);
@@ -293,9 +315,9 @@ public class EditBlock {
      */
     public static void replaceInFile(
             ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
-            throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException {
+            throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
         String original = file.exists() ? file.read().orElse("") : "";
-        String updated = replaceMostSimilarChunk(original, beforeText, afterText);
+        String updated = replaceMostSimilarChunk(contextManager, original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
@@ -322,50 +344,79 @@ public class EditBlock {
     }
 
     /**
-     * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content, or
-     * null if no match found. Throws AmbiguousMatchException if multiple matches are found.
+     * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content.
+     * Also supports special *marker* search targets: - BRK_CONFLICT_$n (new single-line syntax; replaces
+     * BEGIN/END-delimited region with index $n) - BRK_CONFLICT_BEGIN_<n>...BRK_CONFLICT_END_<n> (back-compat: old
+     * behavior where SEARCH contained the whole region) - BRK_CLASS <fqcn> (existing) - BRK_FUNCTION <fqMethodName>
+     * (existing; rejects overloads as ambiguous)
+     *
+     * <p>For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
+     * edit using that snippet as the search block.
      */
-    static String replaceMostSimilarChunk(String content, String target, String replace)
-            throws AmbiguousMatchException, NoMatchException {
-        // Special-case: if the search block is a BRK_CONFLICT_BEGIN<n> ... BRK_CONFLICT_END<n> block (allow
-        // surrounding whitespace), then replace the entire conflict block (from the matching begin to end)
-        // in `content` with `replace`.
+    static String replaceMostSimilarChunk(IContextManager contextManager, String content, String target, String replace)
+            throws AmbiguousMatchException, NoMatchException, InterruptedException {
+        // -----------------------------
+        // 0) BRK_CONFLICT block special-cases
+        // -----------------------------
         var trimmedTarget = target.strip();
-        var conflictPattern =
-                java.util.regex.Pattern.compile("(?s)^BRK_CONFLICT_BEGIN(\\d+)[\\s\\S]*BRK_CONFLICT_END\\1$");
-        var m = conflictPattern.matcher(trimmedTarget);
-        if (m.matches()) {
-            var num = m.group(1);
-            // Find occurrences in the whole content. Include an optional trailing newline after the BRK_CONFLICT_END
-            // so that replacing a block that is followed by a newline doesn't leave a duplicate blank line.
-            var findPattern = java.util.regex.Pattern.compile("BRK_CONFLICT_BEGIN" + java.util.regex.Pattern.quote(num)
-                    + "[\\s\\S]*?BRK_CONFLICT_END" + java.util.regex.Pattern.quote(num)
+
+        // 0a) NEW single-line syntax: "BRK_CONFLICT_$n"
+        var conflictLineMatcher = Pattern.compile("^BRK_CONFLICT_(\\d+)\\s*$").matcher(trimmedTarget);
+        if (conflictLineMatcher.matches()) {
+            var num = conflictLineMatcher.group(1);
+            var regionPattern = Pattern.compile("BRK_CONFLICT_BEGIN_" + Pattern.quote(num)
+                    + "[\\s\\S]*?BRK_CONFLICT_END_" + Pattern.quote(num)
                     + "(?:\\r?\\n)?");
-            var matcher = findPattern.matcher(content);
+            var scan = regionPattern.matcher(content);
+
             int count = 0;
-            while (matcher.find()) {
+            while (scan.find()) {
                 count++;
             }
             if (count == 0) {
-                throw new NoMatchException("No matching conflict block found for BRK_CONFLICT_BEGIN" + num);
+                throw new NoMatchException("No matching conflict block found for BRK_CONFLICT_" + num);
             }
             if (count > 1) {
-                throw new AmbiguousMatchException(
-                        "Multiple matching conflict blocks found for BRK_CONFLICT_BEGIN" + num);
+                throw new AmbiguousMatchException("Multiple matching conflict blocks found for BRK_CONFLICT_" + num);
             }
-            // Replace the single occurrence
-            var replaceMatcher = findPattern.matcher(content);
-            var replaced = replaceMatcher.replaceFirst(java.util.regex.Matcher.quoteReplacement(replace));
-            return replaced;
+            // Replace the (only) conflict region
+            return regionPattern.matcher(content).replaceFirst(Matcher.quoteReplacement(replace));
         }
 
-        // 1) prep for line-based matching
+        // -----------------------------
+        // 1) BRK_ENTIRE_FILE (explicit full-file replacement)
+        // -----------------------------
+        if (Pattern.compile("^BRK_ENTIRE_FILE\\s*$").matcher(trimmedTarget).matches()) {
+            // Replace the entire file content with 'replace' (or create new file with that content)
+            return replace;
+        }
+
+        // -----------------------------
+        // 2) BRK_CLASS / BRK_FUNCTION special search syntax
+        // -----------------------------
+        var resolved = resolveBrkSnippet(contextManager, trimmedTarget);
+        if (resolved != null) {
+            target = resolved;
+            // resolveBrkSnippet already validated and gathered suggestions on error
+            logger.debug("BRK target snippet resolved:\n{}", target);
+        }
+
+        // -----------------------------
+        // 3) Normal search/replace (existing behavior)
+        // -----------------------------
         ContentLines originalCL = prep(content);
         ContentLines targetCl = prep(target);
         ContentLines replaceCL = prep(replace);
 
-        // 2) perfect or whitespace approach
-        // Convert List<String> to String[] for perfectOrWhitespace and other methods
+        if (logger.isDebugEnabled()) {
+            logger.debug(
+                    "Original content (non-whitespace):\n{}",
+                    originalCL.lines().stream().map(EditBlock::nonWhitespace).collect(Collectors.joining("\n")));
+            logger.debug(
+                    "Target snippet (non-whitespace):\n{}",
+                    targetCl.lines().stream().map(EditBlock::nonWhitespace).collect(Collectors.joining("\n")));
+        }
+
         String[] originalLinesArray = originalCL.lines().toArray(String[]::new);
         String[] targetLinesArray = targetCl.lines().toArray(String[]::new);
         String[] replaceLinesArray = replaceCL.lines().toArray(String[]::new);
@@ -374,17 +425,18 @@ public class EditBlock {
             return attempt;
         }
 
-        // 3) handle triple-dot expansions
         try {
             attempt = tryDotdotdots(content, target, replace);
             if (attempt != null) {
                 return attempt;
             }
         } catch (IllegalArgumentException e) {
-            // ignore if it fails
+            // Do not mask unexpected pairing errors from "..."; log and continue to the final NoMatch.
+            logger.debug(
+                    "Ignoring malformed '...' placeholder usage while attempting partial replacement: {}",
+                    e.getMessage());
         }
 
-        // 3a) If that failed, attempt dropping a spurious leading blank line from the "search" block:
         if (targetCl.lines().size() > 2 && targetCl.lines().getFirst().trim().isEmpty()) {
             List<String> splicedTargetList =
                     targetCl.lines().subList(1, targetCl.lines().size());
@@ -394,7 +446,6 @@ public class EditBlock {
             String[] splicedTargetArray = splicedTargetList.toArray(String[]::new);
             String[] splicedReplaceArray = splicedReplaceList.toArray(String[]::new);
 
-            // Pass originalLinesArray which is String[]
             attempt = perfectOrWhitespace(originalLinesArray, splicedTargetArray, splicedReplaceArray);
             if (attempt != null) {
                 return attempt;
@@ -480,9 +531,10 @@ public class EditBlock {
      */
     static @Nullable String perfectReplace(String[] originalLines, String[] targetLines, String[] replaceLines)
             throws AmbiguousMatchException, NoMatchException {
-        // special-case replace entire file (empty target)
+        // Empty SEARCH is no longer a valid “replace entire file” signal.
+        // Callers must use BRK_ENTIRE_FILE explicitly.
         if (targetLines.length == 0) {
-            return String.join("", replaceLines);
+            throw new NoMatchException("Empty SEARCH is not allowed; use BRK_ENTIRE_FILE for full-file replacement.");
         }
 
         List<Integer> matches = new ArrayList<>();
@@ -504,14 +556,10 @@ public class EditBlock {
             throw new NoMatchException("No exact matches found for the search block");
         }
 
-        // Exactly one match
         int matchStart = matches.getFirst();
         List<String> newLines = new ArrayList<>();
-        // everything before
         newLines.addAll(Arrays.asList(originalLines).subList(0, matchStart));
-        // add replacement
         newLines.addAll(Arrays.asList(replaceLines));
-        // everything after
         newLines.addAll(Arrays.asList(originalLines).subList(matchStart + targetLines.length, originalLines.length));
 
         return String.join("", newLines);
@@ -631,6 +679,72 @@ public class EditBlock {
     }
 
     private record ContentLines(String original, List<String> lines) { // Ensures this matches the list type
+    }
+
+    /**
+     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets via the analyzer without mutating files. Returns null
+     * if the target is not a BRK marker. Throws on not found or ambiguous cases.
+     */
+    private static @Nullable String resolveBrkSnippet(IContextManager contextManager, String trimmedTarget)
+            throws NoMatchException, AmbiguousMatchException, InterruptedException {
+        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(trimmedTarget);
+        if (!markerMatcher.matches()) {
+            return null;
+        }
+
+        var kind = markerMatcher.group(1);
+        var fqName = markerMatcher.group(2).trim();
+
+        var analyzer = contextManager.getAnalyzer();
+        var scpOpt = analyzer.as(io.github.jbellis.brokk.analyzer.SourceCodeProvider.class);
+        if (scpOpt.isEmpty()) {
+            throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
+        }
+        var scp = scpOpt.get();
+
+        if ("CLASS".equals(kind)) {
+            Optional<String> opt;
+            try {
+                opt = scp.getClassSource(fqName, true);
+            } catch (io.github.jbellis.brokk.analyzer.SymbolNotFoundException e) {
+                opt = Optional.empty();
+            }
+            if (opt.isEmpty()) {
+                var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
+                var suggestions = analyzer.searchDefinitions(shortName).stream()
+                        .map(CodeUnit::fqName)
+                        .filter(n -> {
+                            int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
+                            return n.substring(idx + 1).equals(shortName);
+                        })
+                        .limit(3)
+                        .toList();
+                var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+                throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
+            }
+            return opt.get();
+        } else {
+            Set<String> sources;
+            try {
+                sources = scp.getMethodSources(fqName, true);
+            } catch (io.github.jbellis.brokk.analyzer.SymbolNotFoundException e) {
+                sources = java.util.Collections.emptySet();
+            }
+            if (sources.isEmpty()) {
+                var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
+                var suggestions = analyzer.searchDefinitions(methodKey).stream()
+                        .map(CodeUnit::fqName)
+                        .limit(3)
+                        .toList();
+                var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+                throw new NoMatchException("No method source found for '" + fqName + "'." + extra);
+            }
+            if (sources.size() > 1) {
+                throw new AmbiguousMatchException("Multiple overloads found for '" + fqName + "' (" + sources.size()
+                        + "). Please provide a non-overloaded, unique name and re-run.");
+            }
+            return sources.iterator().next();
+        }
     }
 
     /**

@@ -171,7 +171,7 @@ public final class ConflictAnnotator {
                 }
                 // Emit BRK_* annotated conflict (custom format) with a sequential number
                 int conflictNum = conflictCounter.incrementAndGet();
-                outLines.add("BRK_CONFLICT_BEGIN" + conflictNum);
+                outLines.add("BRK_CONFLICT_BEGIN_" + conflictNum);
                 // Header with a commit-ish for our side (best-effort)
                 outLines.add("BRK_OUR_VERSION " + oursShort);
                 for (var info : ourLines) {
@@ -197,7 +197,7 @@ public final class ConflictAnnotator {
                     }
                     outLines.add(shortSha + " " + info.content);
                 }
-                outLines.add("BRK_CONFLICT_END" + conflictNum);
+                outLines.add("BRK_CONFLICT_END_" + conflictNum);
             }
         }
 

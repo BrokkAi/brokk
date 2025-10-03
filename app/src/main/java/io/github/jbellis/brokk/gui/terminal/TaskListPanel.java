@@ -6,6 +6,8 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.TaskListData;
+import io.github.jbellis.brokk.TaskListEntryDto;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
@@ -18,7 +20,6 @@ import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
-import io.github.jbellis.brokk.util.Json;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -33,11 +34,6 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -46,6 +42,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -505,8 +502,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         try {
             modified = repo.getModifiedFiles();
         } catch (GitAPIException e) {
-            SwingUtilities.invokeLater(
-                    () -> chrome.toolError("Unable to determine modified files: " + e.getMessage(), "Commit Error"));
+            chrome.toolError("Unable to determine modified files: " + e.getMessage(), "Commit Error");
             return;
         }
         if (modified.isEmpty()) {
@@ -542,8 +538,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     chrome.selectCurrentBranchInLogTab();
                 });
             } catch (Exception e) {
-                SwingUtilities.invokeLater(
-                        () -> chrome.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error"));
+                chrome.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error");
             }
             return null;
         });
@@ -800,43 +795,60 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return chrome.getContextManager().getCurrentSessionId();
     }
 
-    private Path getTasksFilePath(UUID sessionId) {
-        Path root = chrome.getContextManager().getRoot();
-        return root.resolve(".brokk")
-                .resolve("sessions")
-                .resolve(sessionId.toString())
-                .resolve("tasklist.json");
-    }
-
     private void loadTasksForCurrentSession() {
         var sid = getCurrentSessionId();
+        var previous = this.sessionIdAtLoad;
         this.sessionIdAtLoad = sid;
-        Path file = getTasksFilePath(sid);
         isLoadingTasks = true;
-        try {
-            if (!Files.exists(file)) {
-                model.clear();
-            } else {
-                String json = Files.readString(file, StandardCharsets.UTF_8);
-                if (!json.isBlank()) {
-                    TaskListData data = Json.fromJson(json, TaskListData.class);
-                    model.clear();
-                    for (TaskEntryDto dto : data.tasks) {
-                        if (!dto.text.isBlank()) {
-                            model.addElement(new TaskItem(dto.text, dto.done));
-                        }
-                    }
-                } else {
-                    model.clear();
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Failed loading tasks for session {} from {}", sid, file, e);
-        } finally {
-            isLoadingTasks = false;
+
+        // Clear immediately when switching sessions to avoid showing stale tasks
+        if (!Objects.equals(previous, sid)) {
+            model.clear();
             clearExpansionOnStructureChange();
             updateButtonStates();
         }
+
+        var sessionManager = chrome.getContextManager().getProject().getSessionManager();
+        Executor edt = SwingUtilities::invokeLater;
+
+        sessionManager.readTaskList(sid).whenComplete((data, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed loading tasks for session {}", sid, ex);
+                edt.execute(() -> {
+                    try {
+                        if (!sid.equals(this.sessionIdAtLoad)) {
+                            return;
+                        }
+                        model.clear();
+                        clearExpansionOnStructureChange();
+                        updateButtonStates();
+                        chrome.toolError("Unable to load task list: " + ex.getMessage(), "Task List");
+                    } finally {
+                        isLoadingTasks = false;
+                    }
+                });
+            } else {
+                edt.execute(() -> {
+                    try {
+                        // Ignore stale results if the session has changed since this request started
+                        if (!sid.equals(this.sessionIdAtLoad)) {
+                            return;
+                        }
+                        model.clear();
+                        for (TaskListEntryDto dto : data.tasks()) {
+                            if (!dto.text().isBlank()) {
+                                model.addElement(new TaskItem(dto.text(), dto.done()));
+                            }
+                        }
+                        clearExpansionOnStructureChange();
+                        updateButtonStates();
+                    } finally {
+                        isLoadingTasks = false;
+                        clearExpansionOnStructureChange();
+                    }
+                });
+            }
+        });
     }
 
     private void saveTasksForCurrentSession() {
@@ -846,19 +858,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             sid = getCurrentSessionId();
             this.sessionIdAtLoad = sid;
         }
-        Path file = getTasksFilePath(sid);
-        try {
-            Files.createDirectories(file.getParent());
-            TaskListData data = new TaskListData();
-            for (int i = 0; i < model.size(); i++) {
-                TaskItem it = model.get(i);
-                data.tasks.add(new TaskEntryDto(it.text(), it.done()));
+
+        var sessionManager = chrome.getContextManager().getProject().getSessionManager();
+
+        var dtos = new java.util.ArrayList<TaskListEntryDto>(model.size());
+        for (int i = 0; i < model.size(); i++) {
+            TaskItem it = model.get(i);
+            if (it != null && !it.text().isBlank()) {
+                dtos.add(new TaskListEntryDto(it.text(), it.done()));
             }
-            String json = Json.toJson(data);
-            Files.writeString(file, json, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            logger.debug("Failed saving tasks for session {} to {}", sid, file, e);
         }
+        var data = new TaskListData(java.util.List.copyOf(dtos));
+
+        final UUID sidFinal = sid;
+        sessionManager.writeTaskList(sidFinal, data).whenComplete((ignored, ex) -> {
+            if (ex != null) {
+                logger.warn("Failed saving tasks for session {}", sidFinal, ex);
+                chrome.toolError("Unable to save task list: " + ex.getMessage(), "Task List");
+            }
+        });
     }
 
     /** Append a collection of tasks to the end of the current list and persist them for the active session. */
@@ -1723,22 +1741,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             return this;
-        }
-    }
-
-    private static final class TaskListData {
-        public List<TaskEntryDto> tasks = new ArrayList<>();
-
-        public TaskListData() {}
-    }
-
-    private static final class TaskEntryDto {
-        public String text = "";
-        public boolean done;
-
-        public TaskEntryDto(String text, boolean done) {
-            this.text = text;
-            this.done = done;
         }
     }
 }

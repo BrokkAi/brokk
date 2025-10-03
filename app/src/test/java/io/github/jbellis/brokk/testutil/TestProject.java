@@ -40,6 +40,11 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public BuildAgent.BuildDetails awaitBuildDetails() {
+        return this.buildDetails;
+    }
+
+    @Override
     public void setCodeAgentTestScope(IProject.CodeAgentTestScope scope) {
         this.codeAgentTestScope = scope;
     }

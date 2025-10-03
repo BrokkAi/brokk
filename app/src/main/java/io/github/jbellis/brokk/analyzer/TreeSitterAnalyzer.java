@@ -52,8 +52,7 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
  */
-public abstract class TreeSitterAnalyzer
-        implements IAnalyzer, SkeletonProvider, SourceCodeProvider, IncrementalUpdateProvider, TypeAliasProvider {
+public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider, SourceCodeProvider, TypeAliasProvider {
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
@@ -810,35 +809,35 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
+    public Set<String> getMethodSources(String fqName, boolean includeComments) {
         return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
                 // overloads)
                 .filter(CodeUnit::isFunction)
-                .flatMap(cu -> {
+                .map(cu -> {
                     List<Range> rangesForOverloads = rangesOf(cu);
                     if (rangesForOverloads.isEmpty()) {
                         log.warn(
                                 "No source ranges found for CU {} (fqName {}) although definition was found.",
                                 cu,
                                 fqName);
-                        return Optional.empty();
+                        return Collections.<String>emptySet();
                     }
 
                     var fileContentOpt = cu.source().read();
                     if (fileContentOpt.isEmpty()) {
                         log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, "unreadable");
-                        return Optional.empty();
+                        return Collections.<String>emptySet();
                     }
                     String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
 
-                    List<String> individualMethodSources = new ArrayList<>();
+                    var methodSources = new LinkedHashSet<String>();
                     for (Range range : rangesForOverloads) {
                         // Choose start byte based on includeComments parameter
                         int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
                         String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
                                 fileContent, extractStartByte, range.endByte());
                         if (!methodSource.isEmpty()) {
-                            individualMethodSources.add(methodSource);
+                            methodSources.add(methodSource);
                         } else {
                             log.warn(
                                     "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
@@ -848,22 +847,25 @@ public abstract class TreeSitterAnalyzer
                                     fqName);
                         }
                     }
-
-                    if (individualMethodSources.isEmpty()) {
+                    if (methodSources.isEmpty()) {
                         log.warn(
                                 "After processing ranges, no valid method sources found for CU {} (fqName {}).",
                                 cu,
                                 fqName);
-                        return Optional.empty();
                     }
-                    return Optional.of(String.join("\n\n", individualMethodSources));
-                });
+                    return methodSources;
+                })
+                .orElse(Collections.emptySet());
     }
 
     @Override
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit, boolean includeComments) {
         if (codeUnit.isFunction()) {
-            return getMethodSource(codeUnit.fqName(), includeComments);
+            Set<String> sources = getMethodSources(codeUnit.fqName(), includeComments);
+            if (sources.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(String.join("\n\n", sources));
         } else if (codeUnit.isClass()) {
             return getClassSource(codeUnit.fqName(), includeComments);
         } else {

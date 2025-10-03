@@ -880,13 +880,23 @@ public class HistoryOutputPanel extends JPanel {
         copyButton.setMnemonic(KeyEvent.VK_T);
         copyButton.setToolTipText("Copy the output to clipboard");
         copyButton.addActionListener(e -> {
-            String text = llmStreamArea.getText();
-            if (!text.isBlank()) {
-                java.awt.Toolkit.getDefaultToolkit()
-                        .getSystemClipboard()
-                        .setContents(new java.awt.datatransfer.StringSelection(text), null);
-                chrome.systemOutput("Copied to clipboard");
+            var ctx = contextManager.selectedContext();
+            if (ctx == null) {
+                chrome.systemOutput("No active context to copy from.");
+                return;
             }
+
+            var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
+                    .reduce((first, second) -> second); // use the most recent HISTORY fragment
+
+            if (historyOpt.isEmpty()) {
+                chrome.systemOutput("No conversation history found in the current workspace.");
+                return;
+            }
+
+            var historyFrag = historyOpt.get();
+            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of(historyFrag));
         });
         // Set minimum size
         copyButton.setMinimumSize(copyButton.getPreferredSize());
@@ -1650,7 +1660,7 @@ public class HistoryOutputPanel extends JPanel {
                 llm.setOutput(chrome);
 
                 var system = new SystemMessage(
-                        "You are generating an actionable, incremental task list based ONLY on the provided capture. "
+                        "You are generating an actionable, incremental task list based on the provided capture."
                                 + "Do not speculate beyond it. You MUST produce tasks via the tool call createTaskList(List<String>). "
                                 + "Do not output free-form text.");
                 var user = new UserMessage(
@@ -1660,11 +1670,13 @@ public class HistoryOutputPanel extends JPanel {
                         </capture>
 
                         Instructions:
-                        - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
-                        - Each task must end with a verification in brackets: [Verify: <test or manual check>].
-                        - Prefer tasks that keep the project buildable and testable after each step.
-                        - Avoid multi-goal items; split if needed.
-                        - Avoid external/non-code tasks.
+                        - Prefer using tasks that are already defined in the capture.
+                        - If no such tasks exist, use your best judgement with the following guidelines:
+                          - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
+                          - Prefer tasks that keep the project buildable and testable after each step.
+                          - Avoid multi-goal items; split if needed.
+                          - Avoid external/non-code tasks.
+                        - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
                         Call the tool createTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
                         """
@@ -2331,18 +2343,9 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private boolean isGroupingBoundary(Context ctx) {
-        if (ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction())) {
-            return true;
-        }
-        // Use the cached file diffs to determine boundaries.
-        // If we don't have a cached diff yet, schedule it and do not treat as a boundary until available.
-        var diffs = diffCache.get(ctx.id());
-        if (diffs == null) {
-            scheduleDiffComputation(ctx);
-            return false;
-        }
-        // Boundary only when there are actual file changes
-        return !diffs.isEmpty();
+        // Grouping boundaries are independent of diff presence.
+        // Boundary when this is an AI result, or an explicit "dropped all context" separator.
+        return ctx.isAiResult() || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
     }
 
     private static String firstWord(String text) {

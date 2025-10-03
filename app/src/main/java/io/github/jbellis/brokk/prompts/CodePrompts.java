@@ -153,11 +153,9 @@ public abstract class CodePrompts {
     public final List<ChatMessage> collectCodeMessages(
             IContextManager cm,
             StreamingChatModel model,
-            EditBlockParser parser,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            Set<ProjectFile> changedFiles,
-            Set<InstructionsFlags> flags)
+            Set<ProjectFile> changedFiles)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
@@ -170,7 +168,7 @@ public abstract class CodePrompts {
         } else {
             messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
         }
-        messages.addAll(exampleMessages(flags));
+
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
@@ -182,13 +180,11 @@ public abstract class CodePrompts {
     }
 
     public final List<ChatMessage> getSingleFileCodeMessages(
-            String styleGuide,
-            EditBlockParser parser,
+            IProject project,
             List<ChatMessage> readOnlyMessages,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            ProjectFile file,
-            Set<InstructionsFlags> flags) {
+            ProjectFile file) {
         var messages = new ArrayList<ChatMessage>();
 
         var systemPrompt =
@@ -201,7 +197,7 @@ public abstract class CodePrompts {
           </style_guide>
           """
                         .stripIndent()
-                        .formatted(systemIntro(""), styleGuide)
+                        .formatted(systemIntro(""), project.getStyleGuide())
                         .trim();
         messages.add(new SystemMessage(systemPrompt));
 
@@ -223,7 +219,12 @@ public abstract class CodePrompts {
         var editableUserMessage = new UserMessage(editableText);
         messages.addAll(List.of(editableUserMessage, new AiMessage("Thank you for the editable context.")));
 
-        messages.addAll(exampleMessages(flags));
+        // Add *rules + examples* inline (no forged dialog). Leave <goal> blank here; the caller's `request` follows.
+        var flags = IContextManager.instructionsFlags(project, Set.of(file));
+        var rules = instructions("", flags, "");
+        messages.add(new UserMessage(rules));
+        messages.add(new AiMessage("Ok, I will follow these edit rules."));
+
         messages.addAll(taskMessages);
         messages.add(request);
 
@@ -333,8 +334,7 @@ public abstract class CodePrompts {
                 .formatted(reminder);
     }
 
-    public UserMessage codeRequest(
-            String input, String reminder, EditBlockParser parser, Set<InstructionsFlags> flags) {
+    public UserMessage codeRequest(IContextManager cm, String input, String reminder) {
         var instructions =
                 """
         <instructions>
@@ -365,7 +365,7 @@ public abstract class CodePrompts {
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions");
-        return new UserMessage(instructions + instructions(input, flags, reminder));
+        return new UserMessage(instructions + instructions(input, cm.instructionsFlags(), reminder));
     }
 
     public UserMessage askRequest(String input) {
@@ -398,8 +398,7 @@ public abstract class CodePrompts {
     }
 
     /** Generates a message based on parse/apply errors from failed edit blocks */
-    public static String getApplyFailureMessage(
-            List<EditBlock.FailedBlock> failedBlocks, EditBlockParser parser, int succeededCount, IContextManager cm) {
+    public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
@@ -421,8 +420,7 @@ public abstract class CodePrompts {
 
                       Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
                       If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
-                      Remember that the SEARCH text within a `<block>` must match EXACTLY the lines in the file -- but
-                      I can accommodate whitespace differences, so if you think the only problem is whitespace, you need to look closer.
+                      Remember that SEARCH/REPLACE ignores leading and trailing whitespace, so look for material, non-whitespace mismatches.
                       If the SEARCH text looks correct, double-check the filename too.
 
                       Provide corrected SEARCH/REPLACE blocks for the failed edits only.
@@ -460,11 +458,11 @@ public abstract class CodePrompts {
                             .collect(Collectors.joining("\n"));
 
                     return """
-                           <file name="%s">
+                           <target_file name="%s">
                            <failed_blocks>
                            %s
                            </failed_blocks>
-                           </file>
+                           </target_file>
                            """
                             .formatted(filename, failedBlocksXml)
                             .stripIndent();
@@ -741,201 +739,352 @@ public abstract class CodePrompts {
     }
 
     public enum InstructionsFlags {
+        SYNTAX_AWARE,
         MERGE_AGENT_MARKERS
     }
 
-    public static List<ChatMessage> exampleMessages(Set<InstructionsFlags> flags) {
-        var examples = new ArrayList<ChatMessage>();
+    protected static String instructions(String input, Set<InstructionsFlags> flags, String reminder) {
+        var searchContents =
+                """
+        4. One of the following SEARCH types:
+          - Line-based SEARCH: a contiguous chunk of the EXACT lines to search for in the existing source code,
+          - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file (or create-new-file)
+        """;
+        var hints = """
+        - Use full-file SEARCH when you are changing over half of the file.
+        """;
 
-        examples.addAll(
-                List.of(
-                        new UserMessage("Change get_factorial() to use math.factorial"),
-                        new AiMessage(
-                                """
-            To make this change we need to modify `mathweb/flask/app.py` to:
-
-            1. Import the math package.
-            2. Remove the existing factorial() function.
-            3. Update get_factorial() to call math.factorial instead.
-
-            Here are the *SEARCH/REPLACE* blocks:
-
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-            from flask import Flask
-            =======
-            import math
-            from flask import Flask
-            >>>>>>> REPLACE
-            ```
-
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-            def factorial(n):
-                "compute factorial"
-
-                if n == 0:
-                    return 1
-                else:
-                    return n * factorial(n-1)
-            =======
-            >>>>>>> REPLACE
-            ```
-
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-                return str(factorial(n))
-            =======
-                return str(math.factorial(n))
-            >>>>>>> REPLACE
-            ```
-            """)));
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            searchContents +=
+                    """
+           - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
+             `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
+             or function-like (method, static method) entity, but NOT anonymous ones.""";
+            hints = "- Use syntax-aware SEARCH when you are rewriting an entire class or function.\n" + hints;
+        }
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
-            examples.addAll(
-                    List.of(
-                            new UserMessage("Resolve the conflict in src/main/java/com/acme/Widget.java."),
-                            new AiMessage(
-                                    """
-                Here is the *SEARCH/REPLACE* block to resolve the Widget conflict:
+            searchContents +=
+                    """
+            - Conflict SEARCH: a single line consisting of the conflict marker ID: `BRK_CONFLICT_$n`
+              where $n is the conflict number.""";
+            hints = "- ALWAYS use conflict SEARCH when you are fixing conflicts.\n" + hints;
+        }
+        hints +=
+                """
+        - Line-based SEARCH is jack of all trades, master of none. Accuracy degrades as the number of lines grows.
+          Use when none of the more specialized and more efficient options is a good fit.
+          Include just the changing lines, plus a few surrounding lines if needed for uniqueness.
+          You should not need to cite an entire large block to change a line or two.
+        """;
 
-                ```
-                src/main/java/com/acme/Widget.java
-                <<<<<<< SEARCH
-                BRK_CONFLICT_BEGIN7..BRK_CONFLICT_END7
-                =======
-                public class Widget {
+        var examples = buildExamples(flags);
+
+        var intro = flags.isEmpty()
+                ? ""
+                : "The *SEARCH/REPLACE* engine has been upgraded and supports more powerful features than simple line-based edits; pay close attention to the instructions. ";
+
+        return """
+<rules>
+# EXTENDED *SEARCH/REPLACE block* Rules:
+
+%sEvery *SEARCH/REPLACE block* must use this format:
+1. The opening fence: ```
+2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
+3. The start of search block: <<<<<<< SEARCH
+%s
+5. The dividing line: =======
+6. The lines to replace into the source code
+7. The end of the replace block: >>>>>>> REPLACE
+8. The closing fence: ```
+
+Points to remember:
+- Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
+%s
+
+## Examples (format only; illustrative, not real code)
+Follow these patterns exactly when you emit edits.
+%s
+
+*SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
+For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
+and avoid using syntax-aware edits for overloaded functions.
+
+Keep *SEARCH/REPLACE* blocks concise.
+Break large changes into a series of smaller blocks that each change a small portion.
+
+Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
+
+If you want to move code within a filename, use 2 blocks: one to delete from the old location,
+and one to insert in the new location.
+
+Pay attention to which filenames the user wants you to edit, especially if they are asking
+you to create a new filename.
+
+If the user just says something like "ok" or "go ahead" or "do that", they probably want you
+to make SEARCH/REPLACE blocks for the code changes you just proposed.
+The user will say when they've applied your edits.
+If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
+
+NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
+use vanilla ascii single and double quotes.
+
+# General
+Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
+
+Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
+
+%s
+</rules>
+
+<goal>
+%s
+</goal>
+"""
+                .formatted(intro, searchContents, hints, examples, reminder, input);
+    }
+
+    /**
+     * Builds example SEARCH/REPLACE blocks that demonstrate correct formatting.
+     *
+     * <p>The examples use a single Java source file (src/main/java/com/acme/Foo.java) and show: - A "Before" workspace
+     * excerpt (when MERGE_AGENT_MARKERS is enabled, this includes an actual conflict block) - A line-based SEARCH edit
+     * - Optional syntax-aware edits (BRK_FUNCTION and BRK_CLASS) when enabled - A full-file replacement using
+     * BRK_ENTIRE_FILE - Optional conflict-range fix using BRK_CONFLICT_1 when MERGE_AGENT_MARKERS is enabled
+     *
+     * <p>The examples are illustrative only and intended to show the exact wire format, not working diffs against a
+     * real repository.
+     */
+    private static String buildExamples(Set<InstructionsFlags> flags) {
+        var parts = new ArrayList<String>();
+
+        // ---------- BEFORE: current workspace excerpt ----------
+        // If MERGE_AGENT_MARKERS is enabled, show an actual conflict block in the file.
+        var before = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)
+                ? """
+              ### Before: Current Workspace excerpt (with conflict markers present)
+
+              <workspace_example>
+                <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
+                package com.acme;
+
+                import java.util.List;
+                import java.util.Objects;
+
+                public class Foo {
+                    public int compute(int a, int b) {
+                        // naive implementation
+                        return a + b;
+                    }
+
                     public String greet(String name) {
                         return "Hello, " + name + "!";
                     }
+
+                    // The Merge Agent has wrapped a Git-style conflict inside custom markers.
+                    BRK_CONFLICT_BEGIN_1
+                    <<<<<<< HEAD
+                    private static int fib(int n) {
+                        if (n <= 1) return n;
+                        return fib(n - 1) + fib(n - 2);
+                    }
+                    =======
+                    private static int fib(int n) {
+                        if (n < 2) return n;
+                        int a = 0, b = 1;
+                        for (int i = 2; i <= n; i++) {
+                            int tmp = a + b;
+                            a = b;
+                            b = tmp;
+                        }
+                        return b;
+                    }
+                    >>>>>>> feature/iterative-fib
+                    BRK_CONFLICT_END_1
                 }
-                >>>>>>> REPLACE
-                ```
-                """)));
-        } else {
-            examples.addAll(
-                    List.of(
-                            new UserMessage("Refactor hello() into its own file."),
-                            new AiMessage(
-                                    """
-                    To make this change we need to modify `main.py` and make a new file `hello.py`:
+                </file>
+              </workspace_example>
+              """
+                        .stripIndent()
+                : """
+              ### Before: Current Workspace excerpt
 
-                    1. Make a new hello.py file with hello() in it.
-                    2. Remove hello() from main.py and replace it with an import.
+              <workspace_example>
+                <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
+                package com.acme;
 
-                    Here are the *SEARCH/REPLACE* blocks:
+                import java.util.List;
+                import java.util.Objects;
 
-                    ```
-                    hello.py
-                    <<<<<<< SEARCH
-                    =======
-                    def hello():
-                        "print a greeting"
+                public class Foo {
+                    public int compute(int a, int b) {
+                        // naive implementation
+                        return a + b;
+                    }
 
-                        print("hello")
-                    >>>>>>> REPLACE
-                    ```
+                    public String greet(String name) {
+                        return "Hello, " + name + "!";
+                    }
 
-                    ```
-                    main.py
-                    <<<<<<< SEARCH
-                    def hello():
-                        "print a greeting"
+                    private static int fib(int n) {
+                        if (n <= 1) return n;
+                        return fib(n - 1) + fib(n - 2);
+                    }
+                }
+                </file>
+              </workspace_example>
+              """
+                        .stripIndent();
 
-                        print("hello")
-                    =======
-                    from hello import hello
-                    >>>>>>> REPLACE
-                    ```
-                    """)));
+        parts.add(before);
+
+        int ex = 1;
+
+        // ---------- Example 1: Line-based SEARCH ----------
+        parts.add(
+                """
+              ### Example %d — Line-based SEARCH (modify a fragment outside of a method)
+
+              ```
+              src/main/java/com/acme/Foo.java
+              <<<<<<< SEARCH
+              import java.util.List;
+              import java.util.Objects;
+              =======
+              import java.util.List;
+              >>>>>>> REPLACE
+              ```
+              """
+                        .formatted(ex++)
+                        .stripIndent());
+
+        // ---------- Syntax-aware examples (only if enabled) ----------
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            // BRK_FUNCTION: replace a single method by fully qualified name
+            parts.add(
+                    """
+                  ### Example %d — Syntax-aware SEARCH for a function (BRK_FUNCTION)
+
+                  ```
+                  src/main/java/com/acme/Foo.java
+                  <<<<<<< SEARCH
+                  BRK_FUNCTION com.acme.Foo.greet
+                  =======
+                  public String greet(String name) {
+                      return "Hi, " + name;
+                  }
+                  >>>>>>> REPLACE
+                  ```
+                  """
+                            .formatted(ex++)
+                            .stripIndent());
+
+            // BRK_CLASS: replace the entire class body by fully qualified name
+            // Note: For BRK_CLASS, provide the class block (not package/imports) as the replacement.
+            parts.add(
+                    """
+                  ### Example %d — Syntax-aware SEARCH for an entire class (BRK_CLASS)
+
+                  ```
+                  src/main/java/com/acme/Foo.java
+                  <<<<<<< SEARCH
+                  BRK_CLASS com.acme.Foo
+                  =======
+                  public class Foo {
+                      public int compute(int a, int b) {
+                          return Math.addExact(a, b);
+                      }
+
+                      public String greet(String name) {
+                          return "Hello, " + name + "!";
+                      }
+
+                      private static int fib(int n) {
+                          if (n < 2) return n;
+                          int a = 0, b = 1;
+                          for (int i = 2; i <= n; i++) {
+                              int tmp = a + b;
+                              a = b;
+                              b = tmp;
+                          }
+                          return b;
+                      }
+                  }
+                  >>>>>>> REPLACE
+                  ```
+                  """
+                            .formatted(ex++)
+                            .stripIndent());
         }
 
-        return examples;
-    }
-
-    protected static String instructions(String input, Set<InstructionsFlags> flags, String reminder) {
-        return """
-        <rules>
-        %s
-
-        Every *SEARCH* block must *EXACTLY MATCH* the existing filename content, character for character,
-        including all comments, docstrings, indentation, etc.
-        If the file contains code or other data wrapped in json/xml/quotes or other containers,
-        you need to propose edits to the literal contents, including that container markup.
-
-        *SEARCH* and *REPLACE* blocks must both contain ONLY the lines to be matched or edited.
-        This means no +/- diff markers in particular!
-
-        *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH text matches multiple occurrences.
-        Include enough lines to uniquely match each set of lines that need to change.
-
-        Keep *SEARCH/REPLACE* blocks concise.
-        Break large changes into a series of smaller blocks that each change a small portion.
-        Include just the changing lines, plus a few surrounding lines if needed for uniqueness.
-        You should not need to include the entire function or block to change a line or two.
-
-        Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-
-        If you want to move code within a filename, use 2 blocks: one to delete from the old location,
-        and one to insert in the new location.
-
-        Pay attention to which filenames the user wants you to edit, especially if they are asking
-        you to create a new filename.
-
-        Important! To create a new file OR to replace an *entire* existing file, use a *SEARCH/REPLACE*
-        block with nothing in between the search and divider marker lines, and the new file's full contents between
-        the divider and replace marker lines. Rule of thumb: replace the entire file if you will need to
-        change more than half of it.
-
-        If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-        to make SEARCH/REPLACE blocks for the code changes you just proposed.
-        The user will say when they've applied your edits.
-        If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
-
-        NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
-        use vanilla ascii single and double quotes.
-
-        # General
-        Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
-
-        Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
-
-        %s
-        </rules>
-
-        <goal>
-        %s
-        </goal>
-        """
-                .formatted(diffFormatInstructions(flags), reminder, input);
-    }
-
-    static String diffFormatInstructions(Set<InstructionsFlags> flags) {
-        var mergeText = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)
-                ? """
-                           \nSPECIAL CASE: You can match an entire conflict block with a single line consisting of its begin and end markers:
-                           `BRK_CONFLICT_BEGIN$n..BRK_CONFLICT_END$n` where $n is the conflict number.
+        // ---------- Example: Full-file replacement using BRK_ENTIRE_FILE ----------
+        parts.add(
                 """
-                : "";
+              ### Example %d — Full-file replacement (BRK_ENTIRE_FILE)
 
-        return """
-        # *SEARCH/REPLACE block* Rules:
+              ```
+              src/main/java/com/acme/Foo.java
+              <<<<<<< SEARCH
+              BRK_ENTIRE_FILE
+              =======
+              package com.acme;
 
-        Every *SEARCH/REPLACE block* must use this format:
-        1. The opening fence: ```
-        2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
-        3. The start of search block: <<<<<<< SEARCH
-        4. A contiguous chunk of lines to search for in the existing source code.%s
-        5. The dividing line: =======
-        6. The lines to replace into the source code
-        7. The end of the replace block: >>>>>>> REPLACE
-        8. The closing fence: ```
+              public class Foo {
+                  public int compute(int a, int b) {
+                      return Math.addExact(a, b);
+                  }
 
-        Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
-        """
-                .formatted(mergeText)
-                .stripIndent();
+                  public String greet(String name) {
+                      return "Hello, " + name + "!";
+                  }
+
+                  private static int fib(int n) {
+                      if (n < 2) return n;
+                      int a = 0, b = 1;
+                      for (int i = 2; i <= n; i++) {
+                          int next = Math.addExact(a, b);
+                          a = b;
+                          b = next;
+                      }
+                      return b;
+                  }
+              }
+              >>>>>>> REPLACE
+              ```
+              """
+                        .formatted(ex++)
+                        .stripIndent());
+
+        // ---------- Conflict-range fix (only if enabled) ----------
+        if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
+            parts.add(
+                    """
+                  ### Example %d — Conflict range fix (BRK_CONFLICT markers)
+
+                  The SEARCH is a **single line** that targets the entire conflict region, regardless of its contents.
+                  Replace that region with the resolved implementation.
+
+                  ```
+                  src/main/java/com/acme/Foo.java
+                  <<<<<<< SEARCH
+                  BRK_CONFLICT_1
+                  =======
+                  private static int fib(int n) {
+                      if (n < 2) return n;
+                      int a = 0, b = 1;
+                      for (int i = 2; i <= n; i++) {
+                          int tmp = Math.addExact(a, b);
+                          a = b;
+                          b = tmp;
+                      }
+                      return b;
+                  }
+                  >>>>>>> REPLACE
+                  ```
+                  """
+                            .formatted(ex++)
+                            .stripIndent());
+        }
+
+        return String.join("\n\n", parts).strip();
     }
 }
