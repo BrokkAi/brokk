@@ -537,7 +537,13 @@ public final class DependenciesPanel extends JPanel {
 
                 if (!changedFiles.isEmpty()) {
                     long t3 = System.currentTimeMillis();
-                    cm.getAnalyzerWrapper().updateFiles(changedFiles);
+                    try {
+                        cm.getAnalyzerWrapper().updateFiles(changedFiles).get();
+                    } catch (InterruptedException e) {
+                        throw new AssertionError(e);
+                    } catch (ExecutionException e) {
+                        throw new RuntimeException(e);
+                    }
                     long t4 = System.currentTimeMillis();
                     logger.info(
                             "Dependencies save timing: updateFiles={} ms for {} files", (t4 - t3), changedFiles.size());

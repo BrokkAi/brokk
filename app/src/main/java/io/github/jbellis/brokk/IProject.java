@@ -74,7 +74,7 @@ public interface IProject extends AutoCloseable {
      * @return BuildDetails record, potentially BuildDetails.EMPTY if not found or on error.
      */
     default BuildAgent.BuildDetails loadBuildDetails() {
-        return BuildAgent.BuildDetails.EMPTY; // Default implementation returns empty
+        return BuildAgent.BuildDetails.EMPTY;
     }
 
     default MainProject.DataRetentionPolicy getDataRetentionPolicy() {
@@ -141,7 +141,7 @@ public interface IProject extends AutoCloseable {
     }
 
     default BuildAgent.BuildDetails awaitBuildDetails() {
-        throw new UnsupportedOperationException();
+        return BuildAgent.BuildDetails.EMPTY;
     }
 
     default boolean isDataShareAllowed() {

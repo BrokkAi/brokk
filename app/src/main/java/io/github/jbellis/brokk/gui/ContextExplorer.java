@@ -13,14 +13,18 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableRowSorter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -34,9 +38,13 @@ public final class ContextExplorer extends JFrame {
     private final SessionManager sessionManager;
     private final IContextManager contextManager; // A minimal stub for history loading
 
-    // Pane 1: Sessions List (Left)
-    private final DefaultListModel<SessionManager.SessionInfo> sessionListModel = new DefaultListModel<>();
-    private final JList<SessionManager.SessionInfo> sessionsList = new JList<>(sessionListModel);
+    // Pane 1: Sessions Table (Left) - sortable with 3 columns
+    private final SessionTableModel sessionsTableModel = new SessionTableModel();
+    private final JTable sessionsTable = new JTable(sessionsTableModel);
+    private final TableRowSorter<SessionTableModel> sessionsSorter = new TableRowSorter<>(sessionsTableModel);
+
+    @Nullable
+    private UUID selectedSessionId = null;
 
     // Pane 2: Contexts and Fragments Table (Center)
     private final ContextFragmentsTableModel tableModel = new ContextFragmentsTableModel();
@@ -66,12 +74,22 @@ public final class ContextExplorer extends JFrame {
     }
 
     private void buildUi() {
-        // --- Pane 1: Sessions List ---
-        sessionsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        sessionsList.setCellRenderer(new SessionInfoListCellRenderer());
-        sessionsList.setBorder(new EmptyBorder(5, 5, 5, 5));
-        var leftScroll = new JScrollPane(sessionsList);
-        leftScroll.setMinimumSize(new Dimension(200, 0));
+        // --- Pane 1: Sessions Table ---
+        sessionsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        sessionsTable.setBorder(new EmptyBorder(5, 5, 5, 5));
+        sessionsTable.setRowSorter(sessionsSorter);
+        // Configure sorting: numeric for task count, lexicographic for others
+        sessionsSorter.setComparator(1, Comparator.comparingInt(o -> (Integer) o));
+        sessionsSorter.setComparator(0, Comparator.comparing(String::valueOf));
+        sessionsSorter.setComparator(2, Comparator.comparing(String::valueOf));
+        sessionsTable.getTableHeader().setReorderingAllowed(false);
+        // Column widths
+        var colModel = sessionsTable.getColumnModel();
+        colModel.getColumn(0).setPreferredWidth(140); // ID
+        colModel.getColumn(1).setPreferredWidth(80); // Task Count
+        colModel.getColumn(2).setPreferredWidth(220); // Types
+        var leftScroll = new JScrollPane(sessionsTable);
+        leftScroll.setMinimumSize(new Dimension(300, 0));
 
         // --- Pane 2: Contexts and Fragments Table ---
         table.setFillsViewportHeight(true);
@@ -97,7 +115,7 @@ public final class ContextExplorer extends JFrame {
         rightSplit.setResizeWeight(0.6); // Table takes 60%, preview takes 40%
 
         var mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScroll, rightSplit);
-        mainSplit.setResizeWeight(0.2); // Sessions list takes 20%, rightSplit takes 80%
+        mainSplit.setResizeWeight(0.25); // Sessions table takes 25%, rightSplit takes 75%
 
         add(mainSplit, BorderLayout.CENTER);
     }
@@ -113,11 +131,17 @@ public final class ContextExplorer extends JFrame {
             protected void done() {
                 try {
                     var sessions = get();
-                    sessionListModel.clear();
-                    sessions.forEach(sessionListModel::addElement);
+                    sessionsTableModel.setSessions(sessions);
                     if (!sessions.isEmpty()) {
-                        sessionsList.setSelectedIndex(0); // Select the first session by default
+                        // Select first by default on view
+                        sessionsTable.setRowSelectionInterval(0, 0);
+                        var modelRow = sessionsTable.convertRowIndexToModel(0);
+                        var info = sessionsTableModel.getRow(modelRow).info();
+                        selectedSessionId = info.id();
+                        loadSessionHistory(info);
                     }
+                    // Load stats (task count + types) lazily
+                    preloadSessionStats(sessions);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     logger.error("Session list loading interrupted", e);
@@ -140,19 +164,93 @@ public final class ContextExplorer extends JFrame {
         }.execute();
     }
 
+    private void preloadSessionStats(List<SessionManager.SessionInfo> sessions) {
+        if (sessions.isEmpty()) {
+            return;
+        }
+        new SwingWorker<Void, SessionStats>() {
+            @Override
+            protected Void doInBackground() {
+                for (var info : sessions) {
+                    try {
+                        var stats = computeStats(info);
+                        publish(stats);
+                    } catch (Exception e) {
+                        logger.warn("Failed to compute stats for session {}", info.id(), e);
+                        // Publish with zeros to avoid perpetual "Loading..."
+                        publish(new SessionStats(info.id(), 0, ""));
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(List<SessionStats> chunks) {
+                for (var s : chunks) {
+                    sessionsTableModel.updateStats(s.id(), s.taskCount(), s.types());
+                    // Maintain selection even if sorting changes row positions
+                    if (selectedSessionId != null && selectedSessionId.equals(s.id())) {
+                        selectSessionById(selectedSessionId);
+                    }
+                }
+            }
+
+            @Override
+            protected void done() {
+                // nothing else to do
+            }
+        }.execute();
+    }
+
+    private SessionStats computeStats(SessionManager.SessionInfo info) throws IOException {
+        var ch = sessionManager.loadHistory(info.id(), contextManager);
+        if (ch == null) {
+            throw new IOException("Unable to load history for session " + info.name() + " (ID: " + info.id() + ")");
+        }
+        int taskCount = ch.getHistory().size();
+        Set<String> typeNames = new TreeSet<>();
+        for (var ctx : ch.getHistory()) {
+            // Fragments
+            ctx.allFragments().forEach(f -> {
+                try {
+                    typeNames.add(f.getType().name());
+                } catch (Exception e) {
+                    logger.debug("Error getting type for fragment {} in context {}", f.id(), ctx.id(), e);
+                }
+            });
+            // Parsed output if available
+            var parsed = ctx.getParsedOutput();
+            if (parsed != null) {
+                try {
+                    typeNames.add(parsed.getType().name());
+                } catch (Exception e) {
+                    logger.debug("Error getting type for parsed output in context {}", ctx.id(), e);
+                }
+            }
+        }
+        var types = typeNames.stream().collect(Collectors.joining(", "));
+        return new SessionStats(info.id(), taskCount, types);
+    }
+
     private void wireEvents() {
-        sessionsList.addListSelectionListener(e -> {
+        // Sessions table selection
+        sessionsTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                var info = sessionsList.getSelectedValue();
-                if (info != null) {
-                    loadSessionHistory(info);
+                int viewRow = sessionsTable.getSelectedRow();
+                if (viewRow >= 0) {
+                    int modelRow = sessionsTable.convertRowIndexToModel(viewRow);
+                    var row = sessionsTableModel.getRow(modelRow);
+                    selectedSessionId = row.info().id();
+                    loadSessionHistory(row.info());
                 } else {
+                    selectedSessionId = null;
                     tableModel.clear();
                     clearPreview();
                 }
             }
         });
 
+        // Contexts/fragments table selection
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int selectedRow = table.getSelectedRow();
@@ -169,6 +267,16 @@ public final class ContextExplorer extends JFrame {
                 }
             }
         });
+    }
+
+    private void selectSessionById(@Nullable UUID id) {
+        if (id == null) return;
+        int modelIndex = sessionsTableModel.indexOf(id);
+        if (modelIndex < 0) return;
+        int viewIndex = sessionsTable.convertRowIndexToView(modelIndex);
+        if (viewIndex >= 0) {
+            sessionsTable.getSelectionModel().setSelectionInterval(viewIndex, viewIndex);
+        }
     }
 
     private void loadSessionHistory(SessionManager.SessionInfo info) {
@@ -311,17 +419,13 @@ public final class ContextExplorer extends JFrame {
                     if (fragment.isText()) {
                         textContent = fragment.text();
                     } else {
-                        // For non-text fragments, try to get image
-                        // FrozenFragment is the common type coming from history for images
                         if (fragment instanceof FrozenFragment ff) {
                             imageContent = ff.image();
                         } else if (fragment instanceof ContextFragment.ImageFileFragment ifd) {
-                            // If it's a live ImageFileFragment, try its image() method
                             imageContent = ifd.image();
                         } else if (fragment instanceof ContextFragment.AnonymousImageFragment aif) {
                             imageContent = aif.image();
                         } else {
-                            // If it's another non-text type, we can't display it directly as image or text
                             textContent =
                                     "Fragment type " + fragment.getType() + " is not a displayable image or text.";
                         }
@@ -343,7 +447,7 @@ public final class ContextExplorer extends JFrame {
                     cl.show(previewPanel, CARD_TEXT);
                 } else if (imageContent != null) {
                     imageLabel.setIcon(new ImageIcon(imageContent));
-                    imageLabel.setText(""); // Clear any previous text
+                    imageLabel.setText("");
                     cl.show(previewPanel, CARD_IMAGE);
                 } else {
                     textArea.setText("Fragment content could not be displayed or is empty.");
@@ -361,7 +465,6 @@ public final class ContextExplorer extends JFrame {
     }
 
     public static void main(String[] args) {
-        // Use system look and feel for a native look
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception e) {
@@ -374,7 +477,7 @@ public final class ContextExplorer extends JFrame {
                 new ContextExplorer(sessionsDir);
             } else {
                 logger.info("User cancelled sessions directory selection. Exiting.");
-                System.exit(0); // Exit if user cancels directory selection
+                System.exit(0);
             }
         });
     }
@@ -384,8 +487,6 @@ public final class ContextExplorer extends JFrame {
         chooser.setDialogTitle("Select Brokk sessions directory");
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         chooser.setCurrentDirectory(new File(System.getProperty("user.home")));
-
-        // Show dotfiles (hidden files on Unix/macOS)
         chooser.setFileHidingEnabled(false);
 
         int result = chooser.showOpenDialog(null);
@@ -463,14 +564,14 @@ public final class ContextExplorer extends JFrame {
                                 shortContext(h.contextId()),
                                 h.historyEntries(),
                                 h.historyLines());
-                    default -> ""; // Empty for other columns in a header row
+                    default -> "";
                 };
-            } else { // FragmentRow
+            } else {
                 var fr = (FragmentRow) row;
                 var f = fr.fragment();
                 return switch (columnIndex) {
                     case 0 -> "Fragment";
-                    case 1 -> shortContext(fr.contextId()); // Parent context ID
+                    case 1 -> shortContext(fr.contextId());
                     case 2 -> f.id();
                     case 3 -> f.getType().name();
                     case 4 -> f.shortDescription();
@@ -485,23 +586,6 @@ public final class ContextExplorer extends JFrame {
         private String shortContext(UUID id) {
             String s = id.toString();
             return s.substring(0, 8) + "...";
-        }
-    }
-
-    /** Custom ListCellRenderer for SessionInfo objects in the JList. */
-    private static final class SessionInfoListCellRenderer extends DefaultListCellRenderer {
-        @Override
-        public Component getListCellRendererComponent(
-                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (value instanceof SessionManager.SessionInfo info) {
-                setText(String.format(
-                        "%s (%s)", info.name(), info.id().toString().substring(0, 8)));
-            }
-            // Add tooltip with full text, only when non-empty
-            String text = getText();
-            setToolTipText((text != null && !text.isEmpty()) ? text : null);
-            return this;
         }
     }
 
@@ -522,29 +606,109 @@ public final class ContextExplorer extends JFrame {
 
             if (item instanceof HeaderRow) {
                 c.setFont(c.getFont().deriveFont(Font.BOLD));
-                c.setBackground(new Color(230, 230, 230)); // Light gray background for headers
-                // Headers are not truly selectable, but the table might highlight them.
-                // We ensure they always look like headers, overriding selection background for headers.
+                c.setBackground(new Color(230, 230, 230));
                 if (c instanceof JComponent jc) {
-                    if (isSelected) { // Still want to provide visual feedback for selected header, but distinct
+                    if (isSelected) {
                         jc.setBorder(UIManager.getBorder("List.focusCellHighlightBorder"));
                     } else {
                         jc.setBorder(null);
                     }
                 }
-            } else { // FragmentRow
+            } else {
                 c.setFont(c.getFont().deriveFont(Font.PLAIN));
                 c.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
                 c.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
             }
 
-            // Set tooltip to full cell contents for non-empty values
             if (c instanceof JComponent jc) {
                 String tip = value.toString();
                 jc.setToolTipText(!tip.isEmpty() ? tip : null);
             }
 
             return c;
+        }
+    }
+
+    // --- Sessions table model and helpers ---
+
+    private record SessionRow(SessionManager.SessionInfo info, int taskCount, String types) {}
+
+    private record SessionStats(UUID id, int taskCount, String types) {}
+
+    private static final class SessionTableModel extends AbstractTableModel {
+        private final List<SessionRow> rows = new ArrayList<>();
+        private static final String[] COLUMN_NAMES = {"ID", "Task Count", "Types"};
+
+        public void setSessions(List<SessionManager.SessionInfo> sessions) {
+            rows.clear();
+            // Initialize with placeholders until stats are computed
+            for (var s : sessions) {
+                rows.add(new SessionRow(s, 0, ""));
+            }
+            fireTableDataChanged();
+        }
+
+        public int indexOf(UUID id) {
+            for (int i = 0; i < rows.size(); i++) {
+                if (rows.get(i).info().id().equals(id)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        public void updateStats(UUID id, int taskCount, String types) {
+            int idx = indexOf(id);
+            if (idx >= 0) {
+                var old = rows.get(idx);
+                rows.set(idx, new SessionRow(old.info(), taskCount, types));
+                fireTableRowsUpdated(idx, idx);
+            }
+        }
+
+        public SessionRow getRow(int modelRow) {
+            return rows.get(modelRow);
+        }
+
+        @Override
+        public int getRowCount() {
+            return rows.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return COLUMN_NAMES.length;
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return COLUMN_NAMES[column];
+        }
+
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            return switch (columnIndex) {
+                case 0 -> String.class;
+                case 1 -> Integer.class;
+                case 2 -> String.class;
+                default -> Object.class;
+            };
+        }
+
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            return false;
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            var row = rows.get(rowIndex);
+            return switch (columnIndex) {
+                case 0 -> row.info().id().toString();
+                case 1 -> row.taskCount();
+                case 2 -> row.types();
+                default -> "";
+            };
         }
     }
 
