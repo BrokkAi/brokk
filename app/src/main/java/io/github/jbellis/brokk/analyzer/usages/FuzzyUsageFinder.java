@@ -74,9 +74,9 @@ public final class FuzzyUsageFinder {
         }
         final String identifier = shortName;
         // matches identifier around word boundaries and around common structures
-        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\))?";
+        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
         var matchingCodeUnits = analyzer.searchDefinitions(searchPattern).stream()
-                .filter(cu -> cu.identifier().equals(identifier))
+                .filter(cu -> cu.shortName().equals(identifier))
                 .toList();
         var isUnique = matchingCodeUnits.size() == 1;
         final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
@@ -84,6 +84,7 @@ public final class FuzzyUsageFinder {
 
         if (maxCallsites < candidateFiles.size()) {
             // Case 1: Too many call sites
+            logger.debug("Too many call sites found for {}: {} files matched", target, candidateFiles.size());
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxCallsites);
         }
 
@@ -97,12 +98,14 @@ public final class FuzzyUsageFinder {
 
         if (isUnique) {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
+            logger.debug("Found {} hits for unique code unit {}", hits.size(), target);
             return new FuzzyResult.Success(hits);
         }
 
         var scoredHits = new HashSet<>(hits);
         if (llm != null) {
             // Case 3: This symbol is not unique among code units, disambiguate with LLM if possible
+            logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
             try {
                 var tasks = new ArrayList<RelevanceTask>(hits.size());
                 var mapping = new ArrayList<UsageHit>(hits.size());

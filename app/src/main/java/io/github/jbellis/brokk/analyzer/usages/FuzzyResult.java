@@ -19,7 +19,7 @@ import org.jetbrains.annotations.Nullable;
 public sealed interface FuzzyResult
         permits FuzzyResult.Success, FuzzyResult.Failure, FuzzyResult.Ambiguous, FuzzyResult.TooManyCallsites {
 
-    double CONFIDENCE_THRESHOLD = 0.6;
+    double CONFIDENCE_THRESHOLD = 0.5;
 
     record EitherUsagesOrError(@Nullable List<UsageHit> usages, @Nullable String errorMessage) {
 
@@ -63,7 +63,7 @@ public sealed interface FuzzyResult
             uses.addAll(hits);
         } else if (this instanceof FuzzyResult.Ambiguous ambiguous) {
             var filteredHits = ambiguous.hits().stream()
-                    .filter(x -> x.confidence() > CONFIDENCE_THRESHOLD)
+                    .filter(x -> x.confidence() >= CONFIDENCE_THRESHOLD)
                     .toList();
             uses.addAll(filteredHits);
         }
