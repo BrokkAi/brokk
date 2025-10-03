@@ -832,23 +832,8 @@ public class HistoryOutputPanel extends JPanel {
         copyButton.setMnemonic(KeyEvent.VK_T);
         copyButton.setToolTipText("Copy the output to clipboard");
         copyButton.addActionListener(e -> {
-            var ctx = contextManager.selectedContext();
-            if (ctx == null) {
-                chrome.systemOutput("No active context to copy from.");
-                return;
-            }
-
-            var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
-                    .reduce((first, second) -> second); // use the most recent HISTORY fragment
-
-            if (historyOpt.isEmpty()) {
-                chrome.systemOutput("No conversation history found in the current workspace.");
-                return;
-            }
-
-            var historyFrag = historyOpt.get();
-            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of(historyFrag));
+            performContextActionOnLatestHistoryFragment(
+                    WorkspacePanel.ContextAction.COPY, "No active context to copy from.");
         });
         // Set minimum size
         copyButton.setMinimumSize(copyButton.getPreferredSize());
@@ -893,34 +878,12 @@ public class HistoryOutputPanel extends JPanel {
 
         // "Clear Output" button (drop Task History)
         SwingUtilities.invokeLater(() -> {
-            // Prefer TRASH icon; fallback to CLEAR_ALL if anything goes wrong
-            try {
-                clearButton.setIcon(Icons.TRASH);
-            } catch (Throwable t) {
-                try {
-                    clearButton.setIcon(Icons.CLEAR_ALL);
-                } catch (Throwable ignore) {
-                    // leave icon unset if no fallback is available
-                }
-            }
+            clearButton.setIcon(Icons.TRASH);
         });
         clearButton.setToolTipText("Clear the output");
         clearButton.addActionListener(e -> {
-            var ctx = contextManager.selectedContext();
-            if (ctx == null) {
-                chrome.systemOutput("No active context to clear from.");
-                return;
-            }
-            var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
-                    .reduce((first, second) -> second); // most recent HISTORY fragment
-            if (historyOpt.isEmpty()) {
-                chrome.systemOutput("No conversation history found in the current workspace.");
-                return;
-            }
-            var historyFrag = historyOpt.get();
-            chrome.getContextPanel().performContextActionAsync(
-                    WorkspacePanel.ContextAction.DROP, java.util.List.of(historyFrag));
+            performContextActionOnLatestHistoryFragment(
+                    WorkspacePanel.ContextAction.DROP, "No active context to clear from.");
         });
         clearButton.setMinimumSize(clearButton.getPreferredSize());
         buttonsPanel.add(clearButton);
@@ -929,6 +892,32 @@ public class HistoryOutputPanel extends JPanel {
         panel.add(buttonsPanel, BorderLayout.WEST);
 
         return panel;
+    }
+
+    /**
+     * Performs a context action (COPY, DROP, etc.) on the most recent HISTORY fragment
+     * in the currently selected context. Shows appropriate user feedback if there is
+     * no active context or no history fragment.
+     */
+    private void performContextActionOnLatestHistoryFragment(
+            WorkspacePanel.ContextAction action, String noContextMessage) {
+        var ctx = contextManager.selectedContext();
+        if (ctx == null) {
+            chrome.systemOutput(noContextMessage);
+            return;
+        }
+
+        var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
+                .reduce((first, second) -> second);
+
+        if (historyOpt.isEmpty()) {
+            chrome.systemOutput("No conversation history found in the current workspace.");
+            return;
+        }
+
+        var historyFrag = historyOpt.get();
+        chrome.getContextPanel().performContextActionAsync(action, List.of(historyFrag));
     }
 
     public List<ChatMessage> getLlmRawMessages() {
