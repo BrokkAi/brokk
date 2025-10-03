@@ -2097,6 +2097,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var enabled = messageSize > 0;
             historyOutputPanel.setCopyButtonEnabled(enabled);
             historyOutputPanel.setClearButtonEnabled(enabled);
+            historyOutputPanel.setCaptureButtonEnabled(enabled);
+            historyOutputPanel.setOpenWindowButtonEnabled(enabled);
         });
     }
 

@@ -93,6 +93,8 @@ public class HistoryOutputPanel extends JPanel {
 
     private final MaterialButton copyButton;
     private final MaterialButton clearButton;
+    private final MaterialButton captureButton;
+    private final MaterialButton openWindowButton;
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
@@ -138,6 +140,8 @@ public class HistoryOutputPanel extends JPanel {
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new MaterialButton();
         this.clearButton = new MaterialButton();
+        this.captureButton = new MaterialButton();
+        this.openWindowButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
@@ -186,6 +190,8 @@ public class HistoryOutputPanel extends JPanel {
         // Initialize capture controls to disabled until output is available
         setCopyButtonEnabled(false);
         setClearButtonEnabled(false);
+        setCaptureButtonEnabled(false);
+        setOpenWindowButtonEnabled(false);
     }
 
     private void buildSessionSwitchPanel() {
@@ -840,7 +846,6 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             captureButton.setIcon(Icons.CONTENT_CAPTURE);
         });
@@ -854,7 +859,6 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
         });
@@ -951,6 +955,16 @@ public class HistoryOutputPanel extends JPanel {
     /** Sets the enabled state of the clear output button */
     public void setClearButtonEnabled(boolean enabled) {
         clearButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the capture (add to context) button */
+    public void setCaptureButtonEnabled(boolean enabled) {
+        captureButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the open-in-new-window button */
+    public void setOpenWindowButtonEnabled(boolean enabled) {
+        openWindowButton.setEnabled(enabled);
     }
 
     /** Shows the loading spinner with a message in the Markdown area. */
