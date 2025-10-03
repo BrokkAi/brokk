@@ -516,14 +516,9 @@ public class SessionManager implements AutoCloseable {
         try (var fs =
                 FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
             Path taskListPath = fs.getPath("tasklist.json");
-            Files.writeString(
-                    taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
     }
-
-    
-
-    
 
     /**
      * Asynchronously write the task list for a session, serialized per session key. Stores tasklist.json inside the
