@@ -946,8 +946,6 @@ public class HistoryOutputPanel extends JPanel {
     /** Sets the enabled state of the copy text button */
     public void setCopyButtonEnabled(boolean enabled) {
         copyButton.setEnabled(enabled);
-        // Mirror the same enable/disable behavior for Clear Output
-        clearButton.setEnabled(enabled);
     }
 
     /** Sets the enabled state of the clear output button */
