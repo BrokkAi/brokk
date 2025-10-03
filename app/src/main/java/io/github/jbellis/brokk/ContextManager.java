@@ -368,6 +368,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private AnalyzerListener createAnalyzerListener() {
+        // anything heavyweight needs to be moved off the listener thread since these are invoked by
+        // the single-threaded analyzer executor
+
         return new AnalyzerListener() {
             @Override
             public void onBlocked() {
@@ -385,12 +388,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     chrome.notifyActionComplete("Analyzer build completed");
                 }
                 if (msg.isEmpty()) {
-                    SwingUtilities.invokeLater(() -> {
-                        io.systemNotify(
-                                "Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.",
-                                "Code Intelligence Warning",
-                                JOptionPane.WARNING_MESSAGE);
-                    });
+                    io.systemNotify(
+                            "Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.",
+                            "Code Intelligence Warning",
+                            JOptionPane.WARNING_MESSAGE);
                 } else {
                     io.systemOutput(msg);
                 }
@@ -403,41 +404,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 // Notify analyzer callbacks
                 for (var callback : analyzerCallbacks) {
-                    try {
-                        callback.onRepoChange();
-                    } catch (Exception e) {
-                        logger.warn("Analyzer callback (onRepoChange) failed", e);
-                    }
+                    submitBackgroundTask("Update for Git changes", callback::onRepoChange);
                 }
             }
 
             @Override
             public void onTrackedFileChange() {
-                // we don't need the full onRepoChange but we do need these parts
-                project.getRepo().invalidateCaches();
-                project.invalidateAllFiles();
-                io.updateCommitPanel();
+                submitBackgroundTask("Update for FS changes", () -> {
+                    // we don't need the full onRepoChange but we do need these parts
+                    project.getRepo().invalidateCaches();
+                    project.invalidateAllFiles();
+                    io.updateCommitPanel();
 
-                // update Workspace
-                // we can't rely on pushContext's change detection because here we care about the contents and not the
-                // fragment identity
-                if (processExternalFileChangesIfNeeded()) {
-                    // analyzer refresh will call this too, but it will be delayed
-                    io.updateWorkspace();
-                }
+                    // update Workspace
+                    // we can't rely on pushContext's change detection because here we care about the contents and not
+                    // the
+                    // fragment identity
+                    if (processExternalFileChangesIfNeeded()) {
+                        // analyzer refresh will call this too, but it will be delayed
+                        io.updateWorkspace();
+                    }
 
-                // ProjectTree
-                for (var fsListener : fileSystemEventListeners) {
-                    fsListener.onTrackedFilesChanged();
-                }
+                    // ProjectTree
+                    for (var fsListener : fileSystemEventListeners) {
+                        fsListener.onTrackedFilesChanged();
+                    }
+                });
 
                 // Notify analyzer callbacks
                 for (var callback : analyzerCallbacks) {
-                    try {
-                        callback.onTrackedFileChange();
-                    } catch (Exception e) {
-                        logger.warn("Analyzer callback (onTrackedFileChange) failed", e);
-                    }
+                    submitBackgroundTask("Update for FS changes", callback::onTrackedFileChange);
                 }
             }
 
@@ -446,60 +442,52 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().showAnalyzerRebuildSpinner();
                 }
+
                 // Notify analyzer callbacks
                 for (var callback : analyzerCallbacks) {
-                    try {
-                        callback.beforeEachBuild();
-                    } catch (Exception e) {
-                        logger.warn("Analyzer callback (beforeEachBuild) failed", e);
-                    }
+                    submitBackgroundTask("Code Intelligence pre-build", callback::beforeEachBuild);
                 }
             }
 
             @Override
             public void afterEachBuild(boolean externalRequest) {
-                if (io instanceof Chrome chrome) {
-                    chrome.getContextPanel().hideAnalyzerRebuildSpinner();
-                }
-
-                // Wait for context load to finish, with a timeout
-                long startTime = System.currentTimeMillis();
-                long timeoutMillis = 5000; // 5 seconds
-                while (liveContext().isEmpty() && (System.currentTimeMillis() - startTime < timeoutMillis)) {
-                    Thread.onSpinWait();
-                }
-                if (liveContext().isEmpty()) {
-                    logger.warn(
-                            "Context did not load within 5 seconds after analyzer build. Continuing with empty context.");
-                }
-
-                // re-freeze context w/ new analyzer
-                processExternalFileChangesIfNeeded();
-                io.updateWorkspace();
-
-                if (externalRequest && io instanceof Chrome chrome) {
-                    chrome.notifyActionComplete("Analyzer rebuild completed");
-                }
-
-                // Notify analyzer callbacks
-                for (var callback : analyzerCallbacks) {
-                    try {
-                        callback.afterEachBuild(externalRequest);
-                    } catch (Exception e) {
-                        logger.warn("Analyzer callback (afterEachBuild) failed", e);
+                submitBackgroundTask("Code Intelligence post-build", () -> {
+                    if (io instanceof Chrome chrome) {
+                        chrome.getContextPanel().hideAnalyzerRebuildSpinner();
                     }
-                }
+
+                    // Wait for context load to finish, with a timeout
+                    long startTime = System.currentTimeMillis();
+                    long timeoutMillis = 5000; // 5 seconds
+                    while (liveContext().isEmpty() && (System.currentTimeMillis() - startTime < timeoutMillis)) {
+                        Thread.onSpinWait();
+                    }
+                    if (liveContext().isEmpty()) {
+                        logger.warn(
+                                "Context did not load within 5 seconds after analyzer build. Continuing with empty context.");
+                    }
+
+                    // re-freeze context w/ new analyzer
+                    processExternalFileChangesIfNeeded();
+                    io.updateWorkspace();
+
+                    if (externalRequest && io instanceof Chrome chrome) {
+                        chrome.notifyActionComplete("Analyzer rebuild completed");
+                    }
+
+                    // Notify analyzer callbacks
+                    for (var callback : analyzerCallbacks) {
+                        submitBackgroundTask(
+                                "Code Intelligence post-build", () -> callback.afterEachBuild(externalRequest));
+                    }
+                });
             }
 
             @Override
             public void onAnalyzerReady() {
                 logger.debug("Analyzer became ready, triggering symbol lookup refresh");
                 for (var callback : analyzerCallbacks) {
-                    try {
-                        callback.onAnalyzerReady();
-                    } catch (Exception e) {
-                        logger.warn("Analyzer callback failed", e);
-                    }
+                    submitBackgroundTask("Code Intelligence ready", callback::onAnalyzerReady);
                 }
             }
         };
