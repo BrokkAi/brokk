@@ -375,11 +375,8 @@ public class SessionManager implements AutoCloseable {
                 // Snapshot current tasklist.json (if present) before we rewrite the zip
                 String taskListJsonSnapshot = null;
                 if (Files.exists(sessionHistoryPath)) {
-                    try (var fs = FileSystems.newFileSystem(sessionHistoryPath, Map.of())) {
-                        Path tlPath = fs.getPath("tasklist.json");
-                        if (Files.exists(tlPath)) {
-                            taskListJsonSnapshot = Files.readString(tlPath);
-                        }
+                    try {
+                        taskListJsonSnapshot = readTaskListJson(sessionHistoryPath);
                     } catch (IOException ioe) {
                         logger.warn(
                                 "Could not snapshot existing tasklist.json for session {}: {}",
@@ -398,15 +395,8 @@ public class SessionManager implements AutoCloseable {
 
                 // Restore tasklist.json if we had one
                 if (taskListJsonSnapshot != null) {
-                    try (var fs = FileSystems.newFileSystem(
-                            sessionHistoryPath,
-                            Map.of("create", Files.notExists(sessionHistoryPath) ? "true" : "false"))) {
-                        Path tlPath = fs.getPath("tasklist.json");
-                        Files.writeString(
-                                tlPath,
-                                taskListJsonSnapshot,
-                                StandardOpenOption.CREATE,
-                                StandardOpenOption.TRUNCATE_EXISTING);
+                    try {
+                        writeTaskListJson(sessionHistoryPath, taskListJsonSnapshot);
                     } catch (IOException ioe) {
                         logger.warn(
                                 "Failed restoring tasklist.json for session {} after history save: {}",
@@ -507,6 +497,34 @@ public class SessionManager implements AutoCloseable {
         return ch;
     }
 
+    // Internal helpers for synchronous tasklist read/write. These avoid re-entrancy issues when called
+    // inside the per-session serialized executor and allow saveHistory to preserve exact JSON.
+    private @Nullable String readTaskListJson(Path zipPath) throws IOException {
+        if (!Files.exists(zipPath)) {
+            return null;
+        }
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+            Path taskListPath = fs.getPath("tasklist.json");
+            if (Files.exists(taskListPath)) {
+                return Files.readString(taskListPath);
+            }
+            return null;
+        }
+    }
+
+    private void writeTaskListJson(Path zipPath, String json) throws IOException {
+        try (var fs =
+                FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+            Path taskListPath = fs.getPath("tasklist.json");
+            Files.writeString(
+                    taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        }
+    }
+
+    
+
+    
+
     /**
      * Asynchronously write the task list for a session, serialized per session key. Stores tasklist.json inside the
      * session's zip file.
@@ -532,12 +550,10 @@ public class SessionManager implements AutoCloseable {
     public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskListData data) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try (var fs =
-                    FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
-                Path taskListPath = fs.getPath("tasklist.json");
+            try {
                 var normalized = new TaskListData(List.copyOf(data.tasks()));
                 String json = AbstractProject.objectMapper.writeValueAsString(normalized);
-                Files.writeString(taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                writeTaskListJson(zipPath, json);
             } catch (IOException e) {
                 throw new UncheckedIOException("Failed to write task list for session " + sessionId, e);
             }
@@ -567,12 +583,11 @@ public class SessionManager implements AutoCloseable {
             if (!Files.exists(zipPath)) {
                 return new TaskListData(List.of());
             }
-            try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
-                Path taskListPath = fs.getPath("tasklist.json");
-                if (!Files.exists(taskListPath)) {
+            try {
+                String json = readTaskListJson(zipPath);
+                if (json == null || json.isBlank()) {
                     return new TaskListData(List.of());
                 }
-                String json = Files.readString(taskListPath);
                 var loaded = AbstractProject.objectMapper.readValue(json, TaskListData.class);
                 return new TaskListData(List.copyOf(loaded.tasks()));
             } catch (IOException e) {
