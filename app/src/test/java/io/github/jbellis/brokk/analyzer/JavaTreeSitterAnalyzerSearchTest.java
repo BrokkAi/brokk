@@ -285,7 +285,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         int end = start + needle.length();
 
         var range = toRange(src, start, end);
-        var cu = analyzer.enclosingCodeUnit(pf, range);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
         assertEquals("A.method1", cu.fqName());
     }
 
@@ -301,7 +301,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         int end = start + needle.length();
 
         var range = toRange(src, start, end);
-        var cu = analyzer.enclosingCodeUnit(pf, range);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
         assertEquals("A.AInner.AInnerInner.method7", cu.fqName());
     }
 
@@ -317,7 +317,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         int end = start + needle.length();
 
         var range = toRange(src, start, end);
-        var cu = analyzer.enclosingCodeUnit(pf, range);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
         assertEquals("C.Foo.x", cu.fqName());
     }
 
@@ -333,7 +333,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         int end = start + needle.length();
 
         var range = toRange(src, start, end);
-        var cu = analyzer.enclosingCodeUnit(pf, range);
+        var cu = analyzer.enclosingCodeUnit(pf, range).get();
         assertEquals("D.methodD2", cu.fqName());
     }
 
