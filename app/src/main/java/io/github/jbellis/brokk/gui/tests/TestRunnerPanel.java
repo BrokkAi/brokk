@@ -15,6 +15,8 @@ import javax.swing.text.PlainDocument;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Read-only test runner output panel.
@@ -30,6 +32,7 @@ import java.awt.Font;
  * piping logs to this component.
  */
 public class TestRunnerPanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(TestRunnerPanel.class);
 
     private final JTextArea outputArea;
     private final JScrollPane scrollPane;
@@ -63,51 +66,60 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         applyThemeColorsFromUIManager();
     }
 
+    private static void runOnEdt(Runnable r) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
     /**
      * Replace the entire output text (EDT-safe).
      */
-    public void setOutput(String text) {
-        final String safe = text == null ? "" : text;
-        if (SwingUtilities.isEventDispatchThread()) {
-            document.withWritePermission(() -> {
-                outputArea.setText(safe);
-                scrollToBottom();
-            });
-        } else {
-            SwingUtilities.invokeLater(() -> document.withWritePermission(() -> {
-                outputArea.setText(safe);
-                scrollToBottom();
-            }));
-        }
+    public void setOutput(@org.jetbrains.annotations.Nullable String text) {
+        final String safe = (text == null) ? "" : text;
+        runOnEdt(() -> {
+            try {
+                document.withWritePermission(() -> {
+                    outputArea.setText(safe);
+                    scrollToBottom();
+                });
+            } catch (RuntimeException ex) {
+                logger.warn("Failed to set test output", ex);
+            }
+        });
     }
 
     /**
      * Append text to the output (EDT-safe). Does not force a newline.
      */
-    public void appendOutput(String text) {
-        if (text == null || text.isEmpty()) return;
-        if (SwingUtilities.isEventDispatchThread()) {
-            document.withWritePermission(() -> {
-                outputArea.append(text);
-                scrollToBottom();
-            });
-        } else {
-            SwingUtilities.invokeLater(() -> document.withWritePermission(() -> {
-                outputArea.append(text);
-                scrollToBottom();
-            }));
-        }
+    public void appendOutput(@org.jetbrains.annotations.Nullable String text) {
+        final String safe = (text == null) ? "" : text;
+        if (safe.isEmpty()) return;
+        runOnEdt(() -> {
+            try {
+                document.withWritePermission(() -> {
+                    outputArea.append(safe);
+                    scrollToBottom();
+                });
+            } catch (RuntimeException ex) {
+                logger.warn("Failed to append test output", ex);
+            }
+        });
     }
 
     /**
      * Clear the output (EDT-safe).
      */
     public void clearOutput() {
-        if (SwingUtilities.isEventDispatchThread()) {
-            document.withWritePermission(() -> outputArea.setText(""));
-        } else {
-            SwingUtilities.invokeLater(() -> document.withWritePermission(() -> outputArea.setText("")));
-        }
+        runOnEdt(() -> {
+            try {
+                document.withWritePermission(() -> outputArea.setText(""));
+            } catch (RuntimeException ex) {
+                logger.warn("Failed to clear test output", ex);
+            }
+        });
     }
 
     /**
