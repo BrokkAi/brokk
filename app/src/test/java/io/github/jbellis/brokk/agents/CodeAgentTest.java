@@ -113,7 +113,7 @@ class CodeAgentTest {
         Environment.shellCommandRunnerFactory = originalShellCommandRunnerFactory;
     }
 
-    private CodeAgent.ConversationState createConversationState(
+    protected CodeAgent.ConversationState createConversationState(
             List<ChatMessage> taskMessages, UserMessage nextRequest) {
         return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size());
     }
@@ -654,7 +654,7 @@ class CodeAgentTest {
         file.write(revised);
 
         var es = new CodeAgent.EditState(
-                List.of(), // pendingBlocks
+                List.of(), // pending blocks
                 0,
                 0,
                 0,
