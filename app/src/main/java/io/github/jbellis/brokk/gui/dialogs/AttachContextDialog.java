@@ -352,7 +352,7 @@ public class AttachContextDialog extends JDialog {
                 analyzer != null && analyzer.as(SkeletonProvider.class).isPresent();
         boolean hasSource =
                 analyzer != null && analyzer.as(SourceCodeProvider.class).isPresent();
-        boolean hasUsages = analyzer instanceof TreeSitterAnalyzer;
+        boolean hasUsages = analyzer != null;
 
         // Classes segment
         boolean classesEnabled = hasSkeleton || hasSource;
