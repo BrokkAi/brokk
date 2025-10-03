@@ -128,6 +128,14 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         });
     }
 
+    /** Open the Terminal tab and paste text once the terminal is ready. Runs on the EDT. */
+    public void openTerminalAndPasteText(String text) {
+        assert SwingUtilities.isEventDispatchThread() : "Must run on EDT";
+        var tp = openTerminal();
+        tp.whenReady().thenAccept(t ->
+                SwingUtilities.invokeLater(() -> t.pasteText(text)));
+    }
+
     /** Apply theme to subpanels that implement ThemeAware. */
     @Override
     public void applyTheme(GuiTheme guiTheme) {

@@ -2786,8 +2786,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         public void openTerminalAndPasteText(String text) {
             SwingUtilities.invokeLater(() -> {
                 try {
-                    var tp = instructionsToolsPanel.openTerminal();
-                    tp.pasteText(text);
+                    instructionsToolsPanel.openTerminalAndPasteText(text);
                 } catch (Exception ex) {
                     logger.debug("Failed to open terminal and paste text via adapter", ex);
                 }
