@@ -348,7 +348,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         var range = new IAnalyzer.Range(idx, idx, 0, 0, idx);
 
         var cu = analyzer.enclosingCodeUnit(pf, range);
-        assertNull(cu, "Empty range should return null as per contract");
+        assertTrue(cu.isEmpty(), "Empty range should return null as per contract");
     }
 
     // --------------- helpers (moved from JavaTreeSitterAnalyzerEnclosingTest) ---------------
