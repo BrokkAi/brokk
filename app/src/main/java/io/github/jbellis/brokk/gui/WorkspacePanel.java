@@ -1919,8 +1919,8 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        boolean hasHistory = selectedFragments.stream()
-                .anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
+        boolean hasHistory =
+                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
 
         if (hasHistory) {
             // 1) Clear task history if any HISTORY fragment is included

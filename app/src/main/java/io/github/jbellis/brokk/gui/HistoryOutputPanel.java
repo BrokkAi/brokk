@@ -899,9 +899,8 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /**
-     * Performs a context action (COPY, DROP, etc.) on the most recent HISTORY fragment
-     * in the currently selected context. Shows appropriate user feedback if there is
-     * no active context or no history fragment.
+     * Performs a context action (COPY, DROP, etc.) on the most recent HISTORY fragment in the currently selected
+     * context. Shows appropriate user feedback if there is no active context or no history fragment.
      */
     private void performContextActionOnLatestHistoryFragment(
             WorkspacePanel.ContextAction action, String noContextMessage) {
