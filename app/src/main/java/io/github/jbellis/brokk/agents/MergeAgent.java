@@ -35,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.jetbrains.annotations.Nullable;
+import javax.swing.JOptionPane;
 
 /**
  * Simplified MergeAgent that delegates conflict detection, annotation and per-file planning to ConflictInspector,
@@ -100,32 +101,70 @@ public class MergeAgent {
         var repo = (GitRepo) cm.getProject().getRepo();
         validateOtherIsNotMergeCommitForNonMergeMode(repo, mode, otherCommitId);
 
-        var conflictAnnotator = new ConflictAnnotator(repo, conflict);
+        // Notify start of annotation
+        cm.getIo()
+                .systemNotify(
+                        "Preparing %d conflicted files for AI merge..."
+                                .formatted(conflicts.size()),
+                        "Auto Merge",
+                        JOptionPane.INFORMATION_MESSAGE);
 
-        // First pass: annotate ALL files up front (single loop).
+        // First pass: annotate ALL files up front (parallel)
         var annotatedConflicts = new ArrayList<ConflictAnnotator.ConflictFileCommits>(conflicts.size());
         var unionOurCommits = new LinkedHashSet<String>();
         var unionTheirCommits = new LinkedHashSet<String>();
 
-        for (var cf : conflicts) {
-            if (Thread.interrupted()) throw new InterruptedException();
+        var contentConflicts = conflicts.stream()
+                .filter(FileConflict::isContentConflict)
+                .toList();
 
-            if (!cf.isContentConflict()) {
-                // FIXME: handle non-content conflicts (adds, deletes, renames) in a future enhancement
-                continue;
+        if (!contentConflicts.isEmpty()) {
+            var executor = AdaptiveExecutor.create(cm.getService(), planningModel, contentConflicts.size());
+            var completionService =
+                    new ExecutorCompletionService<ConflictAnnotator.ConflictFileCommits>(executor);
+            try {
+                for (var cf : contentConflicts) {
+                    completionService.submit(() -> {
+                        if (Thread.interrupted()) throw new InterruptedException();
+                        var pf = requireNonNull(cf.ourFile());
+                        var annotator = new ConflictAnnotator(repo, conflict);
+                        var annotated = annotator.annotate(cf);
+                        // Write annotated contents to our working path
+                        pf.write(annotated.contents());
+                        return annotated;
+                    });
+                }
+
+                for (int i = 0; i < contentConflicts.size(); i++) {
+                    if (Thread.interrupted()) throw new InterruptedException();
+                    try {
+                        var fut = completionService.take();
+                        var annotated = fut.get();
+                        if (annotated != null) {
+                            annotatedConflicts.add(annotated);
+                            unionOurCommits.addAll(annotated.ourCommits());
+                            unionTheirCommits.addAll(annotated.theirCommits());
+                        }
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw ie;
+                    } catch (ExecutionException ee) {
+                        var cause = ee.getCause() == null ? ee : ee.getCause();
+                        logger.warn("Conflict annotation failed: {}", cause.toString(), cause);
+                    }
+                }
+            } finally {
+                executor.shutdownNow();
             }
-
-            var pf = requireNonNull(cf.ourFile());
-
-            var annotated = conflictAnnotator.annotate(cf);
-
-            // Write annotated contents to our working path
-            pf.write(annotated.contents());
-
-            annotatedConflicts.add(annotated);
-            unionOurCommits.addAll(annotated.ourCommits());
-            unionTheirCommits.addAll(annotated.theirCommits());
         }
+
+        // Notify end of annotation
+        cm.getIo()
+                .systemNotify(
+                        "Prepared %d conflicted files for AI merge."
+                                .formatted(annotatedConflicts.size()),
+                        "Auto Merge",
+                        JOptionPane.INFORMATION_MESSAGE);
 
         // Compute changed files set for reporting
         var changedFiles = annotatedConflicts.stream()
