@@ -8,6 +8,7 @@ import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
@@ -2800,6 +2801,63 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         int max = (int) (frameWidth * maxFraction);
 
         return Math.max(min, Math.min(ideal, max));
+    }
+
+    @Override
+    public BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config) {
+        return new BlitzForge.Listener() {
+            @Override
+            public void onStart(int total) {
+                SwingUtilities.invokeLater(() -> showOutputSpinner("BlitzForge: 0 / " + total + " files"));
+            }
+
+            @Override
+            public void onFileStart(io.github.jbellis.brokk.analyzer.ProjectFile file) {
+                systemOutput("[BlitzForge] Processing: " + file);
+            }
+
+            @Override
+            public void onLlmOutput(
+                    io.github.jbellis.brokk.analyzer.ProjectFile file,
+                    String token,
+                    boolean isNewMessage,
+                    boolean isReasoning) {
+                llmOutput(token, ChatMessageType.AI, isNewMessage, isReasoning);
+            }
+
+            @Override
+            public void onFileResult(
+                    io.github.jbellis.brokk.analyzer.ProjectFile file,
+                    boolean edited,
+                    @org.jetbrains.annotations.Nullable String errorMessage,
+                    String llmOutput) {
+                if (!llmOutput.isBlank()) {
+                    Chrome.this.llmOutput(llmOutput, ChatMessageType.AI, true, false);
+                }
+                if (errorMessage != null) {
+                    systemOutput("[BlitzForge] Error in " + file + ": " + errorMessage);
+                } else {
+                    systemOutput("[BlitzForge] Completed: " + file + (edited ? " (changed)" : ""));
+                }
+            }
+
+            @Override
+            public void onProgress(int processed, int total) {
+                SwingUtilities.invokeLater(() -> showOutputSpinner("BlitzForge: " + processed + " / " + total + " files"));
+            }
+
+            @Override
+            public void onDone(io.github.jbellis.brokk.TaskResult result) {
+                hideOutputSpinner();
+                String message = "BlitzForge finished: " + result.stopDetails().reason();
+                String explanation = result.stopDetails().explanation();
+                if (!explanation.isEmpty()) {
+                    message += " - " + explanation;
+                }
+                showNotification(io.github.jbellis.brokk.gui.HistoryOutputPanel.NotificationRole.INFO, message);
+                actionComplete();
+            }
+        };
     }
 
     /** Updates the terminal font size for all active terminals. */

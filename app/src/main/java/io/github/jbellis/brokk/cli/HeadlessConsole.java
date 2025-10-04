@@ -7,7 +7,9 @@ import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressHeadless;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,5 +92,10 @@ public final class HeadlessConsole implements IConsoleIO {
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
         // for "Do you want to compact history" dialog
         return JOptionPane.NO_OPTION;
+    }
+
+    @Override
+    public BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config) {
+        return new BlitzForgeProgressHeadless(this);
     }
 }
