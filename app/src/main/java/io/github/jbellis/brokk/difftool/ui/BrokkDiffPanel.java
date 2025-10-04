@@ -19,6 +19,8 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
+import io.github.jbellis.brokk.difftool.ui.BlameService;
+import javax.swing.JToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
@@ -350,6 +352,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
     private final MaterialButton btnNextFile = new MaterialButton();
+
+    // Blame toggle and service
+    private final JToggleButton btnBlameToggle = new JToggleButton("Blame");
+    private final BlameService blameService = new BlameService();
 
     // Flag to track when layout hierarchy needs reset after navigation
     private volatile boolean needsLayoutReset = false;
@@ -728,6 +734,27 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // showAllLinesCheckBox is only for unified view, which is dev-mode only
         if (isDevMode) {
             toolBar.add(showAllLinesCheckBox);
+        }
+
+        // Add Blame toggle (visible only if feature is enabled)
+        if (BlameService.isFeatureEnabled()) {
+            btnBlameToggle.setToolTipText("Toggle gutter git blame (per-panel)");
+            btnBlameToggle.addActionListener(e -> {
+                var panel = getCurrentContentPanel();
+                boolean show = btnBlameToggle.isSelected();
+
+                // Prefer pattern-matching instanceof to satisfy ErrorProne's PatternMatchingInstanceof rule.
+                if (panel instanceof io.github.jbellis.brokk.difftool.ui.AbstractDiffPanel adp) {
+                    // AbstractDiffPanel implements IDiffPanel, so we can both store per-panel state and update blame.
+                    adp.setShowGutterBlame(show);
+                    updateBlameForPanel(adp, show);
+                } else if (panel instanceof io.github.jbellis.brokk.difftool.ui.IDiffPanel idp) {
+                    // Generic IDiffPanel that is not an AbstractDiffPanel implementation
+                    updateBlameForPanel(idp, show);
+                }
+            });
+            toolBar.add(Box.createHorizontalStrut(5));
+            toolBar.add(btnBlameToggle);
         }
 
         // Update control enable/disable state based on view mode
@@ -1849,6 +1876,98 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         return false;
+    }
+
+    /**
+     * Request and apply blame information for the given panel.
+     * This method is asynchronous and will update the gutter components on the EDT.
+     *
+     * @param panel IDiffPanel (may be BufferDiffPanel or UnifiedDiffPanel)
+     * @param show whether to show blame (if false we will clear the gutter blame)
+     */
+    private void updateBlameForPanel(io.github.jbellis.brokk.difftool.ui.IDiffPanel panel, boolean show) {
+        // Clear any existing displayed blame if hiding
+        if (!show) {
+            // BufferDiffPanel case: clear both left/right gutters
+            if (panel instanceof BufferDiffPanel bp) {
+                var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                if (left != null) left.getGutterComponent().clearBlame();
+                if (right != null) right.getGutterComponent().clearBlame();
+            } else if (panel instanceof UnifiedDiffPanel up) {
+                // Clear unified gutter blame
+                up.setShowGutterBlame(false);
+            }
+            return;
+        }
+
+        // When showing blame, attempt to find the "revised" file path to blame (prefers the revised/right side).
+        java.nio.file.Path targetPath = null;
+
+        try {
+            if (panel instanceof BufferDiffPanel bp) {
+                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                if (right != null) {
+                    var bd = right.getBufferDocument();
+                    if (bd != null) {
+                        targetPath = java.nio.file.Paths.get(bd.getName());
+                    }
+                }
+            } else if (panel instanceof UnifiedDiffPanel up) {
+                var dn = up.getDiffNode();
+                if (dn != null) {
+                    var rightNode = dn.getBufferNodeRight();
+                    if (rightNode != null) {
+                        targetPath = java.nio.file.Paths.get(rightNode.getDocument().getName());
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            // ignore path resolution failures; will result in empty blame
+            targetPath = null;
+        }
+
+        if (targetPath == null) {
+            // nothing to do
+            return;
+        }
+
+        // Asynchronously request blame and apply to the panel gutters on EDT
+        blameService.requestBlame(targetPath).whenComplete((map, exc) -> {
+            if (map == null || map.isEmpty()) {
+                // nothing to show, ensure gutter toggles are set
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    if (panel instanceof BufferDiffPanel bp) {
+                        var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                        var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                        if (left != null) left.getGutterComponent().setShowBlame(false);
+                        if (right != null) right.getGutterComponent().setShowBlame(false);
+                    } else if (panel instanceof UnifiedDiffPanel up) {
+                        up.setShowGutterBlame(false);
+                    }
+                });
+                return;
+            }
+
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (panel instanceof BufferDiffPanel bp) {
+                    // For side-by-side, show blame on the RIGHT pane gutter (revised)
+                    var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                    if (right != null) {
+                        right.getGutterComponent().setBlameLines(map);
+                        right.getGutterComponent().setShowBlame(true);
+                    }
+                    // Optionally clear/hide left gutter blame
+                    var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                    if (left != null) {
+                        left.getGutterComponent().setShowBlame(false);
+                    }
+                } else if (panel instanceof UnifiedDiffPanel up) {
+                    up.setGutterBlameData(map);
+                    up.setShowGutterBlame(true);
+                }
+            });
+        });
     }
 
     /** Returns true if currently in unified view mode, false for side-by-side. */

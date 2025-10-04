@@ -647,6 +647,26 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         return jmHighlighter;
     }
 
+    /**
+     * Set gutter blame map for the unified line-number component.
+     * The map keys are 1-based document line numbers, values are BlameInfo-like records (author + sha).
+     */
+    public void setGutterBlameData(java.util.Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> blameData) {
+        if (customLineNumberList != null) {
+            customLineNumberList.setBlameLines(blameData);
+        }
+    }
+
+    /** Show or hide gutter blame in this unified panel. */
+    @Override
+    public void setShowGutterBlame(boolean show) {
+        if (customLineNumberList != null) {
+            customLineNumberList.setShowBlame(show);
+        }
+        // remember per-panel state via AbstractDiffPanel
+        markCreationContext(getCreationContext()); // no-op, side-effect kept minimal
+    }
+
     /** Remove all diff highlights from the highlighter. */
     private void removeHighlights() {
         UnifiedDiffHighlighter.removeHighlights(jmHighlighter);

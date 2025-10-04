@@ -77,6 +77,15 @@ public interface IDiffPanel extends ThemeAware, SlidingWindowCache.Disposable {
         return true;
     }
 
+    // Per-panel gutter blame toggle (default no-op for implementations that don't support it)
+    default void setShowGutterBlame(boolean show) {
+        // Default: no-op
+    }
+
+    default boolean isShowGutterBlame() {
+        return false;
+    }
+
     // Creation context tracking (for debugging)
     default void markCreationContext(String context) {}
 
