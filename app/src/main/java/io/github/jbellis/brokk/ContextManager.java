@@ -28,6 +28,9 @@ import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import io.github.jbellis.brokk.util.UserActionManager.ThrowingRunnable;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -137,31 +140,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Run the test command in the background and stream output to the Tests tab
         submitBackgroundTask("Running tests", () -> {
             try {
-                boolean isWindows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
-                String[] shellCommand = isWindows
-                        ? new String[] {"cmd", "/c", cmd}
-                        : new String[] {"sh", "-lc", cmd};
-
-                var pb = new ProcessBuilder(shellCommand);
-                pb.directory(getProject().getRoot().toFile());
-                // Merge stderr into stdout so we can stream a single pipe
-                pb.redirectErrorStream(true);
-
-                Process process = pb.start();
-
-                try (var reader = new java.io.BufferedReader(
-                        new java.io.InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (io instanceof Chrome chrome) {
-                            chrome.appendToTestRunner(line + "\n");
-                        } else {
-                            io.systemOutput(line);
-                        }
+                var result = runShellCommandStreaming(cmd, line -> {
+                    if (io instanceof Chrome chrome) {
+                        chrome.appendToTestRunner(line + "\n");
+                    } else {
+                        io.systemOutput(line);
                     }
-                }
+                });
 
-                int exit = process.waitFor();
+                int exit = result.exitCode();
                 if (io instanceof Chrome chrome) {
                     chrome.appendToTestRunner("\nProcess finished with exit code " + exit + "\n");
                 } else {
@@ -173,7 +160,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     chrome.appendToTestRunner("\nTest run interrupted.\n");
                 }
                 io.toolError("Test run interrupted.");
-            } catch (java.io.IOException e) {
+            } catch (IOException e) {
                 if (io instanceof Chrome chrome) {
                     chrome.appendToTestRunner("\nError running tests: " + e.getMessage() + "\n");
                 }
@@ -181,6 +168,44 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             return null;
         });
+    }
+
+    /**
+     * Execute a shell command cross-platform and stream each output line to the provided consumer.
+     * Returns a ShellResult containing all lines captured and the process exit code.
+     *
+     * This method is package-private for unit testing.
+     */
+    static record ShellResult(List<String> lines, int exitCode) {}
+
+    ShellResult runShellCommandStreaming(String cmd, java.util.function.Consumer<String> lineConsumer)
+            throws IOException, InterruptedException {
+        boolean isWindows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+        String[] shellCommand = isWindows
+                ? new String[] {"cmd", "/c", cmd}
+                : new String[] {"sh", "-lc", cmd};
+
+        var pb = new ProcessBuilder(shellCommand);
+        pb.directory(getProject().getRoot().toFile());
+        pb.redirectErrorStream(true);
+
+        Process process = pb.start();
+
+        var lines = new ArrayList<String>();
+        try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lines.add(line);
+                try {
+                    lineConsumer.accept(line);
+                } catch (Exception ex) {
+                    logger.warn("Line consumer threw exception", ex);
+                }
+            }
+        }
+
+        int exit = process.waitFor();
+        return new ShellResult(List.copyOf(lines), exit);
     }
 
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {

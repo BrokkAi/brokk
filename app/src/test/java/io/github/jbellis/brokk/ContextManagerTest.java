@@ -117,4 +117,22 @@ class ContextManagerTest {
                 after.getTaskHistory().stream().noneMatch(te -> te.sequence() == 101), "Dropped entry must be absent");
         assertEquals("Delete task from history", after.getAction());
     }
+
+    @Test
+    void runShellCommandStreaming_shouldCaptureEchoOutput() throws Exception {
+        var tempDir = Files.createTempDirectory("ctxmgr-echo-test");
+        var project = new MainProject(tempDir);
+        var cm = new ContextManager(project);
+
+        var captured = new java.util.ArrayList<String>();
+        String message = "HelloBrokk";
+        String cmd = "echo " + message;
+
+        var result = cm.runShellCommandStreaming(cmd, captured::add);
+
+        assertEquals(0, result.exitCode(), "Echo command should exit with 0");
+        assertTrue(
+                captured.stream().anyMatch(s -> s.trim().equals(message)),
+                "Captured output should contain the echoed message");
+    }
 }
