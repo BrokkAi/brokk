@@ -19,6 +19,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.dircache.DirCache;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.FileMode;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -32,6 +33,11 @@ import org.jetbrains.annotations.Nullable;
 public final class ConflictInspector {
 
     private static final Logger logger = LogManager.getLogger(ConflictInspector.class);
+
+    /**
+     * Result holder pairing the text conflict and derived non-text metadata.
+     */
+    private static record BuiltConflict(MergeAgent.FileConflict fileConflict, MergeAgent.NonTextMetadata metadata) {}
 
     /**
      * Collects staged blobs and contents for a single conflicting index path and builds a ConflictingFile with per-side
@@ -49,6 +55,9 @@ public final class ConflictInspector {
         private @Nullable ObjectId ourBlob;
         private @Nullable ObjectId theirBlob;
 
+        private @Nullable FileMode stage2Mode;
+        private @Nullable FileMode stage3Mode;
+
         ConflictingFileBuilder(IProject project, String indexPath) {
             this.project = project;
             this.indexPath = indexPath;
@@ -64,23 +73,27 @@ public final class ConflictInspector {
                     content == null ? 0 : content.length());
         }
 
-        void setStage2(@Nullable ObjectId blob, String content) {
+        void setStage2(@Nullable ObjectId blob, String content, @Nullable FileMode mode) {
             ourBlob = blob;
             ourContent = content;
+            stage2Mode = mode;
             logger.debug(
-                    "setStage2: indexPath={}, blob={}, contentLen={}",
+                    "setStage2: indexPath={}, blob={}, mode={}, contentLen={}",
                     indexPath,
                     blob == null ? "null" : blob.name(),
+                    mode == null ? "null" : mode.getBits(),
                     content.length());
         }
 
-        void setStage3(@Nullable ObjectId blob, String content) {
+        void setStage3(@Nullable ObjectId blob, String content, @Nullable FileMode mode) {
             theirBlob = blob;
             theirContent = content;
+            stage3Mode = mode;
             logger.debug(
-                    "setStage3: indexPath={}, blob={}, contentLen={}",
+                    "setStage3: indexPath={}, blob={}, mode={}, contentLen={}",
                     indexPath,
                     blob == null ? "null" : blob.name(),
+                    mode == null ? "null" : mode.getBits(),
                     content.length());
         }
 
@@ -88,7 +101,7 @@ public final class ConflictInspector {
          * Build a ConflictingFile by mapping the staged blobs to their historical paths in the provided commits. If a
          * mapping cannot be found, fall back to the index path.
          */
-        MergeAgent.FileConflict build(
+        BuiltConflict build(
                 @Nullable String baseCommitId,
                 String ourCommitId,
                 String otherCommitId,
@@ -156,14 +169,71 @@ public final class ConflictInspector {
 
             logger.debug("build: resolved paths -> ours={}, base={}, theirs={}", ourPath, basePath, theirPath);
 
+            // Directory vs file presence at indexPath in each side
+            boolean oursIsDir = hasPathPrefixInCommit(repository, ourCommitId, indexPath);
+            boolean theirsIsDir = hasPathPrefixInCommit(repository, otherCommitId, indexPath);
+            boolean oursHasFile = pathExistsInCommit(repository, ourCommitId, indexPath);
+            boolean theirsHasFile = pathExistsInCommit(repository, otherCommitId, indexPath);
+
+            // Exec bit via index file modes
+            boolean oursExec = stage2Mode != null && FileMode.EXECUTABLE_FILE.equals(stage2Mode);
+            boolean theirsExec = stage3Mode != null && FileMode.EXECUTABLE_FILE.equals(stage3Mode);
+
+            // Submodule via gitlink filemode
+            boolean oursGitlink = stage2Mode != null && FileMode.GITLINK.equals(stage2Mode);
+            boolean theirsGitlink = stage3Mode != null && FileMode.GITLINK.equals(stage3Mode);
+
+            // Binary detection
+            boolean oursBinary = ourContent != null && isBinary(ourContent);
+            boolean theirsBinary = theirContent != null && isBinary(theirContent);
+
+            // Heuristic classification
+            NonTextType type = NonTextType.NONE;
+
+            if (oursGitlink || theirsGitlink) {
+                type = NonTextType.SUBMODULE_CONFLICT;
+            } else if ((oursIsDir && theirsHasFile) || (theirsIsDir && oursHasFile)) {
+                type = NonTextType.FILE_DIRECTORY;
+            } else {
+                boolean ourRenamed = ourBlob != null && ourPath != null && !ourPath.equals(indexPath);
+                boolean theirRenamed = theirBlob != null && theirPath != null && !theirPath.equals(indexPath);
+
+                if (ourRenamed && theirRenamed && !ourPath.equals(theirPath)) {
+                    type = NonTextType.RENAME_RENAME;
+                } else if (ourRenamed || theirRenamed) {
+                    type = NonTextType.RENAME_MODIFY;
+                } else if ((ourBlob == null && !oursHasFile) || (theirBlob == null && !theirsHasFile)) {
+                    type = NonTextType.DELETE_MODIFY;
+                } else if (baseBlob == null && ourContent != null && theirContent != null && (oursBinary || theirsBinary)) {
+                    type = NonTextType.ADD_ADD_BINARY;
+                } else {
+                    boolean sameContent = (ourBlob != null && ourBlob.equals(theirBlob))
+                            || (ourContent != null && ourContent.equals(theirContent));
+                    if (sameContent && (oursExec != theirsExec)) {
+                        type = NonTextType.MODE_BIT;
+                    }
+                }
+            }
+
             // Ensure ProjectFile objects exist for each side using the resolved repo path.
-            // Note: content may be null to represent deletes/adds, but tests expect a non-null ProjectFile
-            // reflecting the index path (or resolved historical path).
             var ourFile = toProjectFile(ourPath);
             var theirFile = toProjectFile(theirPath);
             var baseFile = basePath == null ? null : toProjectFile(basePath);
 
-            return new MergeAgent.FileConflict(ourFile, ourContent, theirFile, theirContent, baseFile, baseContent);
+            var cf = new MergeAgent.FileConflict(ourFile, ourContent, theirFile, theirContent, baseFile, baseContent);
+            var meta = new MergeAgent.NonTextMetadata(
+                    type,
+                    indexPath,
+                    ourPath,
+                    theirPath,
+                    oursIsDir,
+                    theirsIsDir,
+                    oursBinary,
+                    theirsBinary,
+                    oursExec,
+                    theirsExec);
+
+            return new BuiltConflict(cf, meta);
         }
 
         private ProjectFile toProjectFile(String repoPath) {
@@ -276,8 +346,8 @@ public final class ConflictInspector {
 
             switch (entry.getStage()) {
                 case 1 -> builder.setStage1(entry.getObjectId(), content);
-                case 2 -> builder.setStage2(entry.getObjectId(), content);
-                case 3 -> builder.setStage3(entry.getObjectId(), content);
+                case 2 -> builder.setStage2(entry.getObjectId(), content, entry.getFileMode());
+                case 3 -> builder.setStage3(entry.getObjectId(), content, entry.getFileMode());
                 default -> {
                     /* ignore unknown stage */
                 }
@@ -296,8 +366,11 @@ public final class ConflictInspector {
         }
 
         var files = new LinkedHashSet<MergeAgent.FileConflict>();
+        var nonText = new LinkedHashMap<MergeAgent.FileConflict, MergeAgent.NonTextMetadata>();
         for (var b : byIndexPath.values()) {
-            files.add(b.build(baseCommitId, ourCommitId, effectiveOtherCommitId, stage0Paths, byIndexPath.keySet()));
+            var built = b.build(baseCommitId, ourCommitId, effectiveOtherCommitId, stage0Paths, byIndexPath.keySet());
+            files.add(built.fileConflict());
+            nonText.put(built.fileConflict(), built.metadata());
         }
 
         for (var f : files) {
@@ -312,7 +385,7 @@ public final class ConflictInspector {
         }
 
         return new MergeAgent.MergeConflict(
-                state, ourCommitId, effectiveOtherCommitId, baseCommitId, Set.copyOf(files));
+                state, ourCommitId, effectiveOtherCommitId, baseCommitId, Set.copyOf(files), Map.copyOf(nonText));
     }
 
     private static String readSingleHead(Path headPath, MergeAgent.MergeMode state) {
@@ -369,6 +442,40 @@ public final class ConflictInspector {
         } catch (IOException e) {
             throw new RuntimeException("Failed to check path in commit: " + path + " @ " + commitId, e);
         }
+    }
+
+    /**
+     * Return true if the commit contains any path under the given prefix (path + "/").
+     */
+    private static boolean hasPathPrefixInCommit(Repository repository, String commitId, String pathPrefix) {
+        var prefix = pathPrefix.endsWith("/") ? pathPrefix : pathPrefix + "/";
+        try (var walk = new RevWalk(repository)) {
+            var oid = ObjectId.fromString(commitId);
+            RevCommit commit = walk.parseCommit(oid);
+            try (var tw = new TreeWalk(repository)) {
+                tw.addTree(commit.getTree());
+                tw.setRecursive(true);
+                while (tw.next()) {
+                    if (tw.getPathString().startsWith(prefix)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to check path prefix in commit: " + pathPrefix + " @ " + commitId, e);
+        }
+    }
+
+    /**
+     * Heuristic binary detection: presence of NUL within the first few KB.
+     */
+    private static boolean isBinary(String content) {
+        int limit = Math.min(content.length(), 8192);
+        for (int i = 0; i < limit; i++) {
+            if (content.charAt(i) == '\0') return true;
+        }
+        return false;
     }
 
     /**

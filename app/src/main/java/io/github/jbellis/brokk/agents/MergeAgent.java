@@ -452,6 +452,21 @@ public class MergeAgent {
     }
 
     /**
+     * Metadata describing non-textual aspects of a conflict detected from the git index and trees.
+     */
+    public record NonTextMetadata(
+            NonTextType type,
+            @Nullable String indexPath,
+            @Nullable String ourPath,
+            @Nullable String theirPath,
+            boolean oursIsDirectory,
+            boolean theirsIsDirectory,
+            boolean oursBinary,
+            boolean theirsBinary,
+            boolean oursExecBit,
+            boolean theirsExecBit) {}
+
+    /**
      * baseCommitId may ay be null if no merge base can be determined (e.g. unrelated histories, shallow clone, root
      * commit with no parent, or cherry-pick/rebase target where first parent is undefined).
      */
@@ -460,7 +475,8 @@ public class MergeAgent {
             String ourCommitId,
             String otherCommitId,
             @Nullable String baseCommitId,
-            Set<FileConflict> files) {}
+            Set<FileConflict> files,
+            Map<FileConflict, NonTextMetadata> nonText) {}
 
     /**
      * Represents a single path's merge conflict.
