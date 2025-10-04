@@ -95,7 +95,7 @@ public final class HeadlessConsole implements IConsoleIO {
     }
 
     @Override
-    public BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config) {
+    public BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config, Runnable cancelCallback) {
         return new BlitzForgeProgressHeadless(this);
     }
 }
