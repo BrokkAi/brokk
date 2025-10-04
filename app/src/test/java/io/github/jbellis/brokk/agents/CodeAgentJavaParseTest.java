@@ -33,7 +33,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "", // lastBuildError
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
-                List.of() // javaLintDiagnostics
+                new HashMap<>() // javaLintDiagnostics
         );
         var step = codeAgent.parseJavaPhase(cs, es, null);
         return new JavaParseResult(javaFile, step);
@@ -190,7 +190,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         contextManager.addEditableFile(f2);
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), List.of());
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>());
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
@@ -198,8 +198,9 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         var cont = (CodeAgent.Step.Continue) result;
         var diags = cont.es().javaLintDiagnostics();
         assertFalse(diags.isEmpty(), "Diagnostics should be present");
-        assertTrue(diags.stream().anyMatch(s -> s.contains("Bad1.java")), "Diagnostics should include Bad1.java");
-        assertTrue(diags.stream().anyMatch(s -> s.contains("Bad2.java")), "Diagnostics should include Bad2.java");
+        // Ensure diagnostics map contains entries for the files we created
+        assertTrue(diags.containsKey(f1), "Diagnostics should include Bad1.java entry");
+        assertTrue(diags.containsKey(f2), "Diagnostics should include Bad2.java entry");
         assertEquals(1, cont.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
     }
 

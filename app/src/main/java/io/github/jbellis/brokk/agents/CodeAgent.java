@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -124,7 +125,7 @@ public class CodeAgent {
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
         var es = new EditState(
-                blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents, Collections.emptyList());
+                blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents, Collections.emptyMap());
 
         while (true) {
             if (Thread.interrupted()) {
@@ -242,6 +243,8 @@ public class CodeAgent {
                 stopDetails = fatalJava.stopDetails();
                 break;
             }
+            cs = parseJavaOutcome.cs();
+            es = parseJavaOutcome.es();
 
             // VERIFY or finish if build is deferred
             assert es.pendingBlocks().isEmpty() : es;
@@ -318,7 +321,7 @@ public class CodeAgent {
                 contextManager, instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyList());
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap());
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
                 .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
@@ -710,34 +713,38 @@ public class CodeAgent {
         if (buildError.isEmpty()) {
             // Build succeeded or was skipped by performBuildVerification
             if (!es.javaLintDiagnostics().isEmpty()) {
-                // Write a markdown file in the system temp dir to capture pre-lint findings and sources.
+                // Write one markdown file per source file to capture pre-lint findings and sources.
                 try {
                     var tmp = System.getProperty("java.io.tmpdir");
                     var dir = Path.of(tmp, "brokk");
                     Files.createDirectories(dir);
-                    var unique = System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
-                    var fileName = "badlint-" + unique + ".md";
-                    var out = dir.resolve(fileName);
 
-                    var sb = new StringBuilder();
-                    sb.append("# False Positive\n\n");
-                    sb.append(String.join("\n", es.javaLintDiagnostics()));
-                    sb.append("\n\n# Source\n\n```\n");
+                    for (var entry : es.javaLintDiagnostics().entrySet()) {
+                        ProjectFile pf = entry.getKey();
+                        String diagsString = entry.getValue();
 
-                    // Include the current source of changed files (sorted for determinism)
-                    var sortedFiles = es.changedFiles().stream()
-                            .sorted(Comparator.comparing(ProjectFile::toString))
-                            .toList();
-                    for (var pf : sortedFiles) {
-                        sb.append("// ").append(pf).append("\n");
-                        sb.append(pf.read().orElse("")).append("\n\n");
+                        var unique = System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
+                        var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
+                        var out = dir.resolve(fileName);
+
+                        var markdownContent = """
+                                # False Positive for %s
+
+                                %s
+
+                                # Source
+
+                                ```java
+                                %s
+                                ```
+                                """
+                                .formatted(pf.getFileName(), diagsString, pf.read().orElse(""));
+
+                        Files.writeString(out, markdownContent);
+                        logger.info("Wrote pre-lint findings for {} to {}", pf.getFileName(), out.toString());
                     }
-                    sb.append("```\n");
-
-                    Files.writeString(out, sb.toString());
-                    logger.info("Wrote pre-lint findings to {}", out.toString());
                 } catch (IOException e) {
-                    logger.warn("Failed to write pre-lint diagnostics file", e);
+                    logger.warn("Failed to write pre-lint diagnostics file(s)", e);
                 }
             }
             logger.debug("Build verification succeeded");
@@ -881,7 +888,9 @@ public class CodeAgent {
 
         // Use Eclipse JDT ASTParser without classpath/bindings
         var projectRoot = contextManager.getProject().getRoot();
-        var allProblems = new ArrayList<String>();
+
+        // Map from ProjectFile -> aggregated diagnostic string for that file
+        var perFileProblems = new ConcurrentHashMap<ProjectFile, String>();
 
         // Whitelist of local-only errors we want to surface even when categorized as type problems.
         // These do not depend on external type resolution / classpath.
@@ -917,6 +926,7 @@ public class CodeAgent {
 
             CompilationUnit cu = (CompilationUnit) parser.createAST(null);
 
+            var localProblems = new ArrayList<String>();
             for (IProblem prob : cu.getProblems()) {
                 if (!prob.isError()) {
                     continue;
@@ -940,12 +950,16 @@ public class CodeAgent {
                 }
 
                 var summary = formatJdtProblem(absPath, cu, prob);
-                allProblems.add(summary);
+                localProblems.add(summary);
+            }
+
+            if (!localProblems.isEmpty()) {
+                perFileProblems.put(file, String.join("\n", localProblems));
             }
         });
 
-        // Save diagnostics and continue (non-blocking pre-lint)
-        var nextEs = es.withJavaLintDiagnostics(allProblems);
+        // Save diagnostics per-file and continue (non-blocking pre-lint)
+        var nextEs = es.withJavaLintDiagnostics(perFileProblems);
         return new Step.Continue(cs, nextEs);
     }
 
@@ -1050,7 +1064,7 @@ public class CodeAgent {
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
-            List<String> javaLintDiagnostics) {
+            Map<ProjectFile, String> javaLintDiagnostics) {
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
@@ -1100,7 +1114,7 @@ public class CodeAgent {
                     javaLintDiagnostics);
         }
 
-        EditState withJavaLintDiagnostics(List<String> diags) {
+        EditState withJavaLintDiagnostics(Map<ProjectFile, String> diags) {
             return new EditState(
                     pendingBlocks,
                     consecutiveParseFailures,
