@@ -226,19 +226,36 @@ public final class BlitzForge {
         }
 
         // Aggregate results
-        var changedFiles = results.stream().filter(FileResult::edited).map(FileResult::file).collect(Collectors.toSet());
+        var changedFiles =
+                results.stream().filter(FileResult::edited).map(FileResult::file).collect(Collectors.toSet());
 
-        var outputText = results.stream()
+        // Build output according to the configured ParallelOutputMode
+        var outputStream = results.stream()
                 .filter(r -> !r.llmOutput().isBlank())
+                .filter(r -> switch (config.outputMode()) {
+                    case NONE -> false;
+                    case CHANGED -> r.edited();
+                    case ALL -> true;
+                });
+
+        var outputText = outputStream
                 .map(r -> "## " + r.file() + "\n" + r.llmOutput() + "\n\n")
                 .collect(Collectors.joining());
 
-        List<ChatMessage> uiMessages = outputText.isBlank()
-                ? List.of()
-                : List.of(
-                        new UserMessage(config.instructions()),
-                        CodePrompts.redactAiMessage(new AiMessage(outputText), EditBlockParser.instance)
-                                .orElse(new AiMessage("")));
+        // For MERGE action, avoid injecting an extra UserMessage with instructions; only include AI output if any.
+        List<ChatMessage> uiMessages;
+        if (outputText.isBlank()) {
+            uiMessages = List.of();
+        } else if (config.action() == Action.MERGE) {
+            uiMessages = List.of(
+                    CodePrompts.redactAiMessage(new AiMessage(outputText), EditBlockParser.instance)
+                            .orElse(new AiMessage("")));
+        } else {
+            uiMessages = List.of(
+                    new UserMessage(config.instructions()),
+                    CodePrompts.redactAiMessage(new AiMessage(outputText), EditBlockParser.instance)
+                            .orElse(new AiMessage("")));
+        }
 
         List<String> failures = results.stream()
                 .filter(r -> r.errorMessage() != null)
