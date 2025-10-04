@@ -239,17 +239,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         if (an.isEmpty()) {
                             capabilities = new AnalyzerCapabilities(false, false);
                         } else {
-                            var hasUsages = an.as(UsagesProvider.class).isPresent();
                             var hasSource = an.as(SourceCodeProvider.class).isPresent();
-                            capabilities = new AnalyzerCapabilities(hasUsages, hasSource);
+                            capabilities = new AnalyzerCapabilities(true, hasSource);
                         }
                         capabilityMap.put(language, capabilities);
                     });
                 } else {
                     cm.getProject().getAnalyzerLanguages().stream().findFirst().ifPresent(language -> {
-                        var hasUsages = analyzer.as(UsagesProvider.class).isPresent();
                         var hasSource = analyzer.as(SourceCodeProvider.class).isPresent();
-                        capabilityMap.put(language, new AnalyzerCapabilities(hasUsages, hasSource));
+                        capabilityMap.put(language, new AnalyzerCapabilities(true, hasSource));
                     });
                 }
                 return capabilityMap;

@@ -23,8 +23,7 @@ import org.slf4j.LoggerFactory;
  * @see io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer
  * @see JdtClient
  */
-public class JavaAnalyzer extends JavaTreeSitterAnalyzer
-        implements CanCommunicate, CallGraphProvider, UsagesProvider, LintingProvider {
+public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements CanCommunicate, CallGraphProvider, LintingProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(JavaAnalyzer.class);
     private final CompletableFuture<JdtClient> jdtClientFuture;
@@ -95,14 +94,6 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
         } catch (Exception e) {
             throw new RuntimeException("Failed waiting for JDT Language Server client.", e);
         }
-    }
-
-    @Override
-    public List<CodeUnit> getUses(String fqName) {
-        return safeBlockingLspOperation(
-                client -> client.getUses(fqName),
-                Collections.emptyList(),
-                "Unable to determine symbol usages due to error in language server!");
     }
 
     @Override
