@@ -86,14 +86,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
-    public void runTests(Set<ProjectFile> testFiles) {
+    public void runTests(@org.jetbrains.annotations.Nullable Set<ProjectFile> testFiles) {
+        var io = getIo();
+
+        // Validate selection
+        if (testFiles == null || testFiles.isEmpty()) {
+            io.toolError("No test files specified to run.");
+            return;
+        }
+
+        // Ensure selection only contains test files; do not partially run to avoid confusion
+        if (!testFiles.stream().allMatch(ContextManager::isTestFile)) {
+            io.toolError("Run Tests: selection includes non-test files.");
+            return;
+        }
+
+        // Analyzer readiness (consistent UX with other call sites)
+        if (!getAnalyzerWrapper().isReady()) {
+            io.systemNotify(
+                    AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                    AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
         String cmd = BuildAgent.getBuildLintSomeCommand(this, getProject().loadBuildDetails(), testFiles);
         if (cmd.isEmpty()) {
             getIo().toolError("Run Tests: build commands are unknown; run Build Setup first");
             return;
         }
-
-        var io = getIo();
 
         // If we have a Chrome UI, clear/open the Tests tab and show a header
         if (io instanceof Chrome chrome) {
