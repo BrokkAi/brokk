@@ -715,20 +715,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.addSeparator();
         toolBar.add(Box.createHorizontalStrut(10));
 
-        // Only show unified view toggle if dev mode is enabled
-        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-        if (isDevMode) {
-            toolBar.add(viewModeToggle);
-            toolBar.add(Box.createHorizontalStrut(10));
-        }
+        // Add view mode toggle
+        toolBar.add(viewModeToggle);
+        toolBar.add(Box.createHorizontalStrut(10));
 
         // Add view mode controls
         toolBar.add(showBlankLineDiffsCheckBox);
         toolBar.add(Box.createHorizontalStrut(5));
-        // showAllLinesCheckBox is only for unified view, which is dev-mode only
-        if (isDevMode) {
-            toolBar.add(showAllLinesCheckBox);
-        }
+        toolBar.add(showAllLinesCheckBox);
 
         // Update control enable/disable state based on view mode
         updateToolbarForViewMode();
