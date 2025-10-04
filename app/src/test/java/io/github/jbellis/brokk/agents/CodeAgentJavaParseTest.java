@@ -59,26 +59,6 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         assertTrue(res.step().es().changedFiles().contains(res.file()), "Changed files should still include the Java file");
     }
 
-    // PJ-1b: parseJavaPhase stores diagnostics for undefined variable errors and continues
-    @Test
-    void testParseJavaPhase_withUndefinedVariable_storesDiagnostics_andContinues() throws IOException {
-        var src = """
-                class Undeclared {
-                  void m() {
-                    x = 42;
-                  }
-                }
-                """;
-        var res = runParseJava("Undeclared.java", src);
-
-        var diagMap = res.step().es().javaLintDiagnostics();
-        assertFalse(diagMap.isEmpty(), "Expected identifier diagnostics to be captured");
-        var diags = requireNonNull(diagMap.get(res.file()), "Expected entry for the edited file");
-        assertTrue(
-                diags.stream().anyMatch(d -> d.problemId() == IProblem.UndefinedName),
-                diags.toString());
-    }
-
     // PJ-2: parseJavaPhase continues on clean parse (no syntax errors), diagnostics empty
     @Test
     void testParseJavaPhase_cleanParse_continues_andDiagnosticsEmpty() throws IOException {

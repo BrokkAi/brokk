@@ -939,10 +939,6 @@ public class CodeAgent {
                 }
                 int id = prob.getID();
 
-                // Normalize UnresolvedVariable -> UndefinedName to make diagnostics stable for tests/consumers
-                int normalizedId = (id == IProblem.UnresolvedVariable) ? IProblem.UndefinedName : id;
-
-                // Ignore import-category issues outright
                 @Nullable Integer catId = null;
                 if (prob instanceof CategorizedProblem cp) {
                     catId = cp.getCategoryID();
@@ -950,32 +946,22 @@ public class CodeAgent {
                         continue;
                     }
                     // Ignore general TYPE issues unless whitelisted as local-only
-                    if (catId == CategorizedProblem.CAT_TYPE && !localOnlyIds.contains(normalizedId)) {
+                    if (catId == CategorizedProblem.CAT_TYPE && !localOnlyIds.contains(id)) {
                         continue;
                     }
                 }
 
                 // Always ignore unresolved methods/fields (classpath-related)
-                if (normalizedId == IProblem.UndefinedMethod || normalizedId == IProblem.UndefinedField) {
+                if (id == IProblem.UndefinedMethod || id == IProblem.UndefinedField) {
+                    continue;
+                }
+                // There doesn't seem to be a "flag local problems only" subset of these either
+                if (id == IProblem.UndefinedName || id == IProblem.UnresolvedVariable) {
                     continue;
                 }
 
-                // Ignore missing types used purely as a qualifier, e.g., MissingType.SOMETHING
-                // We detect this by checking if the unresolved token is immediately followed by a '.'
-                if (normalizedId == IProblem.UndefinedName) {
-                    int next = prob.getSourceEnd() + 1;
-                    while (next < sourceChars.length && Character.isWhitespace(sourceChars[next])) {
-                        next++;
-                    }
-                    if (next < sourceChars.length && sourceChars[next] == '.') {
-                        // Treat as external/missing type used as qualifier; ignore
-                        continue;
-                    }
-                }
-
-                // No string-based heuristics; capture what remains.
                 var description = formatJdtProblem(absPath, cu, prob);
-                diags.add(new JavaDiagnostic(normalizedId, catId, description));
+                diags.add(new JavaDiagnostic(id, catId, description));
             }
 
             if (!diags.isEmpty()) {
