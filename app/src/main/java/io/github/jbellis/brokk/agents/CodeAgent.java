@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -709,7 +710,35 @@ public class CodeAgent {
         if (buildError.isEmpty()) {
             // Build succeeded or was skipped by performBuildVerification
             if (!es.javaLintDiagnostics().isEmpty()) {
-                logger.error("Build succeeded but Java pre-lint detected issues:\n" + String.join("\n", es.javaLintDiagnostics()));
+                // Write a markdown file in the system temp dir to capture pre-lint findings and sources.
+                try {
+                    var tmp = System.getProperty("java.io.tmpdir");
+                    var dir = Path.of(tmp, "brokk");
+                    Files.createDirectories(dir);
+                    var unique = System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
+                    var fileName = "badlint-" + unique + ".md";
+                    var out = dir.resolve(fileName);
+
+                    var sb = new StringBuilder();
+                    sb.append("# False Positive\n\n");
+                    sb.append(String.join("\n", es.javaLintDiagnostics()));
+                    sb.append("\n\n# Source\n\n```\n");
+
+                    // Include the current source of changed files (sorted for determinism)
+                    var sortedFiles = es.changedFiles().stream()
+                            .sorted(Comparator.comparing(ProjectFile::toString))
+                            .toList();
+                    for (var pf : sortedFiles) {
+                        sb.append("// ").append(pf).append("\n");
+                        sb.append(pf.read().orElse("")).append("\n\n");
+                    }
+                    sb.append("```\n");
+
+                    Files.writeString(out, sb.toString());
+                    logger.info("Wrote pre-lint findings to {}", out.toString());
+                } catch (IOException e) {
+                    logger.warn("Failed to write pre-lint diagnostics file", e);
+                }
             }
             logger.debug("Build verification succeeded");
             reportComplete("Success!");
@@ -1071,18 +1100,6 @@ public class CodeAgent {
                     javaLintDiagnostics);
         }
 
-        /**
-         * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
-         * contents captured at the start of the turn. For files that were created in this turn (no original content),
-         * generate a "new file" block (empty before / full after).
-         *
-         * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
-         * history compaction without depending on the diff library package structure at compile time.
-         */
-        @VisibleForTesting
-        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
-        }
-
         EditState withJavaLintDiagnostics(List<String> diags) {
             return new EditState(
                     pendingBlocks,
@@ -1093,13 +1110,19 @@ public class CodeAgent {
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
-                    diags == null ? List.of() : diags);
+                    diags);
         }
 
+        /**
+         * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
+         * contents captured at the start of the turn. For files that were created in this turn (no original content),
+         * generate a "new file" block (empty before / full after).
+         *
+         * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
+         * history compaction without depending on the diff library package structure at compile time.
+         */
         @VisibleForTesting
-        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocksOld() { // placeholder to maintain structure if needed
-            return toSearchReplaceBlocks();
-        }
+        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
             var results = new ArrayList<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
 
