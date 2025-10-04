@@ -23,7 +23,7 @@ public class ServiceWrapper {
         try {
             return currentFuture.get();
         } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
+            throw new ServiceInitializationException(e);
         }
     }
 
@@ -43,5 +43,11 @@ public class ServiceWrapper {
 
     public StreamingChatModel quickestModel() {
         return get().quickestModel();
+    }
+
+    public static class ServiceInitializationException extends RuntimeException {
+        public ServiceInitializationException(Exception e) {
+            super(e);
+        }
     }
 }

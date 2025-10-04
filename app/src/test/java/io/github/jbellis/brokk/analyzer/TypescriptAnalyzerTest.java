@@ -760,7 +760,7 @@ public class TypescriptAnalyzerTest {
         var analyzer = new TypescriptAnalyzer(project);
 
         // Find both Point interfaces from different files
-        List<CodeUnit> allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
+        var allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
                 .flatMap(List::stream)
                 .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
                 .toList();

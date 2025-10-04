@@ -20,8 +20,7 @@ public final class JavascriptAnalyzerTest {
     private static ProjectFile varsJsFile;
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
-    static TestProject createTestProject(
-            String subDir, io.github.jbellis.brokk.analyzer.Language lang) { // Use Brokk's Language enum
+    static TestProject createTestProject(String subDir, Language lang) { // Use Brokk's Language enum
         Path testDir = Path.of("src/test/resources", subDir);
         assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
         assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");

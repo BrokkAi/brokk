@@ -112,6 +112,39 @@ public class ThemeColors {
 
         LIGHT_COLORS.put("chevron_normal", new Color(80, 80, 80)); // Darker gray for light theme (more visible)
         LIGHT_COLORS.put("chevron_hover", new Color(40, 40, 40)); // Very dark gray for light theme
+
+        // Notification colors (bg/fg/border) by role
+        // Error
+        DARK_COLORS.put("notif_error_bg", new Color(0x3B1E20));
+        DARK_COLORS.put("notif_error_fg", new Color(0xFFB4B4));
+        DARK_COLORS.put("notif_error_border", Color.decode("#B71C1C"));
+        LIGHT_COLORS.put("notif_error_bg", new Color(0xFFEBEE));
+        LIGHT_COLORS.put("notif_error_fg", Color.decode("#B71C1C"));
+        LIGHT_COLORS.put("notif_error_border", new Color(0xEF9A9A));
+
+        // Confirm/Success
+        DARK_COLORS.put("notif_confirm_bg", new Color(0x1E3323));
+        DARK_COLORS.put("notif_confirm_fg", new Color(0xC3E8C8));
+        DARK_COLORS.put("notif_confirm_border", Color.decode("#2E7D32"));
+        LIGHT_COLORS.put("notif_confirm_bg", new Color(0xE8F5E9));
+        LIGHT_COLORS.put("notif_confirm_fg", Color.decode("#1B5E20"));
+        LIGHT_COLORS.put("notif_confirm_border", new Color(0xA5D6A7));
+
+        // Cost/Info-Primary
+        DARK_COLORS.put("notif_cost_bg", new Color(0x1B2A3A));
+        DARK_COLORS.put("notif_cost_fg", new Color(0xB7D8FF));
+        DARK_COLORS.put("notif_cost_border", Color.decode("#007ACC"));
+        LIGHT_COLORS.put("notif_cost_bg", new Color(0xE3F2FD));
+        LIGHT_COLORS.put("notif_cost_fg", Color.decode("#0D47A1"));
+        LIGHT_COLORS.put("notif_cost_border", new Color(0x90CAF9));
+
+        // Info/Warning
+        DARK_COLORS.put("notif_info_bg", new Color(0x332B1E));
+        DARK_COLORS.put("notif_info_fg", new Color(0xFFD79A));
+        DARK_COLORS.put("notif_info_border", Color.decode("#FF9800"));
+        LIGHT_COLORS.put("notif_info_bg", new Color(0xFFF3E0));
+        LIGHT_COLORS.put("notif_info_fg", Color.decode("#E65100"));
+        LIGHT_COLORS.put("notif_info_border", new Color(0xFFCC80));
     }
 
     /**

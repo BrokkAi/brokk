@@ -11,6 +11,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
+import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -20,6 +22,7 @@ import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.awt.*;
@@ -59,6 +62,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JLabel loadingLabel = createLoadingLabel();
     private final GuiTheme theme;
     private final JCheckBox showBlankLineDiffsCheckBox = new JCheckBox("Show blank-lines");
+    private final JCheckBox showAllLinesCheckBox = new JCheckBox("Show all lines");
+    private final JToggleButton viewModeToggle = new JToggleButton("Unified View");
+
+    // Global preferences loaded from GlobalUiSettings
+    private boolean globalShowAllLinesInUnified = GlobalUiSettings.isDiffShowAllLines();
+
+    // Toolbar for UI controls
+    @Nullable
+    private JToolBar toolBar;
 
     // All file comparisons with lazy loading cache
     final List<FileComparisonInfo> fileComparisons;
@@ -69,8 +81,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
     private static final int MAX_CACHED_PANELS = PerformanceConstants.MAX_CACHED_DIFF_PANELS;
-    private final SlidingWindowCache<Integer, BufferDiffPanel> panelCache =
+    private final SlidingWindowCache<Integer, IDiffPanel> panelCache =
             new SlidingWindowCache<>(MAX_CACHED_PANELS, WINDOW_SIZE);
+
+    // View mode state loaded from GlobalUiSettings
+    private boolean isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
 
     /**
      * Inner class to hold a single file comparison metadata Note: No longer holds the diffPanel directly - that's
@@ -81,12 +96,22 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         final BufferSource rightSource;
 
         @Nullable
-        BufferDiffPanel diffPanel;
+        BufferDiffPanel sideBySidePanel; // Side-by-side view panel
+
+        @Nullable
+        UnifiedDiffPanel unifiedPanel; // Unified view panel
 
         FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
             this.leftSource = leftSource;
             this.rightSource = rightSource;
-            this.diffPanel = null; // Initialize @Nullable field
+            this.sideBySidePanel = null; // Initialize @Nullable fields
+            this.unifiedPanel = null;
+        }
+
+        // Legacy method to maintain compatibility
+        @Nullable
+        BufferDiffPanel getDiffPanel() {
+            return sideBySidePanel;
         }
 
         String getDisplayName() {
@@ -119,7 +144,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
         assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
-        this.bufferDiffPanel = null; // Initialize @Nullable field
+        this.currentDiffPanel = null; // Initialize @Nullable field
 
         // Make the container focusable, so it can handle key events
         setFocusable(true);
@@ -167,11 +192,40 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             public void ancestorRemoved(AncestorEvent event) {}
         });
 
-        showBlankLineDiffsCheckBox.setSelected(!JMDiffNode.isIgnoreBlankLineDiffs());
+        showBlankLineDiffsCheckBox.setSelected(GlobalUiSettings.isDiffShowBlankLines());
+        JMDiffNode.setIgnoreBlankLineDiffs(!GlobalUiSettings.isDiffShowBlankLines());
         showBlankLineDiffsCheckBox.addActionListener(e -> {
             boolean show = showBlankLineDiffsCheckBox.isSelected();
+            GlobalUiSettings.saveDiffShowBlankLines(show);
             JMDiffNode.setIgnoreBlankLineDiffs(!show);
             refreshAllDiffPanels();
+        });
+
+        // Set up context mode toggle for unified view
+        showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
+        showAllLinesCheckBox.addActionListener(e -> {
+            boolean showAll = showAllLinesCheckBox.isSelected();
+            globalShowAllLinesInUnified = showAll;
+            GlobalUiSettings.saveDiffShowAllLines(showAll);
+            var targetMode = showAll
+                    ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
+                    : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
+
+            // Apply to the current panel if it's a unified panel
+            // (The checkbox should only be visible in unified view mode)
+            if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
+                unifiedPanel.setContextMode(targetMode);
+            }
+        });
+
+        // Set up view mode toggle with icons
+        viewModeToggle.setSelected(isUnifiedView); // Load from global preference
+        viewModeToggle.setIcon(Icons.VIEW_UNIFIED); // Show unified icon when in side-by-side mode
+        viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE); // Show side-by-side icon when in unified mode
+        viewModeToggle.setText(null); // Remove text, use icon only
+        viewModeToggle.setToolTipText("Toggle Unified View");
+        viewModeToggle.addActionListener(e -> {
+            switchViewMode(viewModeToggle.isSelected());
         });
 
         revalidate();
@@ -275,9 +329,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 // Only perform layout reset if needed after navigation
                 if (needsLayoutReset) {
                     needsLayoutReset = false; // Clear flag
-                    var currentPanel = getBufferDiffPanel();
-                    if (currentPanel != null) {
-                        resetLayoutHierarchy(currentPanel);
+                    // Use currentDiffPanel directly instead of getBufferDiffPanel() to support unified panels
+                    if (currentDiffPanel != null) {
+                        resetLayoutHierarchy(currentDiffPanel);
                     }
                 }
             }
@@ -291,33 +345,50 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnUndo = new MaterialButton(); // Initialize to prevent NullAway issues
     private final MaterialButton btnRedo = new MaterialButton();
     private final MaterialButton btnSaveAll = new MaterialButton();
-
-    // Components for undo/redo/save group that need to be hidden together
-    private @Nullable Component undoRedoGroupSeparator;
-    private @Nullable Component undoRedoGroupStrutBefore;
-    private @Nullable Component undoRedoGroupStrutAfter1;
-    private @Nullable Component undoRedoGroupStrutAfter2;
-    private @Nullable Component undoRedoGroupStrutAfter3;
     private final MaterialButton captureDiffButton = new MaterialButton();
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
     private final MaterialButton btnNextFile = new MaterialButton();
-    private final JLabel fileIndicatorLabel = new JLabel(""); // Initialize
 
     // Flag to track when layout hierarchy needs reset after navigation
     private volatile boolean needsLayoutReset = false;
 
     @Nullable
-    private BufferDiffPanel bufferDiffPanel;
+    private IDiffPanel currentDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
-        this.bufferDiffPanel = bufferDiffPanel;
+        // Don't allow BufferDiffPanel to override currentDiffPanel when in unified view mode
+        if (bufferDiffPanel != null && isUnifiedView) {
+            return;
+        }
+
+        this.currentDiffPanel = bufferDiffPanel;
     }
 
     @Nullable
     private BufferDiffPanel getBufferDiffPanel() {
-        return bufferDiffPanel;
+        return currentDiffPanel instanceof BufferDiffPanel ? (BufferDiffPanel) currentDiffPanel : null;
+    }
+
+    @Nullable
+    private UnifiedDiffPanel getUnifiedDiffPanel() {
+        return currentDiffPanel instanceof UnifiedDiffPanel ? (UnifiedDiffPanel) currentDiffPanel : null;
+    }
+
+    /** Get content string from BufferSource, handling both FileSource and StringSource. */
+    private static String getContentFromSource(BufferSource source) throws Exception {
+        if (source instanceof BufferSource.StringSource stringSource) {
+            return stringSource.content();
+        } else if (source instanceof BufferSource.FileSource fileSource) {
+            var file = fileSource.file();
+            if (!file.exists() || !file.isFile()) {
+                return "";
+            }
+            return java.nio.file.Files.readString(file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+        } else {
+            throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
+        }
     }
 
     public void nextFile() {
@@ -386,7 +457,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         updateNavigationButtons();
 
         // Log memory and window status
-        logger.debug("Window after switch: {}", panelCache.getWindowInfo());
         logMemoryUsage();
     }
 
@@ -396,6 +466,35 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         btnPreviousFile.setEnabled(canNavigateToPreviousFile());
         btnNextFile.setEnabled(canNavigateToNextFile());
+    }
+
+    /**
+     * Update toolbar to show appropriate control based on current view mode. Shows whitespace checkbox for side-by-side
+     * view, context checkbox for unified view.
+     */
+    private void updateToolbarForViewMode() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        if (toolBar == null) {
+            logger.warn("Toolbar not initialized, cannot update controls");
+            return;
+        }
+
+        // Show/hide controls based on current view mode
+        if (isUnifiedView) {
+            // In unified view: show context mode checkbox, hide blank lines checkbox
+            showAllLinesCheckBox.setVisible(true);
+            showBlankLineDiffsCheckBox.setVisible(false);
+            // Ensure checkbox state matches global preference
+            showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
+        } else {
+            // In side-by-side view: show blank lines checkbox, hide context mode checkbox
+            showBlankLineDiffsCheckBox.setVisible(true);
+            showAllLinesCheckBox.setVisible(false);
+        }
+
+        toolBar.revalidate();
+        toolBar.repaint();
     }
 
     /**
@@ -462,15 +561,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Capture diff button should always remain enabled
 
-        logger.debug("All control buttons disabled during file loading");
     }
 
     private JToolBar createToolbar() {
         // Create toolbar
-        var toolBar = new JToolBar();
-
-        // Buttons are already initialized as fields
-        fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
+        toolBar = new JToolBar();
 
         // Configure button icons and tooltips
         btnNext.setIcon(Icons.NAVIGATE_NEXT);
@@ -505,26 +600,50 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
         captureDiffButton.setToolTipText("Capture Diff");
         captureDiffButton.addActionListener(e -> {
+            String leftContent;
+            String rightContent;
+            BufferSource currentLeftSource;
+            BufferSource currentRightSource;
+
+            // Handle both unified and side-by-side modes
             var bufferPanel = getBufferDiffPanel();
-            if (bufferPanel == null) {
-                logger.warn("Capture diff called but bufferPanel is null");
+            var unifiedPanel = getUnifiedDiffPanel();
+
+            if (bufferPanel != null) {
+                // Side-by-side mode
+                var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                if (leftPanel == null || rightPanel == null) {
+                    logger.warn("Capture diff called but left or right panel is null");
+                    return;
+                }
+                leftContent = leftPanel.getEditor().getText();
+                rightContent = rightPanel.getEditor().getText();
+
+                // Get the current file comparison sources
+                var currentComparison = fileComparisons.get(currentFileIndex);
+                currentLeftSource = currentComparison.leftSource;
+                currentRightSource = currentComparison.rightSource;
+            } else if (unifiedPanel != null) {
+                // Unified mode - get content from BufferSources
+                var currentComparison = fileComparisons.get(currentFileIndex);
+                currentLeftSource = currentComparison.leftSource;
+                currentRightSource = currentComparison.rightSource;
+
+                try {
+                    leftContent = getContentFromSource(currentLeftSource);
+                    rightContent = getContentFromSource(currentRightSource);
+                } catch (Exception ex) {
+                    logger.warn("Failed to get content from sources for diff capture", ex);
+                    return;
+                }
+            } else {
+                logger.warn("Capture diff called but both bufferPanel and unifiedPanel are null");
                 return;
             }
-            var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-            var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (leftPanel == null || rightPanel == null) {
-                logger.warn("Capture diff called but left or right panel is null");
-                return;
-            }
-            var leftContent = leftPanel.getEditor().getText();
-            var rightContent = rightPanel.getEditor().getText();
+
             var leftLines = Arrays.asList(leftContent.split("\\R"));
             var rightLines = Arrays.asList(rightContent.split("\\R"));
-
-            // Get the current file comparison sources
-            var currentComparison = fileComparisons.get(currentFileIndex);
-            var currentLeftSource = currentComparison.leftSource;
-            var currentRightSource = currentComparison.rightSource;
 
             // Build a friendlier description that shows a shortened hash plus
             // the first-line commit title (trimmed with ... when overly long)
@@ -581,29 +700,32 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             toolBar.add(btnPreviousFile);
             toolBar.add(Box.createHorizontalStrut(10));
             toolBar.add(btnNextFile);
-            toolBar.add(Box.createHorizontalStrut(15));
-            toolBar.add(fileIndicatorLabel);
         }
 
-        undoRedoGroupStrutBefore = Box.createHorizontalStrut(20); // 20px spacing
-        toolBar.add(undoRedoGroupStrutBefore);
-        toolBar.addSeparator(); // Adds space between groups
-        // Get reference to the separator that was just added
-        undoRedoGroupSeparator = toolBar.getComponent(toolBar.getComponentCount() - 1);
-        undoRedoGroupStrutAfter1 = Box.createHorizontalStrut(10); // 10px spacing
-        toolBar.add(undoRedoGroupStrutAfter1);
+        toolBar.add(Box.createHorizontalStrut(20));
+        toolBar.addSeparator();
+        toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(btnUndo);
-        undoRedoGroupStrutAfter2 = Box.createHorizontalStrut(10); // 10px spacing
-        toolBar.add(undoRedoGroupStrutAfter2);
+        toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(btnRedo);
-        undoRedoGroupStrutAfter3 = Box.createHorizontalStrut(10); // spacing
-        toolBar.add(undoRedoGroupStrutAfter3);
+        toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(btnSaveAll);
 
         toolBar.add(Box.createHorizontalStrut(20));
         toolBar.addSeparator();
         toolBar.add(Box.createHorizontalStrut(10));
+
+        // Add view mode toggle
+        toolBar.add(viewModeToggle);
+        toolBar.add(Box.createHorizontalStrut(10));
+
+        // Add view mode controls
         toolBar.add(showBlankLineDiffsCheckBox);
+        toolBar.add(Box.createHorizontalStrut(5));
+        toolBar.add(showAllLinesCheckBox);
+
+        // Update control enable/disable state based on view mode
+        updateToolbarForViewMode();
 
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
         toolBar.add(captureDiffButton);
@@ -618,13 +740,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnUndo.setEnabled(currentPanel != null && currentPanel.isUndoEnabled());
         btnRedo.setEnabled(currentPanel != null && currentPanel.isRedoEnabled());
 
-        // Hide undo/redo completely when both sides are read-only
-        boolean showUndoRedo = false;
+        // Disable undo/redo when in unified mode or when both sides are read-only
+        boolean enableUndoRedo = false;
         if (currentPanel instanceof BufferDiffPanel bp) {
-            showUndoRedo = bp.atLeastOneSideEditable();
+            enableUndoRedo = bp.atLeastOneSideEditable();
         }
-        btnUndo.setVisible(showUndoRedo);
-        btnRedo.setVisible(showUndoRedo);
+        if (!enableUndoRedo) {
+            btnUndo.setEnabled(false);
+            btnRedo.setEnabled(false);
+        }
 
         if (currentPanel != null) {
             var isFirstChangeOverall = currentFileIndex == 0 && currentPanel.isAtFirstLogicalChange();
@@ -641,15 +765,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         captureDiffButton.setEnabled(true);
 
         // Update save button text, enable state, and visibility
-        // Compute the exact number of BufferDiffPanels that would be saved by saveAll():
-        // include bufferDiffPanel (if present) plus all cached panels (deduplicated),
+        // Compute the exact number of panels that would be saved by saveAll():
+        // include currentDiffPanel (if present) plus all cached panels (deduplicated),
         // and count those with hasUnsavedChanges() == true.
         int dirtyCount = 0;
-        var visited = new HashSet<BufferDiffPanel>();
+        var visited = new HashSet<IDiffPanel>();
 
-        if (bufferDiffPanel != null) {
-            visited.add(bufferDiffPanel);
-            if (bufferDiffPanel.hasUnsavedChanges()) {
+        if (currentDiffPanel != null) {
+            visited.add(currentDiffPanel);
+            if (currentDiffPanel.hasUnsavedChanges()) {
                 dirtyCount++;
             }
         }
@@ -662,41 +786,23 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         String baseSaveText = fileComparisons.size() > 1 ? "Save All" : "Save";
         btnSaveAll.setToolTipText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
-        btnSaveAll.setEnabled(dirtyCount > 0);
-
-        // Hide save button when all sides are read-only (like PR diffs)
-        btnSaveAll.setVisible(showUndoRedo);
-
-        // Hide separator and struts for undo/redo/save group when buttons are hidden
-        if (undoRedoGroupSeparator != null) {
-            undoRedoGroupSeparator.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutBefore != null) {
-            undoRedoGroupStrutBefore.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter1 != null) {
-            undoRedoGroupStrutAfter1.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter2 != null) {
-            undoRedoGroupStrutAfter2.setVisible(showUndoRedo);
-        }
-        if (undoRedoGroupStrutAfter3 != null) {
-            undoRedoGroupStrutAfter3.setVisible(showUndoRedo);
-        }
+        // Disable save button when in unified mode, when all sides are read-only, or when there are no changes
+        btnSaveAll.setEnabled(enableUndoRedo && dirtyCount > 0);
 
         // Update per-file dirty indicators in the file tree (only when multiple files are shown)
         if (fileComparisons.size() > 1) {
             var dirty = new HashSet<Integer>();
 
-            // Current (visible) file
-            if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) {
+            // Current (visible) file (only if it's a BufferDiffPanel)
+            var currentBufferPanel = getBufferDiffPanel();
+            if (currentBufferPanel != null && currentBufferPanel.hasUnsavedChanges()) {
                 dirty.add(currentFileIndex);
             }
 
-            // Cached files (use keys to keep index association)
+            // Cached files (use keys to keep index association, only BufferDiffPanels can be dirty)
             for (var key : panelCache.getCachedKeys()) {
                 var panel = panelCache.get(key);
-                if (panel != null && panel.hasUnsavedChanges()) {
+                if (panel instanceof BufferDiffPanel && panel.hasUnsavedChanges()) {
                     dirty.add(key);
                 }
             }
@@ -707,7 +813,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     /** Returns true if any loaded diff-panel holds modified documents. */
     public boolean hasUnsavedChanges() {
-        if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) return true;
+        if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
         for (var p : panelCache.nonNullValues()) {
             if (p.hasUnsavedChanges()) return true;
         }
@@ -720,13 +826,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // Disable save button temporarily
             btnSaveAll.setEnabled(false);
 
-            // Collect unique panels to process (current + cached)
+            // Collect unique BufferDiffPanels to process (current + cached)
             var visited = new LinkedHashSet<BufferDiffPanel>();
-            if (bufferDiffPanel != null) {
-                visited.add(bufferDiffPanel);
+            var currentBufferPanel = getBufferDiffPanel();
+            if (currentBufferPanel != null) {
+                visited.add(currentBufferPanel);
             }
             for (var p : panelCache.nonNullValues()) {
-                visited.add(p);
+                if (p instanceof BufferDiffPanel bufferPanel) {
+                    visited.add(bufferPanel);
+                }
             }
 
             // Filter to only panels with unsaved changes and at least one editable side
@@ -946,6 +1055,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void loadFileOnDemand(int fileIndex) {
+        loadFileOnDemand(fileIndex, false);
+    }
+
+    private void loadFileOnDemand(int fileIndex, boolean skipLoadingUI) {
+
         if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
             logger.warn("loadFileOnDemand called with invalid index: {}", fileIndex);
             return;
@@ -967,13 +1081,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (nowCachedPanel != null) {
                 displayCachedFile(fileIndex, nowCachedPanel);
             } else {
-                // Reserved by another thread, show loading and wait
-                showLoadingForFile(fileIndex);
+                // Reserved by another thread, show loading and wait (unless skipping loading UI)
+                if (!skipLoadingUI) {
+                    showLoadingForFile(fileIndex);
+                }
             }
             return;
         }
 
-        showLoadingForFile(fileIndex);
+        // Show loading UI only if not skipping (e.g., during view mode switch)
+        if (!skipLoadingUI) {
+            showLoadingForFile(fileIndex);
+        }
 
         // Use hybrid approach - sync for small files, async for large files
         HybridFileComparison.createDiffPanel(
@@ -1008,8 +1127,33 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    private void displayCachedFile(int fileIndex, BufferDiffPanel cachedPanel) {
+    private void displayCachedFile(int fileIndex, IDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Check if cached panel type matches current view mode preference
+        boolean cachedIsUnified = cachedPanel instanceof UnifiedDiffPanel;
+
+        if (cachedIsUnified != this.isUnifiedView) {
+
+            // Dispose the incompatible panel
+            cachedPanel.dispose();
+
+            // Clear current panel reference since it's the wrong type now
+            this.currentDiffPanel = null;
+
+            // Clear entire cache to prevent infinite recursion (same pattern as switchViewMode)
+            panelCache.clear();
+
+            // Restore window state for adjacent file caching
+            panelCache.updateWindowCenter(currentFileIndex, fileComparisons.size());
+
+            // Reload file with correct view mode (cache is now clear, so will create new panel)
+            loadFileOnDemand(fileIndex);
+
+            // Verify that panel was actually created after loading
+
+            return;
+        }
 
         var compInfo = fileComparisons.get(fileIndex);
 
@@ -1026,8 +1170,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Clear tabs and add the cached panel
         tabbedPane.removeAll();
-        tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel);
-        this.bufferDiffPanel = cachedPanel;
+        tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel.getComponent());
+        this.currentDiffPanel = cachedPanel;
 
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
@@ -1038,9 +1182,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
 
-        // Reset dirty state after theme application to prevent false save prompts
+        // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
         // Theme application can trigger document events that incorrectly mark documents as dirty
-        resetDocumentDirtyStateAfterTheme(cachedPanel);
+        if (cachedPanel instanceof BufferDiffPanel bufferPanel) {
+            resetDocumentDirtyStateAfterTheme(bufferPanel);
+        }
 
         // Re-establish component resize listeners and set flag for layout reset on next resize
         cachedPanel.refreshComponentListeners();
@@ -1225,8 +1371,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return null;
     }
 
+    @SuppressWarnings("UnusedVariable")
     private void updateFileIndicatorLabel(String text) {
-        fileIndicatorLabel.setText(text);
+        // No-op: filename label removed from toolbar
     }
 
     private void performUndoRedo(java.util.function.Consumer<AbstractContentPanel> action) {
@@ -1369,7 +1516,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * Displays a cached panel and updates navigation buttons. This is the proper way to display panels created by
      * HybridFileComparison.
      */
-    public void displayAndRefreshPanel(int fileIndex, BufferDiffPanel panel) {
+    public void displayAndRefreshPanel(int fileIndex, IDiffPanel panel) {
         displayCachedFile(fileIndex, panel);
     }
 
@@ -1377,18 +1524,25 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * Cache a panel for the given file index. Helper method for both sync and async panel creation. Uses putReserved if
      * the slot was reserved, otherwise regular put.
      */
-    public void cachePanel(int fileIndex, BufferDiffPanel panel) {
+    public void cachePanel(int fileIndex, IDiffPanel panel) {
+        // Validate that panel type matches current view mode
+        boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
+        if (isPanelUnified != isUnifiedView) {
+            // Don't cache panels that don't match current view mode (prevents async race conditions)
+            return;
+        }
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
 
-        // Ensure creation context is set for debugging
-        if ("unknown".equals(panel.getCreationContext())) {
-            panel.markCreationContext("cachePanel");
+        // Ensure creation context is set for debugging (only for BufferDiffPanel)
+        if (panel instanceof BufferDiffPanel bufferPanel) {
+            if ("unknown".equals(bufferPanel.getCreationContext())) {
+                bufferPanel.markCreationContext("cachePanel");
+            }
+            // Reset selectedDelta to first difference for consistent navigation behavior
+            bufferPanel.resetToFirstDifference();
         }
-
-        // Reset selectedDelta to first difference for consistent navigation behavior
-        panel.resetToFirstDifference();
 
         // Only cache if within current window
         if (panelCache.isInWindow(fileIndex)) {
@@ -1427,7 +1581,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     /** Preload a single file in the background */
     private void preloadFile(int fileIndex) {
         try {
-            logger.debug("Preloading file {} in background", fileIndex);
             var compInfo = fileComparisons.get(fileIndex);
 
             // Use extracted file validation logic
@@ -1440,19 +1593,46 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             var loadingResult = FileComparisonHelper.createFileLoadingResult(
                     compInfo.leftSource, compInfo.rightSource, contextManager, isMultipleCommitsContext);
 
+            // CRITICAL FIX: Compute diff for preloaded JMDiffNode to avoid empty view
+            if (loadingResult.isSuccess() && loadingResult.getDiffNode() != null) {
+                loadingResult.getDiffNode().diff();
+            }
+
             // Create and cache panel on EDT
             SwingUtilities.invokeLater(() -> {
                 // Double-check still needed and in window
                 if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
                     if (loadingResult.isSuccess()) {
-                        var panel = new BufferDiffPanel(this, theme);
-                        panel.markCreationContext("preload");
-                        panel.setDiffNode(loadingResult.getDiffNode());
+                        // Create appropriate panel type based on current view mode
+                        IDiffPanel panel;
+                        if (isUnifiedView) {
+                            // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires
+                            // non-null
+                            var diffNode = loadingResult.getDiffNode();
+                            if (diffNode != null) {
+                                panel = new UnifiedDiffPanel(this, theme, diffNode);
+                            } else {
+                                // Fallback to BufferDiffPanel if diffNode is null
+                                logger.warn(
+                                        "Cannot create UnifiedDiffPanel with null diffNode for file {}, using BufferDiffPanel",
+                                        fileIndex);
+                                var bufferPanel = new BufferDiffPanel(this, theme);
+                                bufferPanel.markCreationContext("preload-fallback");
+                                panel = bufferPanel;
+                            }
+                        } else {
+                            var bufferPanel = new BufferDiffPanel(this, theme);
+                            bufferPanel.markCreationContext("preload");
+                            bufferPanel.setDiffNode(loadingResult.getDiffNode());
+                            panel = bufferPanel;
+                        }
 
                         // Apply theme to ensure consistent state and avoid false dirty flags
                         panel.applyTheme(theme);
-                        // Clear any transient dirty state caused by mirroring during preload
-                        resetDocumentDirtyStateAfterTheme(panel);
+                        // Clear any transient dirty state caused by mirroring during preload (only for BufferDiffPanel)
+                        if (panel instanceof BufferDiffPanel bufferPanel) {
+                            resetDocumentDirtyStateAfterTheme(bufferPanel);
+                        }
 
                         // Cache will automatically check window constraints
                         panelCache.put(fileIndex, panel);
@@ -1460,7 +1640,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         logger.warn("Skipping preload of file {} - {}", fileIndex, loadingResult.getErrorMessage());
                     }
                 } else {
-                    logger.debug("Preload cancelled for file {} (cached or outside window)", fileIndex);
                 }
             });
 
@@ -1477,11 +1656,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         var usedMemory = totalMemory - freeMemory;
         var maxMemory = runtime.maxMemory();
 
-        var usedMB = usedMemory / (1024 * 1024);
-        var maxMB = maxMemory / (1024 * 1024);
         var percentUsed = (usedMemory * 100) / maxMemory;
-
-        logger.debug("Memory: {}MB/{}MB ({}%), {}", usedMB, maxMB, percentUsed, panelCache.getWindowInfo());
 
         // Use configurable threshold for memory cleanup
         if (percentUsed > PerformanceConstants.MEMORY_HIGH_THRESHOLD_PERCENT) {
@@ -1492,7 +1667,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     /** Perform cleanup when memory usage is high */
     private void performWindowCleanup() {
-        logger.debug("Performing sliding window memory cleanup");
 
         // Clear caches in all window panels
         for (var panel : panelCache.nonNullValues()) {
@@ -1501,15 +1675,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Suggest garbage collection
         System.gc();
-
-        logger.debug("Window cleanup complete: {}", panelCache.getWindowInfo());
     }
 
     /**
      * Reset layout hierarchy to fix broken container relationships after file navigation. This rebuilds the
      * BorderLayout relationships to restore proper resize behavior.
      */
-    private void resetLayoutHierarchy(BufferDiffPanel currentPanel) {
+    private void resetLayoutHierarchy(IDiffPanel currentPanel) {
         // Remove and re-add mainSplitPane to reset BorderLayout relationships
         remove(mainSplitPane);
         invalidate();
@@ -1519,12 +1691,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Ensure child components are properly updated
         SwingUtilities.invokeLater(() -> {
             getTabbedPane().revalidate();
-            currentPanel.revalidate();
+            currentPanel.getComponent().revalidate();
 
-            // Refresh scroll synchronizer to maintain diff alignment
-            var synchronizer = currentPanel.getScrollSynchronizer();
-            if (synchronizer != null) {
-                synchronizer.invalidateViewportCacheForBothPanels();
+            // Refresh scroll synchronizer for BufferDiffPanel (side-by-side view)
+            if (currentPanel instanceof BufferDiffPanel bufferPanel) {
+                var synchronizer = bufferPanel.getScrollSynchronizer();
+                if (synchronizer != null) {
+                    synchronizer.invalidateViewportCacheForBothPanels();
+                }
+            }
+            // For UnifiedDiffPanel, trigger refreshComponentListeners to ensure proper layout
+            else if (currentPanel instanceof UnifiedDiffPanel) {
+                currentPanel.refreshComponentListeners();
             }
         });
     }
@@ -1575,7 +1753,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         panelCache.clear();
 
         // Clear current panel reference
-        this.bufferDiffPanel = null;
+        this.currentDiffPanel = null;
 
         // Remove all components
         removeAll();
@@ -1665,5 +1843,84 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         return false;
+    }
+
+    /** Returns true if currently in unified view mode, false for side-by-side. */
+    public boolean isUnifiedView() {
+        return isUnifiedView;
+    }
+
+    /**
+     * Get the global preference for showing all lines in unified view.
+     *
+     * @return true if unified view should show full context, false for 3-line context
+     */
+    public boolean getGlobalShowAllLinesInUnified() {
+        return globalShowAllLinesInUnified;
+    }
+
+    /**
+     * Switch between unified and side-by-side view modes.
+     *
+     * @param useUnifiedView true for unified view, false for side-by-side view
+     */
+    private void switchViewMode(boolean useUnifiedView) {
+        if (this.isUnifiedView == useUnifiedView) {
+            return; // No change needed
+        }
+
+        // Check for unsaved changes before switching views
+        if (hasUnsavedChanges()) {
+            Object[] options = {"Save All", "Discard", "Cancel"};
+            int choice = JOptionPane.showOptionDialog(
+                    this,
+                    "You have unsaved changes. Save or discard before switching views?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
+
+            if (choice == 0) { // Save All
+                saveAll();
+            } else if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) { // Cancel or X button
+                // Reset toggle to previous state
+                SwingUtilities.invokeLater(() -> viewModeToggle.setSelected(!useUnifiedView));
+                return; // Abort the view switch
+            }
+            // choice == 1 (Discard) - continue with switch, losing edits
+        }
+
+        this.isUnifiedView = useUnifiedView;
+        GlobalUiSettings.saveDiffUnifiedView(useUnifiedView);
+
+        // Update toolbar controls for the new view mode
+        updateToolbarForViewMode();
+
+        // Clear the current file from cache since we need a different panel type
+        var cachedPanel = panelCache.get(currentFileIndex);
+        if (cachedPanel != null) {
+            // Dispose the old panel to free resources
+            cachedPanel.dispose();
+        }
+
+        // Clear current panel reference since it's the wrong type now
+        this.currentDiffPanel = null;
+
+        // Force cache invalidation - since sliding window manipulation doesn't work reliably,
+        // we'll clear the entire cache to ensure the old panel type is removed
+        panelCache.clear();
+
+        // Verify the cache is actually clear
+        var verifyPanel = panelCache.get(currentFileIndex);
+        if (verifyPanel != null) {
+            logger.error(
+                    "Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
+        } else {
+        }
+
+        // Refresh the current file with the new view mode (skip loading UI since we already have the data)
+        loadFileOnDemand(currentFileIndex, true);
     }
 }

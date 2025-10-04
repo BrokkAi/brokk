@@ -362,7 +362,15 @@ public class SearchAgent {
         }
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
-                    "- Use createTaskList(List<String>) when the request involves code changes; produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.");
+                    """
+                    - Use createTaskList(List<String>) when the request involves code changes; produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
+                      Guidance:
+                        - Each task should be self-contained and verifiable via code review or automated tests.
+                        - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
+                        - Keep the project buildable and testable after each step.
+                        - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
+                    """
+                            .stripIndent());
         }
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
             finals.add(
@@ -393,10 +401,6 @@ public class SearchAgent {
                         You can call multiple tools in a single turn. To do so, provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
                         Do NOT invoke multiple final actions. Do NOT write code.
 
-                        Task list guidance:
-                          - Each task should be self-contained, verifiable, and as small as practical.
-                          - Prefer a sequence that keeps the project buildable and testable after each step.
-                          - Include writing tests, where appropriate.
 
                         %s
                         """
@@ -577,6 +581,7 @@ public class SearchAgent {
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
         logger.debug("abortSearch selected with explanation length {}", explanation.length());
+        io.llmOutput(explanation, ChatMessageType.AI);
         return explanation;
     }
 

@@ -365,7 +365,7 @@ class CodeAgentTest {
         contextManager.getProject().setBuildDetails(bd);
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
 
-        java.util.concurrent.atomic.AtomicInteger attempt = new java.util.concurrent.atomic.AtomicInteger(0);
+        var attempt = new java.util.concurrent.atomic.AtomicInteger(0);
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             int currentAttempt = attempt.getAndIncrement();
             // Log the attempt to help diagnose mock behavior using a more visible marker
@@ -611,7 +611,15 @@ class CodeAgentTest {
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
         var es1 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block1)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap());
+                new ArrayList<>(List.of(block1)),
+                0,
+                0,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap());
         var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
@@ -626,7 +634,15 @@ class CodeAgentTest {
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
         var es2 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block2)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap());
+                new ArrayList<>(List.of(block2)),
+                0,
+                0,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap());
         var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
