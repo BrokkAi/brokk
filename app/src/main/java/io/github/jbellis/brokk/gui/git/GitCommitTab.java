@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
@@ -18,6 +19,9 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
+import io.github.jbellis.brokk.agents.ConflictInspector;
+import io.github.jbellis.brokk.agents.MergeAgent;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -55,6 +59,9 @@ public class GitCommitTab extends JPanel {
 
     // Thread-safe cached count for badge updates
     private volatile int cachedModifiedFileCount = 0;
+
+    // Guard to avoid repeatedly offering AI merge while a conflict is active
+    private volatile boolean mergeOfferShown = false;
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
@@ -318,6 +325,17 @@ public class GitCommitTab extends JPanel {
                 var uncommittedFileStatuses = getRepo().getModifiedFiles();
                 logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
 
+                // Detect active merge/rebase/cherry-pick/revert conflicts in background
+                MergeAgent.MergeConflict detectedConflict = null;
+                try {
+                    detectedConflict = ConflictInspector.inspectFromProject(contextManager.getProject());
+                } catch (Exception ex) {
+                    // Not in a conflict state or failed to inspect; ignore
+                    logger.trace("Conflict inspection result: {}", ex.toString());
+                }
+
+                final MergeAgent.MergeConflict conflictForEdt = detectedConflict;
+
                 SwingUtilities.invokeLater(() -> {
                     // Convert Set to List to maintain an order for adding to table and restoring selection by index
                     var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
@@ -346,6 +364,14 @@ public class GitCommitTab extends JPanel {
 
                     // Update cached count and badge after status change
                     updateAfterStatusChange(uncommittedFilesList.size());
+
+                    // Offer AI-assisted merge once per conflict state
+                    if (conflictForEdt != null) {
+                        maybeOfferAiMerge(conflictForEdt);
+                    } else {
+                        // Reset guard when conflicts are gone
+                        mergeOfferShown = false;
+                    }
                 });
             } catch (Exception e) {
                 logger.error("Error fetching uncommitted files:", e);
@@ -358,6 +384,9 @@ public class GitCommitTab extends JPanel {
                     }
                     // Update cached count and badge after error
                     updateAfterStatusChange(0);
+
+                    // On error, do not keep stale guard
+                    mergeOfferShown = false;
                 });
             }
             return null;
@@ -769,5 +798,85 @@ public class GitCommitTab extends JPanel {
 
         // Update the git tab badge
         chrome.updateGitTabBadge(newCount);
+    }
+
+    /** Offer AI-assisted merge once per detected conflict. */
+    private void maybeOfferAiMerge(MergeAgent.MergeConflict conflict) {
+        assert SwingUtilities.isEventDispatchThread() : "maybeOfferAiMerge must be called on EDT";
+        if (mergeOfferShown) {
+            return;
+        }
+        mergeOfferShown = true;
+
+        var conflictCount = conflict.files().size();
+        var message = """
+                Merge conflicts detected:
+                  - Mode: %s
+                  - Other: %s
+                  - Files with conflicts: %d
+
+                Would you like to resolve these conflicts with the Merge Agent?
+                """
+                .stripIndent()
+                .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
+
+        var options = new Object[] {"Resolve with Merge Agent", "Dismiss"};
+        var choice = JOptionPane.showOptionDialog(
+                chrome.getFrame(),
+                message,
+                "Merge Conflicts Detected",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE,
+                null,
+                options,
+                options[0]);
+
+        if (choice == JOptionPane.YES_OPTION) {
+            runAiMerge(conflict);
+        }
+    }
+
+    /** Run MergeAgent using the InstructionsPanel-selected planning model and GPT-5-mini as code model. */
+    private void runAiMerge(MergeAgent.MergeConflict conflict) {
+        contextManager.submitExclusiveAction(() -> {
+            var io = contextManager.getIo();
+            var service = contextManager.getService();
+
+            // Resolve planning model from InstructionsPanel
+            var modelConfig = chrome.getInstructionsPanel().getSelectedModel();
+            var planningModel = service.getModel(modelConfig);
+            if (planningModel == null) {
+                io.systemNotify(
+                        "The selected model is unavailable. Please choose another model and try again.",
+                        "AI Unavailable",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            // Code model is GPT_5_MINI
+            var codeModel = service.getModel(Service.GPT_5_MINI);
+            if (codeModel == null) {
+                io.systemNotify(
+                        "The code model (GPT-5-mini) is unavailable. Please try again later.",
+                        "AI Unavailable",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            try (var scope = contextManager.beginTask("AI Merge", false)) {
+                var agent = new MergeAgent(contextManager, planningModel, codeModel, conflict, scope);
+                var result = agent.execute();
+                scope.append(result);
+            } catch (Exception ex) {
+                logger.error("AI merge failed", ex);
+                SwingUtilities.invokeLater(
+                        () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
+            } finally {
+                SwingUtilities.invokeLater(() -> {
+                    updateCommitPanel();
+                    chrome.updateLogTab();
+                });
+            }
+        });
     }
 }
