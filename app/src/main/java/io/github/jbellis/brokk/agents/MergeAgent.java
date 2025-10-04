@@ -110,61 +110,33 @@ public class MergeAgent {
                         JOptionPane.INFORMATION_MESSAGE);
 
         // First pass: annotate ALL files up front (parallel)
-        var annotatedConflicts = new ArrayList<ConflictAnnotator.ConflictFileCommits>(conflicts.size());
-        var unionOurCommits = new LinkedHashSet<String>();
-        var unionTheirCommits = new LinkedHashSet<String>();
+        var annotatedConflicts = ConcurrentHashMap.<ConflictAnnotator.ConflictFileCommits>newKeySet();
+        var unionOurCommits = ConcurrentHashMap.<String>newKeySet();
+        var unionTheirCommits = ConcurrentHashMap.<String>newKeySet();
 
-        var contentConflicts = conflicts.stream()
-                .filter(FileConflict::isContentConflict)
-                .toList();
-
-        if (!contentConflicts.isEmpty()) {
-            var executor = AdaptiveExecutor.create(cm.getService(), planningModel, contentConflicts.size());
-            var completionService =
-                    new ExecutorCompletionService<ConflictAnnotator.ConflictFileCommits>(executor);
-            try {
-                for (var cf : contentConflicts) {
-                    completionService.submit(() -> {
-                        if (Thread.interrupted()) throw new InterruptedException();
-                        var pf = requireNonNull(cf.ourFile());
-                        var annotator = new ConflictAnnotator(repo, conflict);
-                        var annotated = annotator.annotate(cf);
-                        // Write annotated contents to our working path
-                        pf.write(annotated.contents());
-                        return annotated;
-                    });
-                }
-
-                for (int i = 0; i < contentConflicts.size(); i++) {
-                    if (Thread.interrupted()) throw new InterruptedException();
-                    try {
-                        var fut = completionService.take();
-                        var annotated = fut.get();
-                        if (annotated != null) {
-                            annotatedConflicts.add(annotated);
-                            unionOurCommits.addAll(annotated.ourCommits());
-                            unionTheirCommits.addAll(annotated.theirCommits());
-                        }
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw ie;
-                    } catch (ExecutionException ee) {
-                        var cause = ee.getCause() == null ? ee : ee.getCause();
-                        logger.warn("Conflict annotation failed: {}", cause.toString(), cause);
-                    }
-                }
-            } finally {
-                executor.shutdownNow();
+        conflicts.parallelStream().forEach(cf -> {
+            if (!cf.isContentConflict()) {
+                // FIXME: handle non-content conflicts (adds, deletes, renames) in a future enhancement
+                return;
             }
-        }
 
-        // Notify end of annotation
-        cm.getIo()
-                .systemNotify(
-                        "Prepared %d conflicted files for AI merge."
-                                .formatted(annotatedConflicts.size()),
-                        "Auto Merge",
-                        JOptionPane.INFORMATION_MESSAGE);
+            var conflictAnnotator = new ConflictAnnotator(repo, conflict);
+            var pf = requireNonNull(cf.ourFile());
+
+            var annotated = conflictAnnotator.annotate(cf);
+
+            // Write annotated contents to our working path
+            try {
+                pf.write(annotated.contents());
+            } catch (IOException e) {
+                logger.error("Failed to write annotated contents for {}: {}", pf, e.toString(), e)
+                return;
+            }
+
+            annotatedConflicts.add(annotated);
+            unionOurCommits.addAll(annotated.ourCommits());
+            unionTheirCommits.addAll(annotated.theirCommits());
+        });
 
         // Compute changed files set for reporting
         var changedFiles = annotatedConflicts.stream()

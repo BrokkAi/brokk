@@ -35,6 +35,8 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.annotations.Nullable;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Panel for the "Changes" tab (formerly "Commit" tab) in the Git Panel. Handles displaying uncommitted changes,
  * staging, committing, and stashing.
@@ -321,74 +323,49 @@ public class GitCommitTab extends JPanel {
         }
 
         contextManager.submitBackgroundTask("Checking uncommitted files", () -> {
-            try {
-                var uncommittedFileStatuses = getRepo().getModifiedFiles();
-                logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
+            var uncommittedFileStatuses = getRepo().getModifiedFiles();
+            logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
 
-                // Detect active merge/rebase/cherry-pick/revert conflicts in background
-                MergeAgent.MergeConflict detectedConflict = null;
-                try {
-                    detectedConflict = ConflictInspector.inspectFromProject(contextManager.getProject());
-                } catch (Exception ex) {
-                    // Not in a conflict state or failed to inspect; ignore
-                    logger.trace("Conflict inspection result: {}", ex.toString());
+            // Detect active merge/rebase/cherry-pick/revert conflicts in background
+            var detectedConflict = ConflictInspector.inspectFromProject(contextManager.getProject());
+
+            SwingUtilities.invokeLater(() -> {
+                // Convert Set to List to maintain an order for adding to table and restoring selection by index
+                var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
+
+                // Populate the table via the reusable FileStatusTable widget
+                // This also populates the statusMap within FileStatusTable
+                fileStatusPane.setFiles(uncommittedFilesList);
+
+                // Restore selection
+                List<Integer> rowsToSelect = new ArrayList<>();
+                var model = (DefaultTableModel) uncommittedFilesTable.getModel();
+                for (int i = 0; i < model.getRowCount(); i++) {
+                    if (previouslySelectedFiles.contains(model.getValueAt(i, 2))) {
+                        rowsToSelect.add(i);
+                    }
                 }
 
-                final MergeAgent.MergeConflict conflictForEdt = detectedConflict;
-
-                SwingUtilities.invokeLater(() -> {
-                    // Convert Set to List to maintain an order for adding to table and restoring selection by index
-                    var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
-
-                    // Populate the table via the reusable FileStatusTable widget
-                    // This also populates the statusMap within FileStatusTable
-                    fileStatusPane.setFiles(uncommittedFilesList);
-
-                    // Restore selection
-                    List<Integer> rowsToSelect = new ArrayList<>();
-                    var model = (DefaultTableModel) uncommittedFilesTable.getModel();
-                    for (int i = 0; i < model.getRowCount(); i++) {
-                        if (previouslySelectedFiles.contains(model.getValueAt(i, 2))) {
-                            rowsToSelect.add(i);
-                        }
+                if (!rowsToSelect.isEmpty()) {
+                    for (int rowIndex : rowsToSelect) {
+                        uncommittedFilesTable.addRowSelectionInterval(rowIndex, rowIndex);
                     }
+                }
 
-                    if (!rowsToSelect.isEmpty()) {
-                        for (int rowIndex : rowsToSelect) {
-                            uncommittedFilesTable.addRowSelectionInterval(rowIndex, rowIndex);
-                        }
-                    }
+                updateButtonEnablement(); // General button enablement based on table content
+                updateCommitButtonText(); // Updates commit button label specifically
 
-                    updateButtonEnablement(); // General button enablement based on table content
-                    updateCommitButtonText(); // Updates commit button label specifically
+                // Update cached count and badge after status change
+                updateAfterStatusChange(uncommittedFilesList.size());
 
-                    // Update cached count and badge after status change
-                    updateAfterStatusChange(uncommittedFilesList.size());
-
-                    // Offer AI-assisted merge once per conflict state
-                    if (conflictForEdt != null) {
-                        maybeOfferAiMerge(conflictForEdt);
-                    } else {
-                        // Reset guard when conflicts are gone
-                        mergeOfferShown = false;
-                    }
-                });
-            } catch (Exception e) {
-                logger.error("Error fetching uncommitted files:", e);
-                SwingUtilities.invokeLater(() -> {
-                    logger.debug("Disabling commit/stash buttons due to error");
-                    commitButton.setEnabled(false);
-                    stashButton.setEnabled(false);
-                    if (uncommittedFilesTable.getModel() instanceof DefaultTableModel dtm) {
-                        dtm.setRowCount(0); // Clear table on error
-                    }
-                    // Update cached count and badge after error
-                    updateAfterStatusChange(0);
-
-                    // On error, do not keep stale guard
+                // Offer AI-assisted merge once per conflict state
+                if (detectedConflict != null) {
+                    maybeOfferAiMerge(detectedConflict);
+                } else {
+                    // Reset guard when conflicts are gone
                     mergeOfferShown = false;
-                });
-            }
+                }
+            });
             return null;
         });
     }
@@ -802,7 +779,8 @@ public class GitCommitTab extends JPanel {
 
     /** Offer AI-assisted merge once per detected conflict. */
     private void maybeOfferAiMerge(MergeAgent.MergeConflict conflict) {
-        assert SwingUtilities.isEventDispatchThread() : "maybeOfferAiMerge must be called on EDT";
+        assert SwingUtilities.isEventDispatchThread();
+
         if (mergeOfferShown) {
             return;
         }
@@ -844,24 +822,9 @@ public class GitCommitTab extends JPanel {
 
             // Resolve planning model from InstructionsPanel
             var modelConfig = chrome.getInstructionsPanel().getSelectedModel();
-            var planningModel = service.getModel(modelConfig);
-            if (planningModel == null) {
-                io.systemNotify(
-                        "The selected model is unavailable. Please choose another model and try again.",
-                        "AI Unavailable",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-
-            // Code model is GPT_5_MINI
-            var codeModel = service.getModel(Service.GPT_5_MINI);
-            if (codeModel == null) {
-                io.systemNotify(
-                        "The code model (GPT-5-mini) is unavailable. Please try again later.",
-                        "AI Unavailable",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+            var planningModel = requireNonNull(service.getModel(modelConfig));
+            // Code model is hardcoded
+            var codeModel = requireNonNull(service.getModel(Service.GPT_5_MINI));
 
             try (var scope = contextManager.beginTask("AI Merge", false)) {
                 var agent = new MergeAgent(contextManager, planningModel, codeModel, conflict, scope);
