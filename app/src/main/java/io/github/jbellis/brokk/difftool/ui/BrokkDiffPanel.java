@@ -738,10 +738,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Add Blame toggle (visible only if feature is enabled)
         if (BlameService.isFeatureEnabled()) {
-            btnBlameToggle.setToolTipText("Toggle gutter git blame (per-panel)");
+            // Load persisted blame state
+            boolean initialBlameState = io.github.jbellis.brokk.util.GlobalUiSettings.isDiffShowBlame();
+            btnBlameToggle.setSelected(initialBlameState);
+            btnBlameToggle.setToolTipText("Toggle gutter git blame");
             btnBlameToggle.addActionListener(e -> {
                 var panel = getCurrentContentPanel();
                 boolean show = btnBlameToggle.isSelected();
+
+                // Save state globally
+                io.github.jbellis.brokk.util.GlobalUiSettings.saveDiffShowBlame(show);
 
                 // Prefer pattern-matching instanceof to satisfy ErrorProne's PatternMatchingInstanceof rule.
                 if (panel instanceof io.github.jbellis.brokk.difftool.ui.AbstractDiffPanel adp) {
@@ -1227,6 +1233,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Apply diff highlights immediately after theme to prevent timing issues
         cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
+
+        // Apply blame state if feature is enabled and blame is toggled on
+        if (BlameService.isFeatureEnabled() && btnBlameToggle.isSelected()) {
+            if (cachedPanel instanceof AbstractDiffPanel adp) {
+                adp.setShowGutterBlame(true);
+                updateBlameForPanel(adp, true);
+            } else {
+                updateBlameForPanel(cachedPanel, true);
+            }
+        }
 
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
