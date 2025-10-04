@@ -524,24 +524,23 @@ var conflictAnnotator = new ConflictAnnotator(repo, conflict);
     }
 
     private void resolveNonTextConflicts(List<Map.Entry<FileConflict, NonTextMetadata>> conflicts) {
-        // Placeholder implementation: log each detected non-text conflict; future commits will apply actual resolutions.
-        int count = 0;
-        for (var entry : conflicts) {
-            var meta = entry.getValue();
-            var idx = meta.indexPath() == null ? "(unknown)" : meta.indexPath();
-            logger.debug(
-                    "Non-text conflict [{}]: type={}, indexPath={}, oursExec={}, theirsExec={}, oursDir={}, theirsDir={}, oursBinary={}, theirsBinary={}",
-                    ++count,
-                    meta.type(),
-                    idx,
-                    meta.oursExecBit(),
-                    meta.theirsExecBit(),
-                    meta.oursIsDirectory(),
-                    meta.theirsIsDirectory(),
-                    meta.oursBinary(),
-                    meta.theirsBinary());
-            // For now, no automatic resolution is applied.
+        var groups = NonTextGrouper.group(conflicts);
+        logger.info("Detected {} non-text conflict(s) grouped into {} group(s).", conflicts.size(), groups.size());
+
+        int gnum = 0;
+        for (var group : groups) {
+            gnum++;
+            var summary = group.stream()
+                    .map(e -> {
+                        var m = e.getValue();
+                        var idx = m.indexPath() == null ? "(unknown)" : m.indexPath();
+                        return m.type() + "@" + idx;
+                    })
+                    .collect(Collectors.joining(", "));
+            logger.debug("Non-text group #{} ({} item(s)): {}", gnum, group.size(), summary);
         }
-        logger.info("Detected {} non-text conflict(s); no automatic resolution applied in current mode.", count);
+
+        // Note: actual resolution will be applied per-group in a future change set.
+        // For now, we only group and log, leaving resolution to later.
     }
 }
