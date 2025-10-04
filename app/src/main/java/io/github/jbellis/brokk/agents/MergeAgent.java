@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.TokenAware;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,6 +31,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -110,21 +112,21 @@ public class MergeAgent {
         var repo = (GitRepo) cm.getProject().getRepo();
         validateOtherIsNotMergeCommitForNonMergeMode(repo, mode, otherCommitId);
 
-// Non-text conflict resolution phase (pre-annotation)
-List<Map.Entry<FileConflict, NonTextMetadata>> nonTextEntries = conflict.nonText().entrySet().stream()
-        .filter(e -> e.getValue().type() != NonTextType.NONE)
-        .toList();
+		// Non-text conflict resolution phase (pre-annotation)
+        List<Map.Entry<FileConflict, NonTextMetadata>> nonTextEntries = conflict.nonText().entrySet().stream()
+                .filter(e -> e.getValue().type() != NonTextType.NONE)
+                .toList();
 
-if (scope.nonTextMode() != NonTextResolutionMode.OFF && !nonTextEntries.isEmpty()) {
-    resolveNonTextConflicts(nonTextEntries);
-    // Re-inspect repository state after applying non-text resolutions
-    this.conflict = ConflictInspector.inspectFromProjectInternal(cm.getProject());
-    this.baseCommitId = this.conflict.baseCommitId();
-    this.otherCommitId = this.conflict.otherCommitId();
-    this.conflicts = this.conflict.files();
-}
+        if (scope.nonTextMode() != NonTextResolutionMode.OFF && !nonTextEntries.isEmpty()) {
+            resolveNonTextConflicts(nonTextEntries);
+            // Re-inspect repository state after applying non-text resolutions
+            this.conflict = ConflictInspector.inspectFromProjectInternal(cm.getProject());
+            this.baseCommitId = this.conflict.baseCommitId();
+            this.otherCommitId = this.conflict.otherCommitId();
+            this.conflicts = this.conflict.files();
+        }
 
-var conflictAnnotator = new ConflictAnnotator(repo, conflict);
+        var conflictAnnotator = new ConflictAnnotator(repo, conflict);
 
         // First pass: annotate ALL files up front (single loop).
         var annotatedConflicts = new ArrayList<ConflictAnnotator.ConflictFileCommits>(conflicts.size());
@@ -200,7 +202,8 @@ var conflictAnnotator = new ConflictAnnotator(repo, conflict);
                 for (var ac : testAnnotated) {
                     if (Thread.interrupted()) throw new InterruptedException();
 
-                    interface TokenAwareCallable extends Callable<MergeOneFile.Outcome>, TokenAware {}
+                    interface TokenAwareCallable extends Callable<MergeOneFile.Outcome>, TokenAware {
+                    }
 
                     completionService.submit(new TokenAwareCallable() {
                         @Override
@@ -269,7 +272,8 @@ var conflictAnnotator = new ConflictAnnotator(repo, conflict);
                     if (Thread.interrupted()) throw new InterruptedException();
 
                     interface TokenAwareCallable
-                            extends Callable<Map.Entry<ProjectFile, MergeOneFile.Outcome>>, TokenAware {}
+                            extends Callable<Map.Entry<ProjectFile, MergeOneFile.Outcome>>, TokenAware {
+                    }
 
                     completionService.submit(new TokenAwareCallable() {
                         @Override
@@ -375,16 +379,16 @@ var conflictAnnotator = new ConflictAnnotator(repo, conflict);
 
         var agentInstructions =
                 """
-                I attempted to merge changes from %s into our branch (mode: %s). I have added summaries
-                of the changes involved to the Workspace.
-
-                The per-file code agent reported these failures:
-                ```
-                %s
-                ```
-
-                The verification/build output has been added to the Workspace as a Build fragment. Please fix the build and tests, update code as necessary, and produce a clean build. Commit any changes.
-                """
+                        I attempted to merge changes from %s into our branch (mode: %s). I have added summaries
+                        of the changes involved to the Workspace.
+                        
+                        The per-file code agent reported these failures:
+                        ```
+                        %s
+                        ```
+                        
+                        The verification/build output has been added to the Workspace as a Build fragment. Please fix the build and tests, update code as necessary, and produce a clean build. Commit any changes.
+                        """
                         .formatted(otherCommitId, mode, codeAgentText);
 
         var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, scope);
@@ -478,7 +482,8 @@ var conflictAnnotator = new ConflictAnnotator(repo, conflict);
             boolean oursBinary,
             boolean theirsBinary,
             boolean oursExecBit,
-            boolean theirsExecBit) {}
+            boolean theirsExecBit) {
+    }
 
     /**
      * baseCommitId may ay be null if no merge base can be determined (e.g. unrelated histories, shallow clone, root
