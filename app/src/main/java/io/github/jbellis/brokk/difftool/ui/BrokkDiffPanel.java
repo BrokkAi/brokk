@@ -736,12 +736,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             toolBar.add(showAllLinesCheckBox);
         }
 
-        // Add Blame toggle (visible only if feature is enabled)
+        // Add Blame toggle (visible only if feature is enabled and project is git-backed)
         if (BlameService.isFeatureEnabled()) {
+            // Check if this is a git repository
+            boolean isGitRepo = contextManager.getProject().getRepo() instanceof io.github.jbellis.brokk.git.GitRepo;
+
             // Load persisted blame state
             boolean initialBlameState = io.github.jbellis.brokk.util.GlobalUiSettings.isDiffShowBlame();
-            btnBlameToggle.setSelected(initialBlameState);
-            btnBlameToggle.setToolTipText("Toggle gutter git blame");
+            btnBlameToggle.setSelected(initialBlameState && isGitRepo);
+            btnBlameToggle.setEnabled(isGitRepo);
+            btnBlameToggle.setToolTipText(isGitRepo ? "Toggle gutter git blame" : "Git blame (requires git repository)");
             btnBlameToggle.addActionListener(e -> {
                 var panel = getCurrentContentPanel();
                 boolean show = btnBlameToggle.isSelected();
@@ -1234,8 +1238,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Apply diff highlights immediately after theme to prevent timing issues
         cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
 
-        // Apply blame state if feature is enabled and blame is toggled on
-        if (BlameService.isFeatureEnabled() && btnBlameToggle.isSelected()) {
+        // Apply blame state if feature is enabled, blame is toggled on, and project is git-backed
+        if (BlameService.isFeatureEnabled() && btnBlameToggle.isSelected() && btnBlameToggle.isEnabled()) {
             if (cachedPanel instanceof AbstractDiffPanel adp) {
                 adp.setShowGutterBlame(true);
                 updateBlameForPanel(adp, true);
