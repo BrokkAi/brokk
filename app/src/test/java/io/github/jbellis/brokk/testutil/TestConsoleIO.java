@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,6 +22,15 @@ public class TestConsoleIO implements IConsoleIO {
     @Override
     public void toolError(String msg, String title) {
         errorLog.append(msg).append("\n");
+    }
+
+    @Override
+    public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
+        if (role == HistoryOutputPanel.NotificationRole.ERROR) {
+            errorLog.append(message).append("\n");
+        } else {
+            outputLog.append(message).append("\n");
+        }
     }
 
     @Override

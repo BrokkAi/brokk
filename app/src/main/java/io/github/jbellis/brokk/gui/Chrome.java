@@ -1682,8 +1682,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 for (TaskEntry entry : outputFragment.entries()) {
                     if (entry.isCompressed()) {
 
-                        combinedMessages.add(Messages.create(
-                                Objects.toString(entry.summary(), "Summary not available"), ChatMessageType.SYSTEM));
+                        combinedMessages.add(
+                                Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
                     } else {
                         combinedMessages.addAll(castNonNull(entry.log()).messages());
                     }
@@ -2634,6 +2634,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             //noinspection MagicConstant
             JOptionPane.showMessageDialog(frame, message, title, messageType);
         });
+    }
+
+    @Override
+    public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
+        boolean allowed =
+                switch (role) {
+                    case COST -> GlobalUiSettings.isShowCostNotifications();
+                    case ERROR -> GlobalUiSettings.isShowErrorNotifications();
+                    case CONFIRM -> GlobalUiSettings.isShowConfirmNotifications();
+                    case INFO -> GlobalUiSettings.isShowInfoNotifications();
+                };
+        if (!allowed) return;
+
+        SwingUtilities.invokeLater(() -> historyOutputPanel.showNotification(role, message));
     }
 
     /** Helper method to find JScrollPane component within a container */

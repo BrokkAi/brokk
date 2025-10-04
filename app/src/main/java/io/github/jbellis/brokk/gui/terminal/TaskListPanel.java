@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskListData;
 import io.github.jbellis.brokk.TaskListEntryDto;
@@ -960,8 +961,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Reflect pending state in UI and disable Play buttons to avoid double trigger
         list.repaint();
 
-        // Start the first task
-        startRunForIndex(first);
+        var cm = chrome.getContextManager();
+        if (MainProject.getHistoryAutoCompress()) {
+            chrome.showOutputSpinner("Compressing history...");
+            var cf = cm.compressHistoryAsync();
+            cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
+                chrome.hideOutputSpinner();
+                startRunForIndex(first);
+            }));
+        } else {
+            // Start the first task immediately when auto-compress is disabled
+            startRunForIndex(first);
+        }
     }
 
     private void startRunForIndex(int idx) {
