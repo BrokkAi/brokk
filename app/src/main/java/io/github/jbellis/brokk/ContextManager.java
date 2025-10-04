@@ -25,6 +25,7 @@ import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
+import io.github.jbellis.brokk.agents.NonTextResolutionMode;
 import io.github.jbellis.brokk.util.*;
 import io.github.jbellis.brokk.util.UserActionManager.ThrowingRunnable;
 import java.io.IOException;
@@ -1799,28 +1800,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TaskEntry.fromCompressed(entry.sequence(), summary);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics. */
-    public TaskScope beginTask(String input, boolean compressAtCommit) {
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
+    public TaskScope beginTask(String input, boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
         var history = topContext().getTaskHistory();
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 
-        return new TaskScope(compressAtCommit);
+        return new TaskScope(compressAtCommit, nonTextMode);
+    }
+
+    /** Backwards-compatible overload: defaults non-text handling to OFF. */
+    public TaskScope beginTask(String input, boolean compressAtCommit) {
+        return beginTask(input, compressAtCommit, NonTextResolutionMode.OFF);
     }
 
     /** Aggregating scope that collects messages/files and commits once. */
     public final class TaskScope implements AutoCloseable {
-        private final boolean compressAtCommit;
-        private final ArrayList<TaskResult> results;
-        private boolean closed = false;
+            private final boolean compressAtCommit;
+            private final NonTextResolutionMode nonTextMode;
+            private final ArrayList<TaskResult> results;
+            private boolean closed = false;
 
-        private TaskScope(boolean compressAtCommit) {
-            io.blockLlmOutput(true);
-            this.compressAtCommit = compressAtCommit;
-            this.results = new ArrayList<>();
-        }
+            private TaskScope(boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
+                io.blockLlmOutput(true);
+                this.compressAtCommit = compressAtCommit;
+                this.nonTextMode = nonTextMode;
+                this.results = new ArrayList<>();
+            }
 
         public void append(TaskResult result) {
             assert !closed : "TaskScope already closed";
@@ -1829,6 +1837,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 addFiles(result.changedFiles());
             }
             results.add(result);
+        }
+
+        public NonTextResolutionMode nonTextMode() {
+            return nonTextMode;
         }
 
         @Override

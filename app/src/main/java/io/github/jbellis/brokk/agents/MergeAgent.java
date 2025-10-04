@@ -54,13 +54,13 @@ public class MergeAgent {
     }
 
     protected final IContextManager cm;
-    protected final MergeConflict conflict;
+    protected MergeConflict conflict;
 
     // Convenience fields derived from conflict
     protected final MergeMode mode;
-    protected final String otherCommitId;
-    protected final @Nullable String baseCommitId;
-    protected final Set<FileConflict> conflicts;
+    protected String otherCommitId;
+    protected @Nullable String baseCommitId;
+    protected Set<FileConflict> conflicts;
 
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
@@ -110,7 +110,21 @@ public class MergeAgent {
         var repo = (GitRepo) cm.getProject().getRepo();
         validateOtherIsNotMergeCommitForNonMergeMode(repo, mode, otherCommitId);
 
-        var conflictAnnotator = new ConflictAnnotator(repo, conflict);
+// Non-text conflict resolution phase (pre-annotation)
+List<Map.Entry<FileConflict, NonTextMetadata>> nonTextEntries = conflict.nonText().entrySet().stream()
+        .filter(e -> e.getValue().type() != NonTextType.NONE)
+        .toList();
+
+if (scope.nonTextMode() != NonTextResolutionMode.OFF && !nonTextEntries.isEmpty()) {
+    resolveNonTextConflicts(nonTextEntries);
+    // Re-inspect repository state after applying non-text resolutions
+    this.conflict = ConflictInspector.inspectFromProjectInternal(cm.getProject());
+    this.baseCommitId = this.conflict.baseCommitId();
+    this.otherCommitId = this.conflict.otherCommitId();
+    this.conflicts = this.conflict.files();
+}
+
+var conflictAnnotator = new ConflictAnnotator(repo, conflict);
 
         // First pass: annotate ALL files up front (single loop).
         var annotatedConflicts = new ArrayList<ConflictAnnotator.ConflictFileCommits>(conflicts.size());
@@ -507,5 +521,27 @@ public class MergeAgent {
         public boolean isContentConflict() {
             return ourContent != null && theirContent != null;
         }
+    }
+
+    private void resolveNonTextConflicts(List<Map.Entry<FileConflict, NonTextMetadata>> conflicts) {
+        // Placeholder implementation: log each detected non-text conflict; future commits will apply actual resolutions.
+        int count = 0;
+        for (var entry : conflicts) {
+            var meta = entry.getValue();
+            var idx = meta.indexPath() == null ? "(unknown)" : meta.indexPath();
+            logger.debug(
+                    "Non-text conflict [{}]: type={}, indexPath={}, oursExec={}, theirsExec={}, oursDir={}, theirsDir={}, oursBinary={}, theirsBinary={}",
+                    ++count,
+                    meta.type(),
+                    idx,
+                    meta.oursExecBit(),
+                    meta.theirsExecBit(),
+                    meta.oursIsDirectory(),
+                    meta.theirsIsDirectory(),
+                    meta.oursBinary(),
+                    meta.theirsBinary());
+            // For now, no automatic resolution is applied.
+        }
+        logger.info("Detected {} non-text conflict(s); no automatic resolution applied in current mode.", count);
     }
 }
