@@ -164,144 +164,99 @@ public class MergeAgent {
                 .map(ConflictAnnotator.ConflictFileCommits::file)
                 .toList();
 
-        // Merge test files first (in parallel) to seed relevance
-        if (!testAnnotated.isEmpty()) {
-            var service = cm.getService();
-            ExecutorService testExecutor = AdaptiveExecutor.create(service, codeModel, testAnnotated.size());
-            try {
-                CompletionService<MergeOneFile.Outcome> completionService =
-                        new ExecutorCompletionService<>(testExecutor);
+        // Merge all files (tests and non-tests) in a single BlitzForge run.
+        // Build a lookup from ProjectFile -> annotated conflict details
+        var acByFile = annotatedConflicts.stream()
+                .collect(Collectors.toMap(ConflictAnnotator.ConflictFileCommits::file, ac -> ac));
 
-                // Token-aware callable to merge a single test file
-                for (var ac : testAnnotated) {
-                    if (Thread.interrupted()) throw new InterruptedException();
+        // Prepare BlitzForge configuration and listener
+        var instructionsText =
+                "AI-assisted merge of conflicted files from %s (mode: %s)".formatted(otherCommitId, mode);
+        var bfConfig = new BlitzForge.RunConfig(
+                instructionsText,
+                codeModel,              // model used only for token-aware scheduling
+                true,                   // includeWorkspace
+                null,                   // relatedK
+                null,                   // perFileCommandTemplate
+                "",                     // contextFilter
+                BlitzForge.ParallelOutputMode.CHANGED,
+                false,                  // buildFirst
+                "",                     // postProcessingInstructions
+                BlitzForge.Action.MERGE);
 
-                    interface TokenAwareCallable extends Callable<MergeOneFile.Outcome>, TokenAware {}
+        var bfListener = cm.getIo().getBlitzForgeListener(bfConfig, () -> {});
 
-                    completionService.submit(new TokenAwareCallable() {
-                        @Override
-                        public int tokens() {
-                            try {
-                                return Messages.getApproximateTokens(ac.contents());
-                            } catch (Exception e) {
-                                logger.debug("Token estimation failed for {} – {}", ac.file(), e.toString());
-                                return 0;
-                            }
-                        }
+        var blitz = new BlitzForge(cm, cm.getService(), bfConfig, bfListener);
 
-                        @Override
-                        public MergeOneFile.Outcome call() throws Exception {
-                            var planner = new MergeOneFile(
-                                    cm,
-                                    planningModel,
-                                    codeModel,
-                                    mode,
-                                    baseCommitId,
-                                    otherCommitId,
-                                    Map.of(),
-                                    allTestFiles,
-                                    ac);
-                            return planner.merge();
-                        }
-                    });
+        var allAnnotatedFiles = annotatedConflicts.stream()
+                .map(ConflictAnnotator.ConflictFileCommits::file)
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
+
+        blitz.executeParallel(allAnnotatedFiles, file -> {
+            var ac = acByFile.get(file);
+            if (ac == null) {
+                var err = "Internal error: missing annotated conflict for " + file;
+                synchronized (codeAgentFailures) {
+                    codeAgentFailures.add(err);
                 }
-
-                for (var cfc : testAnnotated) {
-                    if (Thread.interrupted()) throw new InterruptedException();
-
-                    var fut = completionService.take();
-                    // logging context only; order does not strictly map
-                    try {
-                        var outcome = fut.get();
-                        logger.info("Merged test file (parallel) possibly {} => {}", cfc.file(), outcome);
-                    } catch (ExecutionException e) {
-                        var cause = e.getCause() == null ? e : e.getCause();
-                        logger.error("Error merging test file {}: {}", cfc.file(), cause.toString(), cause);
-                    }
-
-                    // Update merged test sources for files that no longer have conflict markers
-                    var textOpt = cfc.file().read();
-                    if (textOpt.isPresent() && !containsConflictMarkers(textOpt.get())) {
-                        mergedTestSources.put(cfc.file(), textOpt.get());
-                    } else {
-                        logger.warn("Test file {} still contains conflict markers after merge attempt", cfc.file());
-                    }
-                }
-            } finally {
-                testExecutor.shutdownNow();
+                return new BlitzForge.FileResult(file, false, err, "");
             }
-        }
 
-        // Then merge non-test files (in parallel), leveraging merged test sources
-        if (!nonTestAnnotated.isEmpty()) {
-            var service = cm.getService();
-            ExecutorService nonTestExecutor = AdaptiveExecutor.create(service, codeModel, nonTestAnnotated.size());
+            boolean isTest = ContextManager.isTestFile(file);
+            var sourcesForPlanner = isTest ? Map.<ProjectFile, String>of() : mergedTestSources;
+
             try {
-                CompletionService<Map.Entry<ProjectFile, MergeOneFile.Outcome>> completionService =
-                        new ExecutorCompletionService<>(nonTestExecutor);
+                var planner = new MergeOneFile(
+                        cm,
+                        planningModel,
+                        codeModel,
+                        mode,
+                        baseCommitId,
+                        otherCommitId,
+                        sourcesForPlanner,
+                        allTestFiles,
+                        ac);
 
-                // Token-aware callable to merge a single non-test file
-                for (var ac : nonTestAnnotated) {
-                    if (Thread.interrupted()) throw new InterruptedException();
+                var outcome = planner.merge();
 
-                    interface TokenAwareCallable
-                            extends Callable<Map.Entry<ProjectFile, MergeOneFile.Outcome>>, TokenAware {}
-
-                    completionService.submit(new TokenAwareCallable() {
-                        @Override
-                        public int tokens() {
-                            try {
-                                return Messages.getApproximateTokens(ac.contents());
-                            } catch (Exception e) {
-                                logger.debug("Token estimation failed for {} – {}", ac.file(), e.toString());
-                                return 0;
-                            }
+                // Read back to determine edited status and populate mergedTestSources for successfully merged tests
+                boolean edited = false;
+                try {
+                    var textOpt = file.read();
+                    if (textOpt.isPresent()) {
+                        var text = textOpt.get();
+                        edited = !containsConflictMarkers(text);
+                        if (isTest && edited) {
+                            mergedTestSources.put(file, text);
+                        } else if (isTest && !edited) {
+                            logger.warn("Test file {} still contains conflict markers after merge attempt", file);
                         }
-
-                        @Override
-                        public Map.Entry<ProjectFile, MergeOneFile.Outcome> call() throws Exception {
-                            var planner = new MergeOneFile(
-                                    cm,
-                                    planningModel,
-                                    codeModel,
-                                    mode,
-                                    baseCommitId,
-                                    otherCommitId,
-                                    mergedTestSources,
-                                    allTestFiles,
-                                    ac);
-                            var outcome = planner.merge();
-                            return Map.entry(ac.file(), outcome);
-                        }
-                    });
-                }
-
-                for (int i = 0; i < nonTestAnnotated.size(); i++) {
-                    if (Thread.interrupted()) throw new InterruptedException();
-
-                    var fut = completionService.take();
-                    try {
-                        var entry = fut.get();
-                        var file = entry.getKey();
-                        var outcome = entry.getValue();
-                        logger.info("Merged source file (parallel) {} => {}", file, outcome);
-
-                        if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
-                            if (outcome.details() != null) {
-                                codeAgentFailures.add(outcome.details());
-                            } else {
-                                codeAgentFailures.add("<unknown code-agent failure for " + file + ">");
-                            }
-                        }
-                    } catch (ExecutionException e) {
-                        var cause = e.getCause() == null ? e : e.getCause();
-                        logger.error("Error merging source file in parallel: {}", cause.toString(), cause);
                     }
+                } catch (Exception e) {
+                    logger.debug("Post-merge read failed for {}: {}", file, e.toString());
                 }
-            } finally {
-                nonTestExecutor.shutdownNow();
+
+                if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
+                    var detail = (outcome.details() != null)
+                            ? outcome.details()
+                            : "<unknown code-agent failure for " + file + ">";
+                    synchronized (codeAgentFailures) {
+                        codeAgentFailures.add(detail);
+                    }
+                    return new BlitzForge.FileResult(file, edited, detail, "");
+                }
+
+                return new BlitzForge.FileResult(file, edited, null, "");
+            } catch (Exception e) {
+                var err = "Execution error: " + e.getMessage();
+                synchronized (codeAgentFailures) {
+                    codeAgentFailures.add(err);
+                }
+                logger.error("Error merging file {}: {}", file, e.toString(), e);
+                return new BlitzForge.FileResult(file, false, err, "");
             }
-        }
+        });
 
         // Publish commit explanations (if available)
         try {
