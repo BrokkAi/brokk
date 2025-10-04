@@ -1886,6 +1886,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * @param show whether to show blame (if false we will clear the gutter blame)
      */
     private void updateBlameForPanel(io.github.jbellis.brokk.difftool.ui.IDiffPanel panel, boolean show) {
+        logger.debug("updateBlameForPanel called: panel={}, show={}", panel.getClass().getSimpleName(), show);
         // Clear any existing displayed blame if hiding
         if (!show) {
             // BufferDiffPanel case: clear both left/right gutters
@@ -1928,13 +1929,17 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         if (targetPath == null) {
-            // nothing to do
+            logger.warn("Could not resolve target path for blame");
             return;
         }
 
+        logger.debug("Resolved target path for blame: {}", targetPath);
+
         // Asynchronously request blame and apply to the panel gutters on EDT
+        final java.nio.file.Path finalTargetPath = targetPath;
         blameService.requestBlame(targetPath).whenComplete((map, exc) -> {
             if (map == null || map.isEmpty()) {
+                logger.debug("Blame returned empty result for: {}", finalTargetPath);
                 // nothing to show, ensure gutter toggles are set
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     if (panel instanceof BufferDiffPanel bp) {
@@ -1948,6 +1953,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 });
                 return;
             }
+
+            logger.debug("Blame returned {} entries, applying to panel", map.size());
 
             javax.swing.SwingUtilities.invokeLater(() -> {
                 if (panel instanceof BufferDiffPanel bp) {

@@ -8,6 +8,11 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Point;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -180,13 +185,24 @@ public class DiffGutterComponent extends JComponent {
     public void clearBlame() {
         blameLines.clear();
         showBlame = false;
+        invalidate();
+        if (getParent() != null) {
+            getParent().revalidate();
+        }
         repaint();
     }
 
     /** Enable or disable blame rendering in this gutter. */
     public void setShowBlame(boolean show) {
-        this.showBlame = show;
-        repaint();
+        if (this.showBlame != show) {
+            this.showBlame = show;
+            // Trigger resize by invalidating preferred size and propagating to parent
+            invalidate();
+            if (getParent() != null) {
+                getParent().revalidate();
+            }
+            repaint();
+        }
     }
 
     /** Set blame lines (1-based line numbers) for rendering. */
@@ -194,6 +210,10 @@ public class DiffGutterComponent extends JComponent {
         blameLines.clear();
         if (!lines.isEmpty()) {
             blameLines.putAll(lines);
+        }
+        invalidate();
+        if (getParent() != null) {
+            getParent().revalidate();
         }
         repaint();
     }
@@ -461,6 +481,7 @@ public class DiffGutterComponent extends JComponent {
     }
 
 
+    @SuppressWarnings("UnusedVariable")
     private void paintDualColumnNumbers(Graphics g, String[] lineNumbers, int lineY, int fontAscent, FontMetrics fm, int lineHeight, int docLineNumber) {
         g.setColor(UnifiedDiffColorResolver.getLineNumberTextColor(isDarkTheme));
 
@@ -469,28 +490,31 @@ public class DiffGutterComponent extends JComponent {
 
         int columnWidth = fm.stringWidth("9999");
         int columnGap = 4;
-        // base padding inside gutter (space between outer edge and blame area)
         int baseLeftPadding = 4;
         int rightPadding = 6;
 
-        // Compute blame area width (reserve to the LEFT of the numbers)
+        // Compute blame text (limited to 25 chars)
         String blameText = "";
+        Font blameDrawFont = null;
+        FontMetrics bfm = null;
         if (showBlame && docLineNumber > 0) {
             var info = blameLines.get(docLineNumber);
             if (info != null) {
                 blameText = formatBlameInfo(info);
+                if (!blameText.isBlank()) {
+                    blameDrawFont = (blameFont != null) ? blameFont : getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
+                    bfm = g.getFontMetrics(blameDrawFont);
+                }
             }
         }
 
+        // Reserve fixed width for blame area (25 chars + padding)
         int blameAreaWidth = 0;
-        Font blameDrawFont = null;
-        if (showBlame && blameText != null && !blameText.isBlank()) {
-            blameDrawFont = (blameFont != null) ? blameFont : getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
-            FontMetrics bfm = g.getFontMetrics(blameDrawFont);
-            blameAreaWidth = bfm.stringWidth(blameText) + 8; // small padding inside blame area
+        if (showBlame && bfm != null) {
+            blameAreaWidth = bfm.stringWidth("0123456789012345678901234") + 8; // 25 chars + padding
         }
 
-        // Left padding must include space for blame area (so numbers are shifted right)
+        // Left padding includes blame area width
         int leftPadding = baseLeftPadding + blameAreaWidth;
 
         int leftColumnX = leftPadding;
@@ -503,22 +527,38 @@ public class DiffGutterComponent extends JComponent {
             rightColumnX = centerX + columnGap / 2;
         }
 
-        // Paint blame area (to the left) BEFORE painting numbers so it does not overlap.
-        if (showBlame && blameText != null && !blameText.isBlank()) {
-            Font oldFont = g.getFont();
-            g.setFont(blameDrawFont);
-            FontMetrics bfm = g.getFontMetrics(blameDrawFont);
-            int blameX = baseLeftPadding; // start at the left edge plus base padding
-            int blameY = lineY + lineHeight - Math.max(2, bfm.getDescent()); // near bottom of line, like prior behavior
-            Color original = g.getColor();
-            Color tinted = isDarkTheme ? original.brighter() : original.darker().darker();
-            g.setColor(tinted);
-            g.drawString(blameText, blameX, blameY);
-            g.setColor(original);
-            g.setFont(oldFont);
+        // Paint blame to the LEFT of line numbers, with fixed-width author column
+        if (showBlame && bfm != null) {
+            var info = blameLines.get(docLineNumber);
+            if (info != null) {
+                Font oldFont = g.getFont();
+                g.setFont(blameDrawFont);
+                Color original = g.getColor();
+                Color tinted = isDarkTheme ? original.brighter() : original.darker().darker();
+                g.setColor(tinted);
+
+                String author = info.author();
+                String date = formatDate(info.authorTime());
+
+                // Draw author (truncated to fit in fixed width)
+                int authorX = baseLeftPadding;
+                int authorMaxWidth = bfm.stringWidth("123456789012345"); // ~15 chars worth
+                String displayAuthor = truncateToWidth(author, authorMaxWidth, bfm);
+                g.drawString(displayAuthor, authorX, textY);
+
+                // Draw separator and date at fixed position (aligned)
+                if (!date.isBlank()) {
+                    int separatorX = baseLeftPadding + authorMaxWidth + 2;
+                    g.drawString(" · " + date, separatorX, textY);
+                }
+
+                g.setColor(original);
+                g.setFont(oldFont);
+            }
         }
 
         // Paint left column (numbers)
+        g.setColor(UnifiedDiffColorResolver.getLineNumberTextColor(isDarkTheme));
         String leftText = lineNumbers[0];
         if (!leftText.trim().isEmpty()) {
             int leftTextX = leftColumnX + columnWidth - fm.stringWidth(leftText);
@@ -531,8 +571,6 @@ public class DiffGutterComponent extends JComponent {
             int rightTextX = rightColumnX + columnWidth - fm.stringWidth(rightText);
             g.drawString(rightText, Math.max(0, rightTextX), textY);
         }
-
-        // Note: we already painted blame into the reserved left area above, so do not call paintBlameForLine here.
     }
 
     /** Map a text area line to the corresponding DiffLine object (unified mode). */
@@ -558,7 +596,8 @@ public class DiffGutterComponent extends JComponent {
         return null;
     }
 
-    /** Paint the blame snippet for a given 1-based document line number. */
+    /** Paint the blame snippet for a given 1-based document line number (side-by-side mode). */
+    @SuppressWarnings("UnusedVariable")
     private void paintBlameForLine(Graphics g, int oneBasedLine, int lineY, int lineHeight) {
         if (!showBlame) return;
         var info = blameLines.get(oneBasedLine);
@@ -572,32 +611,96 @@ public class DiffGutterComponent extends JComponent {
         Font oldFont = g.getFont();
         g.setFont(blameFont);
         FontMetrics bf = g.getFontMetrics();
+        FontMetrics mainFm = g.getFontMetrics(oldFont);
 
-        String text = formatBlameInfo(info);
-        if (text.isEmpty()) {
-            g.setFont(oldFont);
-            return;
-        }
+        String author = info.author();
+        String date = formatDate(info.authorTime());
 
-        int x = 4; // left padding
-        int textY = lineY + lineHeight - Math.max(2, bf.getDescent()); // draw near bottom of line
-        // Subtle color: slightly dimmer or brighter depending on theme
+        // Position blame on same baseline as line number
+        int textY = lineY + mainFm.getAscent();
         Color original = g.getColor();
         Color tinted = isDarkTheme ? original.brighter() : original.darker().darker();
         g.setColor(tinted);
-        g.drawString(text, x, textY);
+
+        // Draw author (truncated to fit in fixed width)
+        int authorX = 4; // left padding
+        int authorMaxWidth = bf.stringWidth("123456789012345"); // ~15 chars worth
+        String displayAuthor = truncateToWidth(author, authorMaxWidth, bf);
+        g.drawString(displayAuthor, authorX, textY);
+
+        // Draw separator and date at fixed position (aligned)
+        if (!date.isBlank()) {
+            int separatorX = 4 + authorMaxWidth + 2;
+            g.drawString(" · " + date, separatorX, textY);
+        }
+
         g.setColor(original);
         g.setFont(oldFont);
     }
 
-    /** Format a BlameInfo into a concise string: "Author · sha" */
+    /** Format a BlameInfo for side-by-side mode (used by paintBlameForLine) - not used for unified mode */
     private String formatBlameInfo(io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo info) {
         String author = info.author();
-        String sha = info.shortSha();
-        if (author.isBlank() && sha.isBlank()) return "";
-        if (author.isBlank()) return sha;
-        if (sha.isBlank()) return author;
-        return author + " · " + sha;
+        String date = formatDate(info.authorTime());
+
+        if (author.isBlank() && date.isBlank()) return "";
+        if (author.isBlank()) return date;
+        if (date.isBlank()) return truncate(author, 25);
+
+        // For side-by-side, just combine author and date (will be truncated by pixel width)
+        return author + " · " + date;
+    }
+
+    /** Truncate string to fit within maxWidth pixels, adding "…" if truncated */
+    private String truncateToWidth(String s, int maxWidth, FontMetrics fm) {
+        if (fm.stringWidth(s) <= maxWidth) {
+            return s;
+        }
+        // Binary search for the right length
+        int len = s.length();
+        while (len > 0 && fm.stringWidth(s.substring(0, len) + "…") > maxWidth) {
+            len--;
+        }
+        return len > 0 ? s.substring(0, len) + "…" : "";
+    }
+
+    /** Truncate string to maxLen, adding "…" if truncated */
+    private String truncate(String s, int maxLen) {
+        if (s.length() <= maxLen) return s;
+        return s.substring(0, maxLen - 1) + "…";
+    }
+
+    /** Format timestamp as relative (≤7 days) or absolute date (>7 days). Uses 0L as sentinel for missing timestamp. */
+    private String formatDate(Long timestampSeconds) {
+        if (timestampSeconds == 0L) {
+            return "";
+        }
+
+        Instant commitTime = Instant.ofEpochSecond(timestampSeconds);
+        Instant now = Instant.now();
+        Duration duration = Duration.between(commitTime, now);
+
+        long days = duration.toDays();
+        long hours = duration.toHours();
+        long minutes = duration.toMinutes();
+
+        // Relative format for ≤ 7 days
+        if (days <= 7) {
+            if (days > 0) {
+                return days + "d ago";
+            } else if (hours > 0) {
+                return hours + "h ago";
+            } else if (minutes > 0) {
+                return minutes + "m ago";
+            } else {
+                return "now";
+            }
+        }
+
+        // Absolute format for > 7 days using locale short date
+        DateTimeFormatter formatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT)
+                .withZone(ZoneId.systemDefault());
+        return formatter.format(commitTime);
     }
 
     /** Get the preferred width for the gutter component. */
@@ -612,8 +715,13 @@ public class DiffGutterComponent extends JComponent {
             int leftPadding = 4;
             int rightPadding = 8;
 
-            // Add extra space for blame if enabled (small) - side-by-side blame is shown to the left as well
-            int blameExtra = showBlame ? Math.max(30, fm.stringWidth("LongAuthor · abcdef01")) : 0;
+            // Reserve fixed width for blame (25 chars max)
+            int blameExtra = 0;
+            if (showBlame) {
+                Font bf = getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
+                FontMetrics bfm = textArea.getFontMetrics(bf);
+                blameExtra = bfm.stringWidth("0123456789012345678901234") + 8;
+            }
 
             return leftPadding + blameExtra + numberWidth + rightPadding;
         } else {
@@ -628,8 +736,13 @@ public class DiffGutterComponent extends JComponent {
             int baseLeftPadding = 4;
             int rightPadding = 6;
 
-            // Reserve blame space on the left (so numbers are shifted right)
-            int blameExtra = showBlame ? Math.max(30, fm.stringWidth("Author · abcdef01")) : 0;
+            // Reserve fixed width for blame (25 chars max)
+            int blameExtra = 0;
+            if (showBlame) {
+                Font bf = getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
+                FontMetrics bfm = textArea.getFontMetrics(bf);
+                blameExtra = bfm.stringWidth("0123456789012345678901234") + 8;
+            }
 
             return baseLeftPadding + blameExtra + columnWidth + columnGap + columnWidth + rightPadding;
         }
