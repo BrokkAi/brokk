@@ -725,7 +725,10 @@ public class CodeAgent {
 
                     for (var entry : es.javaLintDiagnostics().entrySet()) {
                         ProjectFile pf = entry.getKey();
-                        String diagsString = entry.getValue();
+                        var list = entry.getValue();
+                        var diagsString = list.stream()
+                                .map(JavaDiagnostic::description)
+                                .collect(Collectors.joining("\n"));
 
                         var unique = System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
                         var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
@@ -893,13 +896,12 @@ public class CodeAgent {
         // Use Eclipse JDT ASTParser without classpath/bindings
         var projectRoot = contextManager.getProject().getRoot();
 
-        // Map from ProjectFile -> aggregated diagnostic string for that file
-        var perFileProblems = new ConcurrentHashMap<ProjectFile, String>();
+        // Map from ProjectFile -> diagnostic list for that file
+        var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
 
         // Whitelist of local-only errors we want to surface even when categorized as type problems.
         // These do not depend on external type resolution / classpath.
         var localOnlyIds = Set.of(
-                IProblem.UndefinedName,
                 IProblem.UninitializedLocalVariable,
                 IProblem.RedefinedLocal,
                 IProblem.RedefinedArgument,
@@ -930,70 +932,54 @@ public class CodeAgent {
 
             CompilationUnit cu = (CompilationUnit) parser.createAST(null);
 
-            var localProblems = new ArrayList<String>();
+            var diags = new ArrayList<JavaDiagnostic>();
             for (IProblem prob : cu.getProblems()) {
                 if (!prob.isError()) {
                     continue;
                 }
                 int id = prob.getID();
 
+                // Normalize UnresolvedVariable -> UndefinedName to make diagnostics stable for tests/consumers
+                int normalizedId = (id == IProblem.UnresolvedVariable) ? IProblem.UndefinedName : id;
+
+                // Ignore import-category issues outright
+                @Nullable Integer catId = null;
                 if (prob instanceof CategorizedProblem cp) {
-                    int cat = cp.getCategoryID();
-                    if (cat == CategorizedProblem.CAT_IMPORT) {
-                        continue; // ignore import issues outright
+                    catId = cp.getCategoryID();
+                    if (catId == CategorizedProblem.CAT_IMPORT) {
+                        continue;
                     }
-                    if (cat == CategorizedProblem.CAT_TYPE && !localOnlyIds.contains(id)) {
-                        continue; // ignore general type problems without a classpath
+                    // Ignore general TYPE issues unless whitelisted as local-only
+                    if (catId == CategorizedProblem.CAT_TYPE && !localOnlyIds.contains(normalizedId)) {
+                        continue;
                     }
                 }
 
                 // Always ignore unresolved methods/fields (classpath-related)
-                if ((id == IProblem.UndefinedMethod) || (id == IProblem.UndefinedField)) {
+                if (normalizedId == IProblem.UndefinedMethod || normalizedId == IProblem.UndefinedField) {
                     continue;
                 }
 
-                // Heuristic: some missing types surface as UndefinedName like "X cannot be resolved to a variable"
-                // when used as a qualifier (e.g., X.member). Treat such cases as type-resolution issues and ignore.
-                if ((id == IProblem.UndefinedName)) {
-                    int start = Math.max(0, prob.getSourceStart());
-                    int end = Math.max(start, prob.getSourceEnd());
-                    // Defensive bounds
-                    start = Math.min(start, sourceChars.length - 1);
-                    end = Math.min(end, sourceChars.length - 1);
-
-                    String ident = new String(sourceChars, start, end - start + 1);
-                    boolean nextIsDot = (end + 1 < sourceChars.length) && sourceChars[end + 1] == '.';
-                    boolean looksTypeLike = !ident.isEmpty() && Character.isUpperCase(ident.charAt(0));
-
-                    // If it looks like a missing type/qualifier (Uppercase or followed by '.'), ignore as classpath noise
-                    if (nextIsDot || looksTypeLike) {
+                // Ignore missing types used purely as a qualifier, e.g., MissingType.SOMETHING
+                // We detect this by checking if the unresolved token is immediately followed by a '.'
+                if (normalizedId == IProblem.UndefinedName) {
+                    int next = prob.getSourceEnd() + 1;
+                    while (next < sourceChars.length && Character.isWhitespace(sourceChars[next])) {
+                        next++;
+                    }
+                    if (next < sourceChars.length && sourceChars[next] == '.') {
+                        // Treat as external/missing type used as qualifier; ignore
                         continue;
                     }
                 }
 
-                // Broader guard: if the problem text indicates it "cannot be resolved" and the token is a type-like
-                // identifier or is used as a qualifier (followed by '.'), treat as classpath noise and ignore.
-                {
-                    int start2 = Math.max(0, prob.getSourceStart());
-                    int end2 = Math.max(start2, prob.getSourceEnd());
-                    start2 = Math.min(start2, sourceChars.length - 1);
-                    end2 = Math.min(end2, sourceChars.length - 1);
-
-                    String ident2 = new String(sourceChars, start2, end2 - start2 + 1);
-                    boolean nextIsDot2 = (end2 + 1 < sourceChars.length) && sourceChars[end2 + 1] == '.';
-                    boolean looksTypeLike2 = !ident2.isEmpty() && Character.isUpperCase(ident2.charAt(0));
-                    var msgText = Objects.toString(prob.getMessage(), "").toLowerCase(Locale.ROOT);
-                    if ((nextIsDot2 || looksTypeLike2) && msgText.contains("cannot be resolved")) {
-                        continue;
-                    }
-                }
-
-                var summary = formatJdtProblem(absPath, cu, prob);
-                localProblems.add(summary);
+                // No string-based heuristics; capture what remains.
+                var description = formatJdtProblem(absPath, cu, prob);
+                diags.add(new JavaDiagnostic(normalizedId, catId, description));
             }
 
-            if (!localProblems.isEmpty()) {
-                perFileProblems.put(file, String.join("\n", localProblems));
+            if (!diags.isEmpty()) {
+                perFileProblems.put(file, diags);
             }
         });
 
@@ -1093,6 +1079,8 @@ public class CodeAgent {
         }
     }
 
+    public record JavaDiagnostic(int problemId, @Nullable Integer categoryId, String description) {}
+
     record EditState(
             // parsed but not yet applied
             List<EditBlock.SearchReplaceBlock> pendingBlocks,
@@ -1103,7 +1091,7 @@ public class CodeAgent {
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
-            Map<ProjectFile, String> javaLintDiagnostics) {
+            Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
@@ -1153,7 +1141,7 @@ public class CodeAgent {
                     javaLintDiagnostics);
         }
 
-        EditState withJavaLintDiagnostics(Map<ProjectFile, String> diags) {
+        EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
             return new EditState(
                     pendingBlocks,
                     consecutiveParseFailures,
