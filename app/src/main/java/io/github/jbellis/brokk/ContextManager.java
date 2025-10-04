@@ -957,42 +957,55 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public void updateBuildFragment(boolean success, String buildOutput) {
-        // Remove any existing BUILD_LOG fragments
-        var idsToDrop = liveContext()
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
-                .map(ContextFragment::id)
-                .toList();
-        if (!idsToDrop.isEmpty()) {
-            pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(idsToDrop));
-        }
+        var desc = ContextFragment.BUILD_RESULTS.description();
+        pushContext(currentLiveCtx -> {
+            // Collect build-related fragments to drop:
+            //  - Legacy: BuildFragment (BUILD_LOG)
+            //  - New: StringFragment with description "Latest Build Results"
+            var idsToDrop = currentLiveCtx
+                    .virtualFragments()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
+                            || (f.getType() == ContextFragment.FragmentType.STRING
+                                    && f instanceof ContextFragment.StringFragment sf
+                                    && desc.equals(sf.description())))
+                    .map(ContextFragment::id)
+                    .toList();
 
-        // Only add a new BuildFragment if the build failed
-        if (success) {
-            return;
-        }
+            var modified = idsToDrop.isEmpty() ? currentLiveCtx : currentLiveCtx.removeFragmentsByIds(idsToDrop);
 
-        var bf = new ContextFragment.BuildFragment(this, buildOutput);
-        addVirtualFragment(bf);
+            if (success) {
+                logger.debug(
+                        "Cleared {} previous build fragment(s); build succeeded so not adding new results.",
+                        idsToDrop.size());
+                return modified;
+            }
+
+            var sf = new ContextFragment.StringFragment(
+                    this, buildOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
+
+            logger.debug(
+                    "Cleared {} previous build fragment(s); added new build results StringFragment {}",
+                    idsToDrop.size(),
+                    sf.id());
+            return modified.addVirtualFragment(sf);
+        });
     }
 
     @Override
     public String getProcessedBuildOutput() {
-        return liveContext()
+        // Prefer new StringFragment with the BUILD_RESULTS description
+        var latestString = liveContext()
                 .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
-                .findFirst()
-                .map(f -> {
-                    var bf = (ContextFragment.BuildFragment) f;
-                    // Extract content without the "# CURRENT BUILD STATUS\n\n" header
-                    String fullText = bf.text();
-                    String header = "# CURRENT BUILD STATUS\n\n";
-                    if (fullText.startsWith(header)) {
-                        return fullText.substring(header.length());
-                    }
-                    return fullText;
-                })
-                .orElse("");
+                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .filter(sf -> sf.description().equals(ContextFragment.BUILD_RESULTS.description()))
+                .findFirst();
+
+        if (latestString.isPresent()) {
+            return latestString.get().text();
+        }
+        return "";
     }
 
     /**
