@@ -490,7 +490,18 @@ var conflictAnnotator = new ConflictAnnotator(repo, conflict);
             String otherCommitId,
             @Nullable String baseCommitId,
             Set<FileConflict> files,
-            Map<FileConflict, NonTextMetadata> nonText) {}
+            Map<FileConflict, NonTextMetadata> nonText) {
+
+        // Backward-compatible constructor for tests and callers that don't supply non-text metadata
+        public MergeConflict(
+                MergeMode state,
+                String ourCommitId,
+                String otherCommitId,
+                @Nullable String baseCommitId,
+                Set<FileConflict> files) {
+            this(state, ourCommitId, otherCommitId, baseCommitId, files, Map.of());
+        }
+    }
 
     /**
      * Represents a single path's merge conflict.
