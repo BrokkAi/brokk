@@ -112,21 +112,37 @@ public class MergeAgent {
         var repo = (GitRepo) cm.getProject().getRepo();
         validateOtherIsNotMergeCommitForNonMergeMode(repo, mode, otherCommitId);
 
-		// Non-text conflict resolution phase (pre-annotation)
-        List<Map.Entry<FileConflict, NonTextMetadata>> nonTextEntries = conflict.nonText().entrySet().stream()
-                .filter(e -> e.getValue().type() != NonTextType.NONE)
-                .toList();
+        var conflictAnnotator = new ConflictAnnotator(repo, conflict);
 
-        if (scope.nonTextMode() != NonTextResolutionMode.OFF && !nonTextEntries.isEmpty()) {
-            resolveNonTextConflicts(nonTextEntries);
-            // Re-inspect repository state after applying non-text resolutions
-            this.conflict = ConflictInspector.inspectFromProjectInternal(cm.getProject());
+        // NEW: Heuristic non-text resolution phase (rename/delete/mode/dir collisions, etc.)
+        if (scope.nonTextMode() != NonTextResolutionMode.OFF) {
+            resolveNonTextConflicts(this.conflict, repo);
+
+            // IMPORTANT: re-inspect repo state; non-text ops may change the set of conflicts
+            var refreshed = ConflictInspector.inspectFromProject(cm.getProject());
+            if (refreshed.files().isEmpty()) {
+                // nothing left to resolve; still run verification as usual
+                logger.info("All non-text conflicts resolved; no content conflicts remain.");
+                var buildFailureText = runVerificationIfConfigured();
+                if (buildFailureText.isBlank()) {
+                    return new TaskResult(
+                            cm,
+                            "Merge",
+                            List.of(new AiMessage("Non-text conflicts resolved; verification passed.")),
+                            Set.of(),
+                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+                }
+                // fall through to ArchitectAgent handoff path already present below
+            }
+
+            // Swap our conflict snapshot to the refreshed one
+            this.conflict = refreshed;
             this.baseCommitId = this.conflict.baseCommitId();
             this.otherCommitId = this.conflict.otherCommitId();
             this.conflicts = this.conflict.files();
+            // Recreate annotator with refreshed snapshot
+            conflictAnnotator = new ConflictAnnotator(repo, this.conflict);
         }
-
-        var conflictAnnotator = new ConflictAnnotator(repo, conflict);
 
         // First pass: annotate ALL files up front (single loop).
         var annotatedConflicts = new ArrayList<ConflictAnnotator.ConflictFileCommits>(conflicts.size());
@@ -134,12 +150,8 @@ public class MergeAgent {
         var unionTheirCommits = new LinkedHashSet<String>();
 
         for (var cf : conflicts) {
+            assert cf.isContentConflict();
             if (Thread.interrupted()) throw new InterruptedException();
-
-            if (!cf.isContentConflict()) {
-                // FIXME: handle non-content conflicts (adds, deletes, renames) in a future enhancement
-                continue;
-            }
 
             var pf = requireNonNull(cf.ourFile());
 
@@ -539,24 +551,90 @@ public class MergeAgent {
         }
     }
 
-    private void resolveNonTextConflicts(List<Map.Entry<FileConflict, NonTextMetadata>> conflicts) {
-        var groups = NonTextGrouper.group(conflicts);
-        logger.info("Detected {} non-text conflict(s) grouped into {} group(s).", conflicts.size(), groups.size());
+    /**
+     * Resolve non-text conflicts (delete/modify, rename/modify, file<->dir, add/add-binary, mode bits) using
+     * the NonTextHeuristicResolver. Groups related paths to avoid conflicting ops, applies ops, and emits a receipt.
+     */
+    private void resolveNonTextConflicts(MergeConflict mc, GitRepo repo) throws InterruptedException {
+        // Collect candidates with metadata
+        var metaMap = mc.nonText();
+        var candidates = mc.files().stream()
+                .filter(fc -> !fc.isContentConflict())
+                .filter(metaMap::containsKey)
+                .map(fc -> Map.entry(fc, metaMap.get(fc)))
+                .toList();
+        if (candidates.isEmpty()) return;
 
-        int gnum = 0;
-        for (var group : groups) {
-            gnum++;
-            var summary = group.stream()
-                    .map(e -> {
-                        var m = e.getValue();
-                        var idx = m.indexPath() == null ? "(unknown)" : m.indexPath();
-                        return m.type() + "@" + idx;
-                    })
-                    .collect(Collectors.joining(", "));
-            logger.debug("Non-text group #{} ({} item(s)): {}", gnum, group.size(), summary);
+        var groups = groupNonText(candidates);
+
+        // Parallelize by group; each group runs serially
+        var service = cm.getService();
+        var exec = AdaptiveExecutor.create(service, codeModel, groups.size());
+        try {
+            var cs = new ExecutorCompletionService<String>(exec);
+            for (var g : groups) {
+                cs.submit(() -> {
+                    var plan = NonTextHeuristicResolver.plan(g.items());
+                    try {
+                        NonTextHeuristicResolver.apply(repo, cm.getProject().getRoot(), plan.ops());
+                        // Build a short receipt for Workspace
+                        var receipt = new StringBuilder();
+                        receipt.append("Group:\n");
+                        for (var it : g.items()) {
+                            var m = it.getValue();
+                            receipt.append("- type=").append(m.type())
+                                   .append(" index=").append(nullToDash(m.indexPath()))
+                                   .append(" ours=").append(nullToDash(m.ourPath()))
+                                   .append(" theirs=").append(nullToDash(m.theirPath()))
+                                   .append("\n");
+                        }
+                        receipt.append("\nPlan (").append(plan.confidence()).append("):\n");
+                        for (var op : plan.ops()) {
+                            receipt.append("  ").append(op).append("\n");
+                        }
+                        if (!plan.summary().isBlank()) {
+                            receipt.append("\nSummary:\n").append(plan.summary()).append("\n");
+                        }
+                        return receipt.toString();
+                    } catch (Exception e) {
+                        logger.warn("Non-text heuristic apply failed: {}", e.toString(), e);
+                        return "Non-text heuristic apply FAILED for group: " + e.getMessage();
+                    }
+                });
+            }
+
+            var receipts = new ArrayList<String>(groups.size());
+            for (int i = 0; i < groups.size(); i++) {
+                if (Thread.interrupted()) throw new InterruptedException();
+                var fut = cs.take();
+                try {
+                    receipts.add(fut.get());
+                } catch (ExecutionException ee) {
+                    var cause = ee.getCause() == null ? ee : ee.getCause();
+                    logger.warn("Non-text group task failed: {}", cause.toString(), cause);
+                    receipts.add("Non-text group task FAILED: " + cause.getMessage());
+                }
+            }
+
+            // Publish a single Workspace note aggregating all receipts
+            addTextToWorkspace("Non-text conflict decisions", String.join("\n\n---\n\n", receipts));
+        } finally {
+            exec.shutdownNow();
         }
+    }
 
-        // Note: actual resolution will be applied per-group in a future change set.
-        // For now, we only group and log, leaving resolution to later.
+    private static record Group(List<Map.Entry<FileConflict, NonTextMetadata>> items) {}
+
+    private static List<Group> groupNonText(List<Map.Entry<FileConflict, NonTextMetadata>> candidates) {
+        var grouped = NonTextGrouper.group(candidates);
+        var out = new ArrayList<Group>(grouped.size());
+        for (var g : grouped) {
+            out.add(new Group(g));
+        }
+        return out;
+    }
+
+    private static String nullToDash(@Nullable String s) {
+        return s == null ? "-" : s;
     }
 }
