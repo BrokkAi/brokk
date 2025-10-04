@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.formdev.flatlaf.util.SystemInfo;
@@ -2813,7 +2814,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config, Runnable cancelCallback) {
-        BlitzForgeProgressDialog dialog = new BlitzForgeProgressDialog(this, config, cancelCallback);
+        var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, config, cancelCallback), null));
         SwingUtilities.invokeLater(() -> dialog.setVisible(true));
         return dialog;
     }
