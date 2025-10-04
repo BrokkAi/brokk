@@ -47,11 +47,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("Bad.java", badSource);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertFalse(cont.es().javaLintDiagnostics().isEmpty(), "Expected diagnostics to be stored");
-        assertTrue(cont.es().changedFiles().contains(res.file()), "Changed files should still include the Java file");
+        assertFalse(res.step().es().javaLintDiagnostics().isEmpty(), "Expected diagnostics to be stored");
+        assertTrue(res.step().es().changedFiles().contains(res.file()), "Changed files should still include the Java file");
     }
 
     // PJ-1b: parseJavaPhase stores diagnostics for undefined variable errors and continues
@@ -66,10 +63,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("Undeclared.java", src);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertFalse(cont.es().javaLintDiagnostics().isEmpty(), "Expected identifier diagnostics to be captured");
+        assertFalse(res.step().es().javaLintDiagnostics().isEmpty(), "Expected identifier diagnostics to be captured");
     }
 
     // PJ-2: parseJavaPhase continues on clean parse (no syntax errors), diagnostics empty
@@ -82,12 +76,9 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("Ok.java", okSource);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertTrue(cont.es().javaLintDiagnostics().isEmpty(), "No diagnostics expected for clean parse");
-        assertEquals(1, cont.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
-        assertTrue(cont.es().changedFiles().contains(res.file()), "Changed files should remain unchanged");
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "No diagnostics expected for clean parse");
+        assertEquals(1, res.step().es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
+        assertTrue(res.step().es().changedFiles().contains(res.file()), "Changed files should remain unchanged");
     }
 
     // PJ-3: parseJavaPhase - blank file leads to continue, diagnostics empty
@@ -95,10 +86,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     void testParseJavaPhase_blankFile_ok() throws IOException {
         var res = runParseJava("Blank.java", "");
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertTrue(cont.es().javaLintDiagnostics().isEmpty(), "Diagnostics should be empty for blank file");
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "Diagnostics should be empty for blank file");
     }
 
     // PJ-4: parseJavaPhase - import resolution errors are ignored, diagnostics empty
@@ -110,10 +98,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("ImportErr.java", src);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertTrue(cont.es().javaLintDiagnostics().isEmpty(), "Import errors should be ignored");
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "Import errors should be ignored");
     }
 
     // PJ-5: parseJavaPhase - type mismatch errors are ignored, diagnostics empty
@@ -128,10 +113,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("TypeMismatch.java", src);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertTrue(cont.es().javaLintDiagnostics().isEmpty(), "Type mismatch errors should be ignored");
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "Type mismatch errors should be ignored");
     }
 
     // PJ-9: parseJavaPhase - uninitialized local variable should store diagnostics and continue
@@ -147,10 +129,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("UninitLocal.java", src);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertFalse(cont.es().javaLintDiagnostics().isEmpty(), "Expected diagnostic summary to be captured");
+        assertFalse(res.step().es().javaLintDiagnostics().isEmpty(), "Expected diagnostic summary to be captured");
     }
 
     // PJ-10: parseJavaPhase - missing return value in non-void method should store diagnostics and continue
@@ -166,10 +145,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("NeedsReturn.java", src);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertFalse(cont.es().javaLintDiagnostics().isEmpty(), "Expected diagnostic summary to be captured");
+        assertFalse(res.step().es().javaLintDiagnostics().isEmpty(), "Expected diagnostic summary to be captured");
     }
 
     // PJ-6: parseJavaPhase - multiple files with syntax/identifier errors aggregate diagnostics and continue
@@ -193,15 +169,12 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>());
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
-        assertInstanceOf(CodeAgent.Step.Continue.class, result);
-
-        var cont = (CodeAgent.Step.Continue) result;
-        var diags = cont.es().javaLintDiagnostics();
+        var diags = result.es().javaLintDiagnostics();
         assertFalse(diags.isEmpty(), "Diagnostics should be present");
         // Ensure diagnostics map contains entries for the files we created
         assertTrue(diags.containsKey(f1), "Diagnostics should include Bad1.java entry");
         assertTrue(diags.containsKey(f2), "Diagnostics should include Bad2.java entry");
-        assertEquals(1, cont.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
+        assertEquals(1, result.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
     }
 
     // PJ-7: parseJavaPhase - undefined class/type usage should be ignored (continue, diagnostics empty)
@@ -216,12 +189,9 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("MissingClassUse.java", src);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
-
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertTrue(cont.es().javaLintDiagnostics().isEmpty(), "Undefined class/type errors should be ignored");
-        assertEquals(1, cont.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
-        assertTrue(cont.es().changedFiles().contains(res.file()), "Changed files should remain unchanged");
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "Undefined class/type errors should be ignored");
+        assertEquals(1, res.step().es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
+        assertTrue(res.step().es().changedFiles().contains(res.file()), "Changed files should remain unchanged");
     }
 
     // PJ-8: parseJavaPhase - undefined method usage should be ignored (continue, diagnostics empty)
@@ -238,11 +208,41 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 """;
         var res = runParseJava("MissingMethodUse.java", src);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, res.step());
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "Undefined method errors should be ignored");
+        assertEquals(1, res.step().es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
+        assertTrue(res.step().es().changedFiles().contains(res.file()), "Changed files should remain unchanged");
+    }
 
-        var cont = (CodeAgent.Step.Continue) res.step();
-        assertTrue(cont.es().javaLintDiagnostics().isEmpty(), "Undefined method errors should be ignored");
-        assertEquals(1, cont.es().blocksAppliedWithoutBuild(), "Edits-since-last-build should remain unchanged");
-        assertTrue(cont.es().changedFiles().contains(res.file()), "Changed files should remain unchanged");
+    // PJ-11: parseJavaPhase - missing external types in signatures/static access should be ignored (false positives)
+    @Test
+    void testParseJavaPhase_missingExternalTypesInSignaturesIgnored_continue() throws IOException {
+        var src = """
+                import org.apache.logging.log4j.LogManager; // missing dep
+                class FakeCA {
+                  // Missing 'Logger' and 'LogManager' types should not be reported
+                  Logger log = LogManager.getLogger(FakeCA.class);
+                  // Missing return type 'TaskResult' should not be reported
+                  TaskResult run() { return null; }
+                }
+                """;
+        var res = runParseJava("FakeCA.java", src);
+
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "Missing external types in signatures or static access should be ignored");
+    }
+
+    // PJ-12: parseJavaPhase - undefined name that is actually a missing type qualifier should be ignored
+    @Test
+    void testParseJavaPhase_missingTypeUsedAsQualifierIgnored_continue() throws IOException {
+        var src = """
+                class QualifierMissingType {
+                  void m() {
+                    // MissingType is a missing class; used as a qualifier before '.'
+                    var p = MissingType.STATIC_FIELD;
+                  }
+                }
+                """;
+        var res = runParseJava("QualifierMissingType.java", src);
+
+        assertTrue(res.step().es().javaLintDiagnostics().isEmpty(), "Missing type used as qualifier should be ignored");
     }
 }

@@ -24,6 +24,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -716,8 +719,9 @@ public class CodeAgent {
                 // Write one markdown file per source file to capture pre-lint findings and sources.
                 try {
                     var tmp = System.getProperty("java.io.tmpdir");
-                    var dir = Path.of(tmp, "brokk");
-                    Files.createDirectories(dir);
+                    var timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HH-mm").format(LocalDateTime.now(ZoneId.systemDefault()));
+                    var subdir = Path.of(tmp, "brokk", "codeagent-" + timestamp);
+                    Files.createDirectories(subdir);
 
                     for (var entry : es.javaLintDiagnostics().entrySet()) {
                         ProjectFile pf = entry.getKey();
@@ -725,7 +729,7 @@ public class CodeAgent {
 
                         var unique = System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
                         var fileName = "badlint-" + pf.getFileName() + "-" + unique + ".md";
-                        var out = dir.resolve(fileName);
+                        var out = subdir.resolve(fileName);
 
                         var markdownContent = """
                                 # False Positive for %s
@@ -932,8 +936,6 @@ public class CodeAgent {
                     continue;
                 }
                 int id = prob.getID();
-                boolean isUndefinedMethod = (id == IProblem.UndefinedMethod);
-                boolean isUndefinedField = (id == IProblem.UndefinedField);
 
                 if (prob instanceof CategorizedProblem cp) {
                     int cat = cp.getCategoryID();
@@ -945,8 +947,45 @@ public class CodeAgent {
                     }
                 }
 
-                if (isUndefinedMethod || isUndefinedField) {
-                    continue; // ignore unresolved methods/fields
+                // Always ignore unresolved methods/fields (classpath-related)
+                if ((id == IProblem.UndefinedMethod) || (id == IProblem.UndefinedField)) {
+                    continue;
+                }
+
+                // Heuristic: some missing types surface as UndefinedName like "X cannot be resolved to a variable"
+                // when used as a qualifier (e.g., X.member). Treat such cases as type-resolution issues and ignore.
+                if ((id == IProblem.UndefinedName)) {
+                    int start = Math.max(0, prob.getSourceStart());
+                    int end = Math.max(start, prob.getSourceEnd());
+                    // Defensive bounds
+                    start = Math.min(start, sourceChars.length - 1);
+                    end = Math.min(end, sourceChars.length - 1);
+
+                    String ident = new String(sourceChars, start, end - start + 1);
+                    boolean nextIsDot = (end + 1 < sourceChars.length) && sourceChars[end + 1] == '.';
+                    boolean looksTypeLike = !ident.isEmpty() && Character.isUpperCase(ident.charAt(0));
+
+                    // If it looks like a missing type/qualifier (Uppercase or followed by '.'), ignore as classpath noise
+                    if (nextIsDot || looksTypeLike) {
+                        continue;
+                    }
+                }
+
+                // Broader guard: if the problem text indicates it "cannot be resolved" and the token is a type-like
+                // identifier or is used as a qualifier (followed by '.'), treat as classpath noise and ignore.
+                {
+                    int start2 = Math.max(0, prob.getSourceStart());
+                    int end2 = Math.max(start2, prob.getSourceEnd());
+                    start2 = Math.min(start2, sourceChars.length - 1);
+                    end2 = Math.min(end2, sourceChars.length - 1);
+
+                    String ident2 = new String(sourceChars, start2, end2 - start2 + 1);
+                    boolean nextIsDot2 = (end2 + 1 < sourceChars.length) && sourceChars[end2 + 1] == '.';
+                    boolean looksTypeLike2 = !ident2.isEmpty() && Character.isUpperCase(ident2.charAt(0));
+                    var msgText = Objects.toString(prob.getMessage(), "").toLowerCase(Locale.ROOT);
+                    if ((nextIsDot2 || looksTypeLike2) && msgText.contains("cannot be resolved")) {
+                        continue;
+                    }
                 }
 
                 var summary = formatJdtProblem(absPath, cu, prob);
