@@ -24,6 +24,10 @@
   let isValidFilePath = $state(false);
   let filePathCacheEntry: FilePathCacheEntry | undefined = $state(undefined);
 
+  // Fallback state - track original text to try as symbol if file path fails
+  let originalTextForFallback = $state('');
+  let hasTriedSymbolFallback = $state(false);
+
   // Unique identifier for this component instance
   const componentId = `symbol-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -139,6 +143,8 @@
     filePathText = '';
     isValidFilePath = false;
     filePathCacheEntry = undefined;
+    originalTextForFallback = '';
+    hasTriedSymbolFallback = false;
     symbolStore = undefined;
     filePathStore = undefined;
     lastProcessedText = '';
@@ -205,6 +211,10 @@
       isValidFilePath = true;
       filePathText = filePathResult.cleanPath;
 
+      // Save original text for potential fallback to symbol lookup
+      originalTextForFallback = text;
+      hasTriedSymbolFallback = false;
+
       // Request file path resolution
       requestFilePathResolution(filePathText, contextId).catch(error => {
         log.warn(`File path resolution failed for ${filePathText}:`, error);
@@ -257,6 +267,40 @@
   $effect(() => {
     if (filePathStore) {
       filePathCacheEntry = $filePathStore;
+    }
+  });
+
+  // Smart fallback: if file path doesn't exist, try symbol lookup
+  $effect(() => {
+    // Only attempt fallback if:
+    // 1. We tried file path detection
+    // 2. File path resolution completed (status === 'resolved')
+    // 3. File doesn't exist
+    // 4. We haven't already tried symbol fallback
+    // 5. We have original text to try
+    if (
+      isValidFilePath &&
+      filePathCacheEntry?.status === 'resolved' &&
+      !filePathCacheEntry.result?.exists &&
+      !hasTriedSymbolFallback &&
+      originalTextForFallback
+    ) {
+      log.debug(`File path '${filePathText}' not found, trying symbol fallback for '${originalTextForFallback}'`);
+
+      const cleaned = cleanSymbolName(originalTextForFallback);
+      if (cleaned && shouldAttemptLookup(cleaned)) {
+        isValidSymbol = true;
+        symbolText = cleaned;
+        hasTriedSymbolFallback = true;
+
+        // Request symbol resolution
+        requestSymbolResolution(symbolText, contextId).catch(error => {
+          log.warn(`Symbol fallback resolution failed for ${symbolText}:`, error);
+        });
+      } else {
+        // Mark as tried even if we can't lookup, to avoid infinite loops
+        hasTriedSymbolFallback = true;
+      }
     }
   });
 
