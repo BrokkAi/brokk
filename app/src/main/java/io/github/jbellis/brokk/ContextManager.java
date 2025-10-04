@@ -1372,6 +1372,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextGenerator A function that takes the current live context and returns an updated context.
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
+    @Override
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var oldLiveContext = liveContext();
         var newLiveContext = contextHistory.push(contextGenerator);

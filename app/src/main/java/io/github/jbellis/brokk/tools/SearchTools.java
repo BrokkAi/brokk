@@ -5,7 +5,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
@@ -31,9 +31,9 @@ public class SearchTools {
 
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
 
-    private final ContextManager contextManager; // Needed for file operations
+    private final IContextManager contextManager; // Needed for file operations
 
-    public SearchTools(ContextManager contextManager) {
+    public SearchTools(IContextManager contextManager) {
         this.contextManager = contextManager;
     }
 
@@ -66,7 +66,6 @@ public class SearchTools {
      */
     public static CompressedSymbols compressSymbolsWithPackagePrefix(List<String> symbols) {
         List<String[]> packageParts = symbols.stream()
-                .filter(Objects::nonNull) // Filter nulls just in case
                 .map(s -> s.split("\\."))
                 .filter(arr -> arr.length > 0) // Ensure split resulted in something
                 .toList();
