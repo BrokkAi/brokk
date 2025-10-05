@@ -36,23 +36,20 @@ public final class BlameService {
     private final ConcurrentMap<String, String> lastErrors = new ConcurrentHashMap<>();
 
     /**
-     * Feature flag check. Default: enabled. Can be controlled using system property 'brokk.feature.blame'. To disable
-     * globally set -Dbrokk.feature.blame=false.
-     */
-    public static boolean isFeatureEnabled() {
-        String v = System.getProperty("brokk.feature.blame", "true");
-        return "true".equalsIgnoreCase(v) || "1".equals(v);
-    }
-
-    /**
-     * Request blame for the given absolute file path. The returned future never completes exceptionally: on error it
-     * completes with an empty map.
+     * Request blame for the given file path (working tree version).
+     *
+     * <p>This method asynchronously runs {@code git blame} on the file and caches the results. Subsequent requests for
+     * the same file path will return the cached result.
+     *
+     * <p><b>Error Handling:</b> The returned future never completes exceptionally. On any error (file not found, git
+     * command failure, etc.), it completes with an empty map. Use {@link #getLastError(Path)} to retrieve error
+     * details.
+     *
+     * @param filePath The file path to blame (will be converted to absolute path for caching)
+     * @return A future that completes with a map of line number (1-based) to {@link BlameInfo}, or an empty map on
+     *     error. Never {@code null}.
      */
     public CompletableFuture<Map<Integer, BlameInfo>> requestBlame(Path filePath) {
-        if (!isFeatureEnabled()) {
-            logger.debug("Blame feature disabled via system property");
-            return CompletableFuture.completedFuture(Map.of());
-        }
         logger.debug("Requesting blame for: {}", filePath);
         // Use absolute path string as cache key
         String cacheKey = filePath.toAbsolutePath().toString();
@@ -60,21 +57,90 @@ public final class BlameService {
     }
 
     /**
-     * Request blame for a specific git revision of a file. The returned future never completes exceptionally: on error
-     * it completes with an empty map.
+     * Request blame for a specific git revision of a file.
      *
-     * @param filePath The file path
-     * @param revision The git revision (e.g., "HEAD", "HEAD~1", commit SHA)
+     * <p>This method asynchronously runs {@code git blame <revision>} on the file and caches the results. The cache key
+     * includes both the file path and revision, so different revisions of the same file are cached separately.
+     *
+     * <p><b>Note:</b> The file need not exist in the working tree for revision-based blame to work, as long as it
+     * exists in the specified revision.
+     *
+     * <p><b>Error Handling:</b> The returned future never completes exceptionally. On any error (revision not found,
+     * file not in revision, git command failure, etc.), it completes with an empty map. Use
+     * {@link #getLastErrorForRevision(Path, String)} to retrieve error details.
+     *
+     * @param filePath The file path (will be converted to absolute path for caching)
+     * @param revision The git revision (e.g., "HEAD", "HEAD~1", "abc123", "main")
+     * @return A future that completes with a map of line number (1-based) to {@link BlameInfo}, or an empty map on
+     *     error. Never {@code null}.
      */
     public CompletableFuture<Map<Integer, BlameInfo>> requestBlameForRevision(Path filePath, String revision) {
-        if (!isFeatureEnabled()) {
-            logger.debug("Blame feature disabled via system property");
-            return CompletableFuture.completedFuture(Map.of());
-        }
         logger.debug("Requesting blame for revision {} of: {}", revision, filePath);
         // Create cache key that includes revision
         String cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;
         return cache.computeIfAbsent(cacheKey, k -> startBlameTaskForRevision(filePath, revision));
+    }
+
+    /**
+     * Parse git blame --line-porcelain output from a BufferedReader.
+     *
+     * <p>The porcelain format provides one block per line of the blamed file, containing:
+     *
+     * <ul>
+     *   <li>40-character commit SHA followed by line numbers
+     *   <li>Metadata fields (author, author-time, etc.)
+     *   <li>Tab-prefixed actual line content (triggers line counter increment)
+     * </ul>
+     *
+     * <p>Missing metadata (author, timestamp) is represented by sentinel values: {@link #NOT_COMMITTED_YET} for missing
+     * authors and {@code 0L} for missing timestamps.
+     *
+     * @param r The BufferedReader containing git blame output (non-null)
+     * @return An immutable map of 1-based line number to {@link BlameInfo}, never {@code null}
+     * @throws java.io.IOException if reading from the BufferedReader fails
+     */
+    private Map<Integer, BlameInfo> parseBlameOutput(BufferedReader r) throws java.io.IOException {
+        Pattern commitPattern = Pattern.compile("^([0-9a-f]{40})\\s");
+        String line;
+        int currentLine = 0;
+        String currentAuthor = null;
+        String currentSha = null;
+        Long currentAuthorTime = null;
+        ConcurrentHashMap<Integer, BlameInfo> result = new ConcurrentHashMap<>();
+
+        while ((line = r.readLine()) != null) {
+            if (line.isEmpty()) continue;
+            Matcher m = commitPattern.matcher(line);
+            if (m.find()) {
+                // start of a new block; next lines contain author etc.
+                currentSha = m.group(1);
+                currentAuthor = null;
+                currentAuthorTime = null;
+            } else if (line.startsWith("author ")) {
+                currentAuthor = line.substring("author ".length()).trim();
+            } else if (line.startsWith("author-time ")) {
+                try {
+                    currentAuthorTime = Long.parseLong(
+                            line.substring("author-time ".length()).trim());
+                } catch (NumberFormatException e) {
+                    currentAuthorTime = null;
+                }
+            } else if (line.startsWith("\t")) {
+                // content line; increment line counter and record blame
+                currentLine++;
+                String shortSha = (currentSha != null && currentSha.length() >= 8)
+                        ? currentSha.substring(0, 8)
+                        : (currentSha == null ? "" : currentSha);
+                // Use NOT_COMMITTED_YET for missing author, 0L for missing timestamp
+                result.put(
+                        currentLine,
+                        new BlameInfo(
+                                currentAuthor == null ? NOT_COMMITTED_YET : currentAuthor,
+                                shortSha,
+                                currentAuthorTime != null ? currentAuthorTime : 0L));
+            }
+        }
+        return Map.copyOf(result);
     }
 
     private CompletableFuture<Map<Integer, BlameInfo>> startBlameTask(Path filePath) {
@@ -92,68 +158,29 @@ public final class BlameService {
                 ProcessBuilder pb = new ProcessBuilder("git", "blame", "--line-porcelain", "--", file.getName());
                 pb.directory(file.getParentFile());
                 pb.redirectErrorStream(true);
-                logger.debug("Running git blame in directory: {} for file: {}", file.getParentFile(), file.getName());
                 Process p = pb.start();
 
+                Map<Integer, BlameInfo> result;
                 try (BufferedReader r = new BufferedReader(
                         new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
-                    Pattern commitPattern = Pattern.compile("^([0-9a-f]{40})\\s");
-                    String line;
-                    int currentLine = 0;
-                    String currentAuthor = null;
-                    String currentSha = null;
-                    Long currentAuthorTime = null;
-                    ConcurrentHashMap<Integer, BlameInfo> result = new ConcurrentHashMap<>();
-
-                    while ((line = r.readLine()) != null) {
-                        if (line.isEmpty()) continue;
-                        Matcher m = commitPattern.matcher(line);
-                        if (m.find()) {
-                            // start of a new block; next lines contain author etc.
-                            currentSha = m.group(1);
-                            currentAuthor = null;
-                            currentAuthorTime = null;
-                        } else if (line.startsWith("author ")) {
-                            currentAuthor = line.substring("author ".length()).trim();
-                        } else if (line.startsWith("author-time ")) {
-                            try {
-                                currentAuthorTime = Long.parseLong(
-                                        line.substring("author-time ".length()).trim());
-                            } catch (NumberFormatException e) {
-                                currentAuthorTime = null;
-                            }
-                        } else if (line.startsWith("\t")) {
-                            // content line; increment line counter and record blame
-                            currentLine++;
-                            String shortSha = (currentSha != null && currentSha.length() >= 8)
-                                    ? currentSha.substring(0, 8)
-                                    : (currentSha == null ? "" : currentSha);
-                            // Use NOT_COMMITTED_YET for missing author, 0L for missing timestamp
-                            result.put(
-                                    currentLine,
-                                    new BlameInfo(
-                                            currentAuthor == null ? NOT_COMMITTED_YET : currentAuthor,
-                                            shortSha,
-                                            currentAuthorTime != null ? currentAuthorTime : 0L));
-                        }
-                    }
-                    // Wait for process to exit to avoid zombies
-                    int exitCode = -1;
-                    try {
-                        exitCode = p.waitFor();
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                    }
-
-                    if (exitCode != 0) {
-                        logger.warn("git blame exited with code {} for file: {}", exitCode, filePath);
-                        lastErrors.put(cacheKey, "Git command failed (exit code " + exitCode + ")");
-                    } else {
-                        logger.debug("Blame successful: {} lines for {}", result.size(), filePath);
-                        lastErrors.remove(cacheKey); // Clear any previous error on success
-                    }
-                    return Map.copyOf(result);
+                    result = parseBlameOutput(r);
                 }
+
+                // Wait for process to exit to avoid zombies
+                int exitCode = -1;
+                try {
+                    exitCode = p.waitFor();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+
+                if (exitCode != 0) {
+                    logger.warn("git blame exited with code {} for file: {}", exitCode, filePath);
+                    lastErrors.put(cacheKey, "Git command failed (exit code " + exitCode + ")");
+                } else {
+                    lastErrors.remove(cacheKey); // Clear any previous error on success
+                }
+                return result;
             } catch (Exception e) {
                 // On any failure, return empty map (do not propagate)
                 logger.error("Blame failed for {}: {}", filePath, e.getMessage(), e);
@@ -174,73 +201,29 @@ public final class BlameService {
                         new ProcessBuilder("git", "blame", revision, "--line-porcelain", "--", file.getName());
                 pb.directory(file.getParentFile());
                 pb.redirectErrorStream(true);
-                logger.debug(
-                        "Running git blame {} in directory: {} for file: {}",
-                        revision,
-                        file.getParentFile(),
-                        file.getName());
                 Process p = pb.start();
 
+                Map<Integer, BlameInfo> result;
                 try (BufferedReader r = new BufferedReader(
                         new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
-                    Pattern commitPattern = Pattern.compile("^([0-9a-f]{40})\\s");
-                    String line;
-                    int currentLine = 0;
-                    String currentAuthor = null;
-                    String currentSha = null;
-                    Long currentAuthorTime = null;
-                    ConcurrentHashMap<Integer, BlameInfo> result = new ConcurrentHashMap<>();
-
-                    while ((line = r.readLine()) != null) {
-                        if (line.isEmpty()) continue;
-                        Matcher m = commitPattern.matcher(line);
-                        if (m.find()) {
-                            // start of a new block; next lines contain author etc.
-                            currentSha = m.group(1);
-                            currentAuthor = null;
-                            currentAuthorTime = null;
-                        } else if (line.startsWith("author ")) {
-                            currentAuthor = line.substring("author ".length()).trim();
-                        } else if (line.startsWith("author-time ")) {
-                            try {
-                                currentAuthorTime = Long.parseLong(
-                                        line.substring("author-time ".length()).trim());
-                            } catch (NumberFormatException e) {
-                                currentAuthorTime = null;
-                            }
-                        } else if (line.startsWith("\t")) {
-                            // content line; increment line counter and record blame
-                            currentLine++;
-                            String shortSha = (currentSha != null && currentSha.length() >= 8)
-                                    ? currentSha.substring(0, 8)
-                                    : (currentSha == null ? "" : currentSha);
-                            // Use NOT_COMMITTED_YET for missing author, 0L for missing timestamp
-                            result.put(
-                                    currentLine,
-                                    new BlameInfo(
-                                            currentAuthor == null ? NOT_COMMITTED_YET : currentAuthor,
-                                            shortSha,
-                                            currentAuthorTime != null ? currentAuthorTime : 0L));
-                        }
-                    }
-                    // Wait for process to exit to avoid zombies
-                    int exitCode = -1;
-                    try {
-                        exitCode = p.waitFor();
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                    }
-
-                    if (exitCode != 0) {
-                        logger.warn("git blame {} exited with code {} for file: {}", revision, exitCode, filePath);
-                        lastErrors.put(
-                                cacheKey, "Git command failed for " + revision + " (exit code " + exitCode + ")");
-                    } else {
-                        logger.debug("Blame for {} successful: {} lines for {}", revision, result.size(), filePath);
-                        lastErrors.remove(cacheKey); // Clear any previous error on success
-                    }
-                    return Map.copyOf(result);
+                    result = parseBlameOutput(r);
                 }
+
+                // Wait for process to exit to avoid zombies
+                int exitCode = -1;
+                try {
+                    exitCode = p.waitFor();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+
+                if (exitCode != 0) {
+                    logger.warn("git blame {} exited with code {} for file: {}", revision, exitCode, filePath);
+                    lastErrors.put(cacheKey, "Git command failed for " + revision + " (exit code " + exitCode + ")");
+                } else {
+                    lastErrors.remove(cacheKey); // Clear any previous error on success
+                }
+                return result;
             } catch (Exception e) {
                 // On any failure, return empty map (do not propagate)
                 logger.error("Blame for revision {} failed for {}: {}", revision, filePath, e.getMessage(), e);
@@ -250,32 +233,54 @@ public final class BlameService {
         });
     }
 
-    /** Clear the cache for a path (useful when files change on disk). */
+    /**
+     * Clear the cached blame data for a specific file path (working tree version only).
+     *
+     * <p>This removes only the working tree blame cache entry. To clear revision-specific blame, use
+     * {@link #clearAllCache()} as there is no method to clear individual revisions.
+     *
+     * <p><b>Use case:</b> Call this when a file has been modified on disk and you want to force a fresh blame request
+     * on the next call to {@link #requestBlame(Path)}.
+     *
+     * @param filePath The file path to clear from cache
+     */
     public void clearCacheFor(Path filePath) {
         cache.remove(filePath.toAbsolutePath().toString());
     }
 
-    /** Clear all cached blame data (careful). */
+    /**
+     * Clear all cached blame data (both working tree and all revisions).
+     *
+     * <p><b>Warning:</b> This clears the entire cache. Subsequent blame requests will need to re-run git blame
+     * commands. Use sparingly, typically only when the repository state has changed significantly (e.g., after a rebase
+     * or branch switch).
+     */
     public void clearAllCache() {
         cache.clear();
     }
 
     /**
-     * Get the last error message for a given file path, if any.
+     * Get the last error message for a working tree blame request, if any.
      *
-     * @param filePath The file path to check
-     * @return The error message, or null if no error occurred
+     * <p>This returns the error message from the most recent {@link #requestBlame(Path)} call for the given file. If
+     * the most recent request succeeded, this returns {@code null}.
+     *
+     * @param filePath The file path to check for errors
+     * @return The error message string, or {@code null} if no error occurred or blame succeeded
      */
     public @Nullable String getLastError(Path filePath) {
         return lastErrors.get(filePath.toAbsolutePath().toString());
     }
 
     /**
-     * Get the last error message for a given file path and revision, if any.
+     * Get the last error message for a revision-specific blame request, if any.
      *
-     * @param filePath The file path to check
-     * @param revision The git revision
-     * @return The error message, or null if no error occurred
+     * <p>This returns the error message from the most recent {@link #requestBlameForRevision(Path, String)} call for
+     * the given file and revision. If the most recent request succeeded, this returns {@code null}.
+     *
+     * @param filePath The file path to check for errors
+     * @param revision The git revision (must match the revision used in the blame request)
+     * @return The error message string, or {@code null} if no error occurred or blame succeeded
      */
     public @Nullable String getLastErrorForRevision(Path filePath, String revision) {
         var cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;

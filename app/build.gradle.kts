@@ -46,6 +46,12 @@ node {
     nodeProjectDir.set(file("${project.rootDir}/frontend-mop"))
 }
 
+tasks.named("pnpmInstall") {
+    inputs.file("${project.rootDir}/frontend-mop/package.json")
+    inputs.file("${project.rootDir}/frontend-mop/pnpm-lock.yaml")
+    outputs.dir("${project.rootDir}/frontend-mop/node_modules")
+}
+
 repositories {
     mavenCentral()
     // Additional repositories for dependencies

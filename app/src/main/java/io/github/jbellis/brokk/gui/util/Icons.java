@@ -61,4 +61,5 @@ public final class Icons {
     public static final Icon NOTIFICATIONS = SwingUtil.uiIcon("Brokk.notifications");
     public static final Icon NOTIFICATIONS_UNREAD = SwingUtil.uiIcon("Brokk.notifications_unread");
     public static final Icon CLOSE = SwingUtil.uiIcon("Brokk.close");
+    public static final Icon DIFF_TOOLS = SwingUtil.uiIcon("Brokk.diff_tools");
 }
