@@ -276,18 +276,16 @@ public class WorkspaceTools {
         existingDiscarded.ifPresent(sf -> {
             try {
                 var existing = mapper.readValue(sf.text(), new TypeReference<Map<String, String>>() {});
-                if (existing != null) {
-                    mergedDiscarded.putAll(existing);
-                }
+                mergedDiscarded.putAll(existing);
             } catch (Exception e) {
                 logger.warn("Failed to parse existing DISCARDED_CONTEXT JSON; starting fresh", e);
             }
         });
 
         // Merge explanations for successfully dropped fragments (new overwrites old)
-        for (var id : droppedIds) {
-            var explanation = idToExplanation.getOrDefault(id, "");
-            mergedDiscarded.put(id, explanation);
+        for (var f : toDrop) {
+            var explanation = idToExplanation.getOrDefault(f.id(), "");
+            mergedDiscarded.put(f.description(), explanation);
         }
 
         // Serialize updated JSON
