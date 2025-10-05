@@ -115,6 +115,7 @@
             msgLabel={msgLabel}
             totalLines={totalLinesAll}
             threadId={threadId}
+            taskSequence={taskSequence}
             allowDelete={allowDelete}
             onCopy={handleCopy}
             onDelete={handleDelete}
@@ -150,6 +151,7 @@
                                 msgLabel={msgLabel}
                                 totalLines={totalLinesAll}
                                 threadId={threadId}
+                                taskSequence={taskSequence}
                                 allowDelete={allowDelete}
                                 onCopy={handleCopy}
                                 onDelete={handleDelete}

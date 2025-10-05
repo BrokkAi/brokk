@@ -8,6 +8,7 @@
     export let msgLabel: string;
     export let totalLines: number;
     export let threadId: number;
+    export let taskSequence: number | undefined;
     export let allowDelete: boolean = false;
 
     export let onCopy: ((threadId: number) => void) | undefined;
