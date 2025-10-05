@@ -558,11 +558,8 @@ public class DiffGutterComponent extends JComponent {
 
             if (fileLineNumber > 0) {
                 var info = blameMap.get(fileLineNumber);
-                // Always show blame for additions and deletions, even if "Not Committed Yet"
-                // For context lines, only show if not "Not Committed Yet" (though this shouldn't happen with left
-                // blame)
-                boolean isAdditionOrDeletion = isAddition || isDeletion;
-                if (info != null && (isAdditionOrDeletion || !"Not Committed Yet".equals(info.author()))) {
+                // Don't show blame for "Not Committed Yet" on any line type
+                if (info != null && !"Not Committed Yet".equals(info.author())) {
                     Font oldFont = g.getFont();
                     g.setFont(blameDrawFont);
                     Color original = g.getColor();
