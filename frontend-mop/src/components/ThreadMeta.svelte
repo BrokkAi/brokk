@@ -7,7 +7,6 @@
     export let showEdits: boolean;
     export let msgLabel: string;
     export let totalLines: number;
-    export let taskSequence: number | undefined;
     export let threadId: number;
     export let allowDelete: boolean = false;
 
