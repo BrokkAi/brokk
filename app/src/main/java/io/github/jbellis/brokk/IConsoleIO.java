@@ -36,7 +36,7 @@ public interface IConsoleIO {
     }
 
     default void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
-        llmOutput(taskEntry.toString(), ChatMessageType.SYSTEM, false, false);
+        llmOutput(taskEntry.toString(), ChatMessageType.CUSTOM, false, false);
     }
 
     enum MessageSubType {

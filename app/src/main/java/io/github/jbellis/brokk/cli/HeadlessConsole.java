@@ -53,7 +53,7 @@ public final class HeadlessConsole implements IConsoleIO {
             case SYSTEM -> SystemMessage.from(text);
             case USER -> UserMessage.from(text);
             case AI -> AiMessage.from(text);
-            case CUSTOM -> new CustomMessage(java.util.Map.of("text", text));
+            case CUSTOM -> Messages.customSystem(text);
             default -> throw new IllegalArgumentException("Unsupported message type for creation: " + type);
         };
     }

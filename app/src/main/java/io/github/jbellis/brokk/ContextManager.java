@@ -1369,28 +1369,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         contextPushed(contextHistory.topContext());
 
-        // Check conversation history length on the new live context
-        if (!newLiveContext.getTaskHistory().isEmpty()) {
+        // Auto-compress conversation history if enabled and exceeds 10% of the context window
+        if (MainProject.getHistoryAutoCompress()
+                && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
             int tokenCount = Messages.getApproximateTokens(cf.format());
-            if (tokenCount > 32 * 1024) {
-                SwingUtilities.invokeLater(() -> {
-                    int choice = io.showConfirmDialog(
-                            """
-                                                      The conversation history is getting long (%,d lines or about %,d tokens).
-                                                      Compressing it can improve performance and reduce cost.
 
-                                                      Compress history now?
-                                                      """
-                                    .formatted(cf.format().split("\n").length, tokenCount),
-                            "Compress History?",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE);
-
-                    if (choice == JOptionPane.YES_OPTION) {
-                        compressHistoryAsync();
-                    }
-                });
+            try {
+                var svc = getService();
+                var model = getCodeModel();
+                int maxInputTokens = svc.getMaxInputTokens(model);
+                if (tokenCount > (int) Math.ceil(maxInputTokens * 0.10)) {
+                    compressHistoryAsync();
+                }
+            } catch (ServiceWrapper.ServiceInitializationException e) {
+                // FIXME CI does not have a working Service so this errors out
             }
         }
         return newLiveContext;
@@ -2401,7 +2394,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * with summarized versions of each task entry. This runs as a user action because it visibly modifies the context
      * history.
      */
-    public Future<?> compressHistoryAsync() {
+    public CompletableFuture<?> compressHistoryAsync() {
         return submitExclusiveAction(() -> {
             compressHistory();
         });

@@ -32,7 +32,7 @@ import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
-import io.github.jbellis.brokk.gui.wand.WandButton;
+import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
@@ -2707,6 +2707,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private static class ModelUnavailableException extends RuntimeException {
         public ModelUnavailableException() {
             super("Model is unavailable. Usually this indicates a networking problem.");
+        }
+    }
+
+    public static class WandButton extends MaterialButton {
+        private static final String WAND_TOOLTIP = "Refine Prompt: rewrites your prompt for clarity and specificity.";
+
+        public WandButton(
+                ContextManager contextManager,
+                IConsoleIO consoleIO,
+                JTextArea instructionsArea,
+                Supplier<String> promptSupplier,
+                Consumer<String> promptConsumer) {
+            super();
+            SwingUtilities.invokeLater(() -> setIcon(Icons.WAND));
+            setToolTipText(WAND_TOOLTIP);
+            addActionListener(e -> {
+                var wandAction = new WandAction(contextManager);
+                wandAction.execute(promptSupplier, promptConsumer, consoleIO, instructionsArea);
+            });
         }
     }
 }

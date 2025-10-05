@@ -1678,8 +1678,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 for (TaskEntry entry : outputFragment.entries()) {
                     if (entry.isCompressed()) {
 
-                        combinedMessages.add(Messages.create(
-                                Objects.toString(entry.summary(), "Summary not available"), ChatMessageType.SYSTEM));
+                        combinedMessages.add(
+                                Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
                     } else {
                         combinedMessages.addAll(castNonNull(entry.log()).messages());
                     }

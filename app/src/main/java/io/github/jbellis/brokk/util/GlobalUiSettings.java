@@ -36,6 +36,9 @@ public final class GlobalUiSettings {
     private static final String KEY_TERM_PROP = "drawers.terminal.proportion";
     private static final String KEY_TERM_LASTTAB = "drawers.terminal.lastTab";
     private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
+    private static final String KEY_DIFF_UNIFIED_VIEW = "diff.unifiedView";
+    private static final String KEY_DIFF_SHOW_BLANK_LINES = "diff.showBlankLines";
+    private static final String KEY_DIFF_SHOW_ALL_LINES = "diff.showAllLines";
     private static final String KEYBIND_PREFIX = "keybinding.";
     private static final String KEY_SHOW_COST_NOTIFICATIONS = "notifications.cost.enabled";
     private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
@@ -239,6 +242,31 @@ public final class GlobalUiSettings {
 
     public static void savePersistPerProjectBounds(boolean persist) {
         setBoolean(KEY_PERSIST_PER_PROJECT_BOUNDS, persist);
+    }
+
+    // Diff view preferences
+    public static boolean isDiffUnifiedView() {
+        return getBoolean(KEY_DIFF_UNIFIED_VIEW, false);
+    }
+
+    public static void saveDiffUnifiedView(boolean unified) {
+        setBoolean(KEY_DIFF_UNIFIED_VIEW, unified);
+    }
+
+    public static boolean isDiffShowBlankLines() {
+        return getBoolean(KEY_DIFF_SHOW_BLANK_LINES, false);
+    }
+
+    public static void saveDiffShowBlankLines(boolean show) {
+        setBoolean(KEY_DIFF_SHOW_BLANK_LINES, show);
+    }
+
+    public static boolean isDiffShowAllLines() {
+        return getBoolean(KEY_DIFF_SHOW_ALL_LINES, false);
+    }
+
+    public static void saveDiffShowAllLines(boolean show) {
+        setBoolean(KEY_DIFF_SHOW_ALL_LINES, show);
     }
 
     // Cost notifications preference (default: true)
