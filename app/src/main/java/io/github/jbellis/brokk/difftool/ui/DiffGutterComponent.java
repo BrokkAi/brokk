@@ -74,8 +74,10 @@ public class DiffGutterComponent extends JComponent {
     // ---- Blame support ----
     // Whether blame rendering is enabled for this gutter
     private volatile boolean showBlame = false;
-    // Map: 1-based document line number -> BlameInfo
-    private final Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> blameLines = new ConcurrentHashMap<>();
+    // Map: 1-based line number -> BlameInfo (for right/new file)
+    private final Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> rightBlameLines = new ConcurrentHashMap<>();
+    // Map: 1-based line number -> BlameInfo (for left/old file, used for deletions)
+    private final Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> leftBlameLines = new ConcurrentHashMap<>();
     // Font used for blame display (small, derived)
     private @org.jetbrains.annotations.Nullable Font blameFont = null;
 
@@ -183,7 +185,8 @@ public class DiffGutterComponent extends JComponent {
 
     /** Clear blame data and hide blame (useful when file changes). */
     public void clearBlame() {
-        blameLines.clear();
+        rightBlameLines.clear();
+        leftBlameLines.clear();
         showBlame = false;
         invalidate();
         if (getParent() != null) {
@@ -205,11 +208,24 @@ public class DiffGutterComponent extends JComponent {
         }
     }
 
-    /** Set blame lines (1-based line numbers) for rendering. */
+    /** Set blame lines for the right/new file (1-based line numbers) for rendering. */
     public void setBlameLines(Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> lines) {
-        blameLines.clear();
+        rightBlameLines.clear();
         if (!lines.isEmpty()) {
-            blameLines.putAll(lines);
+            rightBlameLines.putAll(lines);
+        }
+        invalidate();
+        if (getParent() != null) {
+            getParent().revalidate();
+        }
+        repaint();
+    }
+
+    /** Set blame lines for the left/old file (1-based line numbers) for rendering deletions. */
+    public void setLeftBlameLines(Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> lines) {
+        leftBlameLines.clear();
+        if (!lines.isEmpty()) {
+            leftBlameLines.putAll(lines);
         }
         invalidate();
         if (getParent() != null) {
@@ -322,7 +338,7 @@ public class DiffGutterComponent extends JComponent {
                                 // Format and paint line numbers
                                 var lineNumbers = formatLineNumbers(diffLine);
                                 if (lineNumbers != null) {
-                                    paintDualColumnNumbers(g, lineNumbers, lineY, fontAscent, fm, lineHeight, documentLine + 1);
+                                    paintDualColumnNumbers(g, lineNumbers, lineY, fontAscent, fm, lineHeight, diffLine);
                                 }
                             }
                         } else {
@@ -482,7 +498,7 @@ public class DiffGutterComponent extends JComponent {
 
 
     @SuppressWarnings("UnusedVariable")
-    private void paintDualColumnNumbers(Graphics g, String[] lineNumbers, int lineY, int fontAscent, FontMetrics fm, int lineHeight, int docLineNumber) {
+    private void paintDualColumnNumbers(Graphics g, String[] lineNumbers, int lineY, int fontAscent, FontMetrics fm, int lineHeight, UnifiedDiffDocument.DiffLine diffLine) {
         g.setColor(UnifiedDiffColorResolver.getLineNumberTextColor(isDarkTheme));
 
         int textY = lineY + fontAscent;
@@ -493,19 +509,12 @@ public class DiffGutterComponent extends JComponent {
         int baseLeftPadding = 4;
         int rightPadding = 6;
 
-        // Compute blame text (limited to 25 chars)
-        String blameText = "";
+        // Compute blame font metrics (will be used later if line has valid blame)
         Font blameDrawFont = null;
         FontMetrics bfm = null;
-        if (showBlame && docLineNumber > 0) {
-            var info = blameLines.get(docLineNumber);
-            if (info != null) {
-                blameText = formatBlameInfo(info);
-                if (!blameText.isBlank()) {
-                    blameDrawFont = (blameFont != null) ? blameFont : getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
-                    bfm = g.getFontMetrics(blameDrawFont);
-                }
-            }
+        if (showBlame) {
+            blameDrawFont = (blameFont != null) ? blameFont : getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
+            bfm = g.getFontMetrics(blameDrawFont);
         }
 
         // Reserve fixed width for blame area (25 chars + padding)
@@ -529,8 +538,20 @@ public class DiffGutterComponent extends JComponent {
 
         // Paint blame to the LEFT of line numbers, with fixed-width author column
         if (showBlame && bfm != null) {
-            var info = blameLines.get(docLineNumber);
-            if (info != null) {
+            // Use actual file line number from DiffLine, not sequential document position
+            // For deletions and context, use left blame (from HEAD)
+            // For additions, use right blame (from working tree)
+            boolean isAddition = diffLine.getType() == UnifiedDiffDocument.LineType.ADDITION;
+            boolean isDeletion = diffLine.getType() == UnifiedDiffDocument.LineType.DELETION;
+            int fileLineNumber = isAddition ? diffLine.getRightLineNumber() : diffLine.getLeftLineNumber();
+            var blameMap = isAddition ? rightBlameLines : leftBlameLines;
+
+            if (fileLineNumber > 0) {
+                var info = blameMap.get(fileLineNumber);
+                // Always show blame for additions and deletions, even if "Not Committed Yet"
+                // For context lines, only show if not "Not Committed Yet" (though this shouldn't happen with left blame)
+                boolean isAdditionOrDeletion = isAddition || isDeletion;
+                if (info != null && (isAdditionOrDeletion || !"Not Committed Yet".equals(info.author()))) {
                 Font oldFont = g.getFont();
                 g.setFont(blameDrawFont);
                 Color original = g.getColor();
@@ -552,8 +573,9 @@ public class DiffGutterComponent extends JComponent {
                     g.drawString(" · " + date, separatorX, textY);
                 }
 
-                g.setColor(original);
-                g.setFont(oldFont);
+                    g.setColor(original);
+                    g.setFont(oldFont);
+                }
             }
         }
 
@@ -600,8 +622,8 @@ public class DiffGutterComponent extends JComponent {
     @SuppressWarnings("UnusedVariable")
     private void paintBlameForLine(Graphics g, int oneBasedLine, int lineY, int lineHeight) {
         if (!showBlame) return;
-        var info = blameLines.get(oneBasedLine);
-        if (info == null) return;
+        var info = rightBlameLines.get(oneBasedLine);
+        if (info == null || "Not Committed Yet".equals(info.author())) return;
 
         // Prepare small font lazily
         if (blameFont == null) {
@@ -638,19 +660,6 @@ public class DiffGutterComponent extends JComponent {
         g.setFont(oldFont);
     }
 
-    /** Format a BlameInfo for side-by-side mode (used by paintBlameForLine) - not used for unified mode */
-    private String formatBlameInfo(io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo info) {
-        String author = info.author();
-        String date = formatDate(info.authorTime());
-
-        if (author.isBlank() && date.isBlank()) return "";
-        if (author.isBlank()) return date;
-        if (date.isBlank()) return truncate(author, 25);
-
-        // For side-by-side, just combine author and date (will be truncated by pixel width)
-        return author + " · " + date;
-    }
-
     /** Truncate string to fit within maxWidth pixels, adding "…" if truncated */
     private String truncateToWidth(String s, int maxWidth, FontMetrics fm) {
         if (fm.stringWidth(s) <= maxWidth) {
@@ -662,12 +671,6 @@ public class DiffGutterComponent extends JComponent {
             len--;
         }
         return len > 0 ? s.substring(0, len) + "…" : "";
-    }
-
-    /** Truncate string to maxLen, adding "…" if truncated */
-    private String truncate(String s, int maxLen) {
-        if (s.length() <= maxLen) return s;
-        return s.substring(0, maxLen - 1) + "…";
     }
 
     /** Format timestamp as relative (≤7 days) or absolute date (>7 days). Uses 0L as sentinel for missing timestamp. */

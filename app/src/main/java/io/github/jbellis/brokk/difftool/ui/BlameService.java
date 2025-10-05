@@ -52,6 +52,24 @@ public final class BlameService {
         return cache.computeIfAbsent(filePath, this::startBlameTask);
     }
 
+    /**
+     * Request blame for a specific git revision of a file. The returned future never completes exceptionally:
+     * on error it completes with an empty map.
+     *
+     * @param filePath The file path
+     * @param revision The git revision (e.g., "HEAD", "HEAD~1", commit SHA)
+     */
+    public CompletableFuture<Map<Integer, BlameInfo>> requestBlameForRevision(Path filePath, String revision) {
+        if (!isFeatureEnabled()) {
+            logger.debug("Blame feature disabled via system property");
+            return CompletableFuture.completedFuture(Map.of());
+        }
+        logger.debug("Requesting blame for revision {} of: {}", revision, filePath);
+        // Create cache key that includes revision
+        var cacheKey = Path.of(filePath.toString() + "@@" + revision);
+        return cache.computeIfAbsent(cacheKey, k -> startBlameTaskForRevision(filePath, revision));
+    }
+
     private CompletableFuture<Map<Integer, BlameInfo>> startBlameTask(Path filePath) {
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -120,6 +138,75 @@ public final class BlameService {
             } catch (Exception e) {
                 // On any failure, return empty map (do not propagate)
                 logger.error("Blame failed for {}: {}", filePath, e.getMessage(), e);
+                return Map.<Integer, BlameInfo>of();
+            }
+        });
+    }
+
+    private CompletableFuture<Map<Integer, BlameInfo>> startBlameTaskForRevision(Path filePath, String revision) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                File file = filePath.toFile();
+                // For revisions, file might not exist on disk, which is OK
+                // Build process: git blame <revision> --line-porcelain -- <fileName>
+                ProcessBuilder pb = new ProcessBuilder("git", "blame", revision, "--line-porcelain", "--", file.getName());
+                pb.directory(file.getParentFile());
+                pb.redirectErrorStream(true);
+                logger.debug("Running git blame {} in directory: {} for file: {}", revision, file.getParentFile(), file.getName());
+                Process p = pb.start();
+
+                try (BufferedReader r =
+                        new BufferedReader(new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    Pattern commitPattern = Pattern.compile("^([0-9a-f]{40})\\s");
+                    String line;
+                    int currentLine = 0;
+                    String currentAuthor = null;
+                    String currentSha = null;
+                    Long currentAuthorTime = null;
+                    ConcurrentHashMap<Integer, BlameInfo> result = new ConcurrentHashMap<>();
+
+                    while ((line = r.readLine()) != null) {
+                        if (line.isEmpty()) continue;
+                        Matcher m = commitPattern.matcher(line);
+                        if (m.find()) {
+                            // start of a new block; next lines contain author etc.
+                            currentSha = m.group(1);
+                            currentAuthor = null;
+                            currentAuthorTime = null;
+                        } else if (line.startsWith("author ")) {
+                            currentAuthor = line.substring("author ".length()).trim();
+                        } else if (line.startsWith("author-time ")) {
+                            try {
+                                currentAuthorTime = Long.parseLong(line.substring("author-time ".length()).trim());
+                            } catch (NumberFormatException e) {
+                                currentAuthorTime = null;
+                            }
+                        } else if (line.startsWith("\t")) {
+                            // content line; increment line counter and record blame
+                            currentLine++;
+                            String shortSha = (currentSha != null && currentSha.length() >= 8) ? currentSha.substring(0, 8) : (currentSha == null ? "" : currentSha);
+                            // Use 0L as sentinel value for missing timestamp
+                            result.put(currentLine, new BlameInfo(currentAuthor == null ? "" : currentAuthor, shortSha, currentAuthorTime != null ? currentAuthorTime : 0L));
+                        }
+                    }
+                    // Wait for process to exit to avoid zombies
+                    int exitCode = -1;
+                    try {
+                        exitCode = p.waitFor();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+
+                    if (exitCode != 0) {
+                        logger.warn("git blame {} exited with code {} for file: {}", revision, exitCode, filePath);
+                    } else {
+                        logger.debug("Blame for {} successful: {} lines for {}", revision, result.size(), filePath);
+                    }
+                    return Map.copyOf(result);
+                }
+            } catch (Exception e) {
+                // On any failure, return empty map (do not propagate)
+                logger.error("Blame for revision {} failed for {}: {}", revision, filePath, e.getMessage(), e);
                 return Map.<Integer, BlameInfo>of();
             }
         });

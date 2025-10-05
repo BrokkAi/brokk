@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -1955,11 +1956,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         logger.debug("Resolved target path for blame: {}", targetPath);
 
-        // Asynchronously request blame and apply to the panel gutters on EDT
+        // Asynchronously request blame for both working tree (right) and HEAD (left)
         final java.nio.file.Path finalTargetPath = targetPath;
-        blameService.requestBlame(targetPath).whenComplete((map, exc) -> {
-            if (map == null || map.isEmpty()) {
-                logger.debug("Blame returned empty result for: {}", finalTargetPath);
+        var rightBlameFuture = blameService.requestBlame(targetPath);
+        var leftBlameFuture = blameService.requestBlameForRevision(targetPath, "HEAD");
+
+        // Wait for both to complete
+        CompletableFuture.allOf(rightBlameFuture, leftBlameFuture).whenComplete((v, exc) -> {
+            var rightMap = rightBlameFuture.join();
+            var leftMap = leftBlameFuture.join();
+
+            if ((rightMap == null || rightMap.isEmpty()) && (leftMap == null || leftMap.isEmpty())) {
+                logger.debug("Blame returned empty results for both sides: {}", finalTargetPath);
                 // nothing to show, ensure gutter toggles are set
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     if (panel instanceof BufferDiffPanel bp) {
@@ -1974,14 +1982,17 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 return;
             }
 
-            logger.debug("Blame returned {} entries, applying to panel", map.size());
+            logger.debug("Blame returned {} right entries, {} left entries for: {}",
+                    rightMap != null ? rightMap.size() : 0,
+                    leftMap != null ? leftMap.size() : 0,
+                    finalTargetPath);
 
             javax.swing.SwingUtilities.invokeLater(() -> {
                 if (panel instanceof BufferDiffPanel bp) {
                     // For side-by-side, show blame on the RIGHT pane gutter (revised)
                     var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                    if (right != null) {
-                        right.getGutterComponent().setBlameLines(map);
+                    if (right != null && rightMap != null && !rightMap.isEmpty()) {
+                        right.getGutterComponent().setBlameLines(rightMap);
                         right.getGutterComponent().setShowBlame(true);
                     }
                     // Optionally clear/hide left gutter blame
@@ -1990,7 +2001,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         left.getGutterComponent().setShowBlame(false);
                     }
                 } else if (panel instanceof UnifiedDiffPanel up) {
-                    up.setGutterBlameData(map);
+                    // For unified view, set both right (working tree) and left (HEAD) blame data
+                    if (rightMap != null && !rightMap.isEmpty()) {
+                        up.setGutterBlameData(rightMap);
+                    }
+                    if (leftMap != null && !leftMap.isEmpty()) {
+                        up.setGutterLeftBlameData(leftMap);
+                    }
                     up.setShowGutterBlame(true);
                 }
             });

@@ -657,6 +657,13 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
     }
 
+    /** Set left/old file blame data for the gutter (used for deletions). */
+    public void setGutterLeftBlameData(java.util.Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> blameData) {
+        if (customLineNumberList != null) {
+            customLineNumberList.setLeftBlameLines(blameData);
+        }
+    }
+
     /** Show or hide gutter blame in this unified panel. */
     @Override
     public void setShowGutterBlame(boolean show) {
