@@ -23,6 +23,11 @@
     $: defaults = getBubbleDisplayDefaults(firstBubble.type);
     $: bubbleDisplay = { tag: defaults.title, hlVar: defaults.hlVar };
 
+    // Determine if any bubble is currently streaming
+    $: hasStreaming = bubbles.some((b) => b.streaming);
+    // Allow delete for history tasks, or for current task once it is not streaming
+    $: allowDelete = (taskSequence !== undefined) || !hasStreaming;
+
     // Aggregate diff metrics across all bubbles in this thread
     $: threadTotals = bubbles.reduce(
         (acc, b) => {
@@ -111,6 +116,7 @@
             totalLines={totalLinesAll}
             threadId={threadId}
             {taskSequence}
+            allowDelete={allowDelete}
             onCopy={handleCopy}
             onDelete={handleDelete}
         />
@@ -146,6 +152,7 @@
                                 totalLines={totalLinesAll}
                                 threadId={threadId}
                                 {taskSequence}
+                                allowDelete={allowDelete}
                                 onCopy={handleCopy}
                                 onDelete={handleDelete}
                             />
