@@ -229,9 +229,9 @@ model_list:
       supports_function_calling: true
       tokens_per_minute: 8000000
 
-  - model_name: glm-4.5
+  - model_name: glm-4.6
     litellm_params:
-      model: openrouter/z-ai/glm-4.5
+      model: openrouter/z-ai/glm-4.6
       api_key: "os.environ/OPENROUTER_API_KEY"
     model_info:
       free_tier_eligible: false
