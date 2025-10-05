@@ -12,6 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Small async blame fetcher. Uses 'git blame --line-porcelain' when available. Results are cached per-path. Failures
@@ -26,8 +27,11 @@ public final class BlameService {
 
     public static final record BlameInfo(String author, String shortSha, Long authorTime) {}
 
-    // Simple cache keyed by absolute path (string)
-    private final ConcurrentMap<Path, CompletableFuture<Map<Integer, BlameInfo>>> cache = new ConcurrentHashMap<>();
+    // Cache keyed by "absolutePath" for current file or "absolutePath@@revision" for specific revisions
+    private final ConcurrentMap<String, CompletableFuture<Map<Integer, BlameInfo>>> cache = new ConcurrentHashMap<>();
+
+    // Track last error message per cache key for user feedback
+    private final ConcurrentMap<String, String> lastErrors = new ConcurrentHashMap<>();
 
     /**
      * Feature flag check. Default: enabled. Can be controlled using system property 'brokk.feature.blame'. To disable
@@ -48,8 +52,9 @@ public final class BlameService {
             return CompletableFuture.completedFuture(Map.of());
         }
         logger.debug("Requesting blame for: {}", filePath);
-        // filePath is treated as non-null by callers and static analysis; let computeIfAbsent handle invalid keys.
-        return cache.computeIfAbsent(filePath, this::startBlameTask);
+        // Use absolute path string as cache key
+        String cacheKey = filePath.toAbsolutePath().toString();
+        return cache.computeIfAbsent(cacheKey, k -> startBlameTask(filePath));
     }
 
     /**
@@ -66,16 +71,18 @@ public final class BlameService {
         }
         logger.debug("Requesting blame for revision {} of: {}", revision, filePath);
         // Create cache key that includes revision
-        var cacheKey = Path.of(filePath.toString() + "@@" + revision);
+        String cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;
         return cache.computeIfAbsent(cacheKey, k -> startBlameTaskForRevision(filePath, revision));
     }
 
     private CompletableFuture<Map<Integer, BlameInfo>> startBlameTask(Path filePath) {
         return CompletableFuture.supplyAsync(() -> {
+            String cacheKey = filePath.toAbsolutePath().toString();
             try {
                 File file = filePath.toFile();
                 if (!file.exists()) {
                     logger.warn("Blame requested for non-existent file: {}", filePath);
+                    lastErrors.put(cacheKey, "File not found");
                     return Map.<Integer, BlameInfo>of();
                 }
                 // Build process: git -C <repoRoot> blame --line-porcelain -- <fileRelativePath>
@@ -138,14 +145,17 @@ public final class BlameService {
 
                     if (exitCode != 0) {
                         logger.warn("git blame exited with code {} for file: {}", exitCode, filePath);
+                        lastErrors.put(cacheKey, "Git command failed (exit code " + exitCode + ")");
                     } else {
                         logger.debug("Blame successful: {} lines for {}", result.size(), filePath);
+                        lastErrors.remove(cacheKey); // Clear any previous error on success
                     }
                     return Map.copyOf(result);
                 }
             } catch (Exception e) {
                 // On any failure, return empty map (do not propagate)
                 logger.error("Blame failed for {}: {}", filePath, e.getMessage(), e);
+                lastErrors.put(cacheKey, e.getMessage() != null ? e.getMessage() : "Unknown error");
                 return Map.<Integer, BlameInfo>of();
             }
         });
@@ -153,6 +163,7 @@ public final class BlameService {
 
     private CompletableFuture<Map<Integer, BlameInfo>> startBlameTaskForRevision(Path filePath, String revision) {
         return CompletableFuture.supplyAsync(() -> {
+            String cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;
             try {
                 File file = filePath.toFile();
                 // For revisions, file might not exist on disk, which is OK
@@ -220,14 +231,18 @@ public final class BlameService {
 
                     if (exitCode != 0) {
                         logger.warn("git blame {} exited with code {} for file: {}", revision, exitCode, filePath);
+                        lastErrors.put(
+                                cacheKey, "Git command failed for " + revision + " (exit code " + exitCode + ")");
                     } else {
                         logger.debug("Blame for {} successful: {} lines for {}", revision, result.size(), filePath);
+                        lastErrors.remove(cacheKey); // Clear any previous error on success
                     }
                     return Map.copyOf(result);
                 }
             } catch (Exception e) {
                 // On any failure, return empty map (do not propagate)
                 logger.error("Blame for revision {} failed for {}: {}", revision, filePath, e.getMessage(), e);
+                lastErrors.put(cacheKey, e.getMessage() != null ? e.getMessage() : "Unknown error");
                 return Map.<Integer, BlameInfo>of();
             }
         });
@@ -235,11 +250,33 @@ public final class BlameService {
 
     /** Clear the cache for a path (useful when files change on disk). */
     public void clearCacheFor(Path filePath) {
-        cache.remove(filePath);
+        cache.remove(filePath.toAbsolutePath().toString());
     }
 
     /** Clear all cached blame data (careful). */
     public void clearAllCache() {
         cache.clear();
+    }
+
+    /**
+     * Get the last error message for a given file path, if any.
+     *
+     * @param filePath The file path to check
+     * @return The error message, or null if no error occurred
+     */
+    public @Nullable String getLastError(Path filePath) {
+        return lastErrors.get(filePath.toAbsolutePath().toString());
+    }
+
+    /**
+     * Get the last error message for a given file path and revision, if any.
+     *
+     * @param filePath The file path to check
+     * @param revision The git revision
+     * @return The error message, or null if no error occurred
+     */
+    public @Nullable String getLastErrorForRevision(Path filePath, String revision) {
+        var cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;
+        return lastErrors.get(cacheKey);
     }
 }

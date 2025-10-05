@@ -631,10 +631,21 @@ public class DiffGutterComponent extends JComponent {
         return null;
     }
 
-    /** Paint the blame snippet for a given 1-based document line number (side-by-side mode). */
+    /**
+     * Paint the blame snippet for a given 1-based document line number (side-by-side mode).
+     *
+     * <p>ASSUMPTION: In side-by-side mode, the document shows the FULL file content, so document line numbers directly
+     * correspond to file line numbers (1:1 mapping). If this assumption is violated (e.g., by line folding, filtering,
+     * or diff-only display), blame will be displayed incorrectly.
+     *
+     * @param oneBasedLine The 1-based document line number (must equal file line number)
+     */
     @SuppressWarnings("UnusedVariable")
     private void paintBlameForLine(Graphics g, int oneBasedLine, int lineY, int lineHeight) {
         if (!showBlame) return;
+
+        // In side-by-side mode, document line == file line (full file is displayed)
+        // If we don't find blame for this line, it might indicate the assumption is violated
         var info = rightBlameLines.get(oneBasedLine);
         if (info == null || "Not Committed Yet".equals(info.author())) return;
 

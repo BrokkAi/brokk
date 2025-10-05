@@ -39,6 +39,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -356,6 +357,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     // Blame toggle and service
     private final JToggleButton btnBlameToggle = new JToggleButton("Blame");
     private final BlameService blameService = new BlameService();
+    private boolean blameErrorNotified = false;
 
     // Flag to track when layout hierarchy needs reset after navigation
     private volatile boolean needsLayoutReset = false;
@@ -1906,6 +1908,21 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * @param panel IDiffPanel (may be BufferDiffPanel or UnifiedDiffPanel)
      * @param show whether to show blame (if false we will clear the gutter blame)
      */
+    /** Convert technical error messages to user-friendly descriptions. */
+    private String formatBlameErrorMessage(String errorMsg) {
+        if (errorMsg.contains("File not found")) {
+            return "file not found";
+        }
+        if (errorMsg.contains("Git command failed")) {
+            return "git command failed";
+        }
+        if (errorMsg.toLowerCase(Locale.ROOT).contains("not a git repository")) {
+            return "not a git repository";
+        }
+        // Return simplified version of original message
+        return errorMsg.toLowerCase(Locale.ROOT);
+    }
+
     private void updateBlameForPanel(io.github.jbellis.brokk.difftool.ui.IDiffPanel panel, boolean show) {
         logger.debug(
                 "updateBlameForPanel called: panel={}, show={}",
@@ -1986,8 +2003,31 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
             if ((rightMap == null || rightMap.isEmpty()) && (leftMap == null || leftMap.isEmpty())) {
                 logger.debug("Blame returned empty results for both sides: {}", finalTargetPath);
+
+                // Check for errors and provide user feedback
+                String rightError = blameService.getLastError(finalTargetPath);
+                String leftError = blameService.getLastErrorForRevision(finalTargetPath, "HEAD");
+                String errorMsg = (rightError != null) ? rightError : leftError;
+
+                if (errorMsg != null && !blameErrorNotified) {
+                    // Show user-friendly error notification (one-time)
+                    var userMessage = formatBlameErrorMessage(errorMsg);
+                    SwingUtilities.invokeLater(() -> {
+                        JOptionPane.showMessageDialog(
+                                BrokkDiffPanel.this, userMessage, "Git Blame Unavailable", JOptionPane.WARNING_MESSAGE);
+                        // Update tooltip to show error
+                        btnBlameToggle.setToolTipText("Git blame unavailable: " + userMessage);
+                    });
+                    blameErrorNotified = true;
+                } else if (errorMsg != null) {
+                    // Update tooltip even if already notified
+                    SwingUtilities.invokeLater(() -> {
+                        btnBlameToggle.setToolTipText("Git blame unavailable: " + formatBlameErrorMessage(errorMsg));
+                    });
+                }
+
                 // nothing to show, ensure gutter toggles are set
-                javax.swing.SwingUtilities.invokeLater(() -> {
+                SwingUtilities.invokeLater(() -> {
                     if (panel instanceof BufferDiffPanel bp) {
                         var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
                         var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
@@ -2007,6 +2047,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     finalTargetPath);
 
             javax.swing.SwingUtilities.invokeLater(() -> {
+                // Reset tooltip to default on success
+                btnBlameToggle.setToolTipText("Toggle gutter git blame");
+
                 if (panel instanceof BufferDiffPanel bp) {
                     // For side-by-side, show blame on the RIGHT pane gutter (revised)
                     var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
