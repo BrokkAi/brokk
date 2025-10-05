@@ -19,8 +19,6 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
-import io.github.jbellis.brokk.difftool.ui.BlameService;
-import javax.swing.JToggleButton;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
@@ -48,6 +46,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.JToggleButton;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
@@ -746,7 +745,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             boolean initialBlameState = io.github.jbellis.brokk.util.GlobalUiSettings.isDiffShowBlame();
             btnBlameToggle.setSelected(initialBlameState && isGitRepo);
             btnBlameToggle.setEnabled(isGitRepo);
-            btnBlameToggle.setToolTipText(isGitRepo ? "Toggle gutter git blame" : "Git blame (requires git repository)");
+            btnBlameToggle.setToolTipText(
+                    isGitRepo ? "Toggle gutter git blame" : "Git blame (requires git repository)");
             btnBlameToggle.addActionListener(e -> {
                 var panel = getCurrentContentPanel();
                 boolean show = btnBlameToggle.isSelected();
@@ -1900,14 +1900,17 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Request and apply blame information for the given panel.
-     * This method is asynchronous and will update the gutter components on the EDT.
+     * Request and apply blame information for the given panel. This method is asynchronous and will update the gutter
+     * components on the EDT.
      *
      * @param panel IDiffPanel (may be BufferDiffPanel or UnifiedDiffPanel)
      * @param show whether to show blame (if false we will clear the gutter blame)
      */
     private void updateBlameForPanel(io.github.jbellis.brokk.difftool.ui.IDiffPanel panel, boolean show) {
-        logger.debug("updateBlameForPanel called: panel={}, show={}", panel.getClass().getSimpleName(), show);
+        logger.debug(
+                "updateBlameForPanel called: panel={}, show={}",
+                panel.getClass().getSimpleName(),
+                show);
         // Clear any existing displayed blame if hiding
         if (!show) {
             // BufferDiffPanel case: clear both left/right gutters
@@ -1940,7 +1943,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 if (dn != null) {
                     var rightNode = dn.getBufferNodeRight();
                     if (rightNode != null) {
-                        targetPath = java.nio.file.Paths.get(rightNode.getDocument().getName());
+                        targetPath =
+                                java.nio.file.Paths.get(rightNode.getDocument().getName());
                     }
                 }
             }
@@ -1982,7 +1986,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 return;
             }
 
-            logger.debug("Blame returned {} right entries, {} left entries for: {}",
+            logger.debug(
+                    "Blame returned {} right entries, {} left entries for: {}",
                     rightMap != null ? rightMap.size() : 0,
                     leftMap != null ? leftMap.size() : 0,
                     finalTargetPath);

@@ -14,12 +14,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * Small async blame fetcher. Uses 'git blame --line-porcelain' when available.
- * Results are cached per-path. Failures return an empty map.
+ * Small async blame fetcher. Uses 'git blame --line-porcelain' when available. Results are cached per-path. Failures
+ * return an empty map.
  *
- * Note: this is intentionally minimal and conservative — it runs the git command
- * off the EDT and returns a CompletableFuture that completes on the thread that
- * finishes the work; callers must SwingUtilities.invokeLater when updating UI.
+ * <p>Note: this is intentionally minimal and conservative — it runs the git command off the EDT and returns a
+ * CompletableFuture that completes on the thread that finishes the work; callers must SwingUtilities.invokeLater when
+ * updating UI.
  */
 public final class BlameService {
     private static final Logger logger = LogManager.getLogger(BlameService.class);
@@ -30,8 +30,8 @@ public final class BlameService {
     private final ConcurrentMap<Path, CompletableFuture<Map<Integer, BlameInfo>>> cache = new ConcurrentHashMap<>();
 
     /**
-     * Feature flag check. Default: enabled. Can be controlled using system property
-     * 'brokk.feature.blame'. To disable globally set -Dbrokk.feature.blame=false.
+     * Feature flag check. Default: enabled. Can be controlled using system property 'brokk.feature.blame'. To disable
+     * globally set -Dbrokk.feature.blame=false.
      */
     public static boolean isFeatureEnabled() {
         String v = System.getProperty("brokk.feature.blame", "true");
@@ -39,8 +39,8 @@ public final class BlameService {
     }
 
     /**
-     * Request blame for the given absolute file path. The returned future never completes exceptionally:
-     * on error it completes with an empty map.
+     * Request blame for the given absolute file path. The returned future never completes exceptionally: on error it
+     * completes with an empty map.
      */
     public CompletableFuture<Map<Integer, BlameInfo>> requestBlame(Path filePath) {
         if (!isFeatureEnabled()) {
@@ -53,8 +53,8 @@ public final class BlameService {
     }
 
     /**
-     * Request blame for a specific git revision of a file. The returned future never completes exceptionally:
-     * on error it completes with an empty map.
+     * Request blame for a specific git revision of a file. The returned future never completes exceptionally: on error
+     * it completes with an empty map.
      *
      * @param filePath The file path
      * @param revision The git revision (e.g., "HEAD", "HEAD~1", commit SHA)
@@ -86,8 +86,8 @@ public final class BlameService {
                 logger.debug("Running git blame in directory: {} for file: {}", file.getParentFile(), file.getName());
                 Process p = pb.start();
 
-                try (BufferedReader r =
-                        new BufferedReader(new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                try (BufferedReader r = new BufferedReader(
+                        new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
                     Pattern commitPattern = Pattern.compile("^([0-9a-f]{40})\\s");
                     String line;
                     int currentLine = 0;
@@ -108,16 +108,24 @@ public final class BlameService {
                             currentAuthor = line.substring("author ".length()).trim();
                         } else if (line.startsWith("author-time ")) {
                             try {
-                                currentAuthorTime = Long.parseLong(line.substring("author-time ".length()).trim());
+                                currentAuthorTime = Long.parseLong(
+                                        line.substring("author-time ".length()).trim());
                             } catch (NumberFormatException e) {
                                 currentAuthorTime = null;
                             }
                         } else if (line.startsWith("\t")) {
                             // content line; increment line counter and record blame
                             currentLine++;
-                            String shortSha = (currentSha != null && currentSha.length() >= 8) ? currentSha.substring(0, 8) : (currentSha == null ? "" : currentSha);
+                            String shortSha = (currentSha != null && currentSha.length() >= 8)
+                                    ? currentSha.substring(0, 8)
+                                    : (currentSha == null ? "" : currentSha);
                             // Use 0L as sentinel value for missing timestamp
-                            result.put(currentLine, new BlameInfo(currentAuthor == null ? "" : currentAuthor, shortSha, currentAuthorTime != null ? currentAuthorTime : 0L));
+                            result.put(
+                                    currentLine,
+                                    new BlameInfo(
+                                            currentAuthor == null ? "" : currentAuthor,
+                                            shortSha,
+                                            currentAuthorTime != null ? currentAuthorTime : 0L));
                         }
                     }
                     // Wait for process to exit to avoid zombies
@@ -149,14 +157,19 @@ public final class BlameService {
                 File file = filePath.toFile();
                 // For revisions, file might not exist on disk, which is OK
                 // Build process: git blame <revision> --line-porcelain -- <fileName>
-                ProcessBuilder pb = new ProcessBuilder("git", "blame", revision, "--line-porcelain", "--", file.getName());
+                ProcessBuilder pb =
+                        new ProcessBuilder("git", "blame", revision, "--line-porcelain", "--", file.getName());
                 pb.directory(file.getParentFile());
                 pb.redirectErrorStream(true);
-                logger.debug("Running git blame {} in directory: {} for file: {}", revision, file.getParentFile(), file.getName());
+                logger.debug(
+                        "Running git blame {} in directory: {} for file: {}",
+                        revision,
+                        file.getParentFile(),
+                        file.getName());
                 Process p = pb.start();
 
-                try (BufferedReader r =
-                        new BufferedReader(new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                try (BufferedReader r = new BufferedReader(
+                        new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
                     Pattern commitPattern = Pattern.compile("^([0-9a-f]{40})\\s");
                     String line;
                     int currentLine = 0;
@@ -177,16 +190,24 @@ public final class BlameService {
                             currentAuthor = line.substring("author ".length()).trim();
                         } else if (line.startsWith("author-time ")) {
                             try {
-                                currentAuthorTime = Long.parseLong(line.substring("author-time ".length()).trim());
+                                currentAuthorTime = Long.parseLong(
+                                        line.substring("author-time ".length()).trim());
                             } catch (NumberFormatException e) {
                                 currentAuthorTime = null;
                             }
                         } else if (line.startsWith("\t")) {
                             // content line; increment line counter and record blame
                             currentLine++;
-                            String shortSha = (currentSha != null && currentSha.length() >= 8) ? currentSha.substring(0, 8) : (currentSha == null ? "" : currentSha);
+                            String shortSha = (currentSha != null && currentSha.length() >= 8)
+                                    ? currentSha.substring(0, 8)
+                                    : (currentSha == null ? "" : currentSha);
                             // Use 0L as sentinel value for missing timestamp
-                            result.put(currentLine, new BlameInfo(currentAuthor == null ? "" : currentAuthor, shortSha, currentAuthorTime != null ? currentAuthorTime : 0L));
+                            result.put(
+                                    currentLine,
+                                    new BlameInfo(
+                                            currentAuthor == null ? "" : currentAuthor,
+                                            shortSha,
+                                            currentAuthorTime != null ? currentAuthorTime : 0L));
                         }
                     }
                     // Wait for process to exit to avoid zombies

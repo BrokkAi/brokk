@@ -28,8 +28,8 @@ import org.jetbrains.annotations.Nullable;
  * columns with actual source line numbers. For side-by-side mode, it shows a single column of sequential line numbers
  * with diff highlighting.
  *
- * Extended to optionally render lightweight "git blame" info under the line numbers. Blame data is provided by
- * an external BlameService and set via setBlameLines(...). Rendering is controlled by setShowBlame(boolean).
+ * <p>Extended to optionally render lightweight "git blame" info under the line numbers. Blame data is provided by an
+ * external BlameService and set via setBlameLines(...). Rendering is controlled by setShowBlame(boolean).
  */
 public class DiffGutterComponent extends JComponent {
     private static final Logger logger = LogManager.getLogger(DiffGutterComponent.class);
@@ -75,9 +75,11 @@ public class DiffGutterComponent extends JComponent {
     // Whether blame rendering is enabled for this gutter
     private volatile boolean showBlame = false;
     // Map: 1-based line number -> BlameInfo (for right/new file)
-    private final Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> rightBlameLines = new ConcurrentHashMap<>();
+    private final Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> rightBlameLines =
+            new ConcurrentHashMap<>();
     // Map: 1-based line number -> BlameInfo (for left/old file, used for deletions)
-    private final Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> leftBlameLines = new ConcurrentHashMap<>();
+    private final Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> leftBlameLines =
+            new ConcurrentHashMap<>();
     // Font used for blame display (small, derived)
     private @org.jetbrains.annotations.Nullable Font blameFont = null;
 
@@ -496,9 +498,15 @@ public class DiffGutterComponent extends JComponent {
         };
     }
 
-
     @SuppressWarnings("UnusedVariable")
-    private void paintDualColumnNumbers(Graphics g, String[] lineNumbers, int lineY, int fontAscent, FontMetrics fm, int lineHeight, UnifiedDiffDocument.DiffLine diffLine) {
+    private void paintDualColumnNumbers(
+            Graphics g,
+            String[] lineNumbers,
+            int lineY,
+            int fontAscent,
+            FontMetrics fm,
+            int lineHeight,
+            UnifiedDiffDocument.DiffLine diffLine) {
         g.setColor(UnifiedDiffColorResolver.getLineNumberTextColor(isDarkTheme));
 
         int textY = lineY + fontAscent;
@@ -513,7 +521,9 @@ public class DiffGutterComponent extends JComponent {
         Font blameDrawFont = null;
         FontMetrics bfm = null;
         if (showBlame) {
-            blameDrawFont = (blameFont != null) ? blameFont : getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
+            blameDrawFont = (blameFont != null)
+                    ? blameFont
+                    : getFont().deriveFont(Math.max(10f, getFont().getSize2D() - 2f));
             bfm = g.getFontMetrics(blameDrawFont);
         }
 
@@ -549,29 +559,32 @@ public class DiffGutterComponent extends JComponent {
             if (fileLineNumber > 0) {
                 var info = blameMap.get(fileLineNumber);
                 // Always show blame for additions and deletions, even if "Not Committed Yet"
-                // For context lines, only show if not "Not Committed Yet" (though this shouldn't happen with left blame)
+                // For context lines, only show if not "Not Committed Yet" (though this shouldn't happen with left
+                // blame)
                 boolean isAdditionOrDeletion = isAddition || isDeletion;
                 if (info != null && (isAdditionOrDeletion || !"Not Committed Yet".equals(info.author()))) {
-                Font oldFont = g.getFont();
-                g.setFont(blameDrawFont);
-                Color original = g.getColor();
-                Color tinted = isDarkTheme ? original.brighter() : original.darker().darker();
-                g.setColor(tinted);
+                    Font oldFont = g.getFont();
+                    g.setFont(blameDrawFont);
+                    Color original = g.getColor();
+                    Color tinted = isDarkTheme
+                            ? original.brighter()
+                            : original.darker().darker();
+                    g.setColor(tinted);
 
-                String author = info.author();
-                String date = formatDate(info.authorTime());
+                    String author = info.author();
+                    String date = formatDate(info.authorTime());
 
-                // Draw author (truncated to fit in fixed width)
-                int authorX = baseLeftPadding;
-                int authorMaxWidth = bfm.stringWidth("123456789012345"); // ~15 chars worth
-                String displayAuthor = truncateToWidth(author, authorMaxWidth, bfm);
-                g.drawString(displayAuthor, authorX, textY);
+                    // Draw author (truncated to fit in fixed width)
+                    int authorX = baseLeftPadding;
+                    int authorMaxWidth = bfm.stringWidth("123456789012345"); // ~15 chars worth
+                    String displayAuthor = truncateToWidth(author, authorMaxWidth, bfm);
+                    g.drawString(displayAuthor, authorX, textY);
 
-                // Draw separator and date at fixed position (aligned)
-                if (!date.isBlank()) {
-                    int separatorX = baseLeftPadding + authorMaxWidth + 2;
-                    g.drawString(" · " + date, separatorX, textY);
-                }
+                    // Draw separator and date at fixed position (aligned)
+                    if (!date.isBlank()) {
+                        int separatorX = baseLeftPadding + authorMaxWidth + 2;
+                        g.drawString(" · " + date, separatorX, textY);
+                    }
 
                     g.setColor(original);
                     g.setFont(oldFont);
@@ -701,8 +714,8 @@ public class DiffGutterComponent extends JComponent {
         }
 
         // Absolute format for > 7 days using locale short date
-        DateTimeFormatter formatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT)
-                .withZone(ZoneId.systemDefault());
+        DateTimeFormatter formatter =
+                DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT).withZone(ZoneId.systemDefault());
         return formatter.format(commitTime);
     }
 

@@ -27,8 +27,8 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     protected String creationContext = "unknown";
 
     /**
-     * Per-panel UI flag: whether to show git blame information under the gutter line numbers.
-     * Panels should honor this flag and update their gutter rendering accordingly.
+     * Per-panel UI flag: whether to show git blame information under the gutter line numbers. Panels should honor this
+     * flag and update their gutter rendering accordingly.
      */
     protected volatile boolean showGutterBlame = false;
 
@@ -65,9 +65,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
         return creationContext;
     }
 
-    /**
-     * Per-panel gutter blame controls.
-     */
+    /** Per-panel gutter blame controls. */
     @Override
     public void setShowGutterBlame(boolean show) {
         this.showGutterBlame = show;
