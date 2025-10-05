@@ -25,6 +25,8 @@ import org.jspecify.annotations.Nullable;
 public final class BlameService {
     private static final Logger logger = LogManager.getLogger(BlameService.class);
 
+    public static final String NOT_COMMITTED_YET = "Not Committed Yet";
+
     public static final record BlameInfo(String author, String shortSha, Long authorTime) {}
 
     // Cache keyed by "absolutePath" for current file or "absolutePath@@revision" for specific revisions
@@ -126,11 +128,11 @@ public final class BlameService {
                             String shortSha = (currentSha != null && currentSha.length() >= 8)
                                     ? currentSha.substring(0, 8)
                                     : (currentSha == null ? "" : currentSha);
-                            // Use 0L as sentinel value for missing timestamp
+                            // Use NOT_COMMITTED_YET for missing author, 0L for missing timestamp
                             result.put(
                                     currentLine,
                                     new BlameInfo(
-                                            currentAuthor == null ? "" : currentAuthor,
+                                            currentAuthor == null ? NOT_COMMITTED_YET : currentAuthor,
                                             shortSha,
                                             currentAuthorTime != null ? currentAuthorTime : 0L));
                         }
@@ -212,11 +214,11 @@ public final class BlameService {
                             String shortSha = (currentSha != null && currentSha.length() >= 8)
                                     ? currentSha.substring(0, 8)
                                     : (currentSha == null ? "" : currentSha);
-                            // Use 0L as sentinel value for missing timestamp
+                            // Use NOT_COMMITTED_YET for missing author, 0L for missing timestamp
                             result.put(
                                     currentLine,
                                     new BlameInfo(
-                                            currentAuthor == null ? "" : currentAuthor,
+                                            currentAuthor == null ? NOT_COMMITTED_YET : currentAuthor,
                                             shortSha,
                                             currentAuthorTime != null ? currentAuthorTime : 0L));
                         }

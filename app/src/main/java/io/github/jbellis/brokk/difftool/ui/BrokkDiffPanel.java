@@ -1952,7 +1952,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 if (right != null) {
                     var bd = right.getBufferDocument();
                     if (bd != null) {
-                        targetPath = java.nio.file.Paths.get(bd.getName());
+                        // Only process FileDocument - skip StringDocument and virtual content
+                        if (bd instanceof io.github.jbellis.brokk.difftool.doc.FileDocument) {
+                            targetPath = java.nio.file.Paths.get(bd.getName());
+                        } else {
+                            logger.debug("Skipping blame for non-file document: {}", bd.getClass().getSimpleName());
+                            return;
+                        }
                     }
                 }
             } else if (panel instanceof UnifiedDiffPanel up) {
@@ -1960,14 +1966,28 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 if (dn != null) {
                     var rightNode = dn.getBufferNodeRight();
                     if (rightNode != null) {
-                        targetPath =
-                                java.nio.file.Paths.get(rightNode.getDocument().getName());
+                        var doc = rightNode.getDocument();
+                        // Only process FileDocument - skip StringDocument and virtual content
+                        if (doc instanceof io.github.jbellis.brokk.difftool.doc.FileDocument) {
+                            targetPath = java.nio.file.Paths.get(doc.getName());
+                        } else {
+                            logger.debug("Skipping blame for non-file document: {}", doc.getClass().getSimpleName());
+                            return;
+                        }
                     }
                 }
             }
 
+            // Early return if no path found
+            if (targetPath == null) {
+                logger.debug("No file path found for blame");
+                return;
+            }
+
+            logger.debug("Extracted path for blame: {}", targetPath);
+
             // Resolve relative paths against the git repository root
-            if (targetPath != null && !targetPath.isAbsolute()) {
+            if (!targetPath.isAbsolute()) {
                 var repo = contextManager.getProject().getRepo();
                 if (repo instanceof io.github.jbellis.brokk.git.GitRepo gitRepo) {
                     targetPath = gitRepo.getGitTopLevel().resolve(targetPath).normalize();
@@ -1979,17 +1999,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 }
             }
         } catch (Exception ex) {
-            // ignore path resolution failures; will result in empty blame
             logger.warn("Failed to resolve target path for blame: {}", ex.getMessage());
-            targetPath = null;
-        }
-
-        if (targetPath == null) {
-            logger.warn("Could not resolve target path for blame");
             return;
         }
 
-        logger.debug("Final target path for blame: {}", targetPath);
+        logger.debug("Final resolved path for blame: {}", targetPath);
 
         // Asynchronously request blame for both working tree (right) and HEAD (left)
         final java.nio.file.Path finalTargetPath = targetPath;

@@ -558,8 +558,8 @@ public class DiffGutterComponent extends JComponent {
 
             if (fileLineNumber > 0) {
                 var info = blameMap.get(fileLineNumber);
-                // Don't show blame for "Not Committed Yet" on any line type
-                if (info != null && !"Not Committed Yet".equals(info.author())) {
+                // Don't show blame for NOT_COMMITTED_YET on any line type
+                if (info != null && !BlameService.NOT_COMMITTED_YET.equals(info.author())) {
                     Font oldFont = g.getFont();
                     g.setFont(blameDrawFont);
                     Color original = g.getColor();
@@ -644,7 +644,7 @@ public class DiffGutterComponent extends JComponent {
         // In side-by-side mode, document line == file line (full file is displayed)
         // If we don't find blame for this line, it might indicate the assumption is violated
         var info = rightBlameLines.get(oneBasedLine);
-        if (info == null || "Not Committed Yet".equals(info.author())) return;
+        if (info == null || BlameService.NOT_COMMITTED_YET.equals(info.author())) return;
 
         // Prepare small font lazily
         if (blameFont == null) {
