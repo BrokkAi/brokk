@@ -2,6 +2,7 @@ package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
@@ -137,5 +138,22 @@ public interface IConsoleIO {
 
     default void enableActionButtons() {
         // pass
+    }
+
+    /**
+     * Returns a BlitzForge.Listener implementation suitable for the current console type (GUI or headless).
+     * @param config The configuration for the BlitzForge run.
+     * @param cancelCallback A callback to invoke if the user requests cancellation (e.g., presses Cancel).
+     * @return A BlitzForge.Listener instance.
+     */
+    default BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config, Runnable cancelCallback) {
+        throw new UnsupportedOperationException("getBlitzForgeListener not implemented for this console type");
+    }
+
+    /**
+     * Convenience overload without a cancel callback; implementations may ignore cancellation or use a no-op.
+     */
+    default BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config) {
+        return getBlitzForgeListener(config, () -> {});
     }
 }

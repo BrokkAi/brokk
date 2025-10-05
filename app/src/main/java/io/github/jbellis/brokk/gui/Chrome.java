@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.formdev.flatlaf.util.SystemInfo;
@@ -15,6 +16,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
+import io.github.jbellis.brokk.agents.BlitzForge;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -2807,5 +2810,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> {
             terminalDrawer.updateTerminalFontSize();
         });
+    }
+
+    @Override
+    public BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config, Runnable cancelCallback) {
+        var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, config, cancelCallback), null));
+        SwingUtilities.invokeLater(() -> dialog.setVisible(true));
+        return dialog;
     }
 }

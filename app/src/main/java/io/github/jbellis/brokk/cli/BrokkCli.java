@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
+import io.github.jbellis.brokk.agents.ConflictInspector;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
@@ -380,13 +381,13 @@ public final class BrokkCli implements Callable<Integer> {
                 } else if (merge) {
                     var planningModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
                     var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                    MergeAgent mergeAgent;
-                    try {
-                        mergeAgent = MergeAgent.inferFromExternal(cm, planningModel, codeModel, scope);
-                    } catch (IllegalStateException e) {
-                        System.err.println("Cannot run --merge: " + e.getMessage());
+                    var conflict = ConflictInspector.inspectFromProject(cm.getProject());
+                    if (conflict == null) {
+                        System.out.println("Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
                         return 1;
                     }
+                    System.out.println(conflict);
+                    MergeAgent mergeAgent = new MergeAgent(cm, planningModel, codeModel, conflict, scope);
                     try {
                         result = mergeAgent.execute();
                         scope.append(result);
