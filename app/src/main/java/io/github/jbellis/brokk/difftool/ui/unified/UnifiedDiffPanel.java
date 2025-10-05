@@ -669,11 +669,10 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Show or hide gutter blame in this unified panel. */
     @Override
     public void setShowGutterBlame(boolean show) {
+        super.setShowGutterBlame(show);
         if (customLineNumberList != null) {
             customLineNumberList.setShowBlame(show);
         }
-        // remember per-panel state via AbstractDiffPanel
-        markCreationContext(getCreationContext()); // no-op, side-effect kept minimal
     }
 
     /** Remove all diff highlights from the highlighter. */

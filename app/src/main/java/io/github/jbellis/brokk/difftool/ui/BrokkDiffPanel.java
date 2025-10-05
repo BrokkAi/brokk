@@ -1948,8 +1948,22 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     }
                 }
             }
+
+            // Resolve relative paths against the git repository root
+            if (targetPath != null && !targetPath.isAbsolute()) {
+                var repo = contextManager.getProject().getRepo();
+                if (repo instanceof io.github.jbellis.brokk.git.GitRepo gitRepo) {
+                    targetPath = gitRepo.getGitTopLevel().resolve(targetPath).normalize();
+                    logger.debug("Resolved relative path to absolute: {}", targetPath);
+                } else {
+                    // Fallback to absolute path resolution for non-git repos
+                    targetPath = targetPath.toAbsolutePath().normalize();
+                    logger.debug("Resolved to absolute path (non-git): {}", targetPath);
+                }
+            }
         } catch (Exception ex) {
             // ignore path resolution failures; will result in empty blame
+            logger.warn("Failed to resolve target path for blame: {}", ex.getMessage());
             targetPath = null;
         }
 
@@ -1958,7 +1972,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        logger.debug("Resolved target path for blame: {}", targetPath);
+        logger.debug("Final target path for blame: {}", targetPath);
 
         // Asynchronously request blame for both working tree (right) and HEAD (left)
         final java.nio.file.Path finalTargetPath = targetPath;
