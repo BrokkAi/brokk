@@ -7,6 +7,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import io.github.jbellis.brokk.IConsoleIO.NotificationRole;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.analyzer.*;
@@ -44,6 +45,8 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+
+import javax.management.Notification;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -134,7 +137,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Headless or non-Chrome I/O
             int fileCount = testFiles.size();
             String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s") + "...\n";
-            io.systemOutput(heading + cmd);
+            io.systemNotify(cmd, heading, JOptionPane.INFORMATION_MESSAGE);
         }
 
         // Run the test command in the background and stream output to the Tests tab
@@ -144,7 +147,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     if (io instanceof Chrome chrome) {
                         chrome.appendToTestRunner(line + "\n");
                     } else {
-                        io.systemOutput(line);
+                        io.systemNotify(cmd, line, JOptionPane.INFORMATION_MESSAGE);
                     }
                 });
 
@@ -152,7 +155,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (io instanceof Chrome chrome) {
                     chrome.appendToTestRunner("\nProcess finished with exit code " + exit + "\n");
                 } else {
-                    io.systemOutput("Process finished with exit code " + exit);
+                    io.systemNotify("Process finished with exit code "+ exit, "Tests Run", JOptionPane.INFORMATION_MESSAGE);
                 }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
