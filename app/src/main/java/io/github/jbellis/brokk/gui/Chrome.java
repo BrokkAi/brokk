@@ -2912,7 +2912,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         public void openTerminalAndPasteText(String text) {
             SwingUtilities.invokeLater(() -> {
                 try {
-                    Chrome.this.openTerminalAndPasteText(text);
+                    // Open/focus the Terminal tab in the new tabbed UI
+                    Chrome.this.openTerminalTab();
+                    // If the terminal panel exists, paste immediately; TerminalPanel handles readiness internally.
+                    if (Chrome.this.terminalPanel != null) {
+                        Chrome.this.terminalPanel.pasteText(text);
+                    }
                 } catch (Exception ex) {
                     logger.debug("Failed to open terminal and paste text via adapter", ex);
                 }
