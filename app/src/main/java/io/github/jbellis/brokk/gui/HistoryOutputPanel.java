@@ -1086,42 +1086,29 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private void animateNotificationCard(JPanel card) {
-        card.putClientProperty("notificationOpacity", 0.0f);
+        card.putClientProperty("notificationOpacity", 1.0f);
 
-        final int fadeInDuration = 2000; // 2 seconds
-        final int holdDuration = 1000; // 10 seconds
-        final int fadeOutDuration = 2000; // 2 seconds
+        final int holdDuration = 1000; // 1 second
+        final int fadeOutDuration = 1000; // 1 second
         final int fps = 30;
-        final int fadeInFrames = (fadeInDuration * fps) / 1000;
         final int fadeOutFrames = (fadeOutDuration * fps) / 1000;
-        final float fadeInStep = 1.0f / fadeInFrames;
         final float fadeOutStep = 1.0f / fadeOutFrames;
 
         final Timer[] timerHolder = new Timer[1];
         final int[] frameCounter = {0};
-        final int[] phase = {0}; // 0=fade in, 1=hold, 2=fade out
+        final int[] phase = {0}; // 0=hold, 1=fade out
 
         Timer timer = new Timer(1000 / fps, e -> {
             float currentOpacity = (Float) card.getClientProperty("notificationOpacity");
 
             if (phase[0] == 0) {
-                // Fade in
-                currentOpacity = Math.min(1.0f, currentOpacity + fadeInStep);
-                card.putClientProperty("notificationOpacity", currentOpacity);
-                card.repaint();
-
-                if (currentOpacity >= 1.0f) {
+                // Hold
+                frameCounter[0]++;
+                if (frameCounter[0] >= (holdDuration / (1000 / fps))) {
                     phase[0] = 1;
                     frameCounter[0] = 0;
                 }
             } else if (phase[0] == 1) {
-                // Hold
-                frameCounter[0]++;
-                if (frameCounter[0] >= (holdDuration / (1000 / fps))) {
-                    phase[0] = 2;
-                    frameCounter[0] = 0;
-                }
-            } else if (phase[0] == 2) {
                 // Fade out
                 currentOpacity = Math.max(0.0f, currentOpacity - fadeOutStep);
                 card.putClientProperty("notificationOpacity", currentOpacity);
