@@ -531,8 +531,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     // Lightweight branch poller (feature-flagged)
     // ---------------------------------------------------------------------
     private void startBranchPollerIfEnabled() {
-        if (!isBranchPollerEnabled()) {
-            logger.debug("Branch poller disabled via feature flag");
+        if (!MainProject.isGitBranchPollerEnabled()) {
+            logger.debug("Branch poller disabled in Settings");
             return;
         }
         if (!project.hasGit()) {
@@ -547,14 +547,14 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         // Initialize last known branch label using same semantics as UI fallback
         lastPolledBranch = safeGetCurrentBranch();
 
-        long intervalMs = getBranchPollIntervalMs();
+        long intervalMs = MainProject.getGitBranchPollIntervalMs();
         branchPollerExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "brokk-branch-poller-" + project.getRoot().getFileName());
             t.setDaemon(true);
             return t;
         });
 
-        logger.info("Starting branch poller (interval={} ms). Override with -Dbrokk.git.branchPollIntervalMs or env BROKK_GIT_BRANCH_POLL_INTERVAL_MS", intervalMs);
+        logger.info("Starting branch poller (interval={} ms). Configure in Settings (Startup tab).", intervalMs);
 
         branchPollerExecutor.scheduleAtFixedRate(() -> {
             try {
@@ -584,28 +584,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
     }
 
-    private static boolean isBranchPollerEnabled() {
-        String env = System.getenv("BROKK_GIT_BRANCH_POLLER");
-        String prop = System.getProperty("brokk.git.branchPoller", "false");
-        String val = (env != null) ? env : prop;
-        return "1".equals(val) || Boolean.parseBoolean(val);
-    }
 
-    private static long getBranchPollIntervalMs() {
-        String env = System.getenv("BROKK_GIT_BRANCH_POLL_INTERVAL_MS");
-        String prop = System.getProperty("brokk.git.branchPollIntervalMs", "2000");
-        String src = (env != null) ? env : prop;
-        long parsed = 2000L;
-        try {
-            parsed = Long.parseLong(src.trim());
-        } catch (NumberFormatException nfe) {
-            LogManager.getLogger(AnalyzerWrapper.class)
-                    .debug("Invalid branch poll interval '{}', defaulting to {} ms", src, parsed);
-        }
-        if (parsed < 500L) parsed = 500L;
-        if (parsed > 60000L) parsed = 60000L;
-        return parsed;
-    }
 
     @Override
     public void close() {
