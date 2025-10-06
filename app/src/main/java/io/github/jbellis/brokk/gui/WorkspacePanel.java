@@ -673,12 +673,7 @@ public class WorkspacePanel extends JPanel {
     public WorkspacePanel(Chrome chrome, ContextManager contextManager, PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
 
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Workspace",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(BorderFactory.createEtchedBorder());
 
         this.chrome = chrome;
         this.contextManager = contextManager;
