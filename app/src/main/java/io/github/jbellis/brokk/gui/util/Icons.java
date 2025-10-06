@@ -63,4 +63,7 @@ public final class Icons {
     public static final Icon TRASH = SwingUtil.uiIcon("Brokk.trash");
     public static final Icon CLOSE = SwingUtil.uiIcon("Brokk.close");
     public static final Icon COMPRESS = SwingUtil.uiIcon("Brokk.compress");
+    public static final Icon KEYBOARD_ARROW_UP = SwingUtil.uiIcon("Brokk.keyboard_arrow_up");
+    public static final Icon KEYBOARD_ARROW_DOWN = SwingUtil.uiIcon("Brokk.keyboard_arrow_down");
+    public static final Icon DESK = SwingUtil.uiIcon("Brokk.desk");
 }

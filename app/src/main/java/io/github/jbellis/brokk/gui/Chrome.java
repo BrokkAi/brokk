@@ -438,7 +438,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // Set static icons for other tabs (these persist across lazy component replacements)
-        workspaceToolsTabs.setIconAt(0, Icons.VIEW_SIDE_BY_SIDE); // Workspace
+        workspaceToolsTabs.setIconAt(0, Icons.DESK); // Workspace
         workspaceToolsTabs.setIconAt(TAB_DEPENDENCIES, Icons.MANAGE_DEPENDENCIES);
         workspaceToolsTabs.setIconAt(TAB_TERMINAL, Icons.TERMINAL);
         workspaceToolsTabs.setIconAt(TAB_TESTS, Icons.CHECK);
@@ -455,9 +455,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
+        // Create a container with a collapse/expand toggle at the left of the tabbed pane
+        var workspaceTabsContainer = new JPanel(new BorderLayout());
+        var collapseToggleButton = new JButton(Icons.KEYBOARD_ARROW_UP);
+        collapseToggleButton.setBorderPainted(false);
+        collapseToggleButton.setContentAreaFilled(false);
+        collapseToggleButton.setFocusPainted(false);
+        collapseToggleButton.setToolTipText("Collapse/expand tabs");
+        collapseToggleButton.addActionListener(e2 -> {
+            boolean currentlyVisible = workspaceToolsTabs.isVisible();
+            workspaceToolsTabs.setVisible(!currentlyVisible);
+            collapseToggleButton.setIcon(currentlyVisible ? Icons.KEYBOARD_ARROW_DOWN : Icons.KEYBOARD_ARROW_UP);
+            workspaceTabsContainer.revalidate();
+            workspaceTabsContainer.repaint();
+        });
+        workspaceTabsContainer.add(collapseToggleButton, BorderLayout.WEST);
+        workspaceTabsContainer.add(workspaceToolsTabs, BorderLayout.CENTER);
+
         // Build split for (Tabs) / Instructions
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        workspaceInstructionsSplit.setTopComponent(workspaceToolsTabs);
+        workspaceInstructionsSplit.setTopComponent(workspaceTabsContainer);
         workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583);
 
