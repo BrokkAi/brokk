@@ -849,6 +849,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         startupPanel.add(infoLabel, gbc);
 
+        // Apply-timing label
+        var applyTimingLabel =
+                new JLabel("Changes take effect for newly opened projects (or after reopening).");
+        applyTimingLabel.setFont(applyTimingLabel.getFont()
+                .deriveFont(Font.ITALIC, applyTimingLabel.getFont().getSize2D() - 1.0f));
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        startupPanel.add(applyTimingLabel, gbc);
+
         // Enable/disable interval spinner based on checkbox state
         gitBranchPollerEnabledCheckbox.addActionListener(e -> {
             boolean enabled = gitBranchPollerEnabledCheckbox.isSelected();
