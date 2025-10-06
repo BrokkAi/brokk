@@ -198,6 +198,17 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      * Update the status of a test (EDT-safe).
      */
     public void updateTestStatus(TestEntry test, TestEntry.Status status) {
+        // Timestamp transitions
+        if (status == TestEntry.Status.RUNNING) {
+            test.setStartedAtIfAbsent(java.time.Instant.now());
+        } else {
+            // Terminal states set completion time
+            switch (status) {
+                case PASSED, FAILED, ERROR -> test.setCompletedAtIfAbsent(java.time.Instant.now());
+                default -> { /* no-op */ }
+            }
+        }
+
         test.setStatus(status);
         runOnEdt(() -> testList.repaint());
     }
