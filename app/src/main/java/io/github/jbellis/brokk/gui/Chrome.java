@@ -221,6 +221,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     private BadgedIcon gitTabBadgedIcon;
 
+    @Nullable
+    private BadgedIcon tasksTabBadgedIcon;
+
     // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
     @Nullable
     private String lastDisplayedBranchLabel = null;
@@ -426,6 +429,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceToolsTabs.addTab("Tasks", tasksPlaceholder); // TAB_TASKS
         workspaceToolsTabs.addTab("Terminal", terminalPlaceholder); // TAB_TERMINAL
         workspaceToolsTabs.addTab("Tests", testsPlaceholder); // TAB_TESTS
+
+        // Initialize Tasks tab badged icon
+        tasksTabBadgedIcon = new BadgedIcon(Icons.LIST, themeManager);
+        if (TAB_TASKS >= 0 && TAB_TASKS < workspaceToolsTabs.getTabCount()) {
+            workspaceToolsTabs.setIconAt(TAB_TASKS, tasksTabBadgedIcon);
+            workspaceToolsTabs.setToolTipTextAt(TAB_TASKS, "Tasks");
+        }
 
         // Lazily create tool panels when their tabs are selected
         workspaceToolsTabs.addChangeListener(e -> {
@@ -2720,16 +2730,32 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Updates the Tasks tab title with the number of undone tasks.
+     * Updates the Tasks tab badge with the number of undone tasks.
      * Thread-safe: marshals to EDT.
      */
     public void updateTasksTabBadge(int undoneCount) {
         SwingUtilities.invokeLater(() -> {
             tasksUndoneCount = Math.max(0, undoneCount);
-            String title = tasksUndoneCount > 0 ? "Tasks (" + tasksUndoneCount + ")" : "Tasks";
-            int idx = TAB_TASKS;
-            if (idx >= 0 && idx < workspaceToolsTabs.getTabCount()) {
-                workspaceToolsTabs.setTitleAt(idx, title);
+
+            // Ensure the badged icon exists and is applied to the tab
+            if (tasksTabBadgedIcon == null) {
+                tasksTabBadgedIcon = new BadgedIcon(Icons.LIST, themeManager);
+                if (TAB_TASKS >= 0 && TAB_TASKS < workspaceToolsTabs.getTabCount()) {
+                    workspaceToolsTabs.setIconAt(TAB_TASKS, tasksTabBadgedIcon);
+                }
+            }
+
+            if (tasksTabBadgedIcon != null) {
+                tasksTabBadgedIcon.setCount(tasksUndoneCount, workspaceToolsTabs);
+            }
+
+            // Keep title constant as "Tasks"; use tooltip to show count
+            if (TAB_TASKS >= 0 && TAB_TASKS < workspaceToolsTabs.getTabCount()) {
+                workspaceToolsTabs.setTitleAt(TAB_TASKS, "Tasks");
+                String tooltip = tasksUndoneCount > 0
+                        ? "Tasks (" + tasksUndoneCount + " pending)"
+                        : "Tasks";
+                workspaceToolsTabs.setToolTipTextAt(TAB_TASKS, tooltip);
             }
         });
     }
