@@ -119,6 +119,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
     private @Nullable SplitButton branchSplitButton;
+    private @Nullable JButton collapseToggleButton;
 
     // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
     private @Nullable JPanel optionsPanel;
@@ -432,6 +433,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public UndoManager getCommandInputUndoManager() {
         return commandInputUndoManager;
+    }
+
+    public JButton getCollapseToggleButton() {
+        return requireNonNull(collapseToggleButton);
     }
 
     public JTextArea getInstructionsArea() {
@@ -753,6 +758,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         leftPanel.add(branchSplitButton);
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
+
+        var rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        rightPanel.setOpaque(false);
+        collapseToggleButton = new JButton();
+        SwingUtilities.invokeLater(() -> requireNonNull(collapseToggleButton).setIcon(Icons.KEYBOARD_ARROW_UP));
+        var collapseDim = new Dimension(controlHeight, controlHeight);
+        collapseToggleButton.setPreferredSize(collapseDim);
+        collapseToggleButton.setMinimumSize(collapseDim);
+        collapseToggleButton.setMaximumSize(collapseDim);
+        collapseToggleButton.setBorderPainted(false);
+        collapseToggleButton.setContentAreaFilled(false);
+        collapseToggleButton.setFocusPainted(false);
+        collapseToggleButton.setToolTipText("Minimize workspace area");
+        collapseToggleButton.addActionListener(e -> chrome.toggleWorkspaceCollapse());
+        rightPanel.add(collapseToggleButton);
+
+        topBarPanel.add(rightPanel, BorderLayout.EAST);
 
         return topBarPanel;
     }

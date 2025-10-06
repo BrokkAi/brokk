@@ -460,19 +460,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Create a container with a collapse/expand toggle at the left of the tabbed pane
-        var workspaceTabsContainer = new JPanel(new BorderLayout());
-        var collapseToggleButton = new JButton(Icons.KEYBOARD_ARROW_DOWN);
-        collapseToggleButton.setBorderPainted(false);
-        collapseToggleButton.setContentAreaFilled(false);
-        collapseToggleButton.setFocusPainted(false);
-        collapseToggleButton.setToolTipText("Minimize/restore workspace area");
-        workspaceTabsContainer.add(collapseToggleButton, BorderLayout.WEST);
-        workspaceTabsContainer.add(workspaceToolsTabs, BorderLayout.CENTER);
-
         // Build split for (Tabs) / Instructions
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        workspaceInstructionsSplit.setTopComponent(workspaceTabsContainer);
+        workspaceInstructionsSplit.setTopComponent(workspaceToolsTabs);
         workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583);
 
@@ -489,40 +479,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Keep reference so existing persistence logic still works
         mainVerticalSplitPane = outputStackSplit;
 
-        // Now that all split panes are initialized, set up the collapse button's action listener
-        collapseToggleButton.addActionListener(e2 -> {
-            if (workspaceCollapsed) {
-                // Expand: restore previous divider position
-                int targetHeight = (lastExpandedWorkspaceHeight > 0)
-                                   ? lastExpandedWorkspaceHeight
-                                   : (int) (mainVerticalSplitPane.getHeight() * DEFAULT_OUTPUT_MAIN_SPLIT);
-                mainVerticalSplitPane.setDividerLocation(targetHeight);
-                // Restore resize weight after layout is done.
-                SwingUtilities.invokeLater(() -> topSplitPane.setResizeWeight(DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT));
-
-                workspaceCollapsed = false;
-                collapseToggleButton.setIcon(Icons.KEYBOARD_ARROW_DOWN);
-                collapseToggleButton.setToolTipText("Minimize workspace area");
-            } else {
-                // Collapse: save current position and minimize
-                lastExpandedWorkspaceHeight = mainVerticalSplitPane.getDividerLocation();
-
-                // Make instructions panel resistant to shrinking by changing resize weight
-                topSplitPane.setResizeWeight(1.0);
-
-                int workspaceHeight = topSplitPane.getDividerLocation();
-                int targetWorkspaceHeight = 40; // just enough for button and tab strip
-                int delta = workspaceHeight - targetWorkspaceHeight;
-
-                if (delta > 0) {
-                    mainVerticalSplitPane.setDividerLocation(mainVerticalSplitPane.getDividerLocation() + delta);
-                }
-
-                workspaceCollapsed = true;
-                collapseToggleButton.setIcon(Icons.KEYBOARD_ARROW_UP);
-                collapseToggleButton.setToolTipText("Restore workspace area");
-            }
-        });
 
         // 3) Final horizontal split: left tabs | right stack
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -1380,6 +1336,41 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.dispose();
         // Unregister this instance
         openInstances.remove(this);
+    }
+
+    public void toggleWorkspaceCollapse() {
+        var collapseToggleButton = instructionsPanel.getCollapseToggleButton();
+        if (workspaceCollapsed) {
+            // Expand: restore previous divider position
+            int targetHeight = (lastExpandedWorkspaceHeight > 0)
+                               ? lastExpandedWorkspaceHeight
+                               : (int) (mainVerticalSplitPane.getHeight() * DEFAULT_OUTPUT_MAIN_SPLIT);
+            mainVerticalSplitPane.setDividerLocation(targetHeight);
+            // Restore resize weight after layout is done.
+            SwingUtilities.invokeLater(() -> topSplitPane.setResizeWeight(DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT));
+
+            workspaceCollapsed = false;
+            SwingUtilities.invokeLater(() -> collapseToggleButton.setIcon(Icons.KEYBOARD_ARROW_UP));
+            collapseToggleButton.setToolTipText("Minimize workspace area");
+        } else {
+            // Collapse: save current position and minimize
+            lastExpandedWorkspaceHeight = mainVerticalSplitPane.getDividerLocation();
+
+            // Make instructions panel resistant to shrinking by changing resize weight
+            topSplitPane.setResizeWeight(1.0);
+
+            int workspaceHeight = topSplitPane.getDividerLocation();
+            int targetWorkspaceHeight = 40; // just enough for button and tab strip
+            int delta = workspaceHeight - targetWorkspaceHeight;
+
+            if (delta > 0) {
+                mainVerticalSplitPane.setDividerLocation(mainVerticalSplitPane.getDividerLocation() + delta);
+            }
+
+            workspaceCollapsed = true;
+            SwingUtilities.invokeLater(() -> collapseToggleButton.setIcon(Icons.KEYBOARD_ARROW_DOWN));
+            collapseToggleButton.setToolTipText("Restore workspace area");
+        }
     }
 
     @Override
