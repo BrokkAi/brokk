@@ -945,6 +945,8 @@ public class HistoryOutputPanel extends JPanel {
         compressButton.setText(null);
         SwingUtilities.invokeLater(() -> {
             compressButton.setIcon(Icons.COMPRESS);
+            // Ensure minimum size is computed after icon is applied
+            compressButton.setMinimumSize(compressButton.getPreferredSize());
         });
         compressButton.setToolTipText("<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
         for (var al : compressButton.getActionListeners()) {
@@ -961,7 +963,6 @@ public class HistoryOutputPanel extends JPanel {
                 contextManager.compressHistoryAsync();
             }
         });
-        compressButton.setMinimumSize(compressButton.getPreferredSize());
         buttonsPanel.add(compressButton);
 
         // Notifications button
