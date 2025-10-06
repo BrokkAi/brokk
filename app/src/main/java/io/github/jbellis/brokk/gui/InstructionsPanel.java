@@ -120,8 +120,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable TitledBorder instructionsTitledBorder;
     private @Nullable SplitButton branchSplitButton;
     private @Nullable JButton collapseToggleButton;
-    // New controls: tokens/cost summary and Add/Remove context buttons in the top bar
-    private final JLabel tokensCostLabel = new JLabel(" ");
+    // New controls: Add/Remove context buttons in the top bar
     private final MaterialButton addContextButton = new MaterialButton();
     private final MaterialButton removeContextButton = new MaterialButton();
 
@@ -766,13 +765,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         rightPanel.setOpaque(false);
 
-        // Tokens/Cost summary label (moved from WorkspacePanel)
-        var tokensDim = new Dimension(200, controlHeight);
-        tokensCostLabel.setPreferredSize(tokensDim);
-        tokensCostLabel.setMinimumSize(new Dimension(120, controlHeight));
-        tokensCostLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, controlHeight));
-        tokensCostLabel.setBorder(new EmptyBorder(0, H_GAP, 0, H_GAP));
-
         // Add Context button (opens Attach Context dialog)
         SwingUtilities.invokeLater(() -> addContextButton.setIcon(Icons.ATTACH_FILE));
         addContextButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
@@ -814,8 +806,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         collapseToggleButton.setToolTipText("Minimize workspace area");
         collapseToggleButton.addActionListener(e -> chrome.toggleWorkspaceCollapse());
 
-        // Order: tokens/cost, add, remove, collapse
-        rightPanel.add(tokensCostLabel);
+        // Order: add, remove, collapse
         rightPanel.add(addContextButton);
         rightPanel.add(removeContextButton);
         rightPanel.add(collapseToggleButton);
@@ -2341,22 +2332,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public VoiceInputButton getVoiceInputButton() {
         return this.micButton;
-    }
-
-    // --- Tokens/Cost summary controls ---
-
-    public void setTokensCostSummary(String text, String tooltip) {
-        SwingUtilities.invokeLater(() -> {
-            tokensCostLabel.setText(text);
-            tokensCostLabel.setToolTipText(tooltip);
-        });
-    }
-
-    public void clearTokensCostSummary() {
-        SwingUtilities.invokeLater(() -> {
-            tokensCostLabel.setText(" ");
-            tokensCostLabel.setToolTipText(null);
-        });
     }
 
     // --- Remove button enabled state ---

@@ -1359,13 +1359,6 @@ public class WorkspacePanel extends JPanel {
             // Remove any warning messages
             warningPanel.removeAll();
 
-            // Clear tokens/cost summary in InstructionsPanel
-            try {
-                chrome.getInstructionsPanel().clearTokensCostSummary();
-            } catch (Exception ignore) {
-                // ignore
-            }
-
             // Clear workspace tab badge when context is empty
             chrome.updateWorkspaceTabBadge(0);
 
@@ -1419,14 +1412,6 @@ public class WorkspacePanel extends JPanel {
         innerLabel.setForeground(UIManager.getColor("Label.foreground"));
         innerLabel.setText("Calculating token estimate...");
         innerLabel.setToolTipText("Total: %,d LOC".formatted(totalLines));
-
-        // Also reflect status in the InstructionsPanel top bar
-        try {
-            chrome.getInstructionsPanel()
-                    .setTokensCostSummary("Calculating token estimate...", "Total: %,d LOC".formatted(totalLines));
-        } catch (Exception ignore) {
-            // ignore
-        }
 
         costLabel.setText(" ");
         costLabel.setVisible(false);
@@ -2218,34 +2203,25 @@ public class WorkspacePanel extends JPanel {
         """;
 
                     // Always set the standard summary text on innerLabel (single line to avoid layout jumps)
-                    innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
-                    String costEstimate = calculateCostEstimate(approxTokens, service);
-                    String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
+            innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
+            String costEstimate = calculateCostEstimate(approxTokens, service);
+            String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
 
-                    // Build summary for InstructionsPanel
-                    String summaryText = "%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText);
-                    String tooltip = "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
-                            .formatted(totalLines, approxTokens, costText);
+            // Build summary text
+            String summaryText = "%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText);
+            String tooltip = "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                    .formatted(totalLines, approxTokens, costText);
 
-                    // Move display to InstructionsPanel top bar
-                    try {
-                        chrome.getInstructionsPanel().setTokensCostSummary(summaryText, tooltip);
-                    } catch (Exception ignore) {
-                        // ignore
-                    }
+            // Display in WorkspacePanel summary
+            innerLabel.setText(summaryText);
+            innerLabel.setToolTipText(tooltip);
 
-                    // Update workspace tab badge with token count in thousands
-                    chrome.updateWorkspaceTabBadge(approxTokens / 1000);
+            // Update workspace tab badge with token count in thousands
+            chrome.updateWorkspaceTabBadge(approxTokens / 1000);
 
-                    // Clear inner label here (moved to InstructionsPanel)
-                    innerLabel.setText(" ");
-
-                    // Preserve details in tooltip (still set, but hidden by blank text)
-                    innerLabel.setToolTipText(tooltip);
-
-                    // Keep the secondary label hidden to avoid changing the row height
-                    costLabel.setText(" ");
-                    costLabel.setVisible(false);
+            // Keep the secondary label hidden to avoid changing the row height
+            costLabel.setText(" ");
+            costLabel.setVisible(false);
 
                     // Remove any existing warning labels from the warningPanel
                     warningPanel.removeAll();
