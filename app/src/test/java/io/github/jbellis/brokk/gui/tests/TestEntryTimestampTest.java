@@ -9,7 +9,8 @@ public class TestEntryTimestampTest {
 
     @Test
     void timestampsAreSetAndStartIsNotOverwritten() {
-        var panel = new TestRunnerPanel();
+
+        var panel = new TestRunnerPanel(new InMemoryTestRunsStore());
         var entry = new TestEntry("example/path/MyTest.java", "MyTest");
 
         // Before any status updates

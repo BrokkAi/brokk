@@ -44,7 +44,7 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
 
     private @Nullable TaskListPanel taskListPanel;
     private @Nullable TerminalPanel terminalPanel;
-    private @Nullable TestRunnerPanel testRunnerPanel;
+    private TestRunnerPanel testRunnerPanel;
 
     // Tab indices (fixed order)
     private static final int TAB_INSTRUCTIONS = 0;
@@ -87,15 +87,10 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         createTerminalPanel();
 
         // Eagerly create Tests panel to avoid placeholder gray background
-        testRunnerPanel = new TestRunnerPanel();
-        // Inject per-project persistence for test runs
-        try {
-            Path configRoot = chrome.getProject().getMasterRootPathForConfig();
-            Path runsFile = configRoot.resolve(AbstractProject.BROKK_DIR).resolve("test_runs.json");
-            testRunnerPanel.injectTestRunsStore(new FileBasedTestRunsStore(runsFile));
-        } catch (Exception ex) {
-            logger.debug("Failed to inject per-project TestRunsStore (eager)", ex);
-        }
+        Path configRoot = chrome.getProject().getMasterRootPathForConfig();
+        Path runsFile = configRoot.resolve(AbstractProject.BROKK_DIR).resolve("test_runs.json");
+
+        testRunnerPanel = new TestRunnerPanel(new FileBasedTestRunsStore(runsFile));
         replaceTabComponent(TAB_TESTS, testRunnerPanel, "Tests", Icons.CHECK);
         try {
             testRunnerPanel.applyTheme(chrome.getTheme());
@@ -186,23 +181,14 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
     /** Open or focus the Tests tab, creating it if needed; returns the panel. */
     public TestRunnerPanel openTests() {
         assert SwingUtilities.isEventDispatchThread() : "Must run on EDT";
-        if (testRunnerPanel == null) {
-            testRunnerPanel = new TestRunnerPanel();
-            // Inject per-project persistence for test runs
-            try {
-                Path configRoot = chrome.getProject().getMasterRootPathForConfig();
-                Path runsFile = configRoot.resolve(AbstractProject.BROKK_DIR).resolve("test_runs.json");
-                testRunnerPanel.injectTestRunsStore(new FileBasedTestRunsStore(runsFile));
-            } catch (Exception ex) {
-                logger.debug("Failed to inject per-project TestRunsStore (on-select)", ex);
-            }
+   
             replaceTabComponent(TAB_TESTS, testRunnerPanel, "Tests", Icons.CHECK);
             try {
                 testRunnerPanel.applyTheme(chrome.getTheme());
             } catch (Exception ex) {
                 logger.debug("Failed to apply theme to TestRunnerPanel", ex);
             }
-        }
+        
         tabs.setSelectedIndex(TAB_TESTS);
         return testRunnerPanel;
     }
@@ -233,9 +219,7 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         if (terminalPanel != null) {
             terminalPanel.applyTheme(guiTheme);
         }
-        if (testRunnerPanel != null) {
-            testRunnerPanel.applyTheme(guiTheme);
-        }
+        testRunnerPanel.applyTheme(guiTheme);
         if (instructionsPanel instanceof ThemeAware ta) {
             ta.applyTheme(guiTheme);
         }

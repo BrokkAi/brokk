@@ -37,9 +37,8 @@ public class TestRunnerPanelRunPersistenceTest {
         int maxRuns = 5;
 
         // --- Phase 1: Create runs and save state ---
-        TestRunnerPanel panel1 = new TestRunnerPanel();
+        TestRunnerPanel panel1 = new TestRunnerPanel(store);
         panel1.setMaxRuns(maxRuns);
-        panel1.injectTestRunsStore(store);
         waitForEdt(); // Ensure store is injected and any initial load (empty) is done
 
         List<String> runIds = new ArrayList<>();
@@ -60,8 +59,7 @@ public class TestRunnerPanelRunPersistenceTest {
         waitForEdt(); // Ensure completeRun and triggerSave complete
 
         // --- Phase 2: Construct a new panel and validate restored state ---
-        TestRunnerPanel panel2 = new TestRunnerPanel();
-        panel2.injectTestRunsStore(store);
+        TestRunnerPanel panel2 = new TestRunnerPanel(store);
         waitForEdt(); // Ensure runs are loaded from the store into panel2
 
         // Assert only maxRuns are restored
@@ -105,8 +103,7 @@ public class TestRunnerPanelRunPersistenceTest {
         InMemoryTestRunsStore store = new InMemoryTestRunsStore();
         // Don't add any runs to the store
 
-        TestRunnerPanel panel = new TestRunnerPanel();
-        panel.injectTestRunsStore(store);
+        TestRunnerPanel panel = new TestRunnerPanel(store);
         waitForEdt();
 
         DefaultListModel<?> model = getField(panel, "runListModel", DefaultListModel.class);
@@ -135,9 +132,8 @@ public class TestRunnerPanelRunPersistenceTest {
         store.save(recordsToSave);
 
         int customMaxRuns = 7; // Set a custom maxRuns
-        TestRunnerPanel panel = new TestRunnerPanel();
+        TestRunnerPanel panel = new TestRunnerPanel(store);
         panel.setMaxRuns(customMaxRuns);
-        panel.injectTestRunsStore(store);
         waitForEdt();
 
         DefaultListModel<?> model = getField(panel, "runListModel", DefaultListModel.class);
@@ -165,8 +161,7 @@ public class TestRunnerPanelRunPersistenceTest {
     @Test
     void clearAllRunsPersistsClearedState() throws Exception {
         InMemoryTestRunsStore store = new InMemoryTestRunsStore();
-        TestRunnerPanel panel1 = new TestRunnerPanel();
-        panel1.injectTestRunsStore(store);
+        TestRunnerPanel panel1 = new TestRunnerPanel(store);
         waitForEdt();
 
         String id = panel1.beginRun(1, "run1", Instant.now());
@@ -183,8 +178,7 @@ public class TestRunnerPanelRunPersistenceTest {
         assertEquals(0, clearedModel.getSize(), "Panel1 should have 0 runs after clear");
 
         // Load into a new panel
-        TestRunnerPanel panel2 = new TestRunnerPanel();
-        panel2.injectTestRunsStore(store);
+        TestRunnerPanel panel2 = new TestRunnerPanel(store);
         waitForEdt();
 
         DefaultListModel<?> model2 = getField(panel2, "runListModel", DefaultListModel.class);

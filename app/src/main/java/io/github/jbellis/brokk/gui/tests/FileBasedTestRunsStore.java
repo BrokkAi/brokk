@@ -15,11 +15,6 @@ public class FileBasedTestRunsStore implements TestRunsStore {
 
     private final Path file;
 
-    public FileBasedTestRunsStore() {
-        String home = System.getProperty("user.home", ".");
-        this.file = Path.of(home, ".config", "brokk", "test_runs.json");
-    }
-
     public FileBasedTestRunsStore(Path file) {
         this.file = file;
     }

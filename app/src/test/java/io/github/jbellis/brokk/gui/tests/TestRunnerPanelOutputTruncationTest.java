@@ -19,7 +19,7 @@ public class TestRunnerPanelOutputTruncationTest {
 
     @Test
     void snapshotTruncatesOutputWithEllipsis() {
-        var panel = new TestRunnerPanel();
+        var panel = new TestRunnerPanel(new InMemoryTestRunsStore());
 
         String runId = panel.beginRun(1, "cmd", Instant.now());
         waitForEdt();

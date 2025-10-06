@@ -32,7 +32,7 @@ public class TestRunnerPanelRunSelectionAfterDropTest {
 
     @Test
     void selectionUpdatesToNewest_whenPreviouslySelectedRunIsDropped() throws Exception {
-        var panel = new TestRunnerPanel();
+        var panel = new TestRunnerPanel(new InMemoryTestRunsStore());
         panel.setMaxRuns(5);
 
         // Seed with 5 runs

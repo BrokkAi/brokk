@@ -68,15 +68,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Maximum number of runs to retain
     private int maxRuns = 50;
 
-    // Optional persistence store for runs
-    private volatile @Nullable TestRunsStore runsStore = null;
+    private final TestRunsStore runsStore;
 
     // Limit stored output size to avoid unbounded JSON growth
     private static final int MAX_SNAPSHOT_OUTPUT_CHARS = 200_000;
 
-    public TestRunnerPanel() {
+    public TestRunnerPanel(TestRunsStore runsStore) {
         super(new BorderLayout(0, 0));
-
+        this.runsStore = runsStore;
         runListModel = new DefaultListModel<>();
         runsById = new ConcurrentHashMap<>();
 
@@ -120,25 +119,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         add(splitPane, BorderLayout.CENTER);
 
         applyThemeColorsFromUIManager();
-    }
 
-    /**
-     * Convenience constructor to enable persistence at creation time.
-     * The provided store will be injected, and existing runs will be restored immediately.
-     */
-    public TestRunnerPanel(@Nullable TestRunsStore store) {
-        this();
-        injectTestRunsStore(store);
-    }
-
-    /**
-     * Factory that creates a TestRunnerPanel with default file-based persistence enabled.
-     * Uses FileBasedTestRunsStore storing at ~/.config/brokk/test_runs.json.
-     */
-    public static TestRunnerPanel createWithDefaultPersistence() {
-        var panel = new TestRunnerPanel();
-        panel.injectTestRunsStore(new FileBasedTestRunsStore());
-        return panel;
+        // Load persisted runs (per-project) if available
+        try {
+            List<RunRecord> records = runsStore.load();
+            if (!records.isEmpty()) {
+                restoreRuns(records);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to load persisted test runs: {}", e.getMessage(), e);
+        }
     }
 
     private static void runOnEdt(Runnable r) {
@@ -146,23 +136,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             r.run();
         } else {
             SwingUtilities.invokeLater(r);
-        }
-    }
-
-    /**
-     * Inject an optional persistence store for test runs. On set, attempts to load the runs
-     * off the EDT and restores up to maxRuns into the UI, preserving order.
-     */
-    public void injectTestRunsStore(@Nullable TestRunsStore store) {
-        this.runsStore = store;
-        if (this.runsStore == null) {
-            return;
-        }
-        try {
-            List<RunRecord> records = this.runsStore.load();
-            restoreRuns(records);
-        } catch (Exception e) {
-            logger.warn("Failed to load test runs from store: {}", e.getMessage(), e);
         }
     }
 
@@ -220,9 +193,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      */
     private void triggerSave() {
         var store = runsStore;
-        if (store == null) {
-            return;
-        }
         Runnable snapshotTask = () -> {
             List<RunRecord> snapshot;
             try {
