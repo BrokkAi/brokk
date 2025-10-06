@@ -113,6 +113,7 @@ export function deleteHistoryTaskByThreadId(threadId: number): void {
             window.javaBridge?.deleteHistoryTask?.(task.taskSequence);
             task.entries.forEach(entry => unregister(entry.seq));
         }
+        // notifying backend triggers a history-reset event, which clears the store
         return tasks;
     });
 }

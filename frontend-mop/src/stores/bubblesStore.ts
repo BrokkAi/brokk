@@ -182,9 +182,6 @@ export function deleteLiveTaskByThreadId(threadId: number): void {
         // Unregister parsers for removed bubbles
         toRemove.forEach(b => unregister(b.seq));
 
-        // Remove from store
-        const remaining = list.filter(b => b.threadId !== threadId);
-
         // If deleting current live thread, reset live state similarly to 'clear'
         if (threadId === currentThreadId) {
             nextBubbleSeq++; // maintain strictly increasing DOM keys across resets
@@ -197,6 +194,7 @@ export function deleteLiveTaskByThreadId(threadId: number): void {
         // Ask backend to remove the last entry in history (the just-finished live task)
         window.javaBridge?.deleteHistoryTask?.(-1);
 
-        return remaining;
+        // no optimistic UI update needed; backend will send history-reset event
+        return list;
     });
 }
