@@ -254,8 +254,8 @@ public final class GitWorkflow {
 
             // 5. Title summarisation (12-word budget)
             throwIfInterrupted();
-            ContextManager.SummarizeWorker titleWorker =
-                    new ContextManager.SummarizeWorker(this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
+            ContextManager.SummarizeWorker titleWorker = new ContextManager.SummarizeWorker(
+                    this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
             titleWorker.execute();
             String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
 
@@ -263,9 +263,7 @@ public final class GitWorkflow {
         }
     }
 
-    /**
-     * Non-streaming variant for backward compatibility.
-     */
+    /** Non-streaming variant for backward compatibility. */
     public PrSuggestion suggestPullRequestDetails(String source, String target) throws Exception {
         return suggestPullRequestDetails(source, target, null);
     }

@@ -224,6 +224,8 @@ public class CreatePullRequestDialog extends JDialog {
         gbc.weighty = 1.0; // Allow description to take vertical space
         gbc.fill = GridBagConstraints.BOTH;
         descriptionArea = new JTextArea(10, 20); // Initial rows and columns
+        descriptionArea.setLineWrap(true);
+        descriptionArea.setWrapStyleWord(true);
         var scrollPane = new JScrollPane(descriptionArea);
         panel.add(scrollPane, gbc);
 
@@ -731,7 +733,8 @@ public class CreatePullRequestDialog extends JDialog {
         @Override
         protected void done() {
             try {
-                GitWorkflow.PrSuggestion suggestion = get(); // This will throw specific exceptions if cancelled/interrupted.
+                GitWorkflow.PrSuggestion suggestion =
+                        get(); // This will throw specific exceptions if cancelled/interrupted.
                 SwingUtilities.invokeLater(() -> {
                     streamingIO.onComplete(); // Re-enable fields
                     showDescriptionHint(suggestion.usedCommitMessages());
@@ -873,8 +876,8 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     /**
-     * Debounces the call to generate PR suggestions with streaming.
-     * The PrDetailsConsoleIO handles the initial UI setup and streaming display.
+     * Debounces the call to generate PR suggestions with streaming. The PrDetailsConsoleIO handles the initial UI setup
+     * and streaming display.
      */
     private void debounceSuggestPrDetails(String sourceBranch, String targetBranch) {
         // Hide hint during generation
