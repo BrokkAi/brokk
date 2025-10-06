@@ -114,6 +114,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         initComponents(); // This will fully initialize or conditionally initialize fields
         loadSettings();
 
+        // Ensure a wider default size once the dialog is shown to avoid conflicting with pack()
+        parentDialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    Dimension current = parentDialog.getSize();
+                    int targetWidth = Math.max(1100, current.width);
+                    parentDialog.setSize(targetWidth, current.height);
+                });
+            }
+        });
+
         // Register for settings change notifications
         MainProject.addSettingsChangeListener(this);
     }
