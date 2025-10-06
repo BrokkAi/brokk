@@ -407,14 +407,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      * Complete the run, setting exit code and completion time.
      */
     public void completeRun(String runId, int exitCode, Instant completedAt) {
-        var run = runsById.get(runId);
-        if (run == null) {
-            logger.warn("completeRun: unknown runId {}", runId);
-            return;
-        }
-        run.complete(exitCode, completedAt);
-
         runOnEdt(() -> {
+            var run = runsById.get(runId);
+            if (run == null) {
+                logger.warn("completeRun: unknown runId {}", runId);
+                return;
+            }
+
+            run.complete(exitCode, completedAt);
             runList.repaint();
 
             // If we just completed the active run, promote the next queued run (if any)
