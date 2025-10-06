@@ -14,6 +14,8 @@ import org.eclipse.jgit.blame.BlameResult;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.treewalk.TreeWalk;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -96,6 +98,45 @@ public final class BlameService {
     }
 
     /**
+     * Checks if a file exists in the specified git revision.
+     *
+     * <p>This method uses JGit's TreeWalk to efficiently check for file existence without reading the file content. It
+     * handles path conversion, revision resolution, and returns false for any errors (missing revision, invalid path,
+     * etc.).
+     *
+     * <p><b>Use case:</b> Before requesting blame for a specific revision, check if the file existed in that revision
+     * to avoid unnecessary blame operations and error logging for newly added files.
+     *
+     * @param filePath The file path to check (will be converted to repository-relative path)
+     * @param revision The git revision (e.g., "HEAD", "HEAD~1", "abc123", "main")
+     * @return {@code true} if the file exists in that revision, {@code false} otherwise (including errors)
+     */
+    public boolean fileExistsInRevision(Path filePath, String revision) {
+        try {
+            String relativePath = getRepositoryRelativePath(
+                    filePath, filePath.toAbsolutePath().toString());
+            if (relativePath == null) {
+                return false;
+            }
+
+            ObjectId revisionId = git.getRepository().resolve(revision);
+            if (revisionId == null) {
+                return false;
+            }
+
+            try (RevWalk revWalk = new RevWalk(git.getRepository())) {
+                RevCommit commit = revWalk.parseCommit(revisionId);
+                try (TreeWalk treeWalk = TreeWalk.forPath(git.getRepository(), relativePath, commit.getTree())) {
+                    return treeWalk != null;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("File existence check failed for {} at {}: {}", filePath, revision, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Safely converts an absolute file path to a repository-relative path.
      *
      * <p>This method validates that the file is under the repository root and handles path relativization errors
@@ -115,7 +156,7 @@ public final class BlameService {
                 lastErrors.put(cacheKey, error);
                 return null;
             }
-            return repositoryRoot.relativize(absolutePath).toString();
+            return repositoryRoot.relativize(absolutePath).toString().replace('\\', '/');
         } catch (IllegalArgumentException e) {
             String error = "Cannot relativize path: " + e.getMessage();
             logger.warn("{} for file: {}", error, filePath);

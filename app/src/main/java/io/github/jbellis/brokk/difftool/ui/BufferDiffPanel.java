@@ -1413,6 +1413,18 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     }
 
     /**
+     * Invalidate blame information when a document is edited.
+     *
+     * <p>Delegates to the parent BrokkDiffPanel to clear blame cache and gutter display, since edits make the cached
+     * blame data stale (line numbers shift).
+     *
+     * @param doc The document that was edited (non-null)
+     */
+    public void invalidateBlameForEdit(BufferDocumentIF doc) {
+        mainPanel.invalidateBlameForDocument(doc);
+    }
+
+    /**
      * Captures current file data on EDT to pass to background threads. This ensures Swing document access happens only
      * on EDT.
      */

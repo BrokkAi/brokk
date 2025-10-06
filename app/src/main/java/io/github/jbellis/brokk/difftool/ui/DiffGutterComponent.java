@@ -16,6 +16,7 @@ import java.time.format.FormatStyle;
 import java.util.List;
 import java.util.Map;
 import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -117,6 +118,8 @@ public class DiffGutterComponent extends JComponent {
     // ---- Blame support ----
     // Whether blame rendering is enabled for this gutter
     private volatile boolean showBlame = false;
+    // Whether blame data is stale (file edited but not saved)
+    private volatile boolean blameStale = false;
     // Map: 1-based line number -> BlameInfo (for right/new file)
     // Using volatile + immutable maps ensures atomic visibility for paint operations
     private volatile Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> rightBlameLines =
@@ -236,9 +239,11 @@ public class DiffGutterComponent extends JComponent {
      * state.
      */
     public void clearBlame() {
+        assert SwingUtilities.isEventDispatchThread() : "clearBlame must be called on EDT";
         rightBlameLines = Map.of();
         leftBlameLines = Map.of();
         showBlame = false;
+        blameStale = false;
         invalidate();
         if (getParent() != null) {
             getParent().revalidate();
@@ -246,8 +251,20 @@ public class DiffGutterComponent extends JComponent {
         repaint();
     }
 
+    /**
+     * Mark blame data as stale (file has been edited but not saved).
+     *
+     * <p>This keeps blame visible but grayed out to indicate the line numbers may no longer match.
+     */
+    public void markBlameStale() {
+        assert SwingUtilities.isEventDispatchThread() : "markBlameStale must be called on EDT";
+        blameStale = true;
+        repaint();
+    }
+
     /** Enable or disable blame rendering in this gutter. */
     public void setShowBlame(boolean show) {
+        assert SwingUtilities.isEventDispatchThread() : "setShowBlame must be called on EDT";
         if (this.showBlame != show) {
             this.showBlame = show;
             // Trigger SYNCHRONOUS resize by invalidating preferred size and forcing immediate validation
@@ -270,8 +287,10 @@ public class DiffGutterComponent extends JComponent {
      * @param lines The blame data to set (non-null, may be empty)
      */
     public void setBlameLines(Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> lines) {
+        assert SwingUtilities.isEventDispatchThread() : "setBlameLines must be called on EDT";
         // Atomic replacement with immutable map ensures paint thread sees coherent state
         rightBlameLines = lines.isEmpty() ? Map.of() : Map.copyOf(lines);
+        blameStale = false; // Fresh data, clear stale flag
         invalidate();
         if (getParent() != null) {
             getParent().validate();
@@ -288,8 +307,10 @@ public class DiffGutterComponent extends JComponent {
      * @param lines The blame data to set (non-null, may be empty)
      */
     public void setLeftBlameLines(Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> lines) {
+        assert SwingUtilities.isEventDispatchThread() : "setLeftBlameLines must be called on EDT";
         // Atomic replacement with immutable map ensures paint thread sees coherent state
         leftBlameLines = lines.isEmpty() ? Map.of() : Map.copyOf(lines);
+        blameStale = false; // Fresh data, clear stale flag
         invalidate();
         if (getParent() != null) {
             getParent().validate();
@@ -727,6 +748,14 @@ public class DiffGutterComponent extends JComponent {
         int textY = lineY + mainFm.getAscent();
         Color original = g.getColor();
         Color tinted = isDarkTheme ? original.brighter() : original.darker().darker();
+
+        // If blame is stale (file edited but not saved), gray it out further to indicate uncertainty
+        if (blameStale) {
+            tinted = new Color(
+                    tinted.getRed(), tinted.getGreen(), tinted.getBlue(), 80 // Much more transparent to show staleness
+                    );
+        }
+
         g.setColor(tinted);
 
         // Draw author (truncated to fit in fixed width)

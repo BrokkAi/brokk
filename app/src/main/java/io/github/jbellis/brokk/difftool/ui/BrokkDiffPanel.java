@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
@@ -1076,6 +1077,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         .succeeded();
                 p.finalizeAfterSaveAggregation(saved);
                 refreshTabTitle(p);
+            }
+
+            // Refresh blame for successfully saved files
+            for (String filename : successfulFiles) {
+                try {
+                    refreshBlameAfterSave(Paths.get(filename));
+                } catch (Exception ex) {
+                    logger.debug("Failed to refresh blame for {}: {}", filename, ex.getMessage());
+                }
             }
 
             // If some files failed, notify the user after successful saves
@@ -2161,10 +2171,18 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Asynchronously request blame for both working tree (right) and HEAD (left)
+        // Asynchronously request blame for working tree (right)
         final java.nio.file.Path finalTargetPath = targetPath;
         var rightBlameFuture = blameService.requestBlame(targetPath);
-        var leftBlameFuture = blameService.requestBlameForRevision(targetPath, "HEAD");
+
+        // Only request HEAD blame if file exists in HEAD (skip for newly added files)
+        CompletableFuture<Map<Integer, BlameService.BlameInfo>> leftBlameFuture;
+        if (blameService.fileExistsInRevision(targetPath, "HEAD")) {
+            leftBlameFuture = blameService.requestBlameForRevision(targetPath, "HEAD");
+        } else {
+            // File doesn't exist in HEAD (newly added) - use empty map
+            leftBlameFuture = CompletableFuture.completedFuture(Map.of());
+        }
 
         // Wait for both to complete
         CompletableFuture.allOf(rightBlameFuture, leftBlameFuture).whenComplete((v, exc) -> {
@@ -2196,6 +2214,87 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 }
                 // Always apply blame (even if empty) to enable blame column display
                 applyBlameMapsToPanel(panel, leftMap, rightMap);
+            });
+        });
+    }
+
+    /**
+     * Invalidate blame information for a specific document after it has been edited.
+     *
+     * <p>When a document is edited, this method marks blame as stale (grayed out) to indicate the line numbers may no
+     * longer match. Blame is refreshed automatically when the file is saved.
+     *
+     * @param bufferDocument The document that was edited (non-null)
+     */
+    public void invalidateBlameForDocument(BufferDocumentIF bufferDocument) {
+        if (blameService == null) {
+            return; // No blame service means nothing to invalidate
+        }
+
+        if (currentDiffPanel instanceof BufferDiffPanel bp) {
+            // Find which panel was edited and mark its blame as stale
+            var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+
+            SwingUtilities.invokeLater(() -> {
+                if (left != null && left.getBufferDocument() == bufferDocument) {
+                    left.getGutterComponent().markBlameStale();
+                    logger.debug("Marked left gutter blame as stale");
+                }
+                if (right != null && right.getBufferDocument() == bufferDocument) {
+                    right.getGutterComponent().markBlameStale();
+                    logger.debug("Marked right gutter blame as stale");
+                }
+            });
+        }
+    }
+
+    /**
+     * Refresh blame information for a saved file.
+     *
+     * <p>After a file is saved to disk, re-run blame to get fresh data. JGit will read the new file content and show
+     * accurate blame for the saved version.
+     *
+     * @param filePath The absolute path to the file that was saved
+     */
+    public void refreshBlameAfterSave(java.nio.file.Path filePath) {
+        var service = blameService;
+        if (service == null) {
+            return;
+        }
+
+        // Clear cache so next request fetches fresh data from disk
+        service.clearCacheFor(filePath);
+
+        if (currentDiffPanel instanceof BufferDiffPanel bp) {
+            // Find panel(s) showing this file
+            var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+
+            // Check if left panel shows this file
+            if (left != null) {
+                var leftDoc = left.getBufferDocument();
+                if (leftDoc != null && filePath.toString().equals(leftDoc.getName())) {
+                    refreshBlamePanelAsync(service, left, filePath);
+                }
+            }
+
+            // Check if right panel shows this file
+            if (right != null) {
+                var rightDoc = right.getBufferDocument();
+                if (rightDoc != null && filePath.toString().equals(rightDoc.getName())) {
+                    refreshBlamePanelAsync(service, right, filePath);
+                }
+            }
+        }
+    }
+
+    private void refreshBlamePanelAsync(BlameService service, FilePanel panel, java.nio.file.Path filePath) {
+        logger.debug("Refreshing blame after save for: {}", filePath);
+        service.requestBlame(filePath).thenAccept(blameMap -> {
+            SwingUtilities.invokeLater(() -> {
+                panel.getGutterComponent().setBlameLines(blameMap);
+                logger.debug("Updated blame after save: {} ({} lines)", filePath, blameMap.size());
             });
         });
     }
