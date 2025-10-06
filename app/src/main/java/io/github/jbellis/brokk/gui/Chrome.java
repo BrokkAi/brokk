@@ -819,28 +819,37 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.debug("updateGitRepo invoked");
 
         // Determine current branch (if available) and update InstructionsPanel on EDT
-        String currentBranch = null;
+        String branchToDisplay = null;
+        boolean hasGit = getProject().hasGit();
         try {
-            if (getProject().hasGit()) {
-                currentBranch = getProject().getRepo().getCurrentBranch();
+            if (hasGit) {
+                var currentBranch = getProject().getRepo().getCurrentBranch();
                 logger.debug("updateGitRepo: current branch='{}'", currentBranch);
+                if (!currentBranch.isBlank()) {
+                    branchToDisplay = currentBranch;
+                }
             } else {
                 logger.debug("updateGitRepo: project has no Git repository");
             }
         } catch (Exception e) {
+            // Detached HEAD without resolvable HEAD or empty repo can land here
             logger.debug("updateGitRepo: unable to determine current branch: {}", e.getMessage());
         }
-        if (currentBranch != null && !currentBranch.isEmpty()) {
-            final String branchToDisplay = currentBranch;
+
+        // Fallback to a safe label for UI to avoid stale/missing branch display
+        if (hasGit) {
+            if (branchToDisplay == null || branchToDisplay.isBlank()) {
+                branchToDisplay = "(no branch)";
+                logger.debug("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
+            }
+            final String display = branchToDisplay;
             SwingUtilities.invokeLater(() -> {
                 try {
-                    instructionsPanel.refreshBranchUi(branchToDisplay);
+                    instructionsPanel.refreshBranchUi(display);
                 } catch (Exception ex) {
                     logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
                 }
             });
-        } else {
-            logger.debug("updateGitRepo: no current branch to display (detached HEAD or empty repo)");
         }
 
         // Update individual Git-related panels and log what is being updated
