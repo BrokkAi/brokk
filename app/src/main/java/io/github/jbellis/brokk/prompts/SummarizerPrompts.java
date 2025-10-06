@@ -122,4 +122,45 @@ public class SummarizerPrompts {
                                 .stripIndent()),
                 new UserMessage("<commits>\n" + body + "\n</commits>"));
     }
+
+    public List<ChatMessage> collectPrTitleAndDescriptionMessages(String diff) {
+        return List.of(
+                new SystemMessage(
+                        """
+                    You are an expert software engineer writing clear pull-request titles and descriptions.
+
+                    Output your response in this exact XML format:
+                    <title>Brief PR title (12 words or fewer)</title>
+                    <description>
+                    Describe the intent, behaviour changes and key implementation ideas in human language.
+                    Use bullet points or short paragraphs. 75–150 words is ideal. Focus on the most important changes.
+                    </description>
+
+                    Do not include any text outside these XML tags.
+                    """
+                                .stripIndent()),
+                new UserMessage("<diff>\n" + diff + "\n</diff>"));
+    }
+
+    public List<ChatMessage> collectPrTitleAndDescriptionFromCommitMsgs(List<String> commitMsgs) {
+        String body = String.join("\n\n", commitMsgs);
+
+        return List.of(
+                new SystemMessage(
+                        """
+                    You are an expert software engineer writing clear pull-request titles and descriptions.
+
+                    Output your response in this exact XML format:
+                    <title>Brief PR title (12 words or fewer)</title>
+                    <description>
+                    Use ONLY the commit messages below. Summarise the intent, major behaviour
+                    changes, and key implementation ideas. 75–150 words, ideal.
+                    Do NOT include raw commit messages verbatim.
+                    </description>
+
+                    Do not include any text outside these XML tags.
+                    """
+                                .stripIndent()),
+                new UserMessage("<commits>\n" + body + "\n</commits>"));
+    }
 }

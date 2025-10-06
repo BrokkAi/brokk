@@ -96,7 +96,7 @@ public class CreatePullRequestDialog extends JDialog {
                 }
             });
     // private ScheduledFuture<?> pendingDebounceTask; // Removed duplicate
-    private static final long DEBOUNCE_MS = 400;
+    private static final long DEBOUNCE_MS = 100; // Reduced for streaming - just enough to avoid duplicate rapid clicks
 
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         this(owner, chrome, contextManager, null); // delegate
@@ -707,14 +707,16 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    /** SwingWorker to suggest PR title and description using GitWorkflowService. */
+    /** SwingWorker to suggest PR title and description using GitWorkflowService with streaming. */
     private class SuggestPrDetailsWorker extends SwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
+        private final PrDetailsConsoleIO streamingIO;
 
         SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
             this.sourceBranch = sourceBranch;
             this.targetBranch = targetBranch;
+            this.streamingIO = new PrDetailsConsoleIO(titleField, descriptionArea, chrome);
         }
 
         @Override
@@ -722,24 +724,23 @@ public class CreatePullRequestDialog extends JDialog {
             if (isCancelled()) {
                 throw new InterruptedException("Worker cancelled before starting");
             }
-            // This service call is blocking and includes LLM interactions.
-            return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch);
+            // This service call is blocking and includes LLM interactions with streaming.
+            return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch, streamingIO);
         }
 
         @Override
         protected void done() {
             try {
-                GitWorkflow.PrSuggestion suggestion =
-                        get(); // This will throw specific exceptions if cancelled/interrupted.
+                GitWorkflow.PrSuggestion suggestion = get(); // This will throw specific exceptions if cancelled/interrupted.
                 SwingUtilities.invokeLater(() -> {
-                    setTextAndResetCaret(titleField, suggestion.title());
-                    setTextAndResetCaret(descriptionArea, suggestion.description());
+                    streamingIO.onComplete(); // Re-enable fields
                     showDescriptionHint(suggestion.usedCommitMessages());
                 });
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // Preserve interrupt status
                 logger.warn("SuggestPrDetailsWorker interrupted for {} -> {}", sourceBranch, targetBranch, e);
                 SwingUtilities.invokeLater(() -> {
+                    streamingIO.onComplete(); // Re-enable fields even on error
                     setTextAndResetCaret(titleField, "(suggestion interrupted)");
                     setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                     showDescriptionHint(false);
@@ -747,6 +748,7 @@ public class CreatePullRequestDialog extends JDialog {
             } catch (java.util.concurrent.CancellationException e) {
                 logger.warn("SuggestPrDetailsWorker cancelled for {} -> {}", sourceBranch, targetBranch, e);
                 SwingUtilities.invokeLater(() -> {
+                    streamingIO.onComplete(); // Re-enable fields even on cancellation
                     setTextAndResetCaret(titleField, "(suggestion cancelled)");
                     setTextAndResetCaret(descriptionArea, "(suggestion cancelled)");
                     showDescriptionHint(false);
@@ -761,6 +763,7 @@ public class CreatePullRequestDialog extends JDialog {
                             targetBranch,
                             interruptedException);
                     SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete(); // Re-enable fields even on error
                         setTextAndResetCaret(titleField, "(suggestion interrupted)");
                         setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                         showDescriptionHint(false);
@@ -773,6 +776,7 @@ public class CreatePullRequestDialog extends JDialog {
                             (cause != null ? cause.getMessage() : e.getMessage()),
                             cause);
                     SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete(); // Re-enable fields even on error
                         String errorMessage =
                                 (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
                         errorMessage = (errorMessage == null) ? "Unknown error" : errorMessage;
@@ -869,18 +873,12 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     /**
-     * Debounces the call to generate PR suggestions. The actual decision of using diff vs commit messages is now inside
-     * the service.
+     * Debounces the call to generate PR suggestions with streaming.
+     * The PrDetailsConsoleIO handles the initial UI setup and streaming display.
      */
     private void debounceSuggestPrDetails(String sourceBranch, String targetBranch) {
-        SwingUtilities.invokeLater(
-                () -> { // Ensure UI updates are on EDT
-                    setTextAndResetCaret(descriptionArea, "Generating PR details...");
-                    setTextAndResetCaret(titleField, "Generating PR details...");
-                    // The hint will be set by the worker's done() method based on service response.
-                    // For now, ensure it's hidden during generation.
-                    showDescriptionHint(false);
-                });
+        // Hide hint during generation
+        SwingUtilities.invokeLater(() -> showDescriptionHint(false));
 
         if (pendingDebounceTask != null) {
             pendingDebounceTask.cancel(false);

@@ -186,9 +186,14 @@ public final class GitWorkflow {
      * Suggests pull request title and description. Blocks; caller should off-load to a background thread (SwingWorker,
      * etc.). This method is designed to be responsive to thread interruption.
      *
+     * @param source The source branch name
+     * @param target The target branch name
+     * @param streamingOutput Optional IConsoleIO for streaming output; if null, uses non-streaming mode
      * @throws InterruptedException if the calling thread is interrupted during processing.
      */
-    public PrSuggestion suggestPullRequestDetails(String source, String target) throws Exception {
+    public PrSuggestion suggestPullRequestDetails(
+            String source, String target, @Nullable io.github.jbellis.brokk.IConsoleIO streamingOutput)
+            throws Exception {
         throwIfInterrupted(); // Check at the beginning
 
         // 1. Compute merge base & diff text
@@ -197,7 +202,7 @@ public final class GitWorkflow {
         String diff = (mergeBase != null) ? repo.showDiff(source, mergeBase) : "";
         throwIfInterrupted(); // Check after potential Git operation
 
-        // 2. Decide “too big?” heuristic
+        // 2. Decide "too big?" heuristic
         var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI);
         var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
@@ -206,30 +211,74 @@ public final class GitWorkflow {
 
         // 3. Build messages
         List<ChatMessage> messages;
-        if (useCommitMsgs) {
-            var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
-            throwIfInterrupted(); // Check after potential Git operation
-            messages = SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMessagesContent);
+        boolean isStreaming = streamingOutput != null;
+
+        if (isStreaming) {
+            // Use streaming prompts that output structured XML
+            if (useCommitMsgs) {
+                var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
+                throwIfInterrupted();
+                messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
+            } else {
+                messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
+            }
         } else {
-            messages = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
+            // Use original prompts (description only, title generated separately)
+            if (useCommitMsgs) {
+                var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
+                throwIfInterrupted();
+                messages = SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMessagesContent);
+            } else {
+                messages = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
+            }
         }
         throwIfInterrupted(); // Check before LLM call, after messages are prepared
 
         // 4. Call LLM
-        // modelToUse is guaranteed non-null from the logic above
-        var llm = contextManager.getLlm(modelToUse, "PR-description");
-        var response = llm.sendRequest(messages);
+        var llm = contextManager.getLlm(modelToUse, "PR-description", /*streaming*/ isStreaming);
+        if (streamingOutput != null) {
+            llm.setOutput(streamingOutput);
+        }
+        var response = llm.sendRequest(messages, isStreaming);
         throwIfInterrupted(); // Check after LLM call
-        String description = response.text().trim();
 
-        // 5. Title summarisation (12-word budget)
-        throwIfInterrupted(); // Check before starting/blocking on title summarization
-        ContextManager.SummarizeWorker titleWorker =
-                new ContextManager.SummarizeWorker(this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
-        titleWorker.execute(); // Schedule the worker
-        String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
+        if (isStreaming) {
+            // Parse XML response to extract title and description
+            String responseText = response.text().trim();
+            String title = extractXmlTag(responseText, "title");
+            String description = extractXmlTag(responseText, "description");
+            return new PrSuggestion(title, description, useCommitMsgs);
+        } else {
+            // Original non-streaming flow
+            String description = response.text().trim();
 
-        return new PrSuggestion(title, description, useCommitMsgs);
+            // 5. Title summarisation (12-word budget)
+            throwIfInterrupted();
+            ContextManager.SummarizeWorker titleWorker =
+                    new ContextManager.SummarizeWorker(this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
+            titleWorker.execute();
+            String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
+
+            return new PrSuggestion(title, description, useCommitMsgs);
+        }
+    }
+
+    /**
+     * Non-streaming variant for backward compatibility.
+     */
+    public PrSuggestion suggestPullRequestDetails(String source, String target) throws Exception {
+        return suggestPullRequestDetails(source, target, null);
+    }
+
+    private String extractXmlTag(String xml, String tagName) {
+        String openTag = "<" + tagName + ">";
+        String closeTag = "</" + tagName + ">";
+        int start = xml.indexOf(openTag);
+        int end = xml.indexOf(closeTag);
+        if (start >= 0 && end > start) {
+            return xml.substring(start + openTag.length(), end).trim();
+        }
+        return "";
     }
 
     /** Pushes branch if needed and opens a PR. Returns the PR url. */
