@@ -759,9 +759,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             logger.debug("Unable to query LLM busy state", ex);
         }
 
-        boolean selectedIsDone = false;
         boolean selectionIncludesRunning = false;
         boolean selectionIncludesPending = false;
+        boolean hasUndoneSelected = false;
         int[] selIndices = list.getSelectedIndices();
         for (int si : selIndices) {
             if (runningIndex != null && si == runningIndex.intValue()) {
@@ -770,11 +770,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (pendingQueue.contains(si)) {
                 selectionIncludesPending = true;
             }
-        }
-        int sel = list.getSelectedIndex();
-        if (sel >= 0 && sel < model.getSize()) {
-            TaskItem it = model.get(sel);
-            selectedIsDone = it != null && it.done();
+            if (si >= 0 && si < model.getSize()) {
+                TaskItem it = model.get(si);
+                if (it != null && !it.done()) {
+                    hasUndoneSelected = true;
+                }
+            }
         }
 
         // Remove/Toggle disabled if no selection OR selection includes running/pending
@@ -782,9 +783,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
 
-        // Play enabled only if: selection exists, not busy, not done, no running/pending in selection, and no active
-        // queue
-        playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
+        // Play enabled only if: selection exists, at least one selected is not done, not busy,
+        // no running/pending in selection, and no active queue
+        playBtn.setEnabled(hasSelection && hasUndoneSelected && !llmBusy && !blockEdits && !queueActive);
 
         // Play All enabled if: there are tasks, not busy, no active queue
         boolean hasTasks = model.getSize() > 0;
