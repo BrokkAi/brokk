@@ -122,6 +122,25 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         applyThemeColorsFromUIManager();
     }
 
+    /**
+     * Convenience constructor to enable persistence at creation time.
+     * The provided store will be injected, and existing runs will be restored immediately.
+     */
+    public TestRunnerPanel(@Nullable TestRunsStore store) {
+        this();
+        injectTestRunsStore(store);
+    }
+
+    /**
+     * Factory that creates a TestRunnerPanel with default file-based persistence enabled.
+     * Uses FileBasedTestRunsStore storing at ~/.config/brokk/test_runs.json.
+     */
+    public static TestRunnerPanel createWithDefaultPersistence() {
+        var panel = new TestRunnerPanel();
+        panel.injectTestRunsStore(new FileBasedTestRunsStore());
+        return panel;
+    }
+
     private static void runOnEdt(Runnable r) {
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
