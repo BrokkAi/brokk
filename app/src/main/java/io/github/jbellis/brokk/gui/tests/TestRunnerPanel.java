@@ -381,9 +381,38 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     /**
      * Sets the maximum number of runs to retain in the list.
+     * If the new cap is lower than the current number of runs, drops the oldest ones.
+     * Also triggers a save so persistence reflects the new cap.
      */
     public void setMaxRuns(int maxRuns) {
-        this.maxRuns = Math.max(1, maxRuns);
+        int newCap = Math.max(1, maxRuns);
+        if (this.maxRuns == newCap) {
+            return;
+        }
+        this.maxRuns = newCap;
+
+        runOnEdt(() -> {
+            // Enforce retention cap immediately in memory
+            while (runListModel.getSize() > this.maxRuns) {
+                RunEntry removed = runListModel.remove(0);
+                runsById.remove(removed.id);
+            }
+
+            // Keep selection on newest if any runs remain; update output area
+            if (runListModel.getSize() > 0) {
+                runList.setSelectedIndex(runListModel.getSize() - 1);
+                updateOutputForSelectedRun();
+            } else {
+                try {
+                    document.withWritePermission(() -> outputArea.setText(""));
+                } catch (RuntimeException ex) {
+                    logger.warn("Failed to clear output after maxRuns change", ex);
+                }
+            }
+
+            // Persist after updating the UI/model
+            triggerSave();
+        });
     }
 
     /**
