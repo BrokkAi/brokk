@@ -4,14 +4,26 @@ import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
+import com.github.mustachejava.DefaultMustacheFactory;
+import com.github.mustachejava.Mustache;
+import com.github.mustachejava.MustacheFactory;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.agents.CodeAgent;
+import io.github.jbellis.brokk.agents.RelevanceClassifier;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
@@ -19,13 +31,18 @@ import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessi
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.ScaledIcon;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
@@ -1172,21 +1189,227 @@ public class BlitzForgeDialog extends JDialog {
 
         setVisible(false); // Hide this dialog
 
-        // Show progress dialog
-        var progressDialog = new BlitzForgeProgressDialog(
+        // Build the execution config for the engine
+        var cm = chrome.getContextManager();
+        var service = cm.getService();
+        StreamingChatModel model = requireNonNull(service.getModel(selectedFavorite.config()));
+        var engineOutputMode = switch (parallelOutputMode) {
+            case NONE -> BlitzForge.ParallelOutputMode.NONE;
+            case ALL -> BlitzForge.ParallelOutputMode.ALL;
+            case CHANGED -> BlitzForge.ParallelOutputMode.CHANGED;
+        };
+        var engineAction = switch (action.trim().toUpperCase(Locale.ROOT)) {
+            case "ASK" -> BlitzForge.Action.ASK;
+            case "MERGE" -> BlitzForge.Action.MERGE;
+            case "CODE" -> BlitzForge.Action.CODE;
+            default -> BlitzForge.Action.CODE;
+        };
+
+        BlitzForge.RunConfig runCfg = new BlitzForge.RunConfig(
                 instructions,
-                action,
-                selectedFavorite,
-                filesToProcessList,
-                chrome,
+                model,
+                includeWorkspace,
                 relatedK,
                 perFileCommandTemplate,
-                includeWorkspace,
-                runOption,
                 contextFilter,
-                parallelOutputMode,
+                engineOutputMode,
                 buildFirst,
-                postProcessingInstructions);
+                postProcessingInstructions,
+                engineAction);
+
+        // Snapshot locals for lambda capture
+        final @Nullable Integer fRelatedK = relatedK;
+        final @Nullable String fPerFileCmd = perFileCommandTemplate;
+        final boolean fIncludeWorkspace = includeWorkspace;
+        final String fContextFilter = contextFilter;
+
+        // Cancellation wiring
+        AtomicReference<Future<TaskResult>> taskRef = new AtomicReference<>();
+
+        // Prepare listener dialog
+        var progressDialog = new BlitzForgeProgressDialog(
+                chrome,
+                runCfg,
+                () -> {
+                    var f = taskRef.get();
+                    if (f != null) {
+                        f.cancel(true);
+                    }
+                    cm.interruptLlmAction();
+                });
+
+        // Kick off background execution
+        var analyzerWrapper = cm.getAnalyzerWrapper();
+        taskRef.set(cm.submitBackgroundTask("BlitzForge: " + instructions, () -> {
+            analyzerWrapper.pause();
+            try {
+                var frozenContext = cm.topContext();
+
+                // Engine + per-file processor
+                var engine = new BlitzForge(cm, service, runCfg, progressDialog);
+
+                // Per-file processor: mirrors the previous dialog's processSingleFile logic
+                return engine.executeParallel(filesToProcessList, file -> {
+                    if (Thread.currentThread().isInterrupted()) {
+                        return new BlitzForge.FileResult(file, false, "Cancelled by user.", "");
+                    }
+
+                    // Capture LLM output while forwarding to the dialog's console
+                    class CapturingConsole implements IConsoleIO {
+                        private final IConsoleIO delegate;
+                        private final StringBuilder buf = new StringBuilder();
+                        CapturingConsole(IConsoleIO delegate) {
+                            this.delegate = delegate;
+                        }
+                        String text() { return buf.toString(); }
+                        @Override
+                        public void toolError(String message, String title) {
+                            delegate.toolError(message, title);
+                        }
+                        @Override
+                        public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+                            buf.append(token);
+                            delegate.llmOutput(token, type, isNewMessage, isReasoning);
+                        }
+                        public void systemOutput(String message) {
+                            // no-op; informational output is conveyed via per-file result and toolError
+                        }
+                        public void systemNotify(String message, String title, int messageType) {
+                            // no-op; UI notifications are handled elsewhere
+                        }
+                        @Override
+                        public java.util.List<dev.langchain4j.data.message.ChatMessage> getLlmRawMessages() {
+                            return java.util.List.of();
+                        }
+                    }
+
+                    var dialogIo = progressDialog.getConsoleIO(file);
+                    var io = new CapturingConsole(dialogIo);
+                    String errorMessage = null;
+
+                    List<ChatMessage> readOnlyMessages = new ArrayList<>();
+                    try {
+                        if (fIncludeWorkspace) {
+                            readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
+                            readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
+                        }
+                        if (fRelatedK != null) {
+                            var acFragment = cm.liveContext().buildAutoContext(fRelatedK);
+                            if (!acFragment.text().isBlank()) {
+                                var msgText = (
+                                        """
+                                        <related_classes>
+                                        The user requested to include the top %d related classes.
+
+                                        %s
+                                        </related_classes>
+                                        """
+                                                .stripIndent())
+                                        .formatted(fRelatedK, acFragment.text());
+                                readOnlyMessages.add(new UserMessage(msgText));
+                            }
+                        }
+
+                        if (fPerFileCmd != null && !fPerFileCmd.isBlank()) {
+                            MustacheFactory mf = new DefaultMustacheFactory();
+                            Mustache mustache = mf.compile(new StringReader(fPerFileCmd), "perFileCommand");
+                            StringWriter writer = new StringWriter();
+                            Map<String, Object> scope = new HashMap<>();
+                            scope.put("filepath", file.toString());
+                            mustache.execute(writer, scope);
+                            String finalCommand = writer.toString();
+
+                            io.systemOutput("Executing per-file command: " + finalCommand);
+                            String commandOutputText;
+                            try {
+                                String output = Environment.instance.runShellCommand(
+                                        finalCommand,
+                                        cm.getProject().getRoot(),
+                                        line -> {},
+                                        Environment.UNLIMITED_TIMEOUT);
+                                commandOutputText = (
+                                        """
+                                        <per_file_command_output command="%s">
+                                        %s
+                                        </per_file_command_output>
+                                        """
+                                                .stripIndent())
+                                        .formatted(finalCommand, output);
+                            } catch (Environment.SubprocessException ex) {
+                                commandOutputText = (
+                                        """
+                                        <per_file_command_output command="%s">
+                                        Error executing command: %s
+                                        Output (if any):
+                                        %s
+                                        </per_file_command_output>
+                                        """
+                                                .stripIndent())
+                                        .formatted(finalCommand, ex.getMessage(), ex.getOutput());
+                                io.toolError(
+                                        "Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(),
+                                        "Command Execution Error");
+                            }
+                            readOnlyMessages.add(new UserMessage(commandOutputText));
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        errorMessage = "Interrupted during message preparation.";
+                    } catch (Exception ex) {
+                        errorMessage = "Setup failed: " + ex.getMessage();
+                        io.toolError(errorMessage, "Setup");
+                    }
+
+                    if (errorMessage != null) {
+                        return new BlitzForge.FileResult(file, false, errorMessage, "");
+                    }
+
+                    // Run the task
+                    TaskResult tr;
+                    if (engineAction == BlitzForge.Action.ASK) {
+                        var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
+                        var llm = cm.getLlm(model, "Ask", true);
+                        llm.setOutput(io);
+                        tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);
+                    } else {
+                        var agent = new CodeAgent(cm, model, io);
+                        tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages, Set.of());
+                    }
+
+                    if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                        Thread.currentThread().interrupt();
+                        errorMessage = "Processing interrupted.";
+                    } else if (tr.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                        errorMessage = "Processing failed: " + tr.stopDetails().reason()
+                                + (tr.stopDetails().explanation().isEmpty() ? "" : " - " + tr.stopDetails().explanation());
+                        io.toolError(errorMessage, "Agent Processing Error");
+                    }
+
+                    boolean edited = tr.changedFiles().contains(file);
+                    String llmOutput = io.text();
+
+                    // Optional context filtering
+                    if (!fContextFilter.isBlank() && !llmOutput.isBlank()) {
+                        try {
+                            var quickestModel = cm.getService().quickestModel();
+                            var filterLlm = cm.getLlm(quickestModel, "ContextFilter");
+                            boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, llmOutput);
+                            if (!keep) {
+                                llmOutput = "";
+                            }
+                        } catch (Exception e) {
+                            // Non-fatal; keep output
+                        }
+                    }
+
+                    return new BlitzForge.FileResult(file, edited, errorMessage, llmOutput);
+                });
+            } finally {
+                analyzerWrapper.resume();
+            }
+        }));
+
+        // Show the progress dialog (modeless)
         progressDialog.setVisible(true);
     }
 }

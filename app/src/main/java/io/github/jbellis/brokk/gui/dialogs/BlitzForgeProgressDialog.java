@@ -234,6 +234,16 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
     }
 
     @Override
+    public void onProgress(int processed, int total) {
+        processedFileCount.set(processed);
+        SwingUtilities.invokeLater(() -> {
+            progressBar.setMaximum(Math.max(1, total));
+            progressBar.setValue(processed);
+            progressBar.setString(String.format("%d of %d files processed", processed, total));
+        });
+    }
+
+    @Override
     public IConsoleIO getConsoleIO(ProjectFile file) {
         // Provide a per-file console that counts LLM lines for this dialog
         return new DialogConsoleIO(this, "[" + file + "] ");

@@ -58,6 +58,7 @@ public final class BlitzForge {
     public interface Listener {
         default void onStart(int total) {}
         default void onFileStart(ProjectFile file) {}
+        default void onProgress(int processed, int total) {}
         /** Provide a console for routing per-file LLM streaming output and notifications. */
         default IConsoleIO getConsoleIO(ProjectFile file) {
             return new IConsoleIO() {
@@ -164,6 +165,7 @@ public final class BlitzForge {
                 results.add(fr);
                 ++processedCount;
                 listener.onFileResult(fr.file(), fr.edited(), fr.errorMessage(), fr.llmOutput());
+                listener.onProgress(processedCount, files.size());
                 startIdx = 1;
             }
 
@@ -218,6 +220,7 @@ public final class BlitzForge {
                     results.add(res);
                     ++processedCount;
                     listener.onFileResult(res.file(), res.edited(), res.errorMessage(), res.llmOutput());
+                    listener.onProgress(processedCount, files.size());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return interruptedResult(processedCount, files);
@@ -230,6 +233,7 @@ public final class BlitzForge {
                     results.add(failure);
                     ++processedCount;
                     listener.onFileResult(fallbackFile, false, failure.errorMessage(), "");
+                    listener.onProgress(processedCount, files.size());
                 }
             }
         } finally {
