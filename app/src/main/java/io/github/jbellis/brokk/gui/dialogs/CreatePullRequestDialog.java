@@ -20,11 +20,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -80,24 +75,6 @@ public class CreatePullRequestDialog extends JDialog {
     @Nullable
     private SuggestPrDetailsWorker currentSuggestPrDetailsWorker;
 
-    @Nullable
-    private ScheduledFuture<?> pendingDebounceTask;
-
-    private final ScheduledExecutorService debounceExec =
-            Executors.newSingleThreadScheduledExecutor(new java.util.concurrent.ThreadFactory() {
-                private final AtomicInteger threadNumber = new AtomicInteger(1);
-
-                @Override
-                public Thread newThread(Runnable r) {
-                    Thread t = Executors.defaultThreadFactory().newThread(r);
-                    t.setDaemon(true);
-                    t.setName("pr-description-debouncer-" + threadNumber.getAndIncrement());
-                    return t;
-                }
-            });
-    // private ScheduledFuture<?> pendingDebounceTask; // Removed duplicate
-    private static final long DEBOUNCE_MS = 100; // Reduced for streaming - just enough to avoid duplicate rapid clicks
-
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         this(owner, chrome, contextManager, null); // delegate
     }
@@ -113,7 +90,6 @@ public class CreatePullRequestDialog extends JDialog {
         if (currentSuggestPrDetailsWorker != null) {
             currentSuggestPrDetailsWorker.cancel(true);
         }
-        debounceExec.shutdownNow();
         super.dispose();
     }
 
@@ -379,11 +355,9 @@ public class CreatePullRequestDialog extends JDialog {
                 this.sourceBranchNeedsPush = gitRepo.branchNeedsPush(sourceBranch);
 
                 if (branchDiff.commits().isEmpty()) {
-                    // Nothing to describe; stop any ongoing generation and clear fields.
                     cancelGenerationWorkersAndClearFields();
                 } else {
-                    // If commits exist, trigger debounced PR suggestion
-                    debounceSuggestPrDetails(sourceBranch, targetBranch);
+                    spawnSuggestPrDetailsWorker(sourceBranch, targetBranch);
                 }
 
                 SwingUtilities.invokeLater(
@@ -855,12 +829,7 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    // Cancels any pending title/description generation tasks and resets the UI.
     private void cancelGenerationWorkersAndClearFields() {
-        if (pendingDebounceTask != null) {
-            pendingDebounceTask.cancel(false);
-            pendingDebounceTask = null;
-        }
         if (currentSuggestPrDetailsWorker != null) {
             currentSuggestPrDetailsWorker.cancel(true);
             currentSuggestPrDetailsWorker = null;
@@ -868,7 +837,7 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> {
             titleField.setText("");
             descriptionArea.setText("");
-            showDescriptionHint(false); // Hide hint when clearing
+            showDescriptionHint(false);
             updateCreatePrButtonState();
         });
     }
@@ -879,22 +848,8 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    /**
-     * Debounces the call to generate PR suggestions with streaming. The PrDetailsConsoleIO handles the initial UI setup
-     * and streaming display.
-     */
-    private void debounceSuggestPrDetails(String sourceBranch, String targetBranch) {
-        // Hide hint during generation
-        SwingUtilities.invokeLater(() -> showDescriptionHint(false));
-
-        if (pendingDebounceTask != null) {
-            pendingDebounceTask.cancel(false);
-        }
-        pendingDebounceTask = debounceExec.schedule(
-                () -> spawnSuggestPrDetailsWorker(sourceBranch, targetBranch), DEBOUNCE_MS, TimeUnit.MILLISECONDS);
-    }
-
     private void spawnSuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
+        SwingUtilities.invokeLater(() -> showDescriptionHint(false));
         // Cancel previous background LLM calls
         if (currentSuggestPrDetailsWorker != null) {
             currentSuggestPrDetailsWorker.cancel(true);

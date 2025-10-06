@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.git;
 import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
@@ -183,17 +182,16 @@ public final class GitWorkflow {
     }
 
     /**
-     * Suggests pull request title and description. Blocks; caller should off-load to a background thread (SwingWorker,
-     * etc.). This method is designed to be responsive to thread interruption.
+     * Suggests pull request title and description with streaming output. Blocks; caller should off-load to a background
+     * thread (SwingWorker, etc.). This method is designed to be responsive to thread interruption.
      *
      * @param source The source branch name
      * @param target The target branch name
-     * @param streamingOutput Optional IConsoleIO for streaming output; if null, uses non-streaming mode
+     * @param streamingOutput IConsoleIO for streaming output
      * @throws InterruptedException if the calling thread is interrupted during processing.
      */
     public PrSuggestion suggestPullRequestDetails(
-            String source, String target, @Nullable io.github.jbellis.brokk.IConsoleIO streamingOutput)
-            throws Exception {
+            String source, String target, io.github.jbellis.brokk.IConsoleIO streamingOutput) throws Exception {
         throwIfInterrupted(); // Check at the beginning
 
         // 1. Compute merge base & diff text
@@ -211,70 +209,37 @@ public final class GitWorkflow {
 
         // 3. Build messages
         List<ChatMessage> messages;
-        boolean isStreaming = streamingOutput != null;
-
-        if (isStreaming) {
-            // Use streaming prompts that output structured XML
-            if (useCommitMsgs) {
-                var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
-                throwIfInterrupted();
-                messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
-            } else {
-                messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
-            }
+        if (useCommitMsgs) {
+            var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
+            throwIfInterrupted();
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
-            // Use original prompts (description only, title generated separately)
-            if (useCommitMsgs) {
-                var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
-                throwIfInterrupted();
-                messages = SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMessagesContent);
-            } else {
-                messages = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
-            }
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
         }
-        throwIfInterrupted(); // Check before LLM call, after messages are prepared
+        throwIfInterrupted();
 
         // 4. Call LLM
-        var llm = contextManager.getLlm(modelToUse, "PR-description", /*streaming*/ isStreaming);
-        if (streamingOutput != null) {
-            llm.setOutput(streamingOutput);
+        var llm = contextManager.getLlm(modelToUse, "PR-description", true);
+        llm.setOutput(streamingOutput);
+        var response = llm.sendRequest(messages, true);
+        throwIfInterrupted();
+
+        String responseText = response.text().trim();
+        String title = extractXmlTag(responseText, "title");
+        String description = extractXmlTag(responseText, "description");
+
+        if (title.isEmpty() || description.isEmpty()) {
+            String truncated = responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText;
+            logger.warn(
+                    "LLM response missing XML tags. Title empty: {}, Description empty: {}. Response: {}",
+                    title.isEmpty(),
+                    description.isEmpty(),
+                    truncated);
+            throw new RuntimeException("LLM failed to generate properly formatted PR details. "
+                    + "Expected <title> and <description> tags but got: " + truncated);
         }
-        var response = llm.sendRequest(messages, isStreaming);
-        throwIfInterrupted(); // Check after LLM call
 
-        if (isStreaming) {
-            String responseText = response.text().trim();
-            String title = extractXmlTag(responseText, "title");
-            String description = extractXmlTag(responseText, "description");
-
-            if (title.isEmpty() || description.isEmpty()) {
-                String truncated = responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText;
-                logger.warn(
-                        "LLM response missing XML tags. Title empty: {}, Description empty: {}. Response: {}",
-                        title.isEmpty(),
-                        description.isEmpty(),
-                        truncated);
-                throw new RuntimeException("LLM failed to generate properly formatted PR details. "
-                        + "Expected <title> and <description> tags but got: " + truncated);
-            }
-
-            return new PrSuggestion(title, description, useCommitMsgs);
-        } else {
-            String description = response.text().trim();
-
-            throwIfInterrupted();
-            ContextManager.SummarizeWorker titleWorker = new ContextManager.SummarizeWorker(
-                    this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
-            titleWorker.execute();
-            String title = titleWorker.get();
-
-            return new PrSuggestion(title, description, useCommitMsgs);
-        }
-    }
-
-    /** Non-streaming variant for backward compatibility. */
-    public PrSuggestion suggestPullRequestDetails(String source, String target) throws Exception {
-        return suggestPullRequestDetails(source, target, null);
+        return new PrSuggestion(title, description, useCommitMsgs);
     }
 
     private String extractXmlTag(String xml, String tagName) {
