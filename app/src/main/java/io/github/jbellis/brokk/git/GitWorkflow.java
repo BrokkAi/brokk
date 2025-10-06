@@ -247,6 +247,19 @@ public final class GitWorkflow {
             String responseText = response.text().trim();
             String title = extractXmlTag(responseText, "title");
             String description = extractXmlTag(responseText, "description");
+
+            // Validate that LLM returned properly formatted XML
+            if (title.isEmpty() || description.isEmpty()) {
+                String truncated = responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText;
+                logger.warn(
+                        "LLM response missing XML tags. Title empty: {}, Description empty: {}. Response: {}",
+                        title.isEmpty(),
+                        description.isEmpty(),
+                        truncated);
+                throw new RuntimeException("LLM failed to generate properly formatted PR details. "
+                        + "Expected <title> and <description> tags but got: " + truncated);
+            }
+
             return new PrSuggestion(title, description, useCommitMsgs);
         } else {
             // Original non-streaming flow

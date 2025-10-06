@@ -737,6 +737,11 @@ public class CreatePullRequestDialog extends JDialog {
                         get(); // This will throw specific exceptions if cancelled/interrupted.
                 SwingUtilities.invokeLater(() -> {
                     streamingIO.onComplete(); // Re-enable fields
+                    // Always set fields from returned suggestion as fallback and source of truth
+                    titleField.setText(suggestion.title());
+                    descriptionArea.setText(suggestion.description());
+                    titleField.setCaretPosition(0);
+                    descriptionArea.setCaretPosition(0);
                     showDescriptionHint(suggestion.usedCommitMessages());
                 });
             } catch (InterruptedException e) {

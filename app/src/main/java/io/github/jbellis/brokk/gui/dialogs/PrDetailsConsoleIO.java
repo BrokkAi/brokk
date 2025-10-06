@@ -29,8 +29,10 @@ public class PrDetailsConsoleIO implements IConsoleIO {
     private final StringBuilder descriptionBuffer = new StringBuilder();
     private boolean isInsideTag = false;
     private String currentTag = "";
+
     @org.jetbrains.annotations.Nullable
     private Timer thinkingAnimationTimer;
+
     private int dotCount = 0;
     private boolean hasReceivedTokens = false;
 
