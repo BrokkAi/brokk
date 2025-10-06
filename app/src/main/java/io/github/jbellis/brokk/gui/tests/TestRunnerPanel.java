@@ -61,6 +61,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Current active run (where live output goes)
     private volatile @Nullable String currentActiveRunId;
 
+    // Maximum number of runs to retain
+    private int maxRuns = 50;
+
     public TestRunnerPanel() {
         super(new BorderLayout(0, 0));
 
@@ -133,6 +136,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         runOnEdt(() -> {
             runListModel.addElement(run);
+            // Enforce retention cap
+            while (runListModel.getSize() > maxRuns) {
+                RunEntry removed = runListModel.remove(0);
+                runsById.remove(removed.id);
+                // If the removed run was selected, we'll reselect the most recent below
+            }
+            // Always select the most recent run
             runList.setSelectedIndex(runListModel.getSize() - 1);
             try {
                 document.withWritePermission(() -> {
@@ -198,6 +208,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
         run.complete(exitCode, completedAt);
         runOnEdt(() -> runList.repaint());
+    }
+
+    /**
+     * Sets the maximum number of runs to retain in the list.
+     */
+    public void setMaxRuns(int maxRuns) {
+        this.maxRuns = Math.max(1, maxRuns);
     }
 
     /**
