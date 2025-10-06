@@ -216,28 +216,26 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
                 SwingUtilities.invokeLater(() -> t.pasteText(text)));
     }
 
-    /** Update the Tasks tab badge and tooltip safely. */
+    /** Update the Tasks tab badge and tooltip; must be called on the EDT. */
     public void updateTasksTabBadge(int undoneCount) {
+        assert SwingUtilities.isEventDispatchThread() : "Must run on EDT";
         final var icon = tasksTabBadgedIcon;
         if (icon == null) {
             return;
         }
-        // Ensure we are on EDT and repaint after updating
-        SwingUtilities.invokeLater(() -> {
-            try {
-                icon.setCount(undoneCount, tabs);
-                String tooltip = undoneCount > 0
-                        ? "Task list (" + undoneCount + " pending)"
-                        : "Task list";
-                // Guard against index drift
-                if (TAB_TASKS >= 0 && TAB_TASKS < tabs.getTabCount()) {
-                    tabs.setToolTipTextAt(TAB_TASKS, tooltip);
-                }
-            } catch (Exception ex) {
-                // Be resilient; do not throw from UI updates
-                logger.debug("Failed to update Tasks tab badge", ex);
+        try {
+            icon.setCount(undoneCount, tabs);
+            String tooltip = undoneCount > 0
+                    ? "Task list (" + undoneCount + " pending)"
+                    : "Task list";
+            // Guard against index drift
+            if (TAB_TASKS >= 0 && TAB_TASKS < tabs.getTabCount()) {
+                tabs.setToolTipTextAt(TAB_TASKS, tooltip);
             }
-        });
+        } catch (Exception ex) {
+            // Be resilient; do not throw from UI updates
+            logger.debug("Failed to update Tasks tab badge", ex);
+        }
     }
 
     /** Apply theme to subpanels that implement ThemeAware. */
