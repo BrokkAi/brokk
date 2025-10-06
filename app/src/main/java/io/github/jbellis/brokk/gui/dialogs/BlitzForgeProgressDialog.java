@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
@@ -14,7 +13,6 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.BorderFactory;
@@ -244,9 +242,9 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
     }
 
     @Override
-    public IConsoleIO getConsoleIO(ProjectFile file) {
+    public DialogConsoleIO getConsoleIO(ProjectFile file) {
         // Provide a per-file console that counts LLM lines for this dialog
-        return new DialogConsoleIO(this, "[" + file + "] ");
+        return new DialogConsoleIO("[" + file + "] ");
     }
 
 
@@ -305,14 +303,26 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
         });
     }
 
-    private class DialogConsoleIO implements IConsoleIO {
-        private final BlitzForgeProgressDialog dialog;
+    public class DialogConsoleIO implements IConsoleIO {
         private final String fileContext;
+        private final StringBuilder llmOutput = new StringBuilder();
 
         /** @param fileContext To prefix messages related to a specific file */
-        private DialogConsoleIO(BlitzForgeProgressDialog dialog, String fileContext) {
-            this.dialog = dialog;
+        private DialogConsoleIO(String fileContext) {
             this.fileContext = fileContext;
+        }
+
+        public String getLlmOutput() {
+            return llmOutput.toString();
+        }
+
+        private void appendToOutput(String text) {
+            SwingUtilities.invokeLater(() -> {
+                String prefix = "[%s] ".formatted(fileContext);
+                outputTextArea.append(prefix + text + "\n");
+                outputTextArea.setCaretPosition(
+                        outputTextArea.getDocument().getLength());
+            });
         }
 
         @Override
@@ -327,21 +337,22 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
 
         @Override
         public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+            llmOutput.append(token);
             long newLines = token.chars().filter(c -> c == '\n').count();
             if (newLines > 0) {
                 llmLineCount.addAndGet((int) newLines);
                 // Start the timer if it's not already running
                 SwingUtilities.invokeLater(() -> {
-                    if (!dialog.llmLineCountTimer.isRunning()) {
-                        dialog.llmLineCountTimer.start();
+                    if (!llmLineCountTimer.isRunning()) {
+                        llmLineCountTimer.start();
                     }
                 });
             }
         }
 
         @Override
-        public List<ChatMessage> getLlmRawMessages() {
-            return List.of();
+        public void systemNotify(String message, String title, int messageType) {
+            appendToOutput(title + ": " + message);
         }
     }
 }

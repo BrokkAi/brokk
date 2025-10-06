@@ -1254,37 +1254,7 @@ public class BlitzForgeDialog extends JDialog {
                         return new BlitzForge.FileResult(file, false, "Cancelled by user.", "");
                     }
 
-                    // Capture LLM output while forwarding to the dialog's console
-                    class CapturingConsole implements IConsoleIO {
-                        private final IConsoleIO delegate;
-                        private final StringBuilder buf = new StringBuilder();
-                        CapturingConsole(IConsoleIO delegate) {
-                            this.delegate = delegate;
-                        }
-                        String text() { return buf.toString(); }
-                        @Override
-                        public void toolError(String message, String title) {
-                            delegate.toolError(message, title);
-                        }
-                        @Override
-                        public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-                            buf.append(token);
-                            delegate.llmOutput(token, type, isNewMessage, isReasoning);
-                        }
-                        public void systemOutput(String message) {
-                            // no-op; informational output is conveyed via per-file result and toolError
-                        }
-                        public void systemNotify(String message, String title, int messageType) {
-                            // no-op; UI notifications are handled elsewhere
-                        }
-                        @Override
-                        public java.util.List<dev.langchain4j.data.message.ChatMessage> getLlmRawMessages() {
-                            return java.util.List.of();
-                        }
-                    }
-
                     var dialogIo = progressDialog.getConsoleIO(file);
-                    var io = new CapturingConsole(dialogIo);
                     String errorMessage = null;
 
                     List<ChatMessage> readOnlyMessages = new ArrayList<>();
@@ -1296,15 +1266,14 @@ public class BlitzForgeDialog extends JDialog {
                         if (fRelatedK != null) {
                             var acFragment = cm.liveContext().buildAutoContext(fRelatedK);
                             if (!acFragment.text().isBlank()) {
-                                var msgText = (
-                                        """
-                                        <related_classes>
-                                        The user requested to include the top %d related classes.
+                                var msgText = """
+                                <related_classes>
+                                The user requested to include the top %d related classes.
 
-                                        %s
-                                        </related_classes>
-                                        """
-                                                .stripIndent())
+                                %s
+                                </related_classes>
+                                """
+                                        .stripIndent()
                                         .formatted(fRelatedK, acFragment.text());
                                 readOnlyMessages.add(new UserMessage(msgText));
                             }
@@ -1319,7 +1288,6 @@ public class BlitzForgeDialog extends JDialog {
                             mustache.execute(writer, scope);
                             String finalCommand = writer.toString();
 
-                            io.systemOutput("Executing per-file command: " + finalCommand);
                             String commandOutputText;
                             try {
                                 String output = Environment.instance.runShellCommand(
@@ -1327,26 +1295,24 @@ public class BlitzForgeDialog extends JDialog {
                                         cm.getProject().getRoot(),
                                         line -> {},
                                         Environment.UNLIMITED_TIMEOUT);
-                                commandOutputText = (
-                                        """
-                                        <per_file_command_output command="%s">
-                                        %s
-                                        </per_file_command_output>
-                                        """
-                                                .stripIndent())
+                                commandOutputText = """
+                                <per_file_command_output command="%s">
+                                %s
+                                </per_file_command_output>
+                                """
+                                        .stripIndent()
                                         .formatted(finalCommand, output);
                             } catch (Environment.SubprocessException ex) {
-                                commandOutputText = (
-                                        """
-                                        <per_file_command_output command="%s">
-                                        Error executing command: %s
-                                        Output (if any):
-                                        %s
-                                        </per_file_command_output>
-                                        """
-                                                .stripIndent())
+                                commandOutputText = """
+                                <per_file_command_output command="%s">
+                                Error executing command: %s
+                                Output (if any):
+                                %s
+                                </per_file_command_output>
+                                """
+                                        .stripIndent()
                                         .formatted(finalCommand, ex.getMessage(), ex.getOutput());
-                                io.toolError(
+                                dialogIo.toolError(
                                         "Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(),
                                         "Command Execution Error");
                             }
@@ -1357,7 +1323,7 @@ public class BlitzForgeDialog extends JDialog {
                         errorMessage = "Interrupted during message preparation.";
                     } catch (Exception ex) {
                         errorMessage = "Setup failed: " + ex.getMessage();
-                        io.toolError(errorMessage, "Setup");
+                        dialogIo.toolError(errorMessage, "Setup");
                     }
 
                     if (errorMessage != null) {
@@ -1369,10 +1335,10 @@ public class BlitzForgeDialog extends JDialog {
                     if (engineAction == BlitzForge.Action.ASK) {
                         var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
                         var llm = cm.getLlm(model, "Ask", true);
-                        llm.setOutput(io);
+                        llm.setOutput(dialogIo);
                         tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);
                     } else {
-                        var agent = new CodeAgent(cm, model, io);
+                        var agent = new CodeAgent(cm, model, dialogIo);
                         tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages, Set.of());
                     }
 
@@ -1382,11 +1348,11 @@ public class BlitzForgeDialog extends JDialog {
                     } else if (tr.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
                         errorMessage = "Processing failed: " + tr.stopDetails().reason()
                                 + (tr.stopDetails().explanation().isEmpty() ? "" : " - " + tr.stopDetails().explanation());
-                        io.toolError(errorMessage, "Agent Processing Error");
+                        dialogIo.toolError(errorMessage, "Agent Processing Error");
                     }
 
                     boolean edited = tr.changedFiles().contains(file);
-                    String llmOutput = io.text();
+                    String llmOutput = dialogIo.getLlmOutput();
 
                     // Optional context filtering
                     if (!fContextFilter.isBlank() && !llmOutput.isBlank()) {
