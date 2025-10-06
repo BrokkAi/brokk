@@ -23,6 +23,8 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
+import java.util.HashMap;
+import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,11 +51,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private final JScrollPane outputScrollPane;
     private final DisplayOnlyDocument document;
     private final JSplitPane splitPane;
+    private final Map<String, TestEntry> testsByPath;
 
     public TestRunnerPanel() {
         super(new BorderLayout(0, 0));
 
         testListModel = new DefaultListModel<>();
+        testsByPath = new HashMap<>();
         testList = new JList<>(testListModel);
         testList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         testList.setCellRenderer(new TestEntryRenderer());
@@ -105,15 +109,50 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Add a test to the list (EDT-safe).
+     * Add a new test to the list using file path and display name (EDT-safe).
+     * @param testFilePath unique identifier for the test
+     * @param displayName human-readable name to display in the UI
      */
-    public void addTest(TestEntry test) {
+    public void addTest(String testFilePath, String displayName) {
         runOnEdt(() -> {
+            var test = new TestEntry(testFilePath, displayName);
+            testsByPath.put(testFilePath, test);
             testListModel.addElement(test);
             if (testListModel.getSize() == 1) {
                 testList.setSelectedIndex(0);
             }
         });
+    }
+
+    /**
+     * Add a test to the list (EDT-safe).
+     */
+    public void addTest(TestEntry test) {
+        runOnEdt(() -> {
+            testsByPath.put(test.getFilePath(), test);
+            testListModel.addElement(test);
+            if (testListModel.getSize() == 1) {
+                testList.setSelectedIndex(0);
+            }
+        });
+    }
+
+    /**
+     * Append output to a specific test identified by file path (EDT-safe).
+     * @param testFilePath the file path of the test
+     * @param text the text to append
+     */
+    public void appendToTest(String testFilePath, @org.jetbrains.annotations.Nullable String text) {
+        final String safe = (text == null) ? "" : text;
+        if (safe.isEmpty()) return;
+        
+        var test = testsByPath.get(testFilePath);
+        if (test == null) {
+            logger.warn("Cannot append to unknown test: {}", testFilePath);
+            return;
+        }
+        
+        appendToTest(test, safe);
     }
 
     /**
@@ -134,6 +173,21 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Set the status of a test identified by file path (EDT-safe).
+     * @param testFilePath the file path of the test
+     * @param status the new status
+     */
+    public void setTestStatus(String testFilePath, TestEntry.Status status) {
+        var test = testsByPath.get(testFilePath);
+        if (test == null) {
+            logger.warn("Cannot set status for unknown test: {}", testFilePath);
+            return;
+        }
+        
+        updateTestStatus(test, status);
+    }
+
+    /**
      * Update the status of a test (EDT-safe).
      */
     public void updateTestStatus(TestEntry test, TestEntry.Status status) {
@@ -144,8 +198,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     /**
      * Clear all tests (EDT-safe).
      */
-    public void clearTests() {
+    public void clearAllTests() {
         runOnEdt(() -> {
+            testsByPath.clear();
             testListModel.clear();
             try {
                 document.withWritePermission(() -> outputArea.setText(""));
@@ -153,6 +208,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 logger.warn("Failed to clear output", ex);
             }
         });
+    }
+
+    /**
+     * Clear all tests (EDT-safe).
+     */
+    public void clearTests() {
+        clearAllTests();
     }
 
     private void updateOutputForSelectedTest() {
