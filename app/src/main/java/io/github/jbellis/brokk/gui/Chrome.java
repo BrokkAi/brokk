@@ -820,7 +820,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateGitRepo() {
-        logger.debug("updateGitRepo invoked");
+        logger.trace("updateGitRepo invoked");
 
         // Determine current branch (if available) and update InstructionsPanel on EDT
         String branchToDisplay = null;
@@ -828,7 +828,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         try {
             if (hasGit) {
                 var currentBranch = getProject().getRepo().getCurrentBranch();
-                logger.debug("updateGitRepo: current branch='{}'", currentBranch);
+                logger.trace("updateGitRepo: current branch='{}'", currentBranch);
                 if (!currentBranch.isBlank()) {
                     branchToDisplay = currentBranch;
                 }
@@ -865,21 +865,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Update individual Git-related panels and log what is being updated
         if (gitCommitTab != null) {
-            logger.debug("updateGitRepo: updating GitCommitTab");
+            logger.trace("updateGitRepo: updating GitCommitTab");
             gitCommitTab.updateCommitPanel();
         } else {
             logger.trace("updateGitRepo: GitCommitTab not present (skipping)");
         }
 
         if (gitLogTab != null) {
-            logger.debug("updateGitRepo: updating GitLogTab");
+            logger.trace("updateGitRepo: updating GitLogTab");
             gitLogTab.update();
         } else {
             logger.trace("updateGitRepo: GitLogTab not present (skipping)");
         }
 
         if (gitWorktreeTab != null) {
-            logger.debug("updateGitRepo: refreshing GitWorktreeTab");
+            logger.trace("updateGitRepo: refreshing GitWorktreeTab");
             gitWorktreeTab.refresh();
         } else {
             logger.trace("updateGitRepo: GitWorktreeTab not present (skipping)");
