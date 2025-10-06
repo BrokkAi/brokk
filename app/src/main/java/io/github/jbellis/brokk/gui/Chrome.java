@@ -2928,36 +2928,64 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     private TestRunnerPanel ensureTestRunnerPanel() {
         if (testRunnerPanel == null) {
-            var store = new FileBasedTestRunsStore(getProject().getRoot());
+            Path storeFile = getProject()
+                    .getMasterRootPathForConfig()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve("test-runs.json");
+            try {
+                Files.createDirectories(storeFile.getParent());
+            } catch (IOException e) {
+                logger.warn("Failed to create test-runs store dir: {}", e.getMessage());
+            }
+            var store = new FileBasedTestRunsStore(storeFile);
             testRunnerPanel = new TestRunnerPanel(store);
+            testRunnerPanel.setMaxRuns(100);
             testRunnerPanel.applyTheme(themeManager);
             workspaceToolsTabs.setComponentAt(TAB_TESTS, testRunnerPanel);
         }
         return testRunnerPanel;
     }
 
-    private DependenciesPanel openDependencies() {
+    // New helpers that open tabs and lazily create panels
+    private DependenciesPanel openDependenciesTab() {
         var p = ensureDependenciesPanel();
         workspaceToolsTabs.setSelectedIndex(TAB_DEPENDENCIES);
         return p;
     }
 
-    private TaskListPanel openTaskList() {
+    private TaskListPanel openTasksTab() {
         var p = ensureTaskListPanel();
         workspaceToolsTabs.setSelectedIndex(TAB_TASKS);
         return p;
     }
 
-    private TerminalPanel openTerminal() {
+    private TerminalPanel openTerminalTab() {
         var p = ensureTerminalPanel();
         workspaceToolsTabs.setSelectedIndex(TAB_TERMINAL);
         SwingUtilities.invokeLater(p::requestFocusInTerminal);
         return p;
     }
 
-    private TestRunnerPanel openTests() {
+    private TestRunnerPanel openTestsTab() {
         var p = ensureTestRunnerPanel();
         workspaceToolsTabs.setSelectedIndex(TAB_TESTS);
         return p;
+    }
+
+    // Backward-compatibility methods delegate to new helpers
+    private DependenciesPanel openDependencies() {
+        return openDependenciesTab();
+    }
+
+    private TaskListPanel openTaskList() {
+        return openTasksTab();
+    }
+
+    private TerminalPanel openTerminal() {
+        return openTerminalTab();
+    }
+
+    private TestRunnerPanel openTests() {
+        return openTestsTab();
     }
 }
