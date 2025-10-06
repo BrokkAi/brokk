@@ -164,3 +164,39 @@ export function setLiveTaskInProgress(inProgress: boolean): void {
         });
     });
 }
+
+/**
+ * Delete an entire live thread by its threadId:
+ * - Unregister parse handlers for all bubbles in the thread
+ * - Drop all bubbles belonging to that thread
+ * - Reset worker buffer and rotate a fresh live thread id (mirrors 'clear' behavior)
+ * - Notify backend to drop the last history entry (-1)
+ */
+export function deleteLiveTaskByThreadId(threadId: number): void {
+    bubblesStore.update(list => {
+        const toRemove = list.filter(b => b.threadId === threadId);
+        if (toRemove.length === 0) {
+            return list;
+        }
+
+        // Unregister parsers for removed bubbles
+        toRemove.forEach(b => unregister(b.seq));
+
+        // Remove from store
+        const remaining = list.filter(b => b.threadId !== threadId);
+
+        // If deleting current live thread, reset live state similarly to 'clear'
+        if (threadId === currentThreadId) {
+            nextBubbleSeq++; // maintain strictly increasing DOM keys across resets
+            clearState(false); // hard clear
+            threadStore.clearThreadsByType('live');
+            currentThreadId = getNextThreadId();
+            threadStore.setThreadCollapsed(currentThreadId, false, 'live');
+        }
+
+        // Ask backend to remove the last entry in history (the just-finished live task)
+        window.javaBridge?.deleteHistoryTask?.(-1);
+
+        return remaining;
+    });
+}

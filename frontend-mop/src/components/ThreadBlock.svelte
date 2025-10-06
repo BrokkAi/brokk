@@ -8,6 +8,7 @@
     import { rendererPlugins } from '../lib/renderer-plugins';
     import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
     import { deleteHistoryTaskByThreadId } from '../stores/historyStore';
+    import { deleteLiveTaskByThreadId } from '../stores/bubblesStore';
     import ThreadMeta from './ThreadMeta.svelte';
 
     export let threadId: number;
@@ -56,6 +57,7 @@
 
     function handleDelete(threadIdParam: number) {
         deleteHistoryTaskByThreadId(threadIdParam);
+        deleteLiveTaskByThreadId(threadIdParam);
     }
 
     async function handleCopy() {
