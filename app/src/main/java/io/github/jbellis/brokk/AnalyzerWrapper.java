@@ -570,7 +570,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             } catch (Throwable t) {
                 logger.debug("Branch poller encountered an error: {}", t.getMessage());
             }
-        }, intervalMs, intervalMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }, 0L, intervalMs, java.util.concurrent.TimeUnit.MILLISECONDS);
     }
 
     private String safeGetCurrentBranch() {
