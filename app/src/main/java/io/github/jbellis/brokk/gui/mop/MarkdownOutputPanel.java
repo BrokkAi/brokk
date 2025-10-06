@@ -259,6 +259,14 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.hideSpinner();
     }
 
+    /**
+     * Inform the frontend that a task has started or ended. This is used to drive UI elements like the "drop task"
+     * button and finalize streaming state.
+     */
+    public void setTaskInProgress(boolean inProgress) {
+        webHost.setTaskInProgress(inProgress);
+    }
+
     public CompletableFuture<Void> flushAsync() {
         return webHost.flushAsync();
     }

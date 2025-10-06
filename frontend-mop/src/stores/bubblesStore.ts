@@ -32,14 +32,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
                 if (lastBubble?.reasoning && !lastBubble.reasoningComplete && !evt.reasoning) {
-                    const durationInMs = lastBubble.startTime ? Date.now() - lastBubble.startTime : 0;
-                    const updatedBubble: BubbleState = {
-                        ...lastBubble,
-                        reasoningComplete: true,
-                        streaming: false,
-                        duration: durationInMs / 1000,
-                        isCollapsed: true, // Auto-collapse reasoning bubble
-                    };
+                    const updatedBubble = finalizeReasoningBubble(lastBubble);
                     list = [...list.slice(0, -1), updatedBubble];
                 }
 
@@ -135,5 +128,73 @@ export function toggleBubbleCollapsed(seq: number): void {
             }
             return bubble;
         });
+    });
+}
+
+/* ─── helpers ─────────────────────────────────────────── */
+function finalizeReasoningBubble(b: BubbleState): BubbleState {
+    if (!b.reasoning) return b;
+    const durationInMs = b.startTime ? Date.now() - b.startTime : 0;
+    return {
+        ...b,
+        streaming: false,
+        reasoningComplete: true,
+        duration: durationInMs / 1000,
+        isCollapsed: true,
+    };
+}
+
+/**
+ * Track live task progress. On end (inProgress=false), finalize all bubbles:
+ * stop streaming; for reasoning bubbles, mark complete, set duration, and collapse.
+ */
+export function setLiveTaskInProgress(inProgress: boolean): void {
+    if (inProgress) return; // nothing to do on start; bubbles will stream as chunks arrive
+
+    bubblesStore.update(list => {
+        return list.map(b => {
+            let updated = b;
+            if (b.streaming) {
+                updated = {...updated, streaming: false};
+            }
+            if (b.reasoning && !b.reasoningComplete) {
+                updated = finalizeReasoningBubble(updated);
+            }
+            return updated;
+        });
+    });
+}
+
+/**
+ * Delete an entire live thread by its threadId:
+ * - Unregister parse handlers for all bubbles in the thread
+ * - Drop all bubbles belonging to that thread
+ * - Reset worker buffer and rotate a fresh live thread id (mirrors 'clear' behavior)
+ * - Notify backend to drop the last history entry (-1)
+ */
+export function deleteLiveTaskByThreadId(threadId: number): void {
+    bubblesStore.update(list => {
+        const toRemove = list.filter(b => b.threadId === threadId);
+        if (toRemove.length === 0) {
+            return list;
+        }
+
+        // Unregister parsers for removed bubbles
+        toRemove.forEach(b => unregister(b.seq));
+
+        // If deleting current live thread, reset live state similarly to 'clear'
+        if (threadId === currentThreadId) {
+            nextBubbleSeq++; // maintain strictly increasing DOM keys across resets
+            clearState(false); // hard clear
+            threadStore.clearThreadsByType('live');
+            currentThreadId = getNextThreadId();
+            threadStore.setThreadCollapsed(currentThreadId, false, 'live');
+        }
+
+        // Ask backend to remove the last entry in history (the just-finished live task)
+        window.javaBridge?.deleteHistoryTask?.(-1);
+
+        // no optimistic UI update needed; backend will send history-reset event
+        return list;
     });
 }
