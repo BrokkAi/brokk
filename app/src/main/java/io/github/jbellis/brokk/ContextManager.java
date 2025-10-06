@@ -400,6 +400,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onRepoChange() {
+                logger.debug("AnalyzerListener.onRepoChange fired");
+                try {
+                    var branch = project.getRepo().getCurrentBranch();
+                    logger.debug("AnalyzerListener.onRepoChange current branch: {}", branch);
+                } catch (Exception e) {
+                    logger.debug("AnalyzerListener.onRepoChange: unable to get current branch", e);
+                }
                 project.getRepo().invalidateCaches();
                 io.updateGitRepo();
 
