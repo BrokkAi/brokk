@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.BorderFactory;
@@ -63,6 +64,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     // Maximum number of runs to retain
     private int maxRuns = 50;
+
+    // Optional persistence store for runs
+    private volatile @Nullable TestRunsStore runsStore = null;
 
     public TestRunnerPanel() {
         super(new BorderLayout(0, 0));
@@ -118,6 +122,79 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         } else {
             SwingUtilities.invokeLater(r);
         }
+    }
+
+    /**
+     * Inject an optional persistence store for test runs. On set, attempts to load the runs
+     * off the EDT and restores up to maxRuns into the UI, preserving order.
+     */
+    public void injectTestRunsStore(@Nullable TestRunsStore store) {
+        this.runsStore = store;
+        if (this.runsStore == null) {
+            return;
+        }
+        var loader = new Thread(() -> {
+            List<RunRecord> records;
+            try {
+                var rs = this.runsStore;
+                if (rs == null) return;
+                records = rs.load();
+            } catch (Exception e) {
+                logger.warn("Failed to load test runs from store: {}", e.getMessage(), e);
+                return;
+            }
+            restoreRuns(records);
+        }, "TestRunnerPanel-LoadRuns");
+        loader.setDaemon(true);
+        loader.start();
+    }
+
+    /**
+     * Restore runs into the UI. Preserves order (oldest -> newest),
+     * truncates to maxRuns most recent, rebuilds state, selects newest,
+     * and updates the output area accordingly.
+     */
+    private void restoreRuns(List<RunRecord> records) {
+        if (records.isEmpty()) {
+            return;
+        }
+        int start = Math.max(0, records.size() - maxRuns);
+        List<RunRecord> slice = records.subList(start, records.size());
+
+        runOnEdt(() -> {
+            runsById.clear();
+            runListModel.clear();
+
+            String lastRunningId = null;
+            for (RunRecord r : slice) {
+                var run = new RunEntry(r.id(), r.fileCount(), r.command(), r.startedAt());
+                String out = r.output();
+                if (!out.isEmpty()) {
+                    run.appendOutput(out);
+                }
+                if (r.completedAt() != null) {
+                    run.complete(r.exitCode(), r.completedAt());
+                }
+                runsById.put(r.id(), run);
+                runListModel.addElement(run);
+                if (run.isRunning()) {
+                    lastRunningId = r.id();
+                }
+            }
+
+            if (runListModel.getSize() > 0) {
+                runList.setSelectedIndex(runListModel.getSize() - 1);
+                updateOutputForSelectedRun();
+            } else {
+                try {
+                    document.withWritePermission(() -> outputArea.setText(""));
+                } catch (RuntimeException ex) {
+                    logger.warn("Failed to clear output during restore", ex);
+                }
+            }
+
+            currentActiveRunId = lastRunningId;
+        });
     }
 
     /**
