@@ -1366,6 +1366,9 @@ public class WorkspacePanel extends JPanel {
                 // ignore
             }
 
+            // Clear workspace tab badge when context is empty
+            chrome.updateWorkspaceTabBadge(0);
+
             revalidate();
             repaint();
             return;
@@ -2230,6 +2233,9 @@ public class WorkspacePanel extends JPanel {
                     } catch (Exception ignore) {
                         // ignore
                     }
+
+                    // Update workspace tab badge with token count in thousands
+                    chrome.updateWorkspaceTabBadge(approxTokens / 1000);
 
                     // Clear inner label here (moved to InstructionsPanel)
                     innerLabel.setText(" ");

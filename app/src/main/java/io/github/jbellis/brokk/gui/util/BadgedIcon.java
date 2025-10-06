@@ -15,6 +15,9 @@ public class BadgedIcon implements Icon {
     private final Icon baseIcon;
     private int count;
     private final GuiTheme themeManager;
+    
+    @Nullable
+    private String customBadgeText;
 
     @Nullable
     private Font cachedBadgeFont;
@@ -50,6 +53,36 @@ public class BadgedIcon implements Icon {
      */
     public void setCount(int count) {
         this.count = count;
+        this.customBadgeText = null; // Clear custom text when setting count
+    }
+
+    /**
+     * Sets custom badge text to display instead of the numeric count. If text is null or empty, no badge is displayed.
+     *
+     * @param text The text to display in the badge
+     * @param container The container component that needs revalidation if icon size changes
+     */
+    public void setBadgeText(@Nullable String text, @Nullable Container container) {
+        boolean previouslyVisible = this.count > 0 || (this.customBadgeText != null && !this.customBadgeText.isEmpty());
+        boolean nowVisible = text != null && !text.isEmpty();
+
+        this.customBadgeText = text;
+        this.count = nowVisible ? 1 : 0; // Set count to 1 to trigger visibility, 0 to hide
+
+        // If badge visibility changed, the icon size changed, so revalidate layout
+        if (previouslyVisible != nowVisible && container != null) {
+            container.revalidate();
+        }
+    }
+
+    /**
+     * Sets custom badge text to display instead of the numeric count. If text is null or empty, no badge is displayed.
+     * Note: This version doesn't trigger layout revalidation. Use setBadgeText(String, Container) if the badge
+     * visibility change might affect layout.
+     */
+    public void setBadgeText(@Nullable String text) {
+        this.customBadgeText = text;
+        this.count = (text != null && !text.isEmpty()) ? 1 : 0; // Set count to 1 to trigger visibility, 0 to hide
     }
 
     /**
@@ -84,15 +117,20 @@ public class BadgedIcon implements Icon {
         // Draw the base icon first
         baseIcon.paintIcon(c, g, x, y);
 
-        // Only draw badge if count is greater than 0
-        if (count <= 0) {
+        // Only draw badge if count is greater than 0 or custom text is set
+        if (count <= 0 && (customBadgeText == null || customBadgeText.isEmpty())) {
             return;
         }
 
         Graphics2D g2 = (Graphics2D) g.create();
         try {
-            // Determine badge text (show "99+" for counts over 99)
-            String badgeText = count > 99 ? "99+" : String.valueOf(count);
+            // Determine badge text: use custom text if set, otherwise use count (show "99+" for counts over 99)
+            String badgeText;
+            if (customBadgeText != null && !customBadgeText.isEmpty()) {
+                badgeText = customBadgeText;
+            } else {
+                badgeText = count > 99 ? "99+" : String.valueOf(count);
+            }
 
             // Calculate badge dimensions using cached, scaled font
             Font badgeFont = getBadgeFont(c);

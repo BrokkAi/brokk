@@ -227,6 +227,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private BadgedIcon gitTabBadgedIcon;
 
     @Nullable
+    private BadgedIcon workspaceTabBadgedIcon;
+
+    @Nullable
     private BadgedIcon tasksTabBadgedIcon;
 
     @Nullable
@@ -446,7 +449,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // Set static icons for other tabs (these persist across lazy component replacements)
-        workspaceToolsTabs.setIconAt(0, Icons.DESK); // Workspace
+        // Workspace: use a badged icon (count is updated via updateWorkspaceTabBadge)
+        workspaceTabBadgedIcon = new BadgedIcon(Icons.DESK, themeManager);
+        workspaceToolsTabs.setIconAt(0, workspaceTabBadgedIcon);
+        workspaceToolsTabs.setToolTipTextAt(0, "Workspace");
         workspaceToolsTabs.setIconAt(TAB_TERMINAL, Icons.TERMINAL);
         workspaceToolsTabs.setIconAt(TAB_TESTS, Icons.CHECK);
         // Dependencies: use a badged icon (count is updated via updateDependenciesTabBadge)
@@ -2805,6 +2811,37 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         ? "Tasks (" + tasksUndoneCount + " pending)"
                         : "Tasks";
                 workspaceToolsTabs.setToolTipTextAt(TAB_TASKS, tooltip);
+            }
+        });
+    }
+
+    /**
+     * Updates the Workspace tab badge with the token count in thousands (abbreviated with "k").
+     * Thread-safe: marshals to EDT.
+     */
+    public void updateWorkspaceTabBadge(int tokenCountInThousands) {
+        SwingUtilities.invokeLater(() -> {
+            int count = Math.max(0, tokenCountInThousands);
+
+            // Ensure the badged icon exists and is applied to the tab
+            if (workspaceTabBadgedIcon == null) {
+                workspaceTabBadgedIcon = new BadgedIcon(Icons.DESK, themeManager);
+                if (workspaceToolsTabs.getTabCount() > 0) {
+                    workspaceToolsTabs.setIconAt(0, workspaceTabBadgedIcon);
+                }
+            }
+
+            if (workspaceTabBadgedIcon != null) {
+                // Use custom badge text with "k" suffix instead of plain count
+                String badgeText = count > 0 ? count + "k" : "";
+                workspaceTabBadgedIcon.setBadgeText(badgeText, workspaceToolsTabs);
+            }
+
+            // Keep title constant as "Workspace"; use tooltip to show count
+            if (workspaceToolsTabs.getTabCount() > 0) {
+                workspaceToolsTabs.setTitleAt(0, "Workspace");
+                String tooltip = count > 0 ? "Workspace (" + count + "k tokens)" : "Workspace";
+                workspaceToolsTabs.setToolTipTextAt(0, tooltip);
             }
         });
     }
