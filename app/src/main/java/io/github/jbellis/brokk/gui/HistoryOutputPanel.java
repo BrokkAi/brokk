@@ -1681,6 +1681,11 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
+    public void setTaskInProgress(boolean inProgress) {
+        llmStreamArea.setTaskInProgress(inProgress);
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setTaskInProgress(inProgress));
+    }
+
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
         TaskEntry mainTask = null;
