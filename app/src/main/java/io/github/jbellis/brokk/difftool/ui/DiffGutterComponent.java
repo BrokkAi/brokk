@@ -250,10 +250,12 @@ public class DiffGutterComponent extends JComponent {
     public void setShowBlame(boolean show) {
         if (this.showBlame != show) {
             this.showBlame = show;
-            // Trigger resize by invalidating preferred size and propagating to parent
+            // Trigger SYNCHRONOUS resize by invalidating preferred size and forcing immediate validation
+            // Using validate() instead of revalidate() ensures layout completes before caller proceeds
+            // This prevents race conditions where subsequent operations trigger layout with stale preferred size
             invalidate();
             if (getParent() != null) {
-                getParent().revalidate();
+                getParent().validate();
             }
             repaint();
         }
@@ -272,7 +274,7 @@ public class DiffGutterComponent extends JComponent {
         rightBlameLines = lines.isEmpty() ? Map.of() : Map.copyOf(lines);
         invalidate();
         if (getParent() != null) {
-            getParent().revalidate();
+            getParent().validate();
         }
         repaint();
     }
@@ -290,7 +292,7 @@ public class DiffGutterComponent extends JComponent {
         leftBlameLines = lines.isEmpty() ? Map.of() : Map.copyOf(lines);
         invalidate();
         if (getParent() != null) {
-            getParent().revalidate();
+            getParent().validate();
         }
         repaint();
     }
@@ -813,17 +815,13 @@ public class DiffGutterComponent extends JComponent {
             return leftPadding + blameExtra + numberWidth + rightPadding;
         } else {
             // Dual column width calculation for unified mode
-            if (unifiedDocument == null) {
-                return 80; // Default width for dual columns
-            }
-
             FontMetrics fm = textArea.getFontMetrics(textArea.getFont());
             int columnWidth = fm.stringWidth("9999");
             int columnGap = COLUMN_GAP;
             int baseLeftPadding = GUTTER_LEFT_PADDING;
             int rightPadding = GUTTER_RIGHT_PADDING_UNIFIED;
 
-            // Reserve fixed width for blame based on sample text
+            // Reserve fixed width for blame based on sample text (even when unifiedDocument is null)
             int blameExtra = 0;
             if (showBlame) {
                 Font bf = getFont()
