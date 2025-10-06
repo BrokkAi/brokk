@@ -1360,8 +1360,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             topSplitPane.setResizeWeight(1.0);
 
             int workspaceHeight = topSplitPane.getDividerLocation();
-            int targetWorkspaceHeight = 40; // just enough for button and tab strip
-            int delta = workspaceHeight - targetWorkspaceHeight;
+        int targetWorkspaceHeight = 30; // just enough for tab strip
+        int delta = workspaceHeight - targetWorkspaceHeight;
 
             if (delta > 0) {
                 mainVerticalSplitPane.setDividerLocation(mainVerticalSplitPane.getDividerLocation() + delta);
