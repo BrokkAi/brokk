@@ -23,22 +23,20 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-import io.github.jbellis.brokk.tools.ToolRegistry.SignatureUnit;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -72,13 +70,10 @@ public class SearchAgent {
     private final IConsoleIO io;
     private final String goal;
     private final Set<Terminal> allowedTerminals;
+    private final List<McpPrompts.McpTool> mcpTools;
 
     // Session-local conversation for this agent
     private final List<ChatMessage> sessionMessages = new ArrayList<>();
-
-    // Duplicate detection and linkage discovery
-    private final Set<SignatureUnit> toolCallSignatures = new HashSet<>();
-    private final Set<String> trackedClassNames = new HashSet<>();
 
     // State toggles
     private boolean beastMode;
@@ -96,6 +91,17 @@ public class SearchAgent {
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
+
+        var mcpConfig = cm.getProject().getMcpConfig();
+        List<McpPrompts.McpTool> tools = new ArrayList<>();
+        for (var server : mcpConfig.servers()) {
+            if (server.tools() != null) {
+                for (var toolName : server.tools()) {
+                    tools.add(new McpPrompts.McpTool(server, toolName));
+                }
+            }
+        }
+        this.mcpTools = List.copyOf(tools);
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -116,7 +122,9 @@ public class SearchAgent {
         while (true) {
             // Beast mode triggers
             if (Thread.interrupted()) {
-                io.systemOutput("Search interrupted; attempting to finalize with available information");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Search interrupted; attempting to finalize with available information");
                 beastMode = true;
             }
             var inputLimit = cm.getService().getMaxInputTokens(model);
@@ -124,7 +132,8 @@ public class SearchAgent {
                     new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
             var workspaceTokens = Messages.getApproximateTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
-                io.systemOutput(
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
                         "Workspace is near the context limit; attempting finalization based on current knowledge");
                 beastMode = true;
             }
@@ -157,7 +166,7 @@ public class SearchAgent {
             if (result.error() != null || result.isEmpty()) {
                 var details =
                         result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
-                io.systemOutput("LLM error planning next step: " + details);
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details);
                 return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, details));
             }
 
@@ -173,7 +182,7 @@ public class SearchAgent {
             }
             var next = parseResponseToRequests(ai);
             if (next.isEmpty()) {
-                // If everything got filtered (e.g., duplicate -> forged -> still duplicate), force beast mode
+                // If everything got filtered (e.g., only terminal tool kept), force beast mode next turn if needed
                 beastMode = true;
                 continue;
             }
@@ -183,7 +192,9 @@ public class SearchAgent {
             if (first.name().equals("answer") || first.name().equals("abortSearch")) {
                 // Enforce singularity
                 if (next.size() > 1) {
-                    io.systemOutput("Final action returned with other tools; ignoring others and finalizing.");
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Final action returned with other tools; ignoring others and finalizing.");
                 }
                 var exec = toolRegistry.executeTool(this, first);
                 sessionMessages.add(ToolExecutionResultMessage.from(first, exec.resultText()));
@@ -201,11 +212,6 @@ public class SearchAgent {
                     .toList();
             boolean executedDeferredTerminal = false;
             for (var req : sortedCalls) {
-                // Duplicate guard and class tracking before execution
-                var signatures = createToolCallSignatures(req);
-                toolCallSignatures.addAll(signatures);
-                trackClassNamesFromToolCall(req);
-
                 ToolExecutionResult exec;
                 try {
                     exec = toolRegistry.executeTool(this, req);
@@ -227,9 +233,6 @@ public class SearchAgent {
 
                 // Write to visible transcript and to Context history
                 sessionMessages.add(ToolExecutionResultMessage.from(req, display));
-
-                // Light composition: update discovery and flow
-                handleStateAfterTool(exec);
 
                 // Track if we executed a deferred terminal
                 if (req.name().equals("createTaskList") || req.name().equals("workspaceComplete")) {
@@ -283,6 +286,12 @@ public class SearchAgent {
                                 .map(Language::name)
                                 .collect(Collectors.joining(", "))));
         messages.add(sys);
+
+        // Describe available MCP tools
+        var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
+        if (mcpToolPrompt != null) {
+            messages.add(new SystemMessage(mcpToolPrompt));
+        }
 
         // Current Workspace contents
         messages.addAll(precomputedWorkspaceMessages);
@@ -340,7 +349,15 @@ public class SearchAgent {
         }
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
-                    "- Use createTaskList(List<String>) when the request involves code changes; produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.");
+                    """
+                    - Use createTaskList(List<String>) when the request involves code changes; produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
+                      Guidance:
+                        - Each task should be self-contained and verifiable via code review or automated tests.
+                        - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
+                        - Keep the project buildable and testable after each step.
+                        - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
+                    """
+                            .stripIndent());
         }
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
             finals.add(
@@ -371,10 +388,6 @@ public class SearchAgent {
                         You can call multiple tools in a single turn. To do so, provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
                         Do NOT invoke multiple final actions. Do NOT write code.
 
-                        Task list guidance:
-                          - Each task should be self-contained, verifiable, and as small as practical.
-                          - Prefer a sequence that keeps the project buildable and testable after each step.
-                          - Include writing tests, where appropriate.
 
                         %s
                         """
@@ -444,8 +457,12 @@ public class SearchAgent {
         names.add("addSymbolUsagesToWorkspace");
         names.add("addCallGraphInToWorkspace");
         names.add("addCallGraphOutToWorkspace");
-        names.add("addTextToWorkspace");
+        names.add("appendNote");
         names.add("dropWorkspaceFragments");
+
+        if (!mcpTools.isEmpty()) {
+            names.add("callMcpTool");
+        }
 
         logger.debug("Allowed tool names: {}", names);
         return names;
@@ -456,9 +473,7 @@ public class SearchAgent {
             return List.of();
         }
 
-        // 1) Isolate terminator tools BEFORE running any dedupe logic.
-        //    Terminal tools like answer/createTaskList/workspaceComplete/abortSearch do not have a list parameter
-        //    and must not be deduplicated; doing so can throw during signature extraction.
+        // Isolate terminator tools BEFORE any other handling.
         var firstFinal = response.toolExecutionRequests().stream()
                 .filter(r -> r.name().equals("answer")
                         || r.name().equals("createTaskList")
@@ -469,19 +484,15 @@ public class SearchAgent {
             return List.of(firstFinal.get());
         }
 
-        // 2) Otherwise, dedupe non-terminator tool requests and forge getRelatedClasses for duplicates.
-        var raw = response.toolExecutionRequests().stream()
-                .map(this::handleDuplicateRequestIfNeeded)
-                .toList();
-
-        return raw;
+        // No dedupe/forging: return all non-terminal tool requests in the order provided
+        return response.toolExecutionRequests();
     }
 
     private int priority(String toolName) {
         // Prioritize workspace pruning and adding summaries before deeper exploration.
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "addTextToWorkspace" -> 2;
+            case "addTextToWorkspace", "appendNote" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
             case "getRelatedClasses" -> 5;
@@ -551,7 +562,43 @@ public class SearchAgent {
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
         logger.debug("abortSearch selected with explanation length {}", explanation.length());
+        io.llmOutput(explanation, ChatMessageType.AI);
         return explanation;
+    }
+
+    @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
+    public String callMcpTool(
+            @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
+            @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
+                    @Nullable
+                    Map<String, Object> arguments) {
+        Map<String, Object> args = java.util.Objects.requireNonNullElseGet(arguments, HashMap::new);
+        var mcpToolOptional =
+                mcpTools.stream().filter(t -> t.toolName().equals(toolName)).findFirst();
+
+        if (mcpToolOptional.isEmpty()) {
+            var err = "Error: MCP tool '" + toolName + "' not found in configuration.";
+            if (toolName.contains("(") || toolName.contains("{")) {
+                err = err
+                        + " Possible arguments found in the tool name. Hint: The first argument, 'toolName', is the tool name only. Any arguments must be defined as a map in the second argument, named 'arguments'.";
+            }
+            logger.warn(err);
+            return err;
+        }
+
+        var server = mcpToolOptional.get().server();
+        try {
+            var projectRoot = this.cm.getProject().getRoot();
+            var result = McpUtils.callTool(server, toolName, args, projectRoot);
+            var preamble = McpPrompts.mcpToolPreamble();
+            var msg = preamble + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
+            logger.info("MCP tool '{}' executed successfully via server '{}'", toolName, server.name());
+            return msg;
+        } catch (IOException | RuntimeException e) {
+            var err = "Error calling MCP tool '" + toolName + "': " + e.getMessage();
+            logger.error(err, e);
+            return err;
+        }
     }
 
     // =======================
@@ -604,25 +651,9 @@ public class SearchAgent {
                 .contains(toolName);
     }
 
-    private void handleStateAfterTool(@Nullable ToolExecutionResult exec) throws InterruptedException {
-        if (exec == null || exec.status() != ToolExecutionResult.Status.SUCCESS) {
-            return;
-        }
-        switch (exec.toolName()) {
-            case "searchSymbols" -> {
-                if (!exec.resultText().startsWith("No definitions found")) {
-                    trackClassNamesFromResult(exec.resultText());
-                }
-            }
-            case "getUsages", "getRelatedClasses", "getClassSkeletons", "getClassSources", "getMethodSources" ->
-                trackClassNamesFromResult(exec.resultText());
-            default -> {}
-        }
-    }
-
     private String summarizeResult(
             String query, ToolExecutionRequest request, String rawResult, @Nullable String reasoning)
-            throws RuntimeException {
+            throws InterruptedException {
         var sys = new SystemMessage(
                 """
                         You are a code expert extracting ALL information relevant to the given goal
@@ -648,190 +679,11 @@ public class SearchAgent {
                         """
                         .stripIndent()
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
-        Llm.StreamingResult sr;
-        try {
-            sr = llm.sendRequest(List.of(sys, user));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
-        }
+        Llm.StreamingResult sr = llm.sendRequest(List.of(sys, user));
         if (sr.error() != null) {
             return rawResult; // fallback to raw
         }
         return sr.text();
-    }
-
-    // =======================
-    // Duplicate forging & tracking
-    // =======================
-
-    private ToolExecutionRequest handleDuplicateRequestIfNeeded(ToolExecutionRequest request) {
-        if (!cm.getAnalyzerWrapper().providesInterproceduralAnalysis()) {
-            return request;
-        }
-
-        // Workspace mutation tools are never deduplicated
-        if (toolRegistry.isWorkspaceMutationTool(request.name())) {
-            return request;
-        }
-
-        var requestUnits = createToolCallSignatures(request);
-        if (requestUnits.isEmpty()) {
-            // Could not determine units; conservatively allow execution
-            return request;
-        }
-
-        var newUnits = requestUnits.stream()
-                .filter(u -> !toolCallSignatures.contains(u))
-                .toList();
-
-        if (newUnits.isEmpty()) {
-            // Nothing new in this request: treat as duplicate and consider forging getRelatedClasses
-            logger.debug("Duplicate call detected for {}; forging getRelatedClasses", request.name());
-            request = createRelatedClassesRequest();
-            var forgedUnits = createToolCallSignatures(request);
-            if (toolCallSignatures.containsAll(forgedUnits)) {
-                logger.debug("Forged getRelatedClasses would also be duplicate; switching to beast mode");
-                beastMode = true;
-            }
-            return request;
-        }
-
-        // Some items are new: rewrite the request to contain only the new items (avoid losing new work)
-        if (newUnits.size() < requestUnits.size()) {
-            var rewritten = toolRegistry.buildRequestFromUnits(request, newUnits);
-            return rewritten;
-        }
-
-        // All units are new: execute original request
-        return request;
-    }
-
-    private ToolExecutionRequest createRelatedClassesRequest() {
-        var classList = new ArrayList<>(trackedClassNames);
-        String args = toJsonArrayArg("classNames", classList);
-        return ToolExecutionRequest.builder()
-                .name("getRelatedClasses")
-                .arguments(args)
-                .build();
-    }
-
-    private String toJsonArrayArg(String param, List<String> values) {
-        var mapper = new ObjectMapper();
-        try {
-            return """
-                    { "%s": %s }
-                    """
-                    .stripIndent()
-                    .formatted(param, mapper.writeValueAsString(values));
-        } catch (JsonProcessingException e) {
-            logger.error("Error serializing array for {}", param, e);
-            return """
-                    { "%s": [] }
-                    """
-                    .stripIndent()
-                    .formatted(param);
-        }
-    }
-
-    private List<SignatureUnit> createToolCallSignatures(ToolExecutionRequest request) {
-        // Delegate to ToolRegistry which has validation/typing knowledge.
-        try {
-            return toolRegistry.signatureUnits(this, request);
-        } catch (Exception e) {
-            logger.error("Error creating signature units for {}: {}", request.name(), e.getMessage(), e);
-            return List.of();
-        }
-    }
-
-    private void trackClassNamesFromToolCall(ToolExecutionRequest request) {
-        try {
-            var args = getArgumentsMap(request);
-            switch (request.name()) {
-                case "getClassSkeletons", "getClassSources", "getRelatedClasses" -> {
-                    @SuppressWarnings("unchecked")
-                    List<String> cs = (List<String>) args.get("classNames");
-                    if (cs != null) trackedClassNames.addAll(cs);
-                }
-                case "getMethodSources" -> {
-                    @SuppressWarnings("unchecked")
-                    List<String> ms = (List<String>) args.get("methodNames");
-                    if (ms != null) {
-                        ms.stream()
-                                .map(this::extractClassNameFromMethod)
-                                .filter(Objects::nonNull)
-                                .forEach(trackedClassNames::add);
-                    }
-                }
-                case "getUsages" -> {
-                    @SuppressWarnings("unchecked")
-                    var symbols = (List<String>) args.get("symbols");
-                    if (symbols != null) {
-                        for (var sym : symbols) {
-                            var cn = extractClassNameFromSymbol(sym);
-                            cn.ifPresent(trackedClassNames::add);
-                        }
-                    }
-                }
-                default -> {}
-            }
-        } catch (Exception e) {
-            logger.error("Error tracking class names from tool call", e);
-        }
-    }
-
-    private void trackClassNamesFromResult(String resultText) throws InterruptedException {
-        if (resultText.isBlank() || resultText.startsWith("No ") || resultText.startsWith("Error:")) return;
-
-        // Handle compressed "[Common package prefix: 'x.y'] a, b"
-        String effective = resultText;
-        String prefix = "";
-        if (resultText.startsWith("[") && resultText.contains("] ")) {
-            int end = resultText.indexOf("] ");
-            int startQuote = resultText.indexOf("'");
-            int endQuote = resultText.lastIndexOf("'", end);
-            if (end > 0 && startQuote >= 0 && endQuote > startQuote) {
-                prefix = resultText.substring(startQuote + 1, endQuote);
-            }
-            effective = resultText.substring(end + 2).trim();
-        }
-
-        String fPrefix = prefix;
-        Set<String> potential = new HashSet<>(Arrays.stream(effective.split("[,\\s]+"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(s -> fPrefix.isEmpty() ? s : fPrefix + "." + s)
-                .filter(s -> s.contains(".") && Character.isJavaIdentifierStart(s.charAt(0)))
-                .toList());
-
-        var classMatcher =
-                Pattern.compile("(?:Source code of |class )([\\w.$]+)").matcher(resultText);
-        while (classMatcher.find()) potential.add(classMatcher.group(1));
-
-        var usageMatcher = Pattern.compile("Usage in ([\\w.$]+)\\.").matcher(resultText);
-        while (usageMatcher.find()) potential.add(usageMatcher.group(1));
-
-        if (!potential.isEmpty()) {
-            Set<String> valid = new HashSet<>();
-            for (String p : potential) {
-                var className = extractClassNameFromSymbol(p);
-                className.ifPresent(valid::add);
-            }
-            if (!valid.isEmpty()) {
-                trackedClassNames.addAll(valid);
-            }
-        }
-    }
-
-    private @Nullable String extractClassNameFromMethod(String methodName) {
-        int lastDot = methodName.lastIndexOf('.');
-        if (lastDot > 0) return methodName.substring(0, lastDot);
-        return null;
-    }
-
-    private Optional<String> extractClassNameFromSymbol(String symbol) throws InterruptedException {
-        return cm.getAnalyzer().getDefinition(symbol).flatMap(cu -> cu.classUnit()
-                .map(CodeUnit::fqName));
     }
 
     private static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {

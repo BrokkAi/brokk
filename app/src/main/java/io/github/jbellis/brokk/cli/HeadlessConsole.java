@@ -52,7 +52,7 @@ public final class HeadlessConsole implements IConsoleIO {
             case SYSTEM -> SystemMessage.from(text);
             case USER -> UserMessage.from(text);
             case AI -> AiMessage.from(text);
-            case CUSTOM -> new CustomMessage(java.util.Map.of("text", text));
+            case CUSTOM -> Messages.customSystem(text);
             default -> throw new IllegalArgumentException("Unsupported message type for creation: " + type);
         };
     }
@@ -62,6 +62,22 @@ public final class HeadlessConsole implements IConsoleIO {
         // Prefix the message with the title to make it clear in the console
         // which error type we encountered.
         System.err.println("[" + title + "] " + msg);
+    }
+
+    @Override
+    public void showNotification(NotificationRole role, String message) {
+        String prefix =
+                switch (role) {
+                    case ERROR -> "[ERROR] ";
+                    case CONFIRM -> "[CONFIRM] ";
+                    case COST -> "[COST] ";
+                    case INFO -> "[INFO] ";
+                };
+        if (role == IConsoleIO.NotificationRole.ERROR) {
+            System.err.println(prefix + message);
+        } else {
+            System.out.println(prefix + message);
+        }
     }
 
     @Override

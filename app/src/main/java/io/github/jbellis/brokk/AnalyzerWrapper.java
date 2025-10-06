@@ -133,7 +133,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             if (listener != null) listener.onTrackedFileChange();
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
-                IAnalyzer result = requireNonNull(prev).update();
+                IAnalyzer result = prev.update();
                 long duration = System.currentTimeMillis() - startTime;
                 logger.info(
                         "Library ingestion: {} analyzer refresh completed in {}ms", getLanguageDescription(), duration);
@@ -182,7 +182,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
         return refresh(prev -> {
             long startTime = System.currentTimeMillis();
-            IAnalyzer result = requireNonNull(prev).update(relevantFiles);
+            IAnalyzer result = prev.update(relevantFiles);
             long duration = System.currentTimeMillis() - startTime;
             logger.info(
                     "Library ingestion: {} analyzer processed {} files in {}ms",
@@ -301,7 +301,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
-            refresh(prev -> requireNonNull(prev).update());
+            refresh(IAnalyzer::update);
         }
 
         logger.debug("Analyzer load complete!");
@@ -406,9 +406,10 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      *
      * <p>Synchronized to simplify reasoning about pause/resume; otherwise is inherently threadsafe.
      */
-    private synchronized CompletableFuture<IAnalyzer> refresh(Function<@Nullable IAnalyzer, IAnalyzer> fn) {
+    private synchronized CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
         logger.trace("Scheduling analyzer refresh task");
         return analyzerExecutor.submit(() -> {
+            requireNonNull(currentAnalyzer);
             if (listener != null) {
                 listener.beforeEachBuild();
             }

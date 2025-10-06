@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.SessionManager;
@@ -8,10 +9,13 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -37,6 +41,7 @@ public final class ContextExplorer extends JFrame {
     private static final Logger logger = LogManager.getLogger(ContextExplorer.class);
     private final SessionManager sessionManager;
     private final IContextManager contextManager; // A minimal stub for history loading
+    private final Path sessionsDir;
 
     // Pane 1: Sessions Table (Left) - sortable with 3 columns
     private final SessionTableModel sessionsTableModel = new SessionTableModel();
@@ -60,6 +65,7 @@ public final class ContextExplorer extends JFrame {
 
     public ContextExplorer(Path sessionsDir) {
         super("Brokk Context Explorer");
+        this.sessionsDir = sessionsDir;
         this.contextManager = new MinimalContextManager();
         this.sessionManager = new SessionManager(sessionsDir);
 
@@ -78,10 +84,15 @@ public final class ContextExplorer extends JFrame {
         sessionsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         sessionsTable.setBorder(new EmptyBorder(5, 5, 5, 5));
         sessionsTable.setRowSorter(sessionsSorter);
-        // Configure sorting: numeric for task count, lexicographic for others
+        // Configure sorting: numeric for task count, by distinct type count for types
         sessionsSorter.setComparator(1, Comparator.comparingInt(o -> (Integer) o));
         sessionsSorter.setComparator(0, Comparator.comparing(String::valueOf));
-        sessionsSorter.setComparator(2, Comparator.comparing(String::valueOf));
+        sessionsSorter.setComparator(2, Comparator.comparingInt(o -> {
+            String types = (String) o;
+            return types.isEmpty()
+                    ? 0
+                    : (int) types.chars().filter(ch -> ch == ',').count() + 1;
+        }));
         sessionsTable.getTableHeader().setReorderingAllowed(false);
         // Column widths
         var colModel = sessionsTable.getColumnModel();
@@ -117,6 +128,12 @@ public final class ContextExplorer extends JFrame {
         var mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScroll, rightSplit);
         mainSplit.setResizeWeight(0.25); // Sessions table takes 25%, rightSplit takes 75%
 
+        var toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        var exportButton = new MaterialButton("Export");
+        exportButton.addActionListener(e -> exportSession());
+        toolbar.add(exportButton);
+
+        add(toolbar, BorderLayout.NORTH);
         add(mainSplit, BorderLayout.CENTER);
     }
 
@@ -464,6 +481,108 @@ public final class ContextExplorer extends JFrame {
         imageLabel.setText("");
     }
 
+    private void exportSession() {
+        if (selectedSessionId == null) {
+            JOptionPane.showMessageDialog(this, "No session selected.", "Export Error", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        final var sessionIdLocal = selectedSessionId;
+
+        new SwingWorker<Path, Void>() {
+            @Override
+            protected Path doInBackground() throws Exception {
+                var rows = tableModel.rows;
+                List<ContextExport> exports = new ArrayList<>();
+                ContextExport current = null;
+
+                for (var row : rows) {
+                    if (row instanceof HeaderRow h) {
+                        if (current != null) {
+                            exports.add(current);
+                        }
+                        current = new ContextExport(
+                                h.index(),
+                                h.contextId().toString(),
+                                h.action(),
+                                h.historyEntries(),
+                                h.historyLines(),
+                                new ArrayList<>());
+                    } else if (row instanceof FragmentRow fr && current != null) {
+                        var f = fr.fragment();
+                        current.fragments()
+                                .add(new FragmentExport(
+                                        f.id(),
+                                        f.getType().name(),
+                                        f.shortDescription(),
+                                        fr.lineCount(),
+                                        f.syntaxStyle()));
+                    }
+                }
+                if (current != null) {
+                    exports.add(current);
+                }
+
+                // Ensure deterministic ordering: sort fragments by id (lexicographically)
+                for (var e : exports) {
+                    e.fragments().sort(Comparator.comparing(FragmentExport::id));
+                }
+
+                var mapper = new ObjectMapper();
+                var jsonl = exports.stream()
+                        .map(e -> {
+                            try {
+                                return mapper.writeValueAsString(e);
+                            } catch (Exception ex) {
+                                throw new RuntimeException(ex);
+                            }
+                        })
+                        .collect(Collectors.joining("\n"));
+
+                var exportPath = sessionsDir.resolve(sessionIdLocal.toString() + ".jsonl");
+                Files.writeString(exportPath, jsonl, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                logger.info("Exported session {} to {}", sessionIdLocal, exportPath);
+                return exportPath;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    Path exportPath = get();
+                    JOptionPane.showMessageDialog(
+                            ContextExplorer.this,
+                            "Session exported to:\n" + exportPath,
+                            "Export Success",
+                            JOptionPane.INFORMATION_MESSAGE);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("Export interrupted", e);
+                    JOptionPane.showMessageDialog(
+                            ContextExplorer.this, "Export interrupted.", "Export Error", JOptionPane.ERROR_MESSAGE);
+                } catch (ExecutionException e) {
+                    logger.error("Failed to export session", e);
+                    var cause = e.getCause();
+                    var msg = (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.toString();
+                    JOptionPane.showMessageDialog(
+                            ContextExplorer.this,
+                            "Failed to export session: " + msg,
+                            "Export Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private record ContextExport(
+            int contextIndex,
+            String contextId,
+            String action,
+            int historyEntries,
+            int historyLines,
+            List<FragmentExport> fragments) {}
+
+    private record FragmentExport(String id, String type, String shortDescription, int lineCount, String syntaxStyle) {}
+
     public static void main(String[] args) {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
@@ -512,7 +631,7 @@ public final class ContextExplorer extends JFrame {
     private static final class ContextFragmentsTableModel extends AbstractTableModel {
         private final List<TableRow> rows = new ArrayList<>();
         private static final String[] COLUMN_NAMES = {
-            "Type", "Context Info", "Fragment ID", "FragType", "Description", "Lines", "Dynamic", "Syntax"
+            "Type", "Context Info", "Fragment ID", "FragType", "Description", "Lines", "Syntax"
         };
 
         public void clear() {
@@ -576,8 +695,7 @@ public final class ContextExplorer extends JFrame {
                     case 3 -> f.getType().name();
                     case 4 -> f.shortDescription();
                     case 5 -> fr.lineCount();
-                    case 6 -> f.isDynamic();
-                    case 7 -> f.syntaxStyle();
+                    case 6 -> f.syntaxStyle();
                     default -> "";
                 };
             }

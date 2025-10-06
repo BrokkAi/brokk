@@ -220,7 +220,7 @@ public class EditBlock {
             } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
                 var msg = "Non-fatal error: unable to update `%s` in Git".formatted(file);
                 logger.error("{}: {}", msg, e.getMessage());
-                io.systemOutput(msg);
+                io.showNotification(IConsoleIO.NotificationRole.INFO, msg);
             }
         }
 

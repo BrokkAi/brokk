@@ -51,12 +51,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
         int startOffset = component.viewToModel2D(new Point(clip.x - lineHeight, clip.y));
         int endOffset = component.viewToModel2D(new Point(clip.x, clip.y + clip.height + lineHeight));
 
-        LineNumberBorder lineNumberBorder =
-                (component.getBorder() instanceof LineNumberBorder) ? (LineNumberBorder) component.getBorder() : null;
-
-        if (lineNumberBorder != null) {
-            lineNumberBorder.paintBefore(g);
-        }
+        // LineNumberBorder is no longer used - gutter components handle line numbers separately
 
         Rectangle textBounds = component.getBounds();
         Insets insets = component.getInsets();
@@ -76,9 +71,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
             }
         }
 
-        if (lineNumberBorder != null) {
-            lineNumberBorder.paintAfter(g, startOffset, endOffset);
-        }
+        // LineNumberBorder paintAfter is no longer needed
     }
 
     /** Adds a highlight to the highest priority layer. */

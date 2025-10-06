@@ -784,6 +784,7 @@ public class Service {
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
             // Non-Brokk proxy
             builder = builder.apiKey("dummy-key");
+            params = params.user("e99a7c42-faf6-4139-9537-874c76928da4");
         } else {
             var kp = parseKey(MainProject.getBrokkKey());
             builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));

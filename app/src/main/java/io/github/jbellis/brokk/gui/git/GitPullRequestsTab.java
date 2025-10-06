@@ -1832,7 +1832,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     gitLogTab.update();
                     gitLogTab.selectCurrentBranch();
                 });
-                chrome.systemOutput("Updated local branch " + localBranchName + " for PR #" + prNumber);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Updated local branch " + localBranchName + " for PR #" + prNumber);
                 logger.info("Successfully updated local branch {} for PR #{}", localBranchName, prNumber);
             } catch (Exception e) {
                 chrome.toolError("Error updating local branch " + localBranchName + ": " + e.getMessage());
@@ -1923,7 +1925,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     gitLogTab.selectCurrentBranch(); // Highlights the newly checked out branch
                 });
 
-                chrome.systemOutput("Checked out PR #" + prNumber + " as local branch " + localBranchName);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Checked out PR #" + prNumber + " as local branch " + localBranchName);
                 logger.info("Successfully checked out PR #{}", prNumber);
                 // Update button states on EDT
                 SwingUtilities.invokeLater(() -> {

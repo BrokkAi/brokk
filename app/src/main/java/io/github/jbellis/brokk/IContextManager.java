@@ -17,6 +17,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -145,6 +146,10 @@ public interface IContextManager {
     }
 
     default Set<ProjectFile> getFilesInContext() {
+        throw new UnsupportedOperationException();
+    }
+
+    default Context pushContext(Function<Context, Context> contextGenerator) {
         throw new UnsupportedOperationException();
     }
 

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
@@ -154,7 +155,8 @@ public final class NodeJsDependencyHelper {
                 }
                 copyNodePackage(sourceRoot, targetRoot);
                 javax.swing.SwingUtilities.invokeLater(() -> {
-                    chrome.systemOutput(
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
                             "NPM package copied to " + targetRoot + ". Reopen project to incorporate the new files.");
                     if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });

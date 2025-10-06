@@ -54,7 +54,6 @@ public class ChunkApplicationEdit extends AbstractUndoableEdit {
     @Override
     public void undo() throws CannotUndoException {
         super.undo();
-        logger.debug("Undoing chunk application: {}", operationType);
 
         try {
             // First, undo all document changes in reverse order
@@ -100,7 +99,6 @@ public class ChunkApplicationEdit extends AbstractUndoableEdit {
     @Override
     public void redo() throws CannotRedoException {
         super.redo();
-        logger.debug("Redoing chunk application: {}", operationType);
 
         try {
             // Redo all document changes

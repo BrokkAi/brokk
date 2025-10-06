@@ -152,8 +152,9 @@ public class UserActionManager {
                 return;
             }
             logger.error("Uncaught exception in UserActionManager executor", th);
-            io.systemOutput("Uncaught exception in user action thread %s\n%s"
-                    .formatted(Thread.currentThread().getName(), getStackTraceAsString(th)));
+            String message = "Uncaught exception in user action thread %s\n%s"
+                    .formatted(Thread.currentThread().getName(), getStackTraceAsString(th));
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         };
         return new LoggingExecutorService(delegate, onError);
     }

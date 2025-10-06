@@ -62,7 +62,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements CanCommunica
             return function.apply(client);
         } catch (RuntimeException e) {
             logger.error(errMessage, e);
-            if (io != null) io.systemOutput(errMessage);
+            if (io != null) io.showNotification(IConsoleIO.NotificationRole.INFO, errMessage);
             return defaultValue;
         }
     }
@@ -78,7 +78,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements CanCommunica
             });
         } catch (RuntimeException e) {
             logger.error(errMessage, e);
-            if (io != null) io.systemOutput(errMessage);
+            if (io != null) io.showNotification(IConsoleIO.NotificationRole.INFO, errMessage);
         }
     }
 

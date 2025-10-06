@@ -1141,6 +1141,7 @@ public final class MainProject extends AbstractProject {
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
+    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1215,6 +1216,17 @@ public final class MainProject extends AbstractProject {
         } else {
             props.remove(FORCE_TOOL_EMULATION_KEY);
         }
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getHistoryAutoCompress() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
+    }
+
+    public static void setHistoryAutoCompress(boolean autoCompress) {
+        var props = loadGlobalProperties();
+        props.setProperty(HISTORY_AUTO_COMPRESS_KEY, Boolean.toString(autoCompress));
         saveGlobalProperties(props);
     }
 

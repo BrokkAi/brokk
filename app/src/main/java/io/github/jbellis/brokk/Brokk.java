@@ -535,7 +535,8 @@ public class Brokk {
 
         // Log the current data retention policy.
         // This is called after any necessary dialog has been shown and policy confirmed.
-        io.systemOutput(
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
                 "Data Retention Policy set to: " + contextManager.getProject().getDataRetentionPolicy());
 
         openProjectWindows.put(projectPath, io);

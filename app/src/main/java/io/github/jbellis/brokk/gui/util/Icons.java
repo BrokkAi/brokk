@@ -52,4 +52,14 @@ public final class Icons {
     public static final Icon CELL_MERGE = SwingUtil.uiIcon("Brokk.cell_merge");
     public static final Icon FAST_FORWARD = SwingUtil.uiIcon("Brokk.fast_forward");
     public static final Icon FORK_RIGHT = SwingUtil.uiIcon("Brokk.fork_right");
+    public static final Icon NAVIGATE_NEXT = SwingUtil.uiIcon("Brokk.navigate_next");
+    public static final Icon NAVIGATE_BEFORE = SwingUtil.uiIcon("Brokk.navigate_before");
+    public static final Icon CHEVRON_RIGHT = SwingUtil.uiIcon("Brokk.chevron_right");
+    public static final Icon CHEVRON_LEFT = SwingUtil.uiIcon("Brokk.chevron_left");
+    public static final Icon VIEW_UNIFIED = SwingUtil.uiIcon("Brokk.view_unified");
+    public static final Icon VIEW_SIDE_BY_SIDE = SwingUtil.uiIcon("Brokk.view_side_by_side");
+    public static final Icon NOTIFICATIONS = SwingUtil.uiIcon("Brokk.notifications");
+    public static final Icon NOTIFICATIONS_UNREAD = SwingUtil.uiIcon("Brokk.notifications_unread");
+    public static final Icon TRASH = SwingUtil.uiIcon("Brokk.trash");
+    public static final Icon CLOSE = SwingUtil.uiIcon("Brokk.close");
 }

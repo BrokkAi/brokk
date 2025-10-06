@@ -274,7 +274,8 @@ public class VoiceInputButton extends JButton {
 
         // We do the STT in the background so as not to block the UI
         contextManager.submitBackgroundTask("Transcribing Audio", () -> {
-            contextManager.getIo().systemOutput("Transcribing audio");
+            IConsoleIO iConsoleIO1 = contextManager.getIo();
+            iConsoleIO1.showNotification(IConsoleIO.NotificationRole.INFO, "Transcribing audio");
             try {
                 // Our original AudioFormat from startMicCapture
                 AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);

@@ -303,6 +303,10 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         Map<String, String> env = new HashMap<>(System.getenv());
         // Keep color support enabled; JediTerm will render ANSI correctly.
         env.putIfAbsent("TERM", "xterm-256color");
+        // On macOS, set TERM_PROGRAM to help user configs detect Terminal.app-like environment
+        if (Environment.isMacOs()) {
+            env.put("TERM_PROGRAM", "Apple_Terminal");
+        }
 
         String cwd = (initialCwd != null) ? initialCwd.toString() : System.getProperty("user.dir");
         process =
@@ -316,6 +320,19 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             w.setTtyConnector(connector);
             w.start();
             readyFuture.complete(this);
+
+            // On macOS, ask the shell to print an SGR reset so the terminal receives it on stdout
+            if (Environment.isMacOs()) {
+
+                try {
+                    var c2 = connector;
+                    if (c2 != null) {
+                        c2.write("printf '\\033[0m\\033[39;49m'; clear\r\n");
+                    }
+                } catch (Exception ignore2) {
+                    logger.debug("Failed to write delayed SGR reset via printf", ignore2);
+                }
+            }
         }
 
         // Focus the terminal after startup

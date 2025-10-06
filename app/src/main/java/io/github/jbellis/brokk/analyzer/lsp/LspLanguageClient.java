@@ -77,7 +77,7 @@ public abstract class LspLanguageClient implements LanguageClient {
 
     protected void alertUser(String message) {
         if (io != null) {
-            io.systemOutput(message);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         } else {
             accumulatedErrors.add(message);
         }
