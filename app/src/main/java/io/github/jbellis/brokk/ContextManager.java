@@ -400,6 +400,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onRepoChange() {
+                logger.debug("AnalyzerListener.onRepoChange fired");
+                try {
+                    var branch = project.getRepo().getCurrentBranch();
+                    logger.debug("AnalyzerListener.onRepoChange current branch: {}", branch);
+                } catch (Exception e) {
+                    logger.debug("AnalyzerListener.onRepoChange: unable to get current branch", e);
+                }
                 project.getRepo().invalidateCaches();
                 io.updateGitRepo();
 
@@ -738,12 +745,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * <p>Creates a new context state with: - updated task history (with the entry removed), - null parsedOutput, - and
      * action set to "Dropped message".
      *
-     * @param sequence the TaskEntry.sequence() to remove
+     * <p>Special behavior: - sequence == -1 means "drop the last item of the history"
+     *
+     * @param sequence the TaskEntry.sequence() to remove, or -1 to remove the last entry
      */
     public void dropHistoryEntryBySequence(int sequence) {
         var currentHistory = topContext().getTaskHistory();
+
+        if (currentHistory.isEmpty()) {
+            return;
+        }
+
+        final int seqToDrop = (sequence == -1) ? currentHistory.getLast().sequence() : sequence;
+
         var newHistory = currentHistory.stream()
-                .filter(entry -> entry.sequence() != sequence)
+                .filter(entry -> entry.sequence() != seqToDrop)
                 .toList();
 
         // If nothing changed, return early
@@ -755,7 +771,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         pushContext(currentLiveCtx ->
                 currentLiveCtx.withCompressedHistory(newHistory).withParsedOutput(null, "Delete task from history"));
 
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + sequence);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
 
     /** request code-intel rebuild */
@@ -1403,7 +1419,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         contextPushed(contextHistory.topContext());
 
-        // Auto-compress conversation history if enabled and exceeds 10% of the context window
+        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window
         if (MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
@@ -1413,7 +1429,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var svc = getService();
                 var model = getCodeModel();
                 int maxInputTokens = svc.getMaxInputTokens(model);
-                if (tokenCount > (int) Math.ceil(maxInputTokens * 0.10)) {
+                double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
+                if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
                     compressHistoryAsync();
                 }
             } catch (ServiceWrapper.ServiceInitializationException e) {

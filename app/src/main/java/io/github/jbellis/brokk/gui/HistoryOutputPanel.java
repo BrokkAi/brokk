@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -78,7 +77,6 @@ public class HistoryOutputPanel extends JPanel {
     private final MaterialButton undoButton;
     private final MaterialButton redoButton;
     private final MaterialButton compressButton;
-    private final JCheckBox autoCompressCheckbox;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
@@ -191,8 +189,7 @@ public class HistoryOutputPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
-        this.compressButton = new MaterialButton("Compress");
-        this.autoCompressCheckbox = new JCheckBox("Auto");
+        this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
@@ -944,6 +941,31 @@ public class HistoryOutputPanel extends JPanel {
         clearButton.setMinimumSize(clearButton.getPreferredSize());
         buttonsPanel.add(clearButton);
 
+        // Compress button (icon-only, with improved tooltip)
+        compressButton.setText(null);
+        SwingUtilities.invokeLater(() -> {
+            compressButton.setIcon(Icons.COMPRESS);
+            // Ensure minimum size is computed after icon is applied
+            compressButton.setMinimumSize(compressButton.getPreferredSize());
+        });
+        compressButton.setToolTipText(
+                "<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
+        for (var al : compressButton.getActionListeners()) {
+            compressButton.removeActionListener(al);
+        }
+        compressButton.addActionListener(e -> {
+            int choice = chrome.showConfirmDialog(
+                    HistoryOutputPanel.this,
+                    "This will summarize your conversation history into shorter entries. Continue?",
+                    "Compress conversation history",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+            if (choice == JOptionPane.YES_OPTION) {
+                contextManager.compressHistoryAsync();
+            }
+        });
+        buttonsPanel.add(compressButton);
+
         // Notifications button
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
@@ -959,39 +981,7 @@ public class HistoryOutputPanel extends JPanel {
         // Add notification area to the right of the buttons panel
         panel.add(notificationAreaPanel, BorderLayout.CENTER);
 
-        // Right-aligned panel: Compress + Auto on the right of the same row
-        var rightButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-
-        // Auto checkbox
-        boolean autoInitial = MainProject.getHistoryAutoCompress();
-        autoCompressCheckbox.setSelected(autoInitial);
-        autoCompressCheckbox.setToolTipText(
-                "Automatically compress when history exceeds 10% of the model context window and before Task List runs");
-        // Ensure single listener (avoid duplicates if panel rebuilt)
-        for (var al : autoCompressCheckbox.getActionListeners()) {
-            autoCompressCheckbox.removeActionListener(al);
-        }
-        autoCompressCheckbox.addActionListener(e -> {
-            MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
-        });
-
-        // Compress button
-        compressButton.setToolTipText("Compress conversation history now");
-        // Ensure single listener (avoid duplicates if panel rebuilt)
-        for (var al : compressButton.getActionListeners()) {
-            compressButton.removeActionListener(al);
-        }
-        compressButton.addActionListener(e -> {
-            contextManager.compressHistoryAsync();
-        });
-        // Set minimum size similar to other buttons
-        compressButton.setMinimumSize(compressButton.getPreferredSize());
-        rightButtonsPanel.add(compressButton);
-
-        // Add Auto to the right of Compress
-        rightButtonsPanel.add(autoCompressCheckbox);
-
-        panel.add(rightButtonsPanel, BorderLayout.EAST);
+        // Compress control moved to left buttons; right-side panel removed
 
         return panel;
     }
@@ -1984,7 +1974,6 @@ public class HistoryOutputPanel extends JPanel {
             undoButton.setEnabled(false);
             redoButton.setEnabled(false);
             compressButton.setEnabled(false);
-            autoCompressCheckbox.setEnabled(false);
             // Optionally change appearance to indicate disabled state
             historyTable.setForeground(UIManager.getColor("Label.disabledForeground"));
             // Make the table visually distinct when disabled
@@ -2000,7 +1989,6 @@ public class HistoryOutputPanel extends JPanel {
             historyTable.setForeground(UIManager.getColor("Table.foreground"));
             historyTable.setBackground(UIManager.getColor("Table.background"));
             compressButton.setEnabled(true);
-            autoCompressCheckbox.setEnabled(true);
             updateUndoRedoButtonStates();
         });
     }
