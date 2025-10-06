@@ -112,6 +112,12 @@ public class HistoryOutputPanel extends JPanel {
     private final Path notificationsFile;
     private boolean isDisplayingNotification = false;
 
+    @Nullable
+    private JFrame notificationsDialog;
+
+    @Nullable
+    private JPanel notificationsListPanel;
+
     // Resolve notification colors from ThemeColors for current theme.
     // Returns a list of [background, foreground, border] colors.
     private java.util.List<Color> resolveNotificationColors(IConsoleIO.NotificationRole role) {
@@ -1021,6 +1027,7 @@ public class HistoryOutputPanel extends JPanel {
             updateNotificationsButton();
             persistNotificationsAsync();
             refreshLatestNotificationCard();
+            refreshNotificationsDialog();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
@@ -1035,6 +1042,7 @@ public class HistoryOutputPanel extends JPanel {
             notifications.add(entry);
             updateNotificationsButton();
             persistNotificationsAsync();
+            refreshNotificationsDialog();
 
             if (isDisplayingNotification) {
                 notificationQueue.offer(entry);
@@ -1372,19 +1380,47 @@ public class HistoryOutputPanel extends JPanel {
         }
     }
 
-    // Dialog showing a list of all notifications
+    // Dialog showing a list of all notifications (modeless, reusable)
     private void showNotificationsDialog() {
-        var dialog = new JDialog(chrome.getFrame(), "Notifications (" + notifications.size() + ")", true);
-        dialog.setLayout(new BorderLayout(8, 8));
+        if (notificationsDialog != null && notificationsDialog.isDisplayable()) {
+            // Reuse existing window
+            var lp = requireNonNull(notificationsListPanel, "notificationsListPanel");
+            rebuildNotificationsList(notificationsDialog, lp);
+            notificationsDialog.toFront();
+            notificationsDialog.requestFocus();
+            notificationsDialog.setVisible(true);
+            return;
+        }
+
+        notificationsDialog = new JFrame("Notifications (" + notifications.size() + ")");
+        // Set window icon similar to OutputWindow
+        try {
+            var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
+            if (iconUrl != null) {
+                var icon = new ImageIcon(iconUrl);
+                notificationsDialog.setIconImage(icon.getImage());
+            }
+        } catch (Exception ex) {
+            logger.debug("Failed to set notifications window icon", ex);
+        }
+        notificationsDialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        notificationsDialog.setLayout(new BorderLayout(8, 8));
+        notificationsDialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                notificationsDialog = null;
+                notificationsListPanel = null;
+            }
+        });
 
         // Build list panel
-        var listPanel = new ScrollableWidthPanel(new GridBagLayout());
-        listPanel.setOpaque(false);
-        listPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
+        notificationsListPanel = new ScrollableWidthPanel(new GridBagLayout());
+        notificationsListPanel.setOpaque(false);
+        notificationsListPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
 
-        rebuildNotificationsList(dialog, listPanel);
+        rebuildNotificationsList(notificationsDialog, notificationsListPanel);
 
-        var scroll = new JScrollPane(listPanel);
+        var scroll = new JScrollPane(notificationsListPanel);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
@@ -1401,7 +1437,13 @@ public class HistoryOutputPanel extends JPanel {
 
         var closeBtn = new MaterialButton("Ok");
         SwingUtil.applyPrimaryButtonStyle(closeBtn);
-        closeBtn.addActionListener(e -> dialog.dispose());
+        closeBtn.addActionListener(e -> {
+            if (notificationsDialog != null) {
+                notificationsDialog.dispose();
+                notificationsDialog = null;
+                notificationsListPanel = null;
+            }
+        });
         buttonPanel.add(closeBtn);
 
         var clearAllBtn = new MaterialButton("Clear All");
@@ -1410,21 +1452,23 @@ public class HistoryOutputPanel extends JPanel {
             notificationQueue.clear();
             updateNotificationsButton();
             persistNotificationsAsync();
-            dialog.dispose();
+            if (notificationsDialog != null && notificationsListPanel != null) {
+                rebuildNotificationsList(notificationsDialog, notificationsListPanel);
+            }
         });
         buttonPanel.add(clearAllBtn);
 
         footer.add(buttonPanel, BorderLayout.EAST);
 
-        dialog.add(scroll, BorderLayout.CENTER);
-        dialog.add(footer, BorderLayout.SOUTH);
+        notificationsDialog.add(scroll, BorderLayout.CENTER);
+        notificationsDialog.add(footer, BorderLayout.SOUTH);
 
-        dialog.setSize(640, 480);
-        dialog.setLocationRelativeTo(chrome.getFrame());
-        dialog.setVisible(true);
+        notificationsDialog.setSize(640, 480);
+        notificationsDialog.setLocationRelativeTo(chrome.getFrame());
+        notificationsDialog.setVisible(true);
     }
 
-    private void rebuildNotificationsList(JDialog dialog, JPanel listPanel) {
+    private void rebuildNotificationsList(JFrame dialog, JPanel listPanel) {
         listPanel.removeAll();
         dialog.setTitle("Notifications (" + notifications.size() + ")");
 
@@ -1539,12 +1583,24 @@ public class HistoryOutputPanel extends JPanel {
             refreshLatestNotificationCard();
             updateNotificationsButton();
             persistNotificationsAsync();
+            refreshNotificationsDialog();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
         } else {
             SwingUtilities.invokeLater(r);
         }
+    }
+
+    // If the notifications window is open, rebuild it to reflect latest items.
+    private void refreshNotificationsDialog() {
+        SwingUtilities.invokeLater(() -> {
+            if (notificationsDialog != null
+                    && notificationsDialog.isVisible()
+                    && notificationsListPanel != null) {
+                rebuildNotificationsList(notificationsDialog, notificationsListPanel);
+            }
+        });
     }
 
     public List<ChatMessage> getLlmRawMessages() {
