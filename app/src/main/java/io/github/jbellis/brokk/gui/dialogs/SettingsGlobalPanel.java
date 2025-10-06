@@ -1029,11 +1029,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         autoCompressThresholdSpinner.setModel(model);
         autoCompressThresholdSpinner.setEditor(new JSpinner.NumberEditor(autoCompressThresholdSpinner, "#0"));
 
+        var thresholdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        thresholdPanel.add(autoCompressThresholdSpinner);
+
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(autoCompressThresholdSpinner, gbc);
+        panel.add(thresholdPanel, gbc);
 
         // Enable/disable spinner based on checkbox
         autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
