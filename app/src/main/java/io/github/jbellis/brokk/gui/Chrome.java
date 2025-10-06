@@ -833,25 +833,25 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     branchToDisplay = currentBranch;
                 }
             } else {
-                logger.debug("updateGitRepo: project has no Git repository");
+                logger.trace("updateGitRepo: project has no Git repository");
             }
         } catch (Exception e) {
             // Detached HEAD without resolvable HEAD or empty repo can land here
-            logger.debug("updateGitRepo: unable to determine current branch: {}", e.getMessage());
+            logger.warn("updateGitRepo: unable to determine current branch: {}", e.getMessage());
         }
 
         // Fallback to a safe label for UI to avoid stale/missing branch display
         if (hasGit) {
             if (branchToDisplay == null || branchToDisplay.isBlank()) {
                 branchToDisplay = "(no branch)";
-                logger.debug("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
+                logger.trace("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
             }
             final String display = branchToDisplay;
             SwingUtilities.invokeLater(() -> {
                 try {
                     // Redundancy guard: only refresh if the displayed branch text actually changed
                     if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
-                        logger.debug(
+                        logger.trace(
                                 "updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
                         return;
                     }
@@ -868,26 +868,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             logger.debug("updateGitRepo: updating GitCommitTab");
             gitCommitTab.updateCommitPanel();
         } else {
-            logger.debug("updateGitRepo: GitCommitTab not present (skipping)");
+            logger.trace("updateGitRepo: GitCommitTab not present (skipping)");
         }
 
         if (gitLogTab != null) {
             logger.debug("updateGitRepo: updating GitLogTab");
             gitLogTab.update();
         } else {
-            logger.debug("updateGitRepo: GitLogTab not present (skipping)");
+            logger.trace("updateGitRepo: GitLogTab not present (skipping)");
         }
 
         if (gitWorktreeTab != null) {
             logger.debug("updateGitRepo: refreshing GitWorktreeTab");
             gitWorktreeTab.refresh();
         } else {
-            logger.debug("updateGitRepo: GitWorktreeTab not present (skipping)");
+            logger.trace("updateGitRepo: GitWorktreeTab not present (skipping)");
         }
 
-        logger.debug("updateGitRepo: updating ProjectFilesPanel");
+        logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
-        logger.debug("updateGitRepo: finished");
+        logger.trace("updateGitRepo: finished");
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */
