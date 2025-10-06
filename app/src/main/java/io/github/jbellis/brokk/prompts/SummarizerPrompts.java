@@ -96,15 +96,31 @@ public class SummarizerPrompts {
         return List.of(new SystemMessage(systemIntro()), new UserMessage(instructions));
     }
 
+    private String prDescriptionGuidance() {
+        return """
+               Describe the intent, behaviour changes and key implementation ideas in human language.
+               Use bullet points or short paragraphs. 75–150 words is ideal. Just focus on the most important changes.
+               """
+                .stripIndent();
+    }
+
+    private String prDescriptionFromCommitsGuidance() {
+        return """
+               Use ONLY the commit messages below. Summarise the intent, major behaviour
+               changes, and key implementation ideas. 75–150 words, ideal.
+               Do NOT include raw commit messages verbatim.
+               """
+                .stripIndent();
+    }
+
     public List<ChatMessage> collectPrDescriptionMessages(String diff) {
         return List.of(
                 new SystemMessage(
                         """
                     You are an expert software engineer writing clear pull-request descriptions.
-                    Describe the intent, behaviour changes and key implementation ideas in human language.
-                    Use bullet points or short paragraphs. 75–150 words is ideal. Just focus on the most important changes.
-                    """
-                                .stripIndent()),
+                    %s"""
+                                .stripIndent()
+                                .formatted(prDescriptionGuidance())),
                 new UserMessage("<diff>\n" + diff + "\n</diff>"));
     }
 
@@ -115,11 +131,9 @@ public class SummarizerPrompts {
                 new SystemMessage(
                         """
                 You are an expert software engineer writing clear pull-request descriptions.
-                Use ONLY the commit messages below.  Summarise the intent, major behaviour
-                changes, and key implementation ideas. 75–150 words, ideal.
-                Do NOT include raw commit messages verbatim.
-                """
-                                .stripIndent()),
+                %s"""
+                                .stripIndent()
+                                .formatted(prDescriptionFromCommitsGuidance())),
                 new UserMessage("<commits>\n" + body + "\n</commits>"));
     }
 
@@ -132,13 +146,12 @@ public class SummarizerPrompts {
                     Output your response in this exact XML format:
                     <title>Brief PR title (12 words or fewer)</title>
                     <description>
-                    Describe the intent, behaviour changes and key implementation ideas in human language.
-                    Use bullet points or short paragraphs. 75–150 words is ideal. Focus on the most important changes.
-                    </description>
+                    %s</description>
 
                     Do not include any text outside these XML tags.
                     """
-                                .stripIndent()),
+                                .stripIndent()
+                                .formatted(prDescriptionGuidance())),
                 new UserMessage("<diff>\n" + diff + "\n</diff>"));
     }
 
@@ -153,14 +166,12 @@ public class SummarizerPrompts {
                     Output your response in this exact XML format:
                     <title>Brief PR title (12 words or fewer)</title>
                     <description>
-                    Use ONLY the commit messages below. Summarise the intent, major behaviour
-                    changes, and key implementation ideas. 75–150 words, ideal.
-                    Do NOT include raw commit messages verbatim.
-                    </description>
+                    %s</description>
 
                     Do not include any text outside these XML tags.
                     """
-                                .stripIndent()),
+                                .stripIndent()
+                                .formatted(prDescriptionFromCommitsGuidance())),
                 new UserMessage("<commits>\n" + body + "\n</commits>"));
     }
 }

@@ -726,29 +726,28 @@ public class CreatePullRequestDialog extends JDialog {
             if (isCancelled()) {
                 throw new InterruptedException("Worker cancelled before starting");
             }
-            // This service call is blocking and includes LLM interactions with streaming.
             return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch, streamingIO);
         }
 
         @Override
         protected void done() {
             try {
-                GitWorkflow.PrSuggestion suggestion =
-                        get(); // This will throw specific exceptions if cancelled/interrupted.
+                GitWorkflow.PrSuggestion suggestion = get();
                 SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete(); // Re-enable fields
-                    // Always set fields from returned suggestion as fallback and source of truth
-                    titleField.setText(suggestion.title());
-                    descriptionArea.setText(suggestion.description());
-                    titleField.setCaretPosition(0);
-                    descriptionArea.setCaretPosition(0);
+                    streamingIO.onComplete();
+                    if (!streamingIO.hasReceivedContent()) {
+                        titleField.setText(suggestion.title());
+                        descriptionArea.setText(suggestion.description());
+                        titleField.setCaretPosition(0);
+                        descriptionArea.setCaretPosition(0);
+                    }
                     showDescriptionHint(suggestion.usedCommitMessages());
                 });
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // Preserve interrupt status
+                Thread.currentThread().interrupt();
                 logger.warn("SuggestPrDetailsWorker interrupted for {} -> {}", sourceBranch, targetBranch, e);
                 SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete(); // Re-enable fields even on error
+                    streamingIO.onComplete();
                     setTextAndResetCaret(titleField, "(suggestion interrupted)");
                     setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                     showDescriptionHint(false);
@@ -756,7 +755,7 @@ public class CreatePullRequestDialog extends JDialog {
             } catch (java.util.concurrent.CancellationException e) {
                 logger.warn("SuggestPrDetailsWorker cancelled for {} -> {}", sourceBranch, targetBranch, e);
                 SwingUtilities.invokeLater(() -> {
-                    streamingIO.onComplete(); // Re-enable fields even on cancellation
+                    streamingIO.onComplete();
                     setTextAndResetCaret(titleField, "(suggestion cancelled)");
                     setTextAndResetCaret(descriptionArea, "(suggestion cancelled)");
                     showDescriptionHint(false);
@@ -764,14 +763,14 @@ public class CreatePullRequestDialog extends JDialog {
             } catch (java.util.concurrent.ExecutionException e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof InterruptedException interruptedException) {
-                    Thread.currentThread().interrupt(); // Preserve interrupt status
+                    Thread.currentThread().interrupt();
                     logger.warn(
                             "SuggestPrDetailsWorker execution failed due to underlying interruption for {} -> {}",
                             sourceBranch,
                             targetBranch,
                             interruptedException);
                     SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete(); // Re-enable fields even on error
+                        streamingIO.onComplete();
                         setTextAndResetCaret(titleField, "(suggestion interrupted)");
                         setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                         showDescriptionHint(false);
@@ -784,7 +783,7 @@ public class CreatePullRequestDialog extends JDialog {
                             (cause != null ? cause.getMessage() : e.getMessage()),
                             cause);
                     SwingUtilities.invokeLater(() -> {
-                        streamingIO.onComplete(); // Re-enable fields even on error
+                        streamingIO.onComplete();
                         String errorMessage =
                                 (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
                         errorMessage = (errorMessage == null) ? "Unknown error" : errorMessage;

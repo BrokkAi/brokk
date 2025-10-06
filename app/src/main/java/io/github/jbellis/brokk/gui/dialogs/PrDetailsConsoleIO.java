@@ -48,8 +48,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
             descriptionArea.setText("Generating description...\nThinking");
             titleField.setCaretPosition(0);
             descriptionArea.setCaretPosition(0);
-
-            // Start animated dots
             startThinkingAnimation();
         });
     }
@@ -81,13 +79,11 @@ public class PrDetailsConsoleIO implements IConsoleIO {
             boolean isNewMessage,
             boolean isReasoning) {
 
-        // Transition from reasoning to content phase
         if (!isReasoning && currentPhase == StreamingPhase.REASONING) {
             logger.debug("Transitioning from REASONING to content phase");
-            currentPhase = StreamingPhase.TITLE; // Start with title
-            stopThinkingAnimation(); // Ensure animation is stopped
+            currentPhase = StreamingPhase.TITLE;
+            stopThinkingAnimation();
             SwingUtilities.invokeLater(() -> {
-                // Clear reasoning tokens from description, set static placeholders
                 titleField.setText("Generating title...");
                 descriptionArea.setText("");
             });
@@ -96,10 +92,8 @@ public class PrDetailsConsoleIO implements IConsoleIO {
         }
 
         if (isReasoning) {
-            // During reasoning, show progress in description area
             if (!token.isEmpty()) {
                 SwingUtilities.invokeLater(() -> {
-                    // Stop animation and clear placeholder on first token
                     if (!hasReceivedTokens) {
                         hasReceivedTokens = true;
                         stopThinkingAnimation();
@@ -112,7 +106,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
             return;
         }
 
-        // Parse XML tags and route content
         parseAndRoute(token);
     }
 
@@ -130,7 +123,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
             } else if (isInsideTag) {
                 currentTag += c;
             } else {
-                // Content outside tags - route to appropriate field
                 appendToCurrentPhase(String.valueOf(c));
             }
         }
@@ -140,7 +132,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
         if (tag.equals("title")) {
             currentPhase = StreamingPhase.TITLE;
             logger.debug("Switched to TITLE phase");
-            // Clear title field immediately when we know content is coming
             SwingUtilities.invokeLater(() -> titleField.setText(""));
         } else if (tag.equals("/title")) {
             currentPhase = StreamingPhase.DESCRIPTION;
@@ -148,7 +139,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
         } else if (tag.equals("description")) {
             currentPhase = StreamingPhase.DESCRIPTION;
             logger.debug("Confirmed DESCRIPTION phase");
-            // Clear description area immediately when we know content is coming
             SwingUtilities.invokeLater(() -> descriptionArea.setText(""));
         } else if (tag.equals("/description")) {
             currentPhase = StreamingPhase.COMPLETE;
@@ -159,7 +149,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
     private void appendToCurrentPhase(String content) {
         switch (currentPhase) {
             case TITLE -> {
-                // Skip leading whitespace for title
                 if (titleBuffer.isEmpty() && content.trim().isEmpty()) {
                     return;
                 }
@@ -171,7 +160,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
                 });
             }
             case DESCRIPTION -> {
-                // Skip leading whitespace for description
                 if (descriptionBuffer.isEmpty() && content.trim().isEmpty()) {
                     return;
                 }
@@ -182,23 +170,18 @@ public class PrDetailsConsoleIO implements IConsoleIO {
                     descriptionArea.setCaretPosition(currentDesc.length());
                 });
             }
-            case REASONING -> {
-                // Already handled in llmOutput
-            }
+            case REASONING -> {}
             case COMPLETE -> {
-                // Ignore any content after </description> tag (e.g., cost info, metadata)
                 logger.debug("Ignoring content after </description>: {}", content);
             }
         }
     }
 
     public void onComplete() {
-        stopThinkingAnimation(); // Ensure animation is stopped
+        stopThinkingAnimation();
         SwingUtilities.invokeLater(() -> {
             titleField.setEnabled(true);
             descriptionArea.setEnabled(true);
-
-            // Reset caret positions to start for better user experience
             titleField.setCaretPosition(0);
             descriptionArea.setCaretPosition(0);
         });
@@ -212,6 +195,14 @@ public class PrDetailsConsoleIO implements IConsoleIO {
         return descriptionBuffer.toString().trim();
     }
 
+    /**
+     * Returns true if streaming successfully received and displayed content tokens. Used to determine if fallback
+     * setText() is needed in case streaming failed silently.
+     */
+    public boolean hasReceivedContent() {
+        return hasReceivedTokens;
+    }
+
     @Override
     public void toolError(String message, String title) {
         errorReporter.toolError(message, title);
@@ -219,8 +210,6 @@ public class PrDetailsConsoleIO implements IConsoleIO {
 
     @Override
     public void showNotification(IConsoleIO.NotificationRole role, String message) {
-        // Delegate all notifications to the error reporter (Chrome) instead of appending to description area
-        // This prevents cost notifications from appearing in the PR description field
         errorReporter.showNotification(role, message);
     }
 

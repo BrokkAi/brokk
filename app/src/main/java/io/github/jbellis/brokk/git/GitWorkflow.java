@@ -243,12 +243,10 @@ public final class GitWorkflow {
         throwIfInterrupted(); // Check after LLM call
 
         if (isStreaming) {
-            // Parse XML response to extract title and description
             String responseText = response.text().trim();
             String title = extractXmlTag(responseText, "title");
             String description = extractXmlTag(responseText, "description");
 
-            // Validate that LLM returned properly formatted XML
             if (title.isEmpty() || description.isEmpty()) {
                 String truncated = responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText;
                 logger.warn(
@@ -262,15 +260,13 @@ public final class GitWorkflow {
 
             return new PrSuggestion(title, description, useCommitMsgs);
         } else {
-            // Original non-streaming flow
             String description = response.text().trim();
 
-            // 5. Title summarisation (12-word budget)
             throwIfInterrupted();
             ContextManager.SummarizeWorker titleWorker = new ContextManager.SummarizeWorker(
                     this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
             titleWorker.execute();
-            String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
+            String title = titleWorker.get();
 
             return new PrSuggestion(title, description, useCommitMsgs);
         }
