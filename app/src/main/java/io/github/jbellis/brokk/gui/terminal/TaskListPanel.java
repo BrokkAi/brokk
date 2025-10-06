@@ -975,6 +975,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Reflect pending state in UI and disable Play buttons to avoid double trigger
         list.repaint();
+        // Immediately refresh button states so Play/Play All disable and Stop reflects current state
+        updateButtonStates();
 
         var cm = chrome.getContextManager();
         if (MainProject.getHistoryAutoCompress()) {
@@ -1022,6 +1024,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var cm = chrome.getContextManager();
 
         var future = runArchitectOnTaskAsync(idx, cm, originalPrompt);
+        // Refresh button states immediately after submitting the task so Stop becomes available ASAP
+        updateButtonStates();
 
         // When finished (on background thread), update UI state on EDT
         future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
