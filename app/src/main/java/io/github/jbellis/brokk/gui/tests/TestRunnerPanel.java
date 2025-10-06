@@ -234,7 +234,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private void updateOutputForSelectedRun() {
-        assert SwingUtilities.isEventDispatchThread();
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::updateOutputForSelectedRun);
+            return;
+        }
         RunEntry selected = runList.getSelectedValue();
         if (selected == null) {
             try {
