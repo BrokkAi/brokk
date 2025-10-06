@@ -392,7 +392,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
             topToolbar.setOpaque(false);
 
-            // Left group: remaining buttons (Stop moved to right group)
+            // Left group: remove/toggle/play/combine/split controls
             topToolbar.add(removeBtn);
             topToolbar.add(toggleDoneBtn);
             topToolbar.add(playBtn);
@@ -1029,7 +1029,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var cm = chrome.getContextManager();
 
         var future = runArchitectOnTaskAsync(idx, cm, originalPrompt);
-        // Refresh button states immediately after submitting the task so Stop becomes available ASAP
+        // Refresh button states immediately after submitting the task so play controls update promptly
         updateButtonStates();
 
         // When finished (on background thread), update UI state on EDT
