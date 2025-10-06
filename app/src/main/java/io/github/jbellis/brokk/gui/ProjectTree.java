@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import java.awt.*;
+import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
@@ -124,59 +125,9 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         setupContextMenuKeyBindings();
 
         // Enable drag support: export selected files (or files under selected directories) as a file list
+        // Also enable drop support: accept external files and copy them into the project
         setDragEnabled(true);
-        setTransferHandler(new TransferHandler() {
-            @Override
-            public int getSourceActions(JComponent c) {
-                return COPY;
-            }
-
-            @Override
-            protected @Nullable Transferable createTransferable(JComponent c) {
-                // Gather files for export: if directories are selected, include all files under them
-                List<ProjectFile> selection = getSelectedProjectFiles();
-                if (selection.isEmpty()) {
-                    // If right-clicked on a directory and then dragged without selecting files explicitly, try to infer
-                    TreePath lead = getLeadSelectionPath();
-                    if (lead != null) {
-                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) lead.getLastPathComponent();
-                        if (node.getUserObject() instanceof ProjectTreeNode treeNode
-                                && treeNode.getFile().isDirectory()) {
-                            selection = collectProjectFilesUnderDirectory(treeNode.getFile());
-                        }
-                    }
-                }
-
-                if (selection.isEmpty()) {
-                    return null;
-                }
-
-                final java.util.List<java.io.File> files =
-                        selection.stream().map(pf -> pf.absPath().toFile()).collect(Collectors.toList());
-
-                return new Transferable() {
-                    private final DataFlavor[] flavors = new DataFlavor[] {DataFlavor.javaFileListFlavor};
-
-                    @Override
-                    public DataFlavor[] getTransferDataFlavors() {
-                        return flavors.clone();
-                    }
-
-                    @Override
-                    public boolean isDataFlavorSupported(DataFlavor flavor) {
-                        return DataFlavor.javaFileListFlavor.equals(flavor);
-                    }
-
-                    @Override
-                    public Object getTransferData(DataFlavor flavor) {
-                        if (!isDataFlavorSupported(flavor)) {
-                            throw new UnsupportedOperationException("Unsupported flavor: " + flavor);
-                        }
-                        return files;
-                    }
-                };
-            }
-        });
+        setTransferHandler(new ProjectTreeTransferHandler());
     }
 
     private void handleDoubleClick(MouseEvent e) {
@@ -443,6 +394,20 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             });
         });
         contextMenu.add(runTestsItem);
+
+        // Add Paste menu item
+        contextMenu.addSeparator();
+        JMenuItem pasteItem = new JMenuItem("Paste");
+        pasteItem.addActionListener(ev -> {
+            // Determine target directory for paste
+            Path targetDir = getTargetDirectoryFromSelection();
+            pasteFilesFromClipboard(targetDir);
+        });
+
+        // Enable/disable paste based on clipboard contents
+        pasteItem.setEnabled(hasFilesInClipboard());
+
+        contextMenu.add(pasteItem);
     }
 
     private JMenuItem getHistoryMenuItem(List<ProjectFile> selectedFiles) {
@@ -808,6 +773,146 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         return files.stream().anyMatch(pf -> exts.contains(pf.extension()));
     }
 
+    /**
+     * Checks if the system clipboard contains files that can be pasted.
+     *
+     * @return true if clipboard contains file list data
+     */
+    private boolean hasFilesInClipboard() {
+        try {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            return clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor);
+        } catch (Exception ex) {
+            logger.debug("Error checking clipboard contents", ex);
+            return false;
+        }
+    }
+
+    /**
+     * Gets files from the system clipboard.
+     *
+     * @return List of files from clipboard, or empty list if none available
+     */
+    @SuppressWarnings("unchecked")
+    private List<File> getFilesFromClipboard() {
+        try {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
+                Transferable contents = clipboard.getContents(null);
+                if (contents != null) {
+                    Object data = contents.getTransferData(DataFlavor.javaFileListFlavor);
+                    if (data instanceof List) {
+                        return (List<File>) data;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            logger.error("Error reading files from clipboard", ex);
+        }
+        return List.of();
+    }
+
+    /**
+     * Determines the target directory for pasting files based on current tree selection.
+     *
+     * @return Path to target directory
+     */
+    private Path getTargetDirectoryFromSelection() {
+        TreePath[] selectionPaths = getSelectionPaths();
+        if (selectionPaths == null || selectionPaths.length == 0) {
+            // No selection, use project root
+            return project.getRoot();
+        }
+
+        // Use the first selected path
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectionPaths[0].getLastPathComponent();
+        if (!(node.getUserObject() instanceof ProjectTreeNode treeNode)) {
+            return project.getRoot();
+        }
+
+        File targetFile = treeNode.getFile();
+        if (targetFile.isDirectory()) {
+            return targetFile.toPath();
+        } else {
+            // Selected file, use its parent directory
+            return targetFile.getParentFile() != null
+                    ? targetFile.getParentFile().toPath()
+                    : project.getRoot();
+        }
+    }
+
+    /**
+     * Pastes files from the clipboard into the specified target directory.
+     *
+     * @param targetDirectory Directory where files should be pasted
+     */
+    private void pasteFilesFromClipboard(Path targetDirectory) {
+        List<File> clipboardFiles = getFilesFromClipboard();
+
+        if (clipboardFiles.isEmpty()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files in clipboard to paste");
+            return;
+        }
+
+        // Reuse the existing file drop handler
+        SwingWorker<Void, String> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                List<File> filesToCopy = new ArrayList<>();
+
+                // Filter out files that are already in the project
+                for (File file : clipboardFiles) {
+                    Path filePath = file.toPath().toAbsolutePath().normalize();
+                    Path projectRoot = project.getRoot().toAbsolutePath().normalize();
+
+                    if (filePath.startsWith(projectRoot)) {
+                        logger.debug("Ignoring clipboard file already in project: {}", filePath);
+                        continue;
+                    }
+
+                    filesToCopy.add(file);
+                }
+
+                if (filesToCopy.isEmpty()) {
+                    publish("No external files to paste");
+                    return null;
+                }
+
+                // Copy files using the TransferHandler's copy methods
+                ProjectTreeTransferHandler handler = new ProjectTreeTransferHandler();
+                for (File file : filesToCopy) {
+                    handler.copyFileToProject(file, targetDirectory);
+                }
+
+                publish("Pasted " + filesToCopy.size() + " file(s) to "
+                        + project.getRoot().relativize(targetDirectory));
+
+                return null;
+            }
+
+            @Override
+            protected void process(List<String> chunks) {
+                for (String message : chunks) {
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get(); // Check for exceptions
+                    // Trigger tree refresh
+                    onTrackedFilesChanged();
+                } catch (Exception ex) {
+                    logger.error("Error pasting files from clipboard", ex);
+                    chrome.toolError("Error pasting files: " + ex.getMessage());
+                }
+            }
+        };
+
+        worker.execute();
+    }
+
     /** Node wrapper for file information and loading state */
     private static class ProjectTreeNode {
         private final File file;
@@ -870,6 +975,271 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             }
 
             return this;
+        }
+    }
+
+    /**
+     * Custom TransferHandler for ProjectTree that supports: - Exporting selected files for drag operations - Importing
+     * dropped files from external sources into the project
+     */
+    private class ProjectTreeTransferHandler extends TransferHandler {
+        @Override
+        public int getSourceActions(JComponent c) {
+            return COPY;
+        }
+
+        @Override
+        protected @Nullable Transferable createTransferable(JComponent c) {
+            // Gather files for export: if directories are selected, include all files under them
+            List<ProjectFile> selection = getSelectedProjectFiles();
+            if (selection.isEmpty()) {
+                // If right-clicked on a directory and then dragged without selecting files explicitly, try to infer
+                TreePath lead = getLeadSelectionPath();
+                if (lead != null) {
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) lead.getLastPathComponent();
+                    if (node.getUserObject() instanceof ProjectTreeNode treeNode
+                            && treeNode.getFile().isDirectory()) {
+                        selection = collectProjectFilesUnderDirectory(treeNode.getFile());
+                    }
+                }
+            }
+
+            if (selection.isEmpty()) {
+                return null;
+            }
+
+            final java.util.List<java.io.File> files =
+                    selection.stream().map(pf -> pf.absPath().toFile()).collect(Collectors.toList());
+
+            return new Transferable() {
+                private final DataFlavor[] flavors = new DataFlavor[] {DataFlavor.javaFileListFlavor};
+
+                @Override
+                public DataFlavor[] getTransferDataFlavors() {
+                    return flavors.clone();
+                }
+
+                @Override
+                public boolean isDataFlavorSupported(DataFlavor flavor) {
+                    return DataFlavor.javaFileListFlavor.equals(flavor);
+                }
+
+                @Override
+                public Object getTransferData(DataFlavor flavor) {
+                    if (!isDataFlavorSupported(flavor)) {
+                        throw new UnsupportedOperationException("Unsupported flavor: " + flavor);
+                    }
+                    return files;
+                }
+            };
+        }
+
+        @Override
+        public boolean canImport(TransferSupport support) {
+            // Only accept file list drops
+            if (!support.isDrop() || !support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                return false;
+            }
+
+            // Only support COPY action
+            boolean copySupported = (COPY & support.getSourceDropActions()) == COPY;
+            if (copySupported) {
+                support.setDropAction(COPY);
+                return true;
+            }
+
+            return false;
+        }
+
+        @Override
+        public boolean importData(TransferSupport support) {
+            if (!canImport(support)) {
+                return false;
+            }
+
+            try {
+                @SuppressWarnings("unchecked")
+                List<File> droppedFiles =
+                        (List<File>) support.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
+
+                if (droppedFiles == null || droppedFiles.isEmpty()) {
+                    return false;
+                }
+
+                // Determine drop target directory
+                Path targetDirectory = determineDropTargetDirectory(support);
+
+                // Handle the drop in a background task
+                handleFileDrop(droppedFiles, targetDirectory);
+
+                return true;
+            } catch (Exception ex) {
+                logger.error("Error importing dropped files", ex);
+                SwingUtilities.invokeLater(
+                        () -> chrome.toolError("Failed to import dropped files: " + ex.getMessage()));
+                return false;
+            }
+        }
+
+        /** Determines the target directory for the drop operation based on where the drop occurred. */
+        private Path determineDropTargetDirectory(TransferSupport support) {
+            JTree.DropLocation dropLocation = (JTree.DropLocation) support.getDropLocation();
+            TreePath path = dropLocation.getPath();
+
+            if (path == null) {
+                // Dropped on empty space, use project root
+                return project.getRoot();
+            }
+
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+            if (!(node.getUserObject() instanceof ProjectTreeNode treeNode)) {
+                return project.getRoot();
+            }
+
+            File targetFile = treeNode.getFile();
+            if (targetFile.isDirectory()) {
+                return targetFile.toPath();
+            } else {
+                // Dropped on a file, use its parent directory
+                return targetFile.getParentFile() != null
+                        ? targetFile.getParentFile().toPath()
+                        : project.getRoot();
+            }
+        }
+
+        /** Handles the file drop operation by copying files to the target directory. */
+        private void handleFileDrop(List<File> droppedFiles, Path targetDirectory) {
+            SwingWorker<Void, String> worker = new SwingWorker<>() {
+                @Override
+                protected Void doInBackground() throws Exception {
+                    List<File> filesToCopy = new ArrayList<>();
+
+                    // Filter out files that are already in the project
+                    for (File file : droppedFiles) {
+                        Path filePath = file.toPath().toAbsolutePath().normalize();
+                        Path projectRoot = project.getRoot().toAbsolutePath().normalize();
+
+                        if (filePath.startsWith(projectRoot)) {
+                            logger.debug("Ignoring dropped file already in project: {}", filePath);
+                            continue;
+                        }
+
+                        filesToCopy.add(file);
+                    }
+
+                    if (filesToCopy.isEmpty()) {
+                        publish("No external files to copy");
+                        return null;
+                    }
+
+                    // Copy files
+                    for (File file : filesToCopy) {
+                        copyFileToProject(file, targetDirectory);
+                    }
+
+                    publish("Copied " + filesToCopy.size() + " file(s) to "
+                            + project.getRoot().relativize(targetDirectory));
+
+                    return null;
+                }
+
+                @Override
+                protected void process(List<String> chunks) {
+                    for (String message : chunks) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                    }
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        get(); // Check for exceptions
+                        // Trigger tree refresh
+                        onTrackedFilesChanged();
+                    } catch (Exception ex) {
+                        logger.error("Error during file copy operation", ex);
+                        chrome.toolError("Error copying files: " + ex.getMessage());
+                    }
+                }
+            };
+
+            worker.execute();
+        }
+
+        /** Copies a file or directory recursively to the target directory in the project. */
+        private void copyFileToProject(File source, Path targetDir) throws Exception {
+            if (source.isDirectory()) {
+                copyDirectoryToProject(source, targetDir);
+            } else {
+                copySingleFileToProject(source, targetDir);
+            }
+        }
+
+        /** Copies a single file to the target directory. */
+        private void copySingleFileToProject(File sourceFile, Path targetDir) throws Exception {
+            Path targetPath = targetDir.resolve(sourceFile.getName());
+
+            // Handle file name conflicts
+            targetPath = resolveFileNameConflict(targetPath);
+
+            Files.copy(sourceFile.toPath(), targetPath);
+            logger.debug("Copied file: {} to {}", sourceFile, targetPath);
+        }
+
+        /** Copies a directory and all its contents recursively to the target directory. */
+        private void copyDirectoryToProject(File sourceDir, Path targetDir) throws Exception {
+            Path targetPath = targetDir.resolve(sourceDir.getName());
+
+            // Create target directory if it doesn't exist
+            if (!Files.exists(targetPath)) {
+                Files.createDirectories(targetPath);
+            }
+
+            // Copy all contents
+            File[] children = sourceDir.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    copyFileToProject(child, targetPath);
+                }
+            }
+
+            logger.debug("Copied directory: {} to {}", sourceDir, targetPath);
+        }
+
+        /** Resolves file name conflicts by appending a number to the filename. */
+        private Path resolveFileNameConflict(Path targetPath) {
+            if (!Files.exists(targetPath)) {
+                return targetPath;
+            }
+
+            Path parentPath = targetPath.getParent();
+            if (parentPath == null) {
+                // Should not happen in practice, but handle gracefully
+                return targetPath;
+            }
+
+            String fileName = targetPath.getFileName().toString();
+            String baseName;
+            String extension;
+
+            int lastDot = fileName.lastIndexOf('.');
+            if (lastDot > 0) {
+                baseName = fileName.substring(0, lastDot);
+                extension = fileName.substring(lastDot);
+            } else {
+                baseName = fileName;
+                extension = "";
+            }
+
+            int counter = 1;
+            Path newPath;
+            do {
+                String newFileName = baseName + " (" + counter + ")" + extension;
+                newPath = parentPath.resolve(newFileName);
+                counter++;
+            } while (Files.exists(newPath));
+
+            return newPath;
         }
     }
 }
