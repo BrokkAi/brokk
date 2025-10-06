@@ -14,7 +14,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -23,7 +23,9 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
-import io.github.jbellis.brokk.gui.InstructionsToolsTabbedPanel;
+import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
+import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
+import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -160,8 +162,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private JLabel backgroundStatusLabel;
     private final JPanel bottomPanel;
 
-    private final JSplitPane topSplitPane; // Instructions | Workspace
-    private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
+    private final JSplitPane topSplitPane; // Tabs (Workspace/Deps/Tasks/Terminal/Tests) | Instructions
+    private final JSplitPane mainVerticalSplitPane; // (Output) | (Tabs+Instructions)
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
@@ -171,19 +173,27 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
 
-    // Workspace | Dependencies (right drawer)
-    @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JSplitPane workspaceDependenciesSplit;
+    // Workspace/tools tabs
+    private final JTabbedPane workspaceToolsTabs;
+    private static final int TAB_DEPENDENCIES = 1;
+    private static final int TAB_TASKS = 2;
+    private static final int TAB_TERMINAL = 3;
+    private static final int TAB_TESTS = 4;
 
-    @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JPanel workspaceTopContainer;
-
-    @SuppressWarnings("NullAway.Init")
-    private io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel dependenciesDrawerPanel;
+    // Placeholders for lazy-loaded tabs
+    private final JPanel dependenciesPlaceholder = new JPanel(new BorderLayout());
+    private final JPanel tasksPlaceholder = new JPanel(new BorderLayout());
+    private final JPanel terminalPlaceholder = new JPanel(new BorderLayout());
+    private final JPanel testsPlaceholder = new JPanel(new BorderLayout());
 
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
+    private @Nullable DependenciesPanel dependenciesPanel;
+    private @Nullable TaskListPanel taskListPanel;
+    private @Nullable TerminalPanel terminalPanel;
+    private @Nullable TestRunnerPanel testRunnerPanel;
+    private int tasksUndoneCount = 0;
 
     // Git
     @Nullable
@@ -221,9 +231,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
-
-    // Tools tabs (Instructions, Tasks, Terminal)
-    private InstructionsToolsTabbedPanel instructionsToolsPanel;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
@@ -407,47 +414,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
          * Desired layout (left→right, top→bottom):
          * ┌────────────────────────────┬──────────────────────────────┐
          * │ Vert-tabbed (Project/Git)  │  Output (top)               │
-         * │                            │  Workspace (middle)         │
+         * │                            │  Tabs: Workspace/Tools      │
          * │                            │  Instructions (bottom)      │
          * └────────────────────────────┴──────────────────────────────┘
          */
 
-        // 1) Nested split for Workspace (top) / Instructions (bottom)
+        // Build tools tabs (bottom positioned)
+        workspaceToolsTabs = new JTabbedPane(JTabbedPane.BOTTOM);
+        workspaceToolsTabs.addTab("Workspace", workspacePanel); // TAB_WORKSPACE
+        workspaceToolsTabs.addTab("Dependencies", dependenciesPlaceholder); // TAB_DEPENDENCIES
+        workspaceToolsTabs.addTab("Tasks", tasksPlaceholder); // TAB_TASKS
+        workspaceToolsTabs.addTab("Terminal", terminalPlaceholder); // TAB_TERMINAL
+        workspaceToolsTabs.addTab("Tests", testsPlaceholder); // TAB_TESTS
+
+        // Build split for (Tabs) / Instructions
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        workspaceInstructionsSplit.setTopComponent(workspaceToolsTabs);
+        workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
+        workspaceInstructionsSplit.setResizeWeight(0.583);
 
-        // Create a right-hand Dependencies drawer beside the Workspace
-        workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        this.dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
-        workspaceDependenciesSplit.setResizeWeight(0.67); // Give more space to workspace by default
-        workspaceDependenciesSplit.setLeftComponent(workspacePanel);
-        workspaceDependenciesSplit.setRightComponent(this.dependenciesDrawerPanel);
-        // Drawer state will be restored from GlobalUiSettings after layout
-
-        workspaceTopContainer = new JPanel(new BorderLayout());
-        workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
-
-        // Create instructions/tools tabbed panel
-        instructionsToolsPanel = new InstructionsToolsTabbedPanel(this, instructionsPanel);
-        // Initialize Tasks tab badge to zero
-        try {
-            instructionsToolsPanel.updateTasksTabBadge(0);
-        } catch (Exception ex) {
-            logger.debug("Failed to initialize Tasks tab badge", ex);
-        }
-
-        // Attach the combined instructions+tools tabs as the bottom component
-        workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        workspaceInstructionsSplit.setBottomComponent(instructionsToolsPanel);
-        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
-
-        // Keep reference so existing persistence logic still works
+        // Keep references for persistence
         topSplitPane = workspaceInstructionsSplit;
 
-        // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
+        // Split for Output (top) / (Tabs+Instructions) (bottom)
         JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         outputStackSplit.setTopComponent(historyOutputPanel);
         outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
-        outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
+        outputStackSplit.setResizeWeight(DEFAULT_OUTPUT_MAIN_SPLIT);
 
         // Keep reference so existing persistence logic still works
         mainVerticalSplitPane = outputStackSplit;
@@ -790,9 +783,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
-            var tlp = instructionsToolsPanel.getTaskListPanelOrNull();
-            if (tlp != null) {
-                tlp.disablePlay();
+            if (taskListPanel != null) {
+                taskListPanel.disablePlay();
             }
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
@@ -806,9 +798,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
-            var tlp = instructionsToolsPanel.getTaskListPanelOrNull();
-            if (tlp != null) {
-                tlp.enablePlay();
+            if (taskListPanel != null) {
+                taskListPanel.enablePlay();
             }
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();
@@ -1139,12 +1130,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("openTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var tp = instructionsToolsPanel.openTerminal();
+                var tp = openTerminal();
                 tp.requestFocusInWindow();
             }
         });
 
-        // Cmd/Ctrl+Shift+D => toggle dependencies drawer
+        // Cmd/Ctrl+Shift+D => open/select Dependencies tab (replacement for drawer)
         KeyStroke toggleDependenciesDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "drawer.toggleDependencies",
                 KeyStroke.getKeyStroke(
@@ -1154,7 +1145,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                dependenciesDrawerPanel.openPanel();
+                var dp = openDependencies();
+                dp.requestFocusInWindow();
             }
         });
 
@@ -1167,7 +1159,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var tp = instructionsToolsPanel.openTerminal();
+                var tp = openTerminal();
                 tp.requestFocusInWindow();
             }
         });
@@ -1181,7 +1173,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var tlp = instructionsToolsPanel.openTaskList();
+                var tlp = openTaskList();
                 tlp.requestFocusInWindow();
             }
         });
@@ -1431,7 +1423,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * @param contentComponent The JComponent to display within the frame.
      */
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
-        // Generate a key for window reuse based on the content type and title
+        // Generate a key for window reuse based on content type and context. For file previews,
+        // uses the file path. For other content, uses the title.
         String windowKey = generatePreviewWindowKey(title, contentComponent);
 
         // Check if we have an existing window for this content
@@ -1975,7 +1968,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // NOW calculate vertical split pane dividers with proper component heights
 
-        // Global-first for top split (Workspace | Instructions)
+        // Global-first for top split (Tabs | Instructions)
         int topSplitPos = GlobalUiSettings.getLeftVerticalSplitPosition();
         if (topSplitPos > 0) {
             topSplitPane.setDividerLocation(topSplitPos);
@@ -1997,30 +1990,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             mainVerticalSplitPane.setDividerLocation(defaultMainVerticalPos);
         }
 
-        // Restore drawer states from global settings
+        // Drawers removed; nothing to restore here
         restoreDrawersFromGlobalSettings();
     }
 
     /**
-     * Restore drawer (dependencies) state from global settings after layout sizing is known. Terminal drawer restore is
-     * handled by TerminalDrawerPanel itself to respect per-project settings.
+     * Drawers are removed; keep method for compatibility, but no-op.
      */
     private void restoreDrawersFromGlobalSettings() {
-        // Dependencies drawer (global)
-        boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();
-        double depProp = GlobalUiSettings.getDependenciesDrawerProportion();
-        if (depOpen) {
-            // Ensure drawer is open synchronously before first layout to avoid startup motion
-            dependenciesDrawerPanel.openInitially();
-            if (depProp > 0.0 && depProp < 1.0) {
-                workspaceDependenciesSplit.setDividerLocation(depProp);
-            }
-        } else {
-            // Ensure it is collapsed
-            dependenciesDrawerPanel.collapseIfEmpty();
-        }
-
-        // Do not restore Terminal drawer here.
+        // no-op (drawer removed)
     }
 
     /** Adds property change listeners to split panes for saving positions (global-first). */
@@ -2061,24 +2039,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             }
         });
-
-        // Persist Dependencies drawer open/proportion globally
-        workspaceDependenciesSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (workspaceDependenciesSplit.isShowing()) {
-                int total = workspaceDependenciesSplit.getWidth();
-                if (total > 0) {
-                    double prop = Math.max(
-                            0.05,
-                            Math.min(0.95, (double) workspaceDependenciesSplit.getDividerLocation() / (double) total));
-                    GlobalUiSettings.saveDependenciesDrawerProportion(prop);
-                    GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
-                }
-            }
-        });
-        workspaceDependenciesSplit.addPropertyChangeListener("dividerSize", e -> {
-            GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
-        });
-
     }
 
     @Override
@@ -2248,7 +2208,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var titleLabel = new JLabel(file.getFileName());
         titleLabel.setOpaque(false);
 
-        var closeButton = new JButton("×");
+        var closeButton = new JButton("x");
         closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
         closeButton.setPreferredSize(new Dimension(24, 24));
         closeButton.setMargin(new Insets(0, 0, 0, 0));
@@ -2329,11 +2289,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return historyOutputPanel;
     }
 
-
     /** Append tasks to the Task List panel, if present. Tasks are appended to the current session's list. */
     public void appendTasksToTaskList(List<String> tasks) {
         SwingUtilities.invokeLater(() -> {
-            var taskPanel = instructionsToolsPanel.openTaskList();
+            var taskPanel = openTaskList();
             taskPanel.appendTasks(tasks);
         });
     }
@@ -2749,15 +2708,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Updates the Tasks tab badge with the number of undone tasks.
+     * Updates the Tasks tab title with the number of undone tasks.
      * Thread-safe: marshals to EDT.
      */
     public void updateTasksTabBadge(int undoneCount) {
         SwingUtilities.invokeLater(() -> {
-            try {
-                instructionsToolsPanel.updateTasksTabBadge(undoneCount);
-            } catch (Exception ex) {
-                logger.debug("Failed to update Tasks tab badge", ex);
+            tasksUndoneCount = Math.max(0, undoneCount);
+            String title = tasksUndoneCount > 0 ? "Tasks (" + tasksUndoneCount + ")" : "Tasks";
+            int idx = TAB_TASKS;
+            if (idx >= 0 && idx < workspaceToolsTabs.getTabCount()) {
+                workspaceToolsTabs.setTitleAt(idx, title);
             }
         });
     }
@@ -2834,14 +2794,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Updates the terminal font size for all active terminals. */
     public void updateTerminalFontSize() {
-        SwingUtilities.invokeLater(() -> instructionsToolsPanel.updateTerminalFontSize());
+        SwingUtilities.invokeLater(() -> {
+            if (terminalPanel != null) {
+                terminalPanel.updateTerminalFontSize();
+            }
+        });
     }
 
-
-/** Returns the TestRunnerPanel if created; else null. */
-public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrNull() {
-    return instructionsToolsPanel.getTestRunnerPanelOrNull();
-}
+    /** Returns the TestRunnerPanel if created; else null. */
+    public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrNull() {
+        return testRunnerPanel;
+    }
 
     /**
      * Appends text to the Tests panel, opening/focusing the tab if necessary.
@@ -2865,8 +2828,8 @@ public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrN
 
     private void appendToTestRunnerEdt(String text) {
         try {
-            var panel = instructionsToolsPanel.openTests();
-            panel.appendToActiveRun(text);
+            var panel = openTests();
+            panel.appendToActiveRun(Objects.toString(text, ""));
         } catch (Exception ex) {
             logger.debug("Failed to append to Tests tab", ex);
         }
@@ -2878,7 +2841,7 @@ public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrN
     public void clearTestRunnerOutput() {
         Runnable clearTask = () -> {
             try {
-                var panel = instructionsToolsPanel.openTests();
+                var panel = openTests();
                 panel.clearAllRuns();
             } catch (Exception ex) {
                 logger.debug("Failed to clear Tests tab", ex);
@@ -2892,6 +2855,16 @@ public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrN
     }
 
     /**
+     * Open terminal tab and paste provided text when ready.
+     */
+    public void openTerminalAndPasteText(String text) {
+        SwingUtilities.invokeLater(() -> {
+            var tp = openTerminal();
+            tp.whenReady().thenAccept(t -> SwingUtilities.invokeLater(() -> t.pasteText(text)));
+        });
+    }
+
+    /**
      * Backward-compatibility adapter for legacy callers that used a terminal "drawer".
      * Only implements the minimal API used by ContextManager: openTerminalAndPasteText(String).
      *
@@ -2901,7 +2874,7 @@ public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrN
         public void openTerminalAndPasteText(String text) {
             SwingUtilities.invokeLater(() -> {
                 try {
-                    instructionsToolsPanel.openTerminalAndPasteText(text);
+                    Chrome.this.openTerminalAndPasteText(text);
                 } catch (Exception ex) {
                     logger.debug("Failed to open terminal and paste text via adapter", ex);
                 }
@@ -2915,5 +2888,76 @@ public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrN
      */
     public TerminalAdapter getTerminalDrawer() {
         return new TerminalAdapter();
+    }
+
+    // ---- Tab helpers and lazy creation ----
+
+    private DependenciesPanel ensureDependenciesPanel() {
+        if (dependenciesPanel == null) {
+            dependenciesPanel = new DependenciesPanel(this);
+            workspaceToolsTabs.setComponentAt(TAB_DEPENDENCIES, dependenciesPanel);
+        }
+        return dependenciesPanel;
+    }
+
+    private TaskListPanel ensureTaskListPanel() {
+        if (taskListPanel == null) {
+            taskListPanel = new TaskListPanel(this);
+            taskListPanel.applyTheme(themeManager);
+            workspaceToolsTabs.setComponentAt(TAB_TASKS, taskListPanel);
+            // initialize badge in title
+            updateTasksTabBadge(tasksUndoneCount);
+        }
+        return taskListPanel;
+    }
+
+    private TerminalPanel ensureTerminalPanel() {
+        if (terminalPanel == null) {
+            terminalPanel = new TerminalPanel(this, () -> {
+                // onClose: replace terminal with placeholder
+                SwingUtilities.invokeLater(() -> {
+                    terminalPanel = null;
+                    workspaceToolsTabs.setComponentAt(TAB_TERMINAL, terminalPlaceholder);
+                });
+            }, true, null);
+            terminalPanel.applyTheme(themeManager);
+            workspaceToolsTabs.setComponentAt(TAB_TERMINAL, terminalPanel);
+        }
+        return terminalPanel;
+    }
+
+    private TestRunnerPanel ensureTestRunnerPanel() {
+        if (testRunnerPanel == null) {
+            var store = new FileBasedTestRunsStore(getProject().getRoot());
+            testRunnerPanel = new TestRunnerPanel(store);
+            testRunnerPanel.applyTheme(themeManager);
+            workspaceToolsTabs.setComponentAt(TAB_TESTS, testRunnerPanel);
+        }
+        return testRunnerPanel;
+    }
+
+    private DependenciesPanel openDependencies() {
+        var p = ensureDependenciesPanel();
+        workspaceToolsTabs.setSelectedIndex(TAB_DEPENDENCIES);
+        return p;
+    }
+
+    private TaskListPanel openTaskList() {
+        var p = ensureTaskListPanel();
+        workspaceToolsTabs.setSelectedIndex(TAB_TASKS);
+        return p;
+    }
+
+    private TerminalPanel openTerminal() {
+        var p = ensureTerminalPanel();
+        workspaceToolsTabs.setSelectedIndex(TAB_TERMINAL);
+        SwingUtilities.invokeLater(p::requestFocusInTerminal);
+        return p;
+    }
+
+    private TestRunnerPanel openTests() {
+        var p = ensureTestRunnerPanel();
+        workspaceToolsTabs.setSelectedIndex(TAB_TESTS);
+        return p;
     }
 }
