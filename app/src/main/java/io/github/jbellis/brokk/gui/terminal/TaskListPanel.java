@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -102,6 +103,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final Timer llmStateTimer;
     private final Timer runningFadeTimer;
     private long runningAnimStartMs = 0L;
+
+    private final Color stopButtonDefaultBg;
 
     private @Nullable Integer runningIndex = null;
     private final LinkedHashSet<Integer> pendingQueue = new LinkedHashSet<>();
@@ -363,6 +366,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         stopBtn.setToolTipText("<html>Cancel the current AI task and stop the remaining queue.</html>");
         stopBtn.addActionListener(e -> chrome.getContextManager().interruptLlmAction());
 
+        Color tmpDefault = UIManager.getColor("Button.default.background");
+        if (tmpDefault == null) tmpDefault = UIManager.getColor("Button.background");
+        this.stopButtonDefaultBg = (tmpDefault != null) ? tmpDefault : stopBtn.getBackground();
+        stopBtn.setBackground(this.stopButtonDefaultBg);
+
         playAllBtn.setIcon(Icons.FAST_FORWARD);
         playAllBtn.setToolTipText(
                 "<html><body style='width:300px'>Run Architect on all tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
@@ -398,11 +406,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
             topToolbar.setOpaque(false);
 
-            // Left group: remaining buttons
+            // Left group: remaining buttons (Stop moved to right group)
             topToolbar.add(removeBtn);
             topToolbar.add(toggleDoneBtn);
             topToolbar.add(playBtn);
-            topToolbar.add(stopBtn);
             topToolbar.add(combineBtn);
             topToolbar.add(splitBtn);
 
@@ -411,9 +418,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             sep.setPreferredSize(new java.awt.Dimension(8, 24));
             topToolbar.add(sep);
 
-            // Right group: Play All and Clear Completed
+            // Right group: Play All, Clear Completed, and Stop (with divider before Stop)
             topToolbar.add(playAllBtn);
             topToolbar.add(clearCompletedBtn);
+
+            JSeparator sep2 = new JSeparator(SwingConstants.VERTICAL);
+            sep2.setPreferredSize(new java.awt.Dimension(8, 24));
+            topToolbar.add(sep2);
+
+            topToolbar.add(stopBtn);
 
             add(topToolbar, BorderLayout.NORTH);
         }
@@ -791,6 +804,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Stop is enabled only when an AI task is running; remains available even if other controls are disabled
         stopBtn.setEnabled(llmBusy);
+        if (llmBusy) {
+            // Always use the off red of the light theme (same as InstructionsPanel stop state)
+            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
+            stopBtn.setBackground(badgeBackgroundColor);
+        } else {
+            stopBtn.setBackground(stopButtonDefaultBg);
+        }
 
         // Combine enabled only if 2 or more tasks selected and no running/pending in selection
         combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
@@ -1151,6 +1171,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (selFg == null) selFg = dark ? Color.WHITE : Color.BLACK;
         list.setSelectionBackground(selBg);
         list.setSelectionForeground(selFg);
+
+        // Ensure stop button background matches InstructionsPanel behavior under current theme/state
+        boolean llmBusy = false;
+        try {
+            llmBusy = chrome.getContextManager().isLlmTaskInProgress();
+        } catch (Exception ex) {
+            logger.debug("Unable to query LLM busy state during theme apply", ex);
+        }
+        if (llmBusy) {
+            stopBtn.setBackground(ThemeColors.getColor(false, "git_badge_background"));
+        } else {
+            Color defaultBg = UIManager.getColor("Button.default.background");
+            if (defaultBg == null) defaultBg = UIManager.getColor("Button.background");
+            stopBtn.setBackground(defaultBg != null ? defaultBg : stopButtonDefaultBg);
+        }
 
         revalidate();
         repaint();
