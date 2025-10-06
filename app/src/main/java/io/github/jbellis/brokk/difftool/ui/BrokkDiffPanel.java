@@ -1065,7 +1065,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     TaskResult.StopReason.SUCCESS);
 
             // Add a single history entry for the whole batch
-            try (var scope = contextManager.beginTask("", false)) {
+            try (var scope = contextManager.beginTask(actionDescription, false)) {
                 scope.append(result);
             }
             logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
@@ -2080,6 +2080,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 // Empty blame data will just show line numbers without blame info
                 right.getGutterComponent().setBlameLines(rightMap);
                 right.getGutterComponent().setShowBlame(true);
+
+                // If file has unsaved changes, mark blame as stale (line numbers may not match)
+                if (bp.hasUnsavedChanges()) {
+                    right.getGutterComponent().markBlameStale();
+                }
             }
             // Optionally clear/hide left gutter blame
             var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
@@ -2239,11 +2244,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             SwingUtilities.invokeLater(() -> {
                 if (left != null && left.getBufferDocument() == bufferDocument) {
                     left.getGutterComponent().markBlameStale();
-                    logger.debug("Marked left gutter blame as stale");
                 }
                 if (right != null && right.getBufferDocument() == bufferDocument) {
                     right.getGutterComponent().markBlameStale();
-                    logger.debug("Marked right gutter blame as stale");
                 }
             });
         }
@@ -2290,11 +2293,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void refreshBlamePanelAsync(BlameService service, FilePanel panel, java.nio.file.Path filePath) {
-        logger.debug("Refreshing blame after save for: {}", filePath);
         service.requestBlame(filePath).thenAccept(blameMap -> {
             SwingUtilities.invokeLater(() -> {
                 panel.getGutterComponent().setBlameLines(blameMap);
-                logger.debug("Updated blame after save: {} ({} lines)", filePath, blameMap.size());
             });
         });
     }

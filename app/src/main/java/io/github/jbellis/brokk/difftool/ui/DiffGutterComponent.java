@@ -318,6 +318,15 @@ public class DiffGutterComponent extends JComponent {
         repaint();
     }
 
+    /**
+     * Get the current right/new file blame lines.
+     *
+     * @return Immutable map of line numbers to blame info (never null, may be empty)
+     */
+    public Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> getRightBlameLines() {
+        return rightBlameLines;
+    }
+
     /** Set up scroll listener to ensure the gutter repaints when the text area scrolls. */
     private void setupScrollListener() {
         javax.swing.SwingUtilities.invokeLater(() -> {
