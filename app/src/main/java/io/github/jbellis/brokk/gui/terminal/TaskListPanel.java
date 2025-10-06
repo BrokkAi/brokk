@@ -1705,19 +1705,24 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    private void updateTasksTabBadgeFromModel() {
-        try {
-            int undone = 0;
-            for (int i = 0; i < model.getSize(); i++) {
-                TaskItem it = model.get(i);
-                if (it != null && !it.done()) {
-                    undone++;
-                }
+    private void updateTasksBadgeNow() {
+        int undone = 0;
+        for (int i = 0; i < model.getSize(); i++) {
+            TaskItem it = model.get(i);
+            if (it != null && !it.done()) {
+                undone++;
             }
+        }
+        try {
             chrome.updateTasksTabBadge(undone);
         } catch (Exception ex) {
-            logger.debug("Unable to update Tasks tab badge from model", ex);
+            logger.debug("Unable to update Tasks tab badge", ex);
         }
+    }
+
+    // Backward compat: delegate old name to the new helper
+    private void updateTasksTabBadgeFromModel() {
+        updateTasksBadgeNow();
     }
 
     private record TaskItem(String text, boolean done) {}
