@@ -1389,6 +1389,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             historyOutputPanel.updateUndoRedoButtonStates();
             setContext(newCtx); // Handles contextPanel update and historyOutputPanel.resetLlmOutput
             updateContextHistoryTable(newCtx); // Handles historyOutputPanel.updateHistoryTable
+
+            // Sync remove-button state in InstructionsPanel after context change
+            try {
+                instructionsPanel.updateRemoveButtonEnabled();
+            } catch (Exception ignore) {
+                // ignore
+            }
         });
     }
 

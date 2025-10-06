@@ -120,6 +120,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable TitledBorder instructionsTitledBorder;
     private @Nullable SplitButton branchSplitButton;
     private @Nullable JButton collapseToggleButton;
+    // New controls: tokens/cost summary and Add/Remove context buttons in the top bar
+    private final JLabel tokensCostLabel = new JLabel(" ");
+    private final MaterialButton addContextButton = new MaterialButton();
+    private final MaterialButton removeContextButton = new MaterialButton();
 
     // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
     private @Nullable JPanel optionsPanel;
@@ -761,6 +765,43 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         rightPanel.setOpaque(false);
+
+        // Tokens/Cost summary label (moved from WorkspacePanel)
+        var tokensDim = new Dimension(200, controlHeight);
+        tokensCostLabel.setPreferredSize(tokensDim);
+        tokensCostLabel.setMinimumSize(new Dimension(120, controlHeight));
+        tokensCostLabel.setMaximumSize(new Dimension(Integer.MAX_VALUE, controlHeight));
+        tokensCostLabel.setBorder(new EmptyBorder(0, H_GAP, 0, H_GAP));
+
+        // Add Context button (opens Attach Context dialog)
+        SwingUtilities.invokeLater(() -> addContextButton.setIcon(Icons.ATTACH_FILE));
+        addContextButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
+        addContextButton.setFocusable(false);
+        addContextButton.setOpaque(false);
+        addContextButton.addActionListener(e -> {
+            try {
+                chrome.getContextPanel().attachContextViaDialog();
+            } catch (Exception ex) {
+                logger.debug("Failed to open Attach Context dialog", ex);
+            }
+        });
+        addContextButton.setPreferredSize(new Dimension(controlHeight, controlHeight));
+
+        // Remove Context button (drops selected fragments)
+        SwingUtilities.invokeLater(() -> removeContextButton.setIcon(Icons.TRASH));
+        removeContextButton.setToolTipText("Drop selected item(s) from workspace");
+        removeContextButton.setFocusable(false);
+        removeContextButton.setOpaque(false);
+        removeContextButton.addActionListener(e -> {
+            var selected = chrome.getContextPanel().getSelectedFragments();
+            if (selected.isEmpty()) return;
+            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, selected);
+        });
+        removeContextButton.setPreferredSize(new Dimension(controlHeight, controlHeight));
+        // Initialize enabled state
+        updateRemoveButtonEnabled();
+
+        // Collapse button
         collapseToggleButton = new JButton();
         SwingUtilities.invokeLater(() -> requireNonNull(collapseToggleButton).setIcon(Icons.KEYBOARD_ARROW_UP));
         var collapseDim = new Dimension(controlHeight, controlHeight);
@@ -772,6 +813,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         collapseToggleButton.setFocusPainted(false);
         collapseToggleButton.setToolTipText("Minimize workspace area");
         collapseToggleButton.addActionListener(e -> chrome.toggleWorkspaceCollapse());
+
+        // Order: tokens/cost, add, remove, collapse
+        rightPanel.add(tokensCostLabel);
+        rightPanel.add(addContextButton);
+        rightPanel.add(removeContextButton);
         rightPanel.add(collapseToggleButton);
 
         topBarPanel.add(rightPanel, BorderLayout.EAST);
@@ -2295,6 +2341,48 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public VoiceInputButton getVoiceInputButton() {
         return this.micButton;
+    }
+
+    // --- Tokens/Cost summary controls ---
+
+    public void setTokensCostSummary(String text, String tooltip) {
+        SwingUtilities.invokeLater(() -> {
+            tokensCostLabel.setText(text);
+            tokensCostLabel.setToolTipText(tooltip);
+        });
+    }
+
+    public void clearTokensCostSummary() {
+        SwingUtilities.invokeLater(() -> {
+            tokensCostLabel.setText(" ");
+            tokensCostLabel.setToolTipText(null);
+        });
+    }
+
+    // --- Remove button enabled state ---
+
+    public void updateRemoveButtonEnabled() {
+        try {
+            var cm = chrome.getContextManager();
+            var latest = cm.topContext();
+            var selected = cm.selectedContext();
+            boolean onLatest = Objects.equals(latest, selected);
+            int selCount = chrome.getContextPanel().getSelectedFragments().size();
+            boolean enabled = onLatest && selCount > 0;
+
+            removeContextButton.setEnabled(enabled);
+            if (!onLatest) {
+                removeContextButton.setToolTipText("Drop is only available when viewing the latest context");
+            } else if (selCount == 0) {
+                removeContextButton.setToolTipText("Select item(s) to drop");
+            } else {
+                removeContextButton.setToolTipText("Drop selected item(s) from workspace");
+            }
+        } catch (Exception e) {
+            // Be conservative on error
+            removeContextButton.setEnabled(false);
+            removeContextButton.setToolTipText("Drop selected item(s) from workspace");
+        }
     }
 
     /**

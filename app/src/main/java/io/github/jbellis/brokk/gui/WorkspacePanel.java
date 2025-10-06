@@ -945,6 +945,11 @@ public class WorkspacePanel extends JPanel {
         contextTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 updateDropSelectedButtonEnabled();
+                try {
+                    chrome.getInstructionsPanel().updateRemoveButtonEnabled();
+                } catch (Exception ignore) {
+                    // ignore
+                }
             }
         });
 
@@ -1138,23 +1143,14 @@ public class WorkspacePanel extends JPanel {
         summaryWithAdd.add(locSummaryPanel, BorderLayout.CENTER);
 
         if (popupMenuMode == PopupMenuMode.FULL) {
-            // Add button to show Add popup (same menu as table's Add)
-            var addButton = new MaterialButton();
-            addButton.setIcon(Icons.ATTACH_FILE);
-            addButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
-            addButton.setFocusable(false);
-            addButton.setOpaque(false);
-            addButton.addActionListener(e -> {
-                attachContextViaDialog();
-            });
-            // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
+            // Register keyboard shortcut (button moved to InstructionsPanel)
             KeyboardShortcutUtil.registerGlobalShortcut(
                     WorkspacePanel.this,
                     KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
                     "attachContext",
                     () -> SwingUtilities.invokeLater(this::attachContextViaDialog));
 
-            // Create a trash button to drop selected fragment(s)
+            // Keep dropSelectedButton wiring so logic can be triggered externally
             dropSelectedButton.setIcon(Icons.TRASH);
             dropSelectedButton.setToolTipText("Drop selected item(s) from workspace");
             dropSelectedButton.setFocusable(false);
@@ -1162,24 +1158,10 @@ public class WorkspacePanel extends JPanel {
             dropSelectedButton.addActionListener(e -> {
                 var fragsToDrop = getSelectedFragments();
                 if (fragsToDrop.isEmpty()) {
-                    // No-op if no selection; enable state prevents this in normal flow.
                     return;
                 }
                 performContextActionAsync(ContextAction.DROP, fragsToDrop);
             });
-
-            // Panel to hold buttons with horizontal gap
-            var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
-            buttonsPanel.setOpaque(false);
-            buttonsPanel.add(addButton);
-            buttonsPanel.add(dropSelectedButton);
-
-            // Wrap the buttons so they vertically center nicely with the labels
-            var buttonWrapper = new JPanel(new GridBagLayout());
-            buttonWrapper.setOpaque(false);
-            buttonWrapper.add(buttonsPanel);
-
-            summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
 
             // Initialize the enabled state according to selection/editability
             updateDropSelectedButtonEnabled();
@@ -1377,6 +1359,13 @@ public class WorkspacePanel extends JPanel {
             // Remove any warning messages
             warningPanel.removeAll();
 
+            // Clear tokens/cost summary in InstructionsPanel
+            try {
+                chrome.getInstructionsPanel().clearTokensCostSummary();
+            } catch (Exception ignore) {
+                // ignore
+            }
+
             revalidate();
             repaint();
             return;
@@ -1427,6 +1416,15 @@ public class WorkspacePanel extends JPanel {
         innerLabel.setForeground(UIManager.getColor("Label.foreground"));
         innerLabel.setText("Calculating token estimate...");
         innerLabel.setToolTipText("Total: %,d LOC".formatted(totalLines));
+
+        // Also reflect status in the InstructionsPanel top bar
+        try {
+            chrome.getInstructionsPanel()
+                    .setTokensCostSummary("Calculating token estimate...", "Total: %,d LOC".formatted(totalLines));
+        } catch (Exception ignore) {
+            // ignore
+        }
+
         costLabel.setText(" ");
         costLabel.setVisible(false);
         warningPanel.removeAll();
@@ -2221,12 +2219,23 @@ public class WorkspacePanel extends JPanel {
                     String costEstimate = calculateCostEstimate(approxTokens, service);
                     String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
 
-                    // Single-line summary to keep the paperclip aligned
-                    innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
+                    // Build summary for InstructionsPanel
+                    String summaryText = "%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText);
+                    String tooltip = "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                            .formatted(totalLines, approxTokens, costText);
 
-                    // Preserve details in tooltip
-                    innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
-                            .formatted(totalLines, approxTokens, costText));
+                    // Move display to InstructionsPanel top bar
+                    try {
+                        chrome.getInstructionsPanel().setTokensCostSummary(summaryText, tooltip);
+                    } catch (Exception ignore) {
+                        // ignore
+                    }
+
+                    // Clear inner label here (moved to InstructionsPanel)
+                    innerLabel.setText(" ");
+
+                    // Preserve details in tooltip (still set, but hidden by blank text)
+                    innerLabel.setToolTipText(tooltip);
 
                     // Keep the secondary label hidden to avoid changing the row height
                     costLabel.setText(" ");
