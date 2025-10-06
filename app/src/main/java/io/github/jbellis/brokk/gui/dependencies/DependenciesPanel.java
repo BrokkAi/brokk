@@ -127,12 +127,7 @@ public final class DependenciesPanel extends JPanel {
 
     public DependenciesPanel(Chrome chrome) {
         super(new BorderLayout());
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Dependencies",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(BorderFactory.createEtchedBorder());
 
         this.chrome = chrome;
 
