@@ -1403,7 +1403,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         contextPushed(contextHistory.topContext());
 
-        // Auto-compress conversation history if enabled and exceeds 10% of the context window
+        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window
         if (MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
@@ -1413,7 +1413,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var svc = getService();
                 var model = getCodeModel();
                 int maxInputTokens = svc.getMaxInputTokens(model);
-                if (tokenCount > (int) Math.ceil(maxInputTokens * 0.10)) {
+                double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
+                if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
                     compressHistoryAsync();
                 }
             } catch (ServiceWrapper.ServiceInitializationException e) {
