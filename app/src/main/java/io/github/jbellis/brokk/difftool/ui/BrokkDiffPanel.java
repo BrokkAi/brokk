@@ -147,6 +147,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
         this.initialFileIndex = builder.initialFileIndex;
 
+        // Initialize blame service if we have a git repo
+        if (contextManager.getProject().getRepo() instanceof GitRepo gitRepo) {
+            this.blameService = new BlameService(gitRepo.getGit());
+        } else {
+            this.blameService = null;
+        }
+
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
         assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
@@ -375,8 +382,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnNextFile = new MaterialButton();
     private final MaterialButton btnTools = new MaterialButton();
 
-    // Blame service
-    private final BlameService blameService = new BlameService();
+    // Blame service (null if not a git repo)
+    private final @Nullable BlameService blameService;
     private boolean blameErrorNotified = false;
 
     // Flag to track when layout hierarchy needs reset after navigation
@@ -2145,6 +2152,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Resolve target path from panel
         var targetPath = resolveTargetPath(panel);
         if (targetPath == null) {
+            return;
+        }
+
+        // Check if blame service is available (only for git repos)
+        if (blameService == null) {
+            logger.warn("Blame service not available (not a git repo)");
             return;
         }
 

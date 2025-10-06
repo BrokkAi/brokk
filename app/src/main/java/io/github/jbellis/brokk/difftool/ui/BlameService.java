@@ -1,24 +1,25 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.InputStreamReader;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.blame.BlameResult;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.PersonIdent;
+import org.eclipse.jgit.revwalk.RevCommit;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Small async blame fetcher. Uses 'git blame --line-porcelain' when available. Results are cached per-path. Failures
- * return an empty map.
+ * Small async blame fetcher using JGit. Results are cached per-path. Failures return an empty map.
  *
- * <p>Note: this is intentionally minimal and conservative — it runs the git command off the EDT and returns a
+ * <p>Note: this is intentionally minimal and conservative — it runs JGit blame off the EDT and returns a
  * CompletableFuture that completes on the thread that finishes the work; callers must SwingUtilities.invokeLater when
  * updating UI.
  */
@@ -29,11 +30,24 @@ public final class BlameService {
 
     public static final record BlameInfo(String author, String shortSha, Long authorTime) {}
 
+    private final Git git;
+    private final Path repositoryRoot;
+
     // Cache keyed by "absolutePath" for current file or "absolutePath@@revision" for specific revisions
     private final ConcurrentMap<String, CompletableFuture<Map<Integer, BlameInfo>>> cache = new ConcurrentHashMap<>();
 
     // Track last error message per cache key for user feedback
     private final ConcurrentMap<String, String> lastErrors = new ConcurrentHashMap<>();
+
+    /**
+     * Creates a new BlameService using the provided Git instance.
+     *
+     * @param git The JGit Git instance to use for blame operations (non-null)
+     */
+    public BlameService(Git git) {
+        this.git = git;
+        this.repositoryRoot = git.getRepository().getWorkTree().toPath();
+    }
 
     /**
      * Request blame for the given file path (working tree version).
@@ -82,107 +96,83 @@ public final class BlameService {
     }
 
     /**
-     * Parse git blame --line-porcelain output from a BufferedReader.
+     * Safely converts an absolute file path to a repository-relative path.
      *
-     * <p>The porcelain format provides one block per line of the blamed file, containing:
+     * <p>This method validates that the file is under the repository root and handles path relativization errors
+     * gracefully. If the file is outside the repository or on a different filesystem, it returns {@code null} and
+     * records an error message.
      *
-     * <ul>
-     *   <li>40-character commit SHA followed by line numbers
-     *   <li>Metadata fields (author, author-time, etc.)
-     *   <li>Tab-prefixed actual line content (triggers line counter increment)
-     * </ul>
-     *
-     * <p>Missing metadata (author, timestamp) is represented by sentinel values: {@link #NOT_COMMITTED_YET} for missing
-     * authors and {@code 0L} for missing timestamps.
-     *
-     * @param r The BufferedReader containing git blame output (non-null)
-     * @return An immutable map of 1-based line number to {@link BlameInfo}, never {@code null}
-     * @throws java.io.IOException if reading from the BufferedReader fails
+     * @param filePath The file path to convert (will be converted to absolute and normalized)
+     * @param cacheKey The cache key for error tracking
+     * @return The repository-relative path as a string, or {@code null} if the path cannot be relativized
      */
-    private Map<Integer, BlameInfo> parseBlameOutput(BufferedReader r) throws java.io.IOException {
-        Pattern commitPattern = Pattern.compile("^([0-9a-f]{40})\\s");
-        String line;
-        int currentLine = 0;
-        String currentAuthor = null;
-        String currentSha = null;
-        Long currentAuthorTime = null;
-        ConcurrentHashMap<Integer, BlameInfo> result = new ConcurrentHashMap<>();
-
-        while ((line = r.readLine()) != null) {
-            if (line.isEmpty()) continue;
-            Matcher m = commitPattern.matcher(line);
-            if (m.find()) {
-                // start of a new block; next lines contain author etc.
-                currentSha = m.group(1);
-                currentAuthor = null;
-                currentAuthorTime = null;
-            } else if (line.startsWith("author ")) {
-                currentAuthor = line.substring("author ".length()).trim();
-            } else if (line.startsWith("author-time ")) {
-                try {
-                    currentAuthorTime = Long.parseLong(
-                            line.substring("author-time ".length()).trim());
-                } catch (NumberFormatException e) {
-                    currentAuthorTime = null;
-                }
-            } else if (line.startsWith("\t")) {
-                // content line; increment line counter and record blame
-                currentLine++;
-                String shortSha = (currentSha != null && currentSha.length() >= 8)
-                        ? currentSha.substring(0, 8)
-                        : (currentSha == null ? "" : currentSha);
-                // Use NOT_COMMITTED_YET for missing author, 0L for missing timestamp
-                result.put(
-                        currentLine,
-                        new BlameInfo(
-                                currentAuthor == null ? NOT_COMMITTED_YET : currentAuthor,
-                                shortSha,
-                                currentAuthorTime != null ? currentAuthorTime : 0L));
+    private @Nullable String getRepositoryRelativePath(Path filePath, String cacheKey) {
+        try {
+            Path absolutePath = filePath.toAbsolutePath().normalize();
+            if (!absolutePath.startsWith(repositoryRoot)) {
+                String error = "File is not under repository root: " + filePath;
+                logger.warn(error);
+                lastErrors.put(cacheKey, error);
+                return null;
             }
+            return repositoryRoot.relativize(absolutePath).toString();
+        } catch (IllegalArgumentException e) {
+            String error = "Cannot relativize path: " + e.getMessage();
+            logger.warn("{} for file: {}", error, filePath);
+            lastErrors.put(cacheKey, error);
+            return null;
         }
-        return Map.copyOf(result);
     }
 
     private CompletableFuture<Map<Integer, BlameInfo>> startBlameTask(Path filePath) {
         return CompletableFuture.supplyAsync(() -> {
             String cacheKey = filePath.toAbsolutePath().toString();
             try {
-                File file = filePath.toFile();
-                if (!file.exists()) {
-                    logger.warn("Blame requested for non-existent file: {}", filePath);
-                    lastErrors.put(cacheKey, "File not found");
+                // Convert to repository-relative path for JGit
+                String relativePath = getRepositoryRelativePath(filePath, cacheKey);
+                if (relativePath == null) {
                     return Map.<Integer, BlameInfo>of();
                 }
-                // Build process: git -C <repoRoot> blame --line-porcelain -- <fileRelativePath>
-                // We will attempt to run git blame in the file's parent directory; if this fails, return empty.
-                ProcessBuilder pb = new ProcessBuilder("git", "blame", "--line-porcelain", "--", file.getName());
-                pb.directory(file.getParentFile());
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
 
-                Map<Integer, BlameInfo> result;
-                try (BufferedReader r = new BufferedReader(
-                        new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
-                    result = parseBlameOutput(r);
+                // Run JGit blame command
+                BlameResult blameResult = git.blame().setFilePath(relativePath).call();
+
+                if (blameResult == null) {
+                    logger.warn("Blame returned null for file: {}", filePath);
+                    lastErrors.put(cacheKey, "Blame returned no results");
+                    return Map.<Integer, BlameInfo>of();
                 }
 
-                // Wait for process to exit to avoid zombies
-                int exitCode = -1;
-                try {
-                    exitCode = p.waitFor();
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
+                // Convert BlameResult to Map<Integer, BlameInfo>
+                Map<Integer, BlameInfo> result = new HashMap<>();
+                int lineCount = blameResult.getResultContents().size();
+
+                for (int i = 0; i < lineCount; i++) {
+                    RevCommit commit = blameResult.getSourceCommit(i);
+
+                    if (commit == null) {
+                        // Uncommitted line
+                        result.put(i + 1, new BlameInfo(NOT_COMMITTED_YET, "", 0L));
+                    } else {
+                        PersonIdent author = commit.getAuthorIdent();
+                        String authorName = author != null ? author.getName() : NOT_COMMITTED_YET;
+                        String fullSha = commit.getName();
+                        String shortSha = fullSha.length() >= 8 ? fullSha.substring(0, 8) : fullSha;
+                        long authorTime =
+                                author != null ? author.getWhenAsInstant().getEpochSecond() : 0L;
+
+                        result.put(i + 1, new BlameInfo(authorName, shortSha, authorTime));
+                    }
                 }
 
-                if (exitCode != 0) {
-                    logger.warn("git blame exited with code {} for file: {}", exitCode, filePath);
-                    lastErrors.put(cacheKey, "Git command failed (exit code " + exitCode + ")");
-                } else {
-                    lastErrors.remove(cacheKey); // Clear any previous error on success
-                }
-                return result;
+                lastErrors.remove(cacheKey); // Clear any previous error on success
+                return Map.copyOf(result);
+
+            } catch (GitAPIException e) {
+                logger.error("Git blame failed for {}: {}", filePath, e.getMessage(), e);
+                lastErrors.put(cacheKey, e.getMessage() != null ? e.getMessage() : "Git command failed");
+                return Map.<Integer, BlameInfo>of();
             } catch (Exception e) {
-                // On any failure, return empty map (do not propagate)
                 logger.error("Blame failed for {}: {}", filePath, e.getMessage(), e);
                 lastErrors.put(cacheKey, e.getMessage() != null ? e.getMessage() : "Unknown error");
                 return Map.<Integer, BlameInfo>of();
@@ -194,38 +184,65 @@ public final class BlameService {
         return CompletableFuture.supplyAsync(() -> {
             String cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;
             try {
-                File file = filePath.toFile();
-                // For revisions, file might not exist on disk, which is OK
-                // Build process: git blame <revision> --line-porcelain -- <fileName>
-                ProcessBuilder pb =
-                        new ProcessBuilder("git", "blame", revision, "--line-porcelain", "--", file.getName());
-                pb.directory(file.getParentFile());
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-
-                Map<Integer, BlameInfo> result;
-                try (BufferedReader r = new BufferedReader(
-                        new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
-                    result = parseBlameOutput(r);
+                // Convert to repository-relative path for JGit
+                String relativePath = getRepositoryRelativePath(filePath, cacheKey);
+                if (relativePath == null) {
+                    return Map.<Integer, BlameInfo>of();
                 }
 
-                // Wait for process to exit to avoid zombies
-                int exitCode = -1;
-                try {
-                    exitCode = p.waitFor();
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
+                // Resolve revision to ObjectId
+                ObjectId revisionId = git.getRepository().resolve(revision);
+                if (revisionId == null) {
+                    logger.warn("Could not resolve revision {} for file: {}", revision, filePath);
+                    lastErrors.put(cacheKey, "Could not resolve revision: " + revision);
+                    return Map.<Integer, BlameInfo>of();
                 }
 
-                if (exitCode != 0) {
-                    logger.warn("git blame {} exited with code {} for file: {}", revision, exitCode, filePath);
-                    lastErrors.put(cacheKey, "Git command failed for " + revision + " (exit code " + exitCode + ")");
-                } else {
-                    lastErrors.remove(cacheKey); // Clear any previous error on success
+                // Run JGit blame command for the specified revision
+                BlameResult blameResult = git.blame()
+                        .setFilePath(relativePath)
+                        .setStartCommit(revisionId)
+                        .call();
+
+                if (blameResult == null) {
+                    logger.warn("Blame returned null for revision {} of file: {}", revision, filePath);
+                    lastErrors.put(cacheKey, "Blame returned no results for " + revision);
+                    return Map.<Integer, BlameInfo>of();
                 }
-                return result;
+
+                // Convert BlameResult to Map<Integer, BlameInfo>
+                Map<Integer, BlameInfo> result = new HashMap<>();
+                int lineCount = blameResult.getResultContents().size();
+
+                for (int i = 0; i < lineCount; i++) {
+                    RevCommit commit = blameResult.getSourceCommit(i);
+
+                    if (commit == null) {
+                        // Uncommitted line
+                        result.put(i + 1, new BlameInfo(NOT_COMMITTED_YET, "", 0L));
+                    } else {
+                        PersonIdent author = commit.getAuthorIdent();
+                        String authorName = author != null ? author.getName() : NOT_COMMITTED_YET;
+                        String fullSha = commit.getName();
+                        String shortSha = fullSha.length() >= 8 ? fullSha.substring(0, 8) : fullSha;
+                        long authorTime =
+                                author != null ? author.getWhenAsInstant().getEpochSecond() : 0L;
+
+                        result.put(i + 1, new BlameInfo(authorName, shortSha, authorTime));
+                    }
+                }
+
+                lastErrors.remove(cacheKey); // Clear any previous error on success
+                return Map.copyOf(result);
+
+            } catch (GitAPIException e) {
+                logger.error("Git blame for revision {} failed for {}: {}", revision, filePath, e.getMessage(), e);
+                lastErrors.put(
+                        cacheKey,
+                        "Git command failed for " + revision + ": "
+                                + (e.getMessage() != null ? e.getMessage() : "Unknown error"));
+                return Map.<Integer, BlameInfo>of();
             } catch (Exception e) {
-                // On any failure, return empty map (do not propagate)
                 logger.error("Blame for revision {} failed for {}: {}", revision, filePath, e.getMessage(), e);
                 lastErrors.put(cacheKey, e.getMessage() != null ? e.getMessage() : "Unknown error");
                 return Map.<Integer, BlameInfo>of();
