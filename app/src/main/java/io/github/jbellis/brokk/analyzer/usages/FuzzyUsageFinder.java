@@ -138,7 +138,8 @@ public final class FuzzyUsageFinder {
                     unscoredHits.remove(base);
                 }
             } catch (InterruptedException e) {
-                logger.error("Unable to batch classify relevance with {} due to exception. Leaving hits unscored.", llm, e);
+                logger.error(
+                        "Unable to batch classify relevance with {} due to exception. Leaving hits unscored.", llm, e);
                 Thread.currentThread().interrupt();
             }
             var combined = new HashSet<UsageHit>(scoredHits.size() + unscoredHits.size());
