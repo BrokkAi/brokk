@@ -25,6 +25,9 @@ import java.awt.Component;
 import java.awt.Font;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -356,11 +359,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private static class TestEntryRenderer extends DefaultListCellRenderer {
+        private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
+
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                      boolean isSelected, boolean cellHasFocus) {
             JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            
+
             if (value instanceof TestEntry test) {
                 String statusIcon = switch (test.getStatus()) {
                     case RUNNING -> "⟳ ";
@@ -368,8 +373,18 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     case FAILED -> "✗ ";
                     case ERROR -> "⚠ ";
                 };
-                label.setText(statusIcon + test.getDisplayName());
-                
+
+                // Prefer completedAt; otherwise use startedAt for timestamp display
+                Instant ts = test.getCompletedAt() != null ? test.getCompletedAt() : test.getStartedAt();
+                if (ts != null) {
+                    String timeText = TIME_FORMAT.format(ts.atZone(ZoneId.systemDefault()));
+                    label.setText(statusIcon + test.getDisplayName() + " " + timeText);
+                    label.setToolTipText(DateTimeFormatter.ISO_INSTANT.format(ts));
+                } else {
+                    label.setText(statusIcon + test.getDisplayName());
+                    label.setToolTipText(null);
+                }
+
                 if (!isSelected) {
                     Color statusColor = switch (test.getStatus()) {
                         case RUNNING -> new Color(100, 150, 255);
@@ -380,7 +395,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     label.setForeground(statusColor);
                 }
             }
-            
+
             return label;
         }
     }
