@@ -148,7 +148,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     /**
      * Snapshot the most recent runs as RunRecord objects in display order.
-     * Returns the last 'limit' runs, keeping their original order (oldest -> newest within the slice).
+     * Returns up to 'limit' runs from the top of the list (newest -> oldest).
      * EDT safety: reads the Swing model on the EDT; if called off-EDT, blocks on invokeAndWait.
      */
     public List<RunRecord> snapshotRuns(int limit) {
@@ -172,9 +172,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         if (size == 0) {
             return List.of();
         }
-        int start = Math.max(0, size - limit);
-        var out = new ArrayList<RunRecord>(size - start);
-        for (int i = start; i < size; i++) {
+        int count = Math.min(limit, size);
+        var out = new ArrayList<RunRecord>(count);
+        for (int i = 0; i < count; i++) {
             var run = runListModel.get(i);
             String output = run.getOutput();
             if (output.length() > MAX_SNAPSHOT_OUTPUT_CHARS) {
@@ -269,14 +269,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 run.complete(r.exitCode(), Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())));
             }
             runsById.put(r.id(), run);
-            runListModel.addElement(run);
+            // Insert so that newest ends up at the top
+            runListModel.add(0, run);
             if (run.isRunning()) {
                 lastRunningId = r.id();
             }
         }
 
         if (runListModel.getSize() > 0) {
-            runList.setSelectedIndex(runListModel.getSize() - 1);
+            runList.setSelectedIndex(0);
             updateOutputForSelectedRun();
         } else {
             try {
@@ -313,10 +314,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 // Queue this run
                 run.markQueued();
                 runQueue.addLast(id);
-                runListModel.addElement(run);
-                // Enforce retention cap (drop oldest)
+                // Insert newest at top
+                runListModel.add(0, run);
+                // Enforce retention cap (drop oldest from bottom)
                 while (runListModel.getSize() > maxRuns) {
-                    RunEntry removed = runListModel.remove(0);
+                    int last = runListModel.getSize() - 1;
+                    RunEntry removed = runListModel.remove(last);
                     runsById.remove(removed.id);
                 }
                 // Keep selection on the active run for clarity
@@ -336,14 +339,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 // No active run -> start immediately
                 currentActiveRunId = id;
                 run.markRunning();
-                runListModel.addElement(run);
-                // Enforce retention cap (drop oldest)
+                // Insert newest at top
+                runListModel.add(0, run);
+                // Enforce retention cap (drop oldest from bottom)
                 while (runListModel.getSize() > maxRuns) {
-                    RunEntry removed = runListModel.remove(0);
+                    int last = runListModel.getSize() - 1;
+                    RunEntry removed = runListModel.remove(last);
                     runsById.remove(removed.id);
                 }
                 // Select the active run and clear the output view
-                runList.setSelectedIndex(runListModel.getSize() - 1);
+                runList.setSelectedIndex(0);
                 try {
                     document.withWritePermission(() -> {
                         outputArea.setText("");
@@ -468,15 +473,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         this.maxRuns = newCap;
 
         runOnEdt(() -> {
-            // Enforce retention cap immediately in memory
+            // Enforce retention cap immediately in memory (remove from bottom)
             while (runListModel.getSize() > this.maxRuns) {
-                RunEntry removed = runListModel.remove(0);
+                int last = runListModel.getSize() - 1;
+                RunEntry removed = runListModel.remove(last);
                 runsById.remove(removed.id);
             }
 
-            // Keep selection on newest if any runs remain; update output area
+            // Keep selection on newest (top) if any runs remain; update output area
             if (runListModel.getSize() > 0) {
-                runList.setSelectedIndex(runListModel.getSize() - 1);
+                runList.setSelectedIndex(0);
                 updateOutputForSelectedRun();
             } else {
                 try {
