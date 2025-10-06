@@ -357,9 +357,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
-        // Stop button: cancel current AI task (concise tooltip, no shortcut)
+        // Stop button: cancel current AI task and remaining queue (concise tooltip, no shortcut)
         stopBtn.setIcon(Icons.STOP);
-        stopBtn.setToolTipText("Cancel the current AI task");
+        stopBtn.setAppendShortcutToTooltip(false);
+        stopBtn.setToolTipText("<html>Cancel the current AI task and stop the remaining queue.</html>");
         stopBtn.addActionListener(e -> chrome.getContextManager().interruptLlmAction());
 
         playAllBtn.setIcon(Icons.FAST_FORWARD);
