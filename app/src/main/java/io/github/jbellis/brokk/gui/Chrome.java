@@ -816,16 +816,45 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateGitRepo() {
+        logger.debug("updateGitRepo invoked");
+
+        // Log current branch if available
+        try {
+            if (getProject().hasGit()) {
+                var branch = getProject().getRepo().getCurrentBranch();
+                logger.debug("updateGitRepo: current branch='{}'", branch);
+            } else {
+                logger.debug("updateGitRepo: project has no Git repository");
+            }
+        } catch (Exception e) {
+            logger.debug("updateGitRepo: unable to determine current branch: {}", e.getMessage());
+        }
+
+        // Update individual Git-related panels and log what is being updated
         if (gitCommitTab != null) {
+            logger.debug("updateGitRepo: updating GitCommitTab");
             gitCommitTab.updateCommitPanel();
+        } else {
+            logger.debug("updateGitRepo: GitCommitTab not present (skipping)");
         }
+
         if (gitLogTab != null) {
+            logger.debug("updateGitRepo: updating GitLogTab");
             gitLogTab.update();
+        } else {
+            logger.debug("updateGitRepo: GitLogTab not present (skipping)");
         }
+
         if (gitWorktreeTab != null) {
+            logger.debug("updateGitRepo: refreshing GitWorktreeTab");
             gitWorktreeTab.refresh();
+        } else {
+            logger.debug("updateGitRepo: GitWorktreeTab not present (skipping)");
         }
+
+        logger.debug("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
+        logger.debug("updateGitRepo: finished");
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */
