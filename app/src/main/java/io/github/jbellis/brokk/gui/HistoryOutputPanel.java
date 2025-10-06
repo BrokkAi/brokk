@@ -1595,9 +1595,7 @@ public class HistoryOutputPanel extends JPanel {
     // If the notifications window is open, rebuild it to reflect latest items.
     private void refreshNotificationsDialog() {
         SwingUtilities.invokeLater(() -> {
-            if (notificationsDialog != null
-                    && notificationsDialog.isVisible()
-                    && notificationsListPanel != null) {
+            if (notificationsDialog != null && notificationsDialog.isVisible() && notificationsListPanel != null) {
                 rebuildNotificationsList(notificationsDialog, notificationsListPanel);
             }
         });
