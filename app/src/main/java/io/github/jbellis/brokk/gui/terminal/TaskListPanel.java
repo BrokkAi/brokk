@@ -408,8 +408,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             topToolbar.add(playAllBtn);
             topToolbar.add(clearCompletedBtn);
 
-
-            add(topToolbar, BorderLayout.NORTH);
+            // Move toolbar below the Add Task input: place both in a SOUTH container
+            JPanel southPanel = new JPanel(new BorderLayout());
+            southPanel.setOpaque(false);
+            southPanel.add(controls, BorderLayout.NORTH);
+            southPanel.add(topToolbar, BorderLayout.SOUTH);
+            add(southPanel, BorderLayout.SOUTH);
         }
 
         var scroll =
@@ -439,7 +443,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        add(controls, BorderLayout.SOUTH);
+        // controls moved: added to southPanel together with toolbar
 
         // Ensure correct initial layout with wrapped rows after the panel becomes visible
         addHierarchyListener(e -> {
