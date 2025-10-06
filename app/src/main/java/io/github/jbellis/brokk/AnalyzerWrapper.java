@@ -268,6 +268,12 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                     project.getRoot());
             if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
                 communicativeAnalyzer.setIo(io);
+            } else if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
+                multiAnalyzer.getDelegates().values().forEach(delegate -> {
+                    if (delegate instanceof CanCommunicate communicativeAnalyzer) {
+                        communicativeAnalyzer.setIo(io);
+                    }
+                });
             }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
