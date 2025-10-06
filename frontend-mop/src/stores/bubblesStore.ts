@@ -144,6 +144,13 @@ export function toggleBubbleCollapsed(seq: number): void {
  * - stop streaming
  * - if it's a reasoning bubble, mark it complete, set duration, and auto-collapse it
  */
+/**
+ * Update live task progress state.
+ * - When inProgress is true: no-op.
+ * - When inProgress is false: find the last bubble in the current live thread and finalize it if needed.
+ *   Finalization sets streaming=false. If it's a reasoning bubble, also set reasoningComplete=true,
+ *   duration (in seconds) from startTime, and isCollapsed=true. Updates the list immutably.
+ */
 export function setLiveTaskInProgress(inProgress: boolean): void {
     if (inProgress) return; // nothing to do on start; bubbles will stream as chunks arrive
 
