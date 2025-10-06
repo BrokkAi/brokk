@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
+import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.nio.file.Path;
@@ -46,6 +47,8 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
     private @Nullable TerminalPanel terminalPanel;
     private TestRunnerPanel testRunnerPanel;
 
+    private @Nullable BadgedIcon tasksTabBadgedIcon;
+
     // Tab indices (fixed order)
     private static final int TAB_INSTRUCTIONS = 0;
     private static final int TAB_TASKS = 1;
@@ -62,6 +65,9 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
 
         tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
 
+        // Initialize Tasks tab badged icon with count=0
+        tasksTabBadgedIcon = new BadgedIcon(Icons.LIST, chrome.getTheme());
+
         // Instructions tab uses the existing instance
         tabs.addTab("Instructions", Icons.CHAT_BUBBLE, this.instructionsPanel, "Instructions and actions");
 
@@ -77,7 +83,7 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
 
         // Eagerly create and install real panels so clicking tabs never shows a blank placeholder
         taskListPanel = new TaskListPanel(chrome);
-        replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", Icons.LIST);
+        replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", tasksTabBadgedIcon != null ? tasksTabBadgedIcon : Icons.LIST);
         try {
             taskListPanel.applyTheme(chrome.getTheme());
         } catch (Exception ex) {
@@ -138,7 +144,7 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         assert SwingUtilities.isEventDispatchThread() : "Must run on EDT";
         if (taskListPanel == null) {
             taskListPanel = new TaskListPanel(chrome);
-            replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", Icons.LIST);
+            replaceTabComponent(TAB_TASKS, taskListPanel, "Tasks", tasksTabBadgedIcon != null ? tasksTabBadgedIcon : Icons.LIST);
             // Apply current theme to the newly created panel
             try {
                 taskListPanel.applyTheme(chrome.getTheme());
@@ -208,6 +214,30 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         var tp = openTerminal();
         tp.whenReady().thenAccept(t ->
                 SwingUtilities.invokeLater(() -> t.pasteText(text)));
+    }
+
+    /** Update the Tasks tab badge and tooltip safely. */
+    public void updateTasksTabBadge(int undoneCount) {
+        final var icon = tasksTabBadgedIcon;
+        if (icon == null) {
+            return;
+        }
+        // Ensure we are on EDT and repaint after updating
+        SwingUtilities.invokeLater(() -> {
+            try {
+                icon.setCount(undoneCount, tabs);
+                String tooltip = undoneCount > 0
+                        ? "Task list (" + undoneCount + " pending)"
+                        : "Task list";
+                // Guard against index drift
+                if (TAB_TASKS >= 0 && TAB_TASKS < tabs.getTabCount()) {
+                    tabs.setToolTipTextAt(TAB_TASKS, tooltip);
+                }
+            } catch (Exception ex) {
+                // Be resilient; do not throw from UI updates
+                logger.debug("Failed to update Tasks tab badge", ex);
+            }
+        });
     }
 
     /** Apply theme to subpanels that implement ThemeAware. */

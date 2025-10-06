@@ -488,6 +488,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
         updateButtonStates();
+        // Initialize tasks badge based on current (likely empty) model
+        updateTasksTabBadgeFromModel();
+
         llmStateTimer = new Timer(300, e -> updateButtonStates());
         llmStateTimer.setRepeats(true);
         llmStateTimer.start();
@@ -589,6 +592,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             input.requestFocusInWindow();
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
+            updateTasksTabBadgeFromModel();
         }
     }
 
@@ -646,6 +650,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 clearExpansionOnStructureChange();
                 updateButtonStates();
                 saveTasksForCurrentSession();
+                updateTasksTabBadgeFromModel();
             } else {
                 // No-op if only the running/pending tasks were selected
                 updateButtonStates();
@@ -673,6 +678,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (changed) {
                 updateButtonStates();
                 saveTasksForCurrentSession();
+                updateTasksTabBadgeFromModel();
             }
         }
     }
@@ -743,6 +749,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
             dialog.dispose();
+                    updateTasksTabBadgeFromModel();
         });
         cancelBtn.addActionListener(e -> dialog.dispose());
 
@@ -844,6 +851,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             model.clear();
             clearExpansionOnStructureChange();
             updateButtonStates();
+            updateTasksTabBadgeFromModel();
         }
 
         var sessionManager = chrome.getContextManager().getProject().getSessionManager();
@@ -863,6 +871,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         chrome.toolError("Unable to load task list: " + ex.getMessage(), "Task List");
                     } finally {
                         isLoadingTasks = false;
+                        updateTasksTabBadgeFromModel();
                     }
                 });
             } else {
@@ -883,6 +892,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     } finally {
                         isLoadingTasks = false;
                         clearExpansionOnStructureChange();
+                        updateTasksTabBadgeFromModel();
                     }
                 });
             }
@@ -934,6 +944,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
             updateButtonStates();
+            updateTasksTabBadgeFromModel();
         }
     }
 
@@ -1074,6 +1085,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 runningFadeTimer.stop();
                 list.repaint();
                 updateButtonStates();
+                updateTasksTabBadgeFromModel();
                 startNextIfAny();
             }
         }));
@@ -1345,6 +1357,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             addCount = 0;
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
+            updateTasksTabBadgeFromModel();
         }
     }
 
@@ -1423,6 +1436,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         clearExpansionOnStructureChange();
         saveTasksForCurrentSession();
         updateButtonStates();
+        updateTasksTabBadgeFromModel();
     }
 
     private void splitSelectedTask() {
@@ -1508,6 +1522,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         updateButtonStates();
         list.revalidate();
         list.repaint();
+        updateTasksTabBadgeFromModel();
     }
 
     static List<String> normalizeSplitLines(@Nullable String input) {
@@ -1631,6 +1646,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (removedAny) {
             clearExpansionOnStructureChange();
             saveTasksForCurrentSession();
+            updateTasksTabBadgeFromModel();
         }
         updateButtonStates();
     }
@@ -1686,6 +1702,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         UUID loaded = this.sessionIdAtLoad;
         if (!Objects.equals(current, loaded)) {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+        }
+    }
+
+    private void updateTasksTabBadgeFromModel() {
+        try {
+            int undone = 0;
+            for (int i = 0; i < model.getSize(); i++) {
+                TaskItem it = model.get(i);
+                if (it != null && !it.done()) {
+                    undone++;
+                }
+            }
+            chrome.updateTasksTabBadge(undone);
+        } catch (Exception ex) {
+            logger.debug("Unable to update Tasks tab badge from model", ex);
         }
     }
 

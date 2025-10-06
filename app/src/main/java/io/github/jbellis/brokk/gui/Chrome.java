@@ -428,6 +428,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Create instructions/tools tabbed panel
         instructionsToolsPanel = new InstructionsToolsTabbedPanel(this, instructionsPanel);
+        // Initialize Tasks tab badge to zero
+        try {
+            instructionsToolsPanel.updateTasksTabBadge(0);
+        } catch (Exception ex) {
+            logger.debug("Failed to initialize Tasks tab badge", ex);
+        }
 
         // Attach the combined instructions+tools tabs as the bottom component
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
@@ -2740,6 +2746,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (gitTabLabel != null) {
             gitTabLabel.repaint();
         }
+    }
+
+    /**
+     * Updates the Tasks tab badge with the number of undone tasks.
+     * Thread-safe: marshals to EDT.
+     */
+    public void updateTasksTabBadge(int undoneCount) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                instructionsToolsPanel.updateTasksTabBadge(undoneCount);
+            } catch (Exception ex) {
+                logger.debug("Failed to update Tasks tab badge", ex);
+            }
+        });
     }
 
     /**
