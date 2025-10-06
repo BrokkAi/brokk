@@ -178,8 +178,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     run.id,
                     run.fileCount,
                     run.command,
-                    run.startedAt,
-                    run.completedAt,
+                    run.startedAt.toEpochMilli(),
+                    run.completedAt != null ? run.completedAt.toEpochMilli() : null,
                     run.exitCode,
                     output
             ));
@@ -253,13 +253,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         String lastRunningId = null;
         for (RunRecord r : slice) {
-            var run = new RunEntry(r.id(), r.fileCount(), r.command(), r.startedAt());
+            var run = new RunEntry(r.id(), r.fileCount(), r.command(), Instant.ofEpochMilli(r.startedAtMillis()));
             String out = r.output();
             if (!out.isEmpty()) {
                 run.appendOutput(out);
             }
-            if (r.completedAt() != null) {
-                run.complete(r.exitCode(), r.completedAt());
+            if (r.completedAtMillis() != null) {
+                run.complete(r.exitCode(), Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())));
             }
             runsById.put(r.id(), run);
             runListModel.addElement(run);

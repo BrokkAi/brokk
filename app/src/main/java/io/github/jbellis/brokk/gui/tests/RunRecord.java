@@ -9,7 +9,27 @@ public record RunRecord(
         String id,
         int fileCount,
         String command,
-        Instant startedAt,
-        @Nullable Instant completedAt,
+        long startedAtMillis,
+        @Nullable Long completedAtMillis,
         int exitCode,
-        String output) {}
+        String output) {
+
+    public RunRecord(
+            String id,
+            int fileCount,
+            String command,
+            Instant startedAt,
+            @Nullable Instant completedAt,
+            int exitCode,
+            String output) {
+        this(
+                id,
+                fileCount,
+                command,
+                startedAt.toEpochMilli(),
+                completedAt == null ? null : completedAt.toEpochMilli(),
+                exitCode,
+                output
+        );
+    }
+}
