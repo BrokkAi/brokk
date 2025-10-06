@@ -851,7 +851,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 try {
                     // Redundancy guard: only refresh if the displayed branch text actually changed
                     if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
-                        logger.debug("updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
+                        logger.debug(
+                                "updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
                         return;
                     }
                     instructionsPanel.refreshBranchUi(display);

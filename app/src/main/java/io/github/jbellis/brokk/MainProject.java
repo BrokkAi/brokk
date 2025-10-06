@@ -1143,10 +1143,6 @@ public final class MainProject extends AbstractProject {
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
 
-    // Git branch poller (global) keys
-    private static final String GIT_BRANCH_POLLER_ENABLED_KEY = "gitBranchPoller.enabled";
-    private static final String GIT_BRANCH_POLLER_INTERVAL_MS_KEY = "gitBranchPoller.intervalMs";
-
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
         return props.getProperty(UI_SCALE_KEY, "auto");
@@ -1211,63 +1207,6 @@ public final class MainProject extends AbstractProject {
     // ------------------------------------------------------------
     // Git branch poller (global) settings
     // ------------------------------------------------------------
-
-    /**
-     * Returns whether the Git branch poller is enabled.
-     * Default: false.
-     */
-    public static boolean isGitBranchPollerEnabled() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(GIT_BRANCH_POLLER_ENABLED_KEY, "false"));
-    }
-
-    /**
-     * Enables or disables the Git branch poller. When disabled, the property is removed.
-     */
-    public static void setGitBranchPollerEnabled(boolean enabled) {
-        var props = loadGlobalProperties();
-        if (enabled) {
-            props.setProperty(GIT_BRANCH_POLLER_ENABLED_KEY, "true");
-        } else {
-            props.remove(GIT_BRANCH_POLLER_ENABLED_KEY);
-        }
-        saveGlobalProperties(props);
-        logger.debug("Set Git branch poller enabled = {}", enabled);
-    }
-
-    /**
-     * Returns the Git branch poller interval in milliseconds.
-     * Default: 2000 ms (clamped to [500, 60000]).
-     */
-    public static long getGitBranchPollIntervalMs() {
-        var props = loadGlobalProperties();
-        String raw = props.getProperty(GIT_BRANCH_POLLER_INTERVAL_MS_KEY, "2000");
-        long value;
-        try {
-            value = Long.parseLong(raw.trim());
-        } catch (NumberFormatException e) {
-            value = 2000L;
-        }
-        if (value < 500L) value = 500L;
-        if (value > 60000L) value = 60000L;
-        return value;
-    }
-
-    /**
-     * Sets the Git branch poller interval in milliseconds. Value is clamped to [500, 60000].
-     * If set to the default (2000ms), the property is removed to keep config minimal.
-     */
-    public static void setGitBranchPollIntervalMs(long intervalMs) {
-        long clamped = Math.max(500L, Math.min(60000L, intervalMs));
-        var props = loadGlobalProperties();
-        if (clamped == 2000L) {
-            props.remove(GIT_BRANCH_POLLER_INTERVAL_MS_KEY);
-        } else {
-            props.setProperty(GIT_BRANCH_POLLER_INTERVAL_MS_KEY, Long.toString(clamped));
-        }
-        saveGlobalProperties(props);
-        logger.debug("Set Git branch poller interval = {} ms (requested {}; clamped {})", clamped, intervalMs, clamped);
-    }
 
     public static boolean getForceToolEmulation() {
         var props = loadGlobalProperties();

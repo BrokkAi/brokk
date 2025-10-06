@@ -41,12 +41,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     // I/O bridge to UI (Chrome) to request UI updates like updateGitRepo()
     private final IConsoleIO io;
 
-    // Feature-flagged branch poller (fallback if OS file watches miss .git updates)
-    @Nullable
-    private java.util.concurrent.ScheduledExecutorService branchPollerExecutor = null;
-    @Nullable
-    private volatile String lastPolledBranch = null;
-
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean wasReady = false;
@@ -94,7 +88,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             long start = System.currentTimeMillis();
-            currentAnalyzer = loadOrCreateAnalyzer(io);
+            currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
 
             delayNotificationsUntilCompleted.complete(null);
@@ -109,9 +103,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
             return currentAnalyzer;
         });
-
-        // Start feature-flagged branch poller fallback (no-op if flag disabled or no git)
-        startBranchPollerIfEnabled();
     }
 
     @Override
@@ -138,7 +129,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
             Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            boolean gitMetaTouched = batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+            boolean gitMetaTouched =
+                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
             if (batch.isOverflowed || gitMetaTouched) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
@@ -256,7 +248,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * loadSingleCachedAnalyzerForLanguage</code> are now performed here <em>before</em> we decide whether to call
      * <code>langHandle.loadAnalyzer()</code> (use cache) or <code>langHandle.createAnalyzer()</code> (full rebuild).
      */
-    private IAnalyzer loadOrCreateAnalyzer(IConsoleIO io) {
+    private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
         var projectLangs = project.getAnalyzerLanguages().stream()
@@ -305,7 +297,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
             if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
-                communicativeAnalyzer.setIo(io);
+                communicativeAnalyzer.setIo(this.io);
             }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
@@ -527,79 +519,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         watchService.resume();
     }
 
-    // ---------------------------------------------------------------------
-    // Lightweight branch poller (feature-flagged)
-    // ---------------------------------------------------------------------
-    private void startBranchPollerIfEnabled() {
-        if (!MainProject.isGitBranchPollerEnabled()) {
-            logger.debug("Branch poller disabled in Settings");
-            return;
-        }
-        if (!project.hasGit()) {
-            logger.debug("Branch poller not started: project has no git repository");
-            return;
-        }
-        if (branchPollerExecutor != null) {
-            logger.debug("Branch poller already started");
-            return;
-        }
-
-        // Initialize last known branch label using same semantics as UI fallback
-        lastPolledBranch = safeGetCurrentBranch();
-
-        long intervalMs = MainProject.getGitBranchPollIntervalMs();
-        branchPollerExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "brokk-branch-poller-" + project.getRoot().getFileName());
-            t.setDaemon(true);
-            return t;
-        });
-
-        logger.info("Starting branch poller (interval={} ms). Configure in Settings (Startup tab).", intervalMs);
-
-        branchPollerExecutor.scheduleAtFixedRate(() -> {
-            try {
-                String current = safeGetCurrentBranch();
-                String previous = lastPolledBranch;
-                // Only trigger when a change is detected
-                if (previous == null || !previous.equals(current)) {
-                    logger.debug("Branch poller detected change: '{}' -> '{}'", previous, current);
-                    lastPolledBranch = current;
-                    // Update UI; Chrome.updateGitRepo() handles EDT marshalling and redundancy checks.
-                    io.updateGitRepo();
-                }
-            } catch (Throwable t) {
-                logger.debug("Branch poller encountered an error: {}", t.getMessage());
-            }
-        }, 0L, intervalMs, java.util.concurrent.TimeUnit.MILLISECONDS);
-    }
-
-    private String safeGetCurrentBranch() {
-        try {
-            var repo = project.getRepo();
-            String b = repo.getCurrentBranch();
-            return b.isBlank() ? "(no branch)" : b;
-        } catch (Throwable t) {
-            // Detached HEAD/empty repo or transient errors; normalize to UI-safe label
-            return "(no branch)";
-        }
-    }
-
-
-
     @Override
     public void close() {
         watchService.close();
-
-        // Stop branch poller if running
-        if (branchPollerExecutor != null) {
-            try {
-                branchPollerExecutor.shutdownNow();
-            } catch (Throwable th) {
-                logger.debug("Exception while shutting down branchPollerExecutor: {}", th.getMessage());
-            } finally {
-                branchPollerExecutor = null;
-            }
-        }
 
         try {
             // Attempt a graceful shutdown of the analyzer executor; do not propagate exceptions.

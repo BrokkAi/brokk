@@ -59,7 +59,9 @@ public class ProjectWatchService implements IWatchService {
                 logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
                 registerGitMetadata(gitMetaDir, watchService);
             } else if (gitRepoRoot != null) {
-                logger.debug("Git metadata directory not found at {}; skipping git metadata watch setup", gitRepoRoot.resolve(".git"));
+                logger.debug(
+                        "Git metadata directory not found at {}; skipping git metadata watch setup",
+                        gitRepoRoot.resolve(".git"));
             } else {
                 logger.debug("No git repository detected for {}; skipping git metadata watch setup", root);
             }
@@ -201,26 +203,25 @@ public class ProjectWatchService implements IWatchService {
     }
 
     /**
-     * Recursively register the git metadata directory and its subdirectories without excluding ".git".
-     * This ensures we observe ref changes like updates to HEAD and refs/heads/* files.
+     * Recursively register the git metadata directory and its subdirectories without excluding ".git". This ensures we
+     * observe ref changes like updates to HEAD and refs/heads/* files.
      */
     private void registerGitMetadata(Path start, WatchService watchService) throws IOException {
         if (!Files.isDirectory(start)) return;
 
         for (int attempt = 1; attempt <= 3; attempt++) {
             try (var walker = Files.walk(start)) {
-                walker.filter(Files::isDirectory)
-                        .forEach(dir -> {
-                            try {
-                                dir.register(
-                                        watchService,
-                                        StandardWatchEventKinds.ENTRY_CREATE,
-                                        StandardWatchEventKinds.ENTRY_DELETE,
-                                        StandardWatchEventKinds.ENTRY_MODIFY);
-                            } catch (IOException e) {
-                                logger.warn("Failed to register git metadata directory for watching: {}", dir, e);
-                            }
-                        });
+                walker.filter(Files::isDirectory).forEach(dir -> {
+                    try {
+                        dir.register(
+                                watchService,
+                                StandardWatchEventKinds.ENTRY_CREATE,
+                                StandardWatchEventKinds.ENTRY_DELETE,
+                                StandardWatchEventKinds.ENTRY_MODIFY);
+                    } catch (IOException e) {
+                        logger.warn("Failed to register git metadata directory for watching: {}", dir, e);
+                    }
+                });
                 return;
             } catch (IOException | java.io.UncheckedIOException e) {
                 Throwable cause = (e instanceof java.io.UncheckedIOException uioe) ? uioe.getCause() : e;

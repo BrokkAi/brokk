@@ -101,10 +101,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton startupOpenAllRadio = new JRadioButton("Reopen all previously open projects");
     private JCheckBox persistPerProjectWindowCheckbox = new JCheckBox("Save window position per project (recommended)");
 
-    // Git branch poller (fallback) controls
-    private JCheckBox gitBranchPollerEnabledCheckbox = new JCheckBox("Enable Git branch poller (fallback)");
-    private JSpinner gitBranchPollerIntervalSpinner = new JSpinner();
-
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
@@ -804,68 +800,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         startupPanel.add(persistPerProjectWindowCheckbox, gbc);
 
-        // Spacer before Git branch poller section
-        gbc.insets = new Insets(10, 5, 2, 5);
-
-        // Git branch poller (fallback) section title
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        startupPanel.add(new JLabel("Git Branch Auto-Refresh:"), gbc);
-
-        // Enable checkbox
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        startupPanel.add(gitBranchPollerEnabledCheckbox, gbc);
-
-        // Interval controls
-        gbc.insets = new Insets(2, 5, 2, 5); // reset insets
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        startupPanel.add(new JLabel("Poll interval (ms):"), gbc);
-
-        // Configure spinner model: default 2000, min 500, max 60000, step 100
-        var pollerModel = new SpinnerNumberModel(2000, 500, 60000, 100);
-        gitBranchPollerIntervalSpinner.setModel(pollerModel);
-        gitBranchPollerIntervalSpinner.setEditor(new JSpinner.NumberEditor(gitBranchPollerIntervalSpinner, "#0"));
-
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        startupPanel.add(gitBranchPollerIntervalSpinner, gbc);
-
-        // Info label
-        var infoLabel = new JLabel("Fallback: updates the branch label if OS file watches miss .git changes.");
-        infoLabel.setFont(infoLabel.getFont().deriveFont(Font.ITALIC, infoLabel.getFont().getSize2D() - 1.0f));
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        startupPanel.add(infoLabel, gbc);
-
-        // Apply-timing label
-        var applyTimingLabel =
-                new JLabel("Changes take effect for newly opened projects (or after reopening).");
-        applyTimingLabel.setFont(applyTimingLabel.getFont()
-                .deriveFont(Font.ITALIC, applyTimingLabel.getFont().getSize2D() - 1.0f));
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        startupPanel.add(applyTimingLabel, gbc);
-
-        // Enable/disable interval spinner based on checkbox state
-        gitBranchPollerEnabledCheckbox.addActionListener(e -> {
-            boolean enabled = gitBranchPollerEnabledCheckbox.isSelected();
-            gitBranchPollerIntervalSpinner.setEnabled(enabled);
-        });
-
         // Filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
@@ -1127,11 +1061,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Persist per-project main window position (default true)
         persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
 
-        // Git branch poller (fallback)
-        gitBranchPollerEnabledCheckbox.setSelected(MainProject.isGitBranchPollerEnabled());
-        gitBranchPollerIntervalSpinner.setValue((int) MainProject.getGitBranchPollIntervalMs());
-        gitBranchPollerIntervalSpinner.setEnabled(gitBranchPollerEnabledCheckbox.isSelected());
-
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
@@ -1278,19 +1207,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         // Save preference for per-project main window bounds persistence
         GlobalUiSettings.savePersistPerProjectBounds(persistPerProjectWindowCheckbox.isSelected());
-
-        // Git branch poller (fallback)
-        boolean branchPollerEnabled = gitBranchPollerEnabledCheckbox.isSelected();
-        if (branchPollerEnabled != MainProject.isGitBranchPollerEnabled()) {
-            MainProject.setGitBranchPollerEnabled(branchPollerEnabled);
-            logger.debug("Applied Git branch poller enabled: {}", branchPollerEnabled);
-        }
-        long intervalValue = ((Number) gitBranchPollerIntervalSpinner.getValue()).longValue();
-        long prevInterval = MainProject.getGitBranchPollIntervalMs();
-        if (intervalValue != prevInterval) {
-            MainProject.setGitBranchPollIntervalMs(intervalValue);
-            logger.debug("Applied Git branch poller interval: {} ms", intervalValue);
-        }
 
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {
