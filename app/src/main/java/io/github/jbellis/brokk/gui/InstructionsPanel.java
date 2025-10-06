@@ -453,7 +453,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
         area.setRows(3); // Initial rows
-        area.setMinimumSize(new Dimension(100, 80));
+        area.setMinimumSize(new Dimension(100, 120));
         area.setEnabled(false); // Start disabled
         area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
@@ -823,8 +823,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Command Input Field
         JScrollPane commandScrollPane = new JScrollPane(instructionsArea);
         commandScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        commandScrollPane.setPreferredSize(new Dimension(600, 80)); // Use preferred size for layout
-        commandScrollPane.setMinimumSize(new Dimension(100, 80));
+        commandScrollPane.setPreferredSize(new Dimension(600, 120)); // Use preferred size for layout
+        commandScrollPane.setMinimumSize(new Dimension(100, 120));
 
         // Create layered pane with overlay
         this.inputLayeredPane = commandInputOverlay.createLayeredPane(commandScrollPane);
