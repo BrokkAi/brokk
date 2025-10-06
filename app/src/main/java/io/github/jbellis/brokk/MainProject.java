@@ -1205,6 +1205,10 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // ------------------------------------------------------------
+    // Git branch poller (global) settings
+    // ------------------------------------------------------------
+
     public static boolean getForceToolEmulation() {
         var props = loadGlobalProperties();
         return Boolean.parseBoolean(props.getProperty(FORCE_TOOL_EMULATION_KEY, "false"));
