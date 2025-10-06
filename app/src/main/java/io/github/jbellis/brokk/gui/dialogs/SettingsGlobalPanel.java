@@ -1274,7 +1274,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             MainProject.setGitBranchPollerEnabled(branchPollerEnabled);
             logger.debug("Applied Git branch poller enabled: {}", branchPollerEnabled);
         }
-        int intervalValue = ((Number) gitBranchPollerIntervalSpinner.getValue()).intValue();
+        long intervalValue = ((Number) gitBranchPollerIntervalSpinner.getValue()).longValue();
         long prevInterval = MainProject.getGitBranchPollIntervalMs();
         if (intervalValue != prevInterval) {
             MainProject.setGitBranchPollIntervalMs(intervalValue);
