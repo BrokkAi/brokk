@@ -36,6 +36,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -254,8 +256,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
         uiAdapter.clear();
 
         int fileCount = testFiles.size();
-        String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s") + "...\n";
-        uiAdapter.showHeading(heading, cmd);
+final var runStarted = Instant.now();
+var ts = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        .withLocale(java.util.Locale.getDefault())
+        .withZone(ZoneId.systemDefault())
+        .format(runStarted);
+String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s")
+        + " (started " + ts + ")\n";
+uiAdapter.showHeading(heading, cmd);
 
         // Build a simpleName -> key map for associating runtime test names to selected files.
         var simpleNameToKey = new HashMap<String, String>();
