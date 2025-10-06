@@ -44,16 +44,11 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
     }
 
     @Override
-    public void onLlmOutput(ProjectFile file, String token, boolean isNewMessage, boolean isReasoning) {
-        // Forward streaming output to the console I/O as AI content.
-        io.llmOutput(token, ChatMessageType.AI, isNewMessage, isReasoning);
-
-        // Track rough output size by counting newline characters.
-        int newLines = (int) token.chars().filter(c -> c == '\n').count();
-        if (newLines > 0) {
-            llmLineCount.addAndGet(newLines);
-        }
+    public IConsoleIO getConsoleIO(ProjectFile file) {
+        // Headless mode uses the same console for all files.
+        return io;
     }
+
 
     @Override
     public void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {
@@ -77,13 +72,12 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
                 llmLineCount.addAndGet(newLines);
             }
         }
+
+        // Bump processed count and emit progress here (since onProgress is removed)
+        int done = processedCount.incrementAndGet();
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "[BlitzForge] Progress: " + done + " / " + totalFiles);
     }
 
-    @Override
-    public void onProgress(int processed, int total) {
-        processedCount.set(processed); // Keep internal counter aligned with engine's callback
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "[BlitzForge] Progress: " + processed + " / " + total);
-    }
 
     @Override
     public void onDone(TaskResult result) {

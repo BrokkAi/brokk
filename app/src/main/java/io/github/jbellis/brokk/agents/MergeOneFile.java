@@ -60,6 +60,7 @@ public final class MergeOneFile {
     private final @Nullable String baseCommitId;
     private final String otherCommitId;
     private final ConflictAnnotator.ConflictFileCommits conflict;
+    private final IConsoleIO console;
 
     private transient @Nullable List<ChatMessage> currentSessionMessages = null;
     private final ToolRegistry tr;
@@ -78,7 +79,8 @@ public final class MergeOneFile {
             MergeAgent.MergeMode type,
             @Nullable String baseCommitId,
             String otherCommitId,
-            ConflictAnnotator.ConflictFileCommits conflict) {
+            ConflictAnnotator.ConflictFileCommits conflict,
+            IConsoleIO console) {
         this.cm = cm;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -86,6 +88,7 @@ public final class MergeOneFile {
         this.baseCommitId = baseCommitId;
         this.otherCommitId = otherCommitId;
         this.conflict = conflict;
+        this.console = console;
         this.tr = cm.getToolRegistry();
     }
 
@@ -94,6 +97,7 @@ public final class MergeOneFile {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
         var llm = cm.getLlm(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file));
+        llm.setOutput(console);
 
         // Reset per-file state
         this.lastCodeAgentResult = null;

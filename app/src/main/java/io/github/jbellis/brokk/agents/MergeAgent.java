@@ -9,6 +9,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -238,6 +239,8 @@ public class MergeAgent {
         blitz.executeParallel(allAnnotatedFiles, file -> {
             var ac = requireNonNull(acByFile.get(file));
 
+            IConsoleIO console = bfListener.getConsoleIO(file);
+
             var planner = new MergeOneFile(
                     cm,
                     planningModel,
@@ -245,7 +248,8 @@ public class MergeAgent {
                     mode,
                     baseCommitId,
                     otherCommitId,
-                    ac);
+                    ac,
+                    console);
 
             var outcome = planner.merge();
 

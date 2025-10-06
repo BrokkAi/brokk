@@ -4,8 +4,10 @@ import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -18,10 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
@@ -55,13 +54,28 @@ public final class BlitzForge {
         CHANGED
     }
 
-    /** Listener for lifecycle and progress events. All callbacks are best-effort and may be called from worker threads. */
+    /** Listener for lifecycle and per-file console access. Callbacks may be invoked from worker threads. */
     public interface Listener {
         default void onStart(int total) {}
         default void onFileStart(ProjectFile file) {}
-        default void onLlmOutput(ProjectFile file, String token, boolean isNewMessage, boolean isReasoning) {}
+        /** Provide a console for routing per-file LLM streaming output and notifications. */
+        default IConsoleIO getConsoleIO(ProjectFile file) {
+            return new IConsoleIO() {
+                @Override
+                public void toolError(String msg, String title) {
+                    // no-op default
+                }
+                @Override
+                public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+                    // no-op default
+                }
+                @Override
+                public java.util.List<dev.langchain4j.data.message.ChatMessage> getLlmRawMessages() {
+                    return java.util.List.of();
+                }
+            };
+        }
         default void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
-        default void onProgress(int processed, int total) {}
         default void onDone(TaskResult result) {}
     }
 
@@ -122,7 +136,7 @@ public final class BlitzForge {
         }
 
         // Sort by on-disk size ascending (smallest first)
-        var sortedFiles = files.stream().sorted(Comparator.comparingLong(BlitzForge::fileSize)).toList();
+        var sortedFiles = files.stream().sorted(Comparator.comparingLong(f -> fileSize(f))).toList();
 
         // Prepare executor
         final ExecutorService executor;
@@ -148,9 +162,8 @@ public final class BlitzForge {
                 }
                 var fr = processor.apply(first);
                 results.add(fr);
-                var c = ++processedCount;
+                ++processedCount;
                 listener.onFileResult(fr.file(), fr.edited(), fr.errorMessage(), fr.llmOutput());
-                listener.onProgress(c, files.size());
                 startIdx = 1;
             }
 
@@ -203,9 +216,8 @@ public final class BlitzForge {
                     var fut = completionService.take();
                     var res = fut.get();
                     results.add(res);
-                    var c = ++processedCount;
+                    ++processedCount;
                     listener.onFileResult(res.file(), res.edited(), res.errorMessage(), res.llmOutput());
-                    listener.onProgress(c, files.size());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return interruptedResult(processedCount, files);
@@ -216,9 +228,8 @@ public final class BlitzForge {
                     var fallbackFile = i < sortedFiles.size() ? sortedFiles.get(i) : sortedFiles.getLast();
                     var failure = new FileResult(fallbackFile, false, "Execution error: " + cause.getMessage(), "");
                     results.add(failure);
-                    var c = ++processedCount;
+                    ++processedCount;
                     listener.onFileResult(fallbackFile, false, failure.errorMessage(), "");
-                    listener.onProgress(c, files.size());
                 }
             }
         } finally {
@@ -227,7 +238,7 @@ public final class BlitzForge {
 
         // Aggregate results
         var changedFiles =
-                results.stream().filter(FileResult::edited).map(FileResult::file).collect(Collectors.toSet());
+                results.stream().filter(FileResult::edited).map(fr -> fr.file()).collect(Collectors.toSet());
 
         // Build output according to the configured ParallelOutputMode
         var outputStream = results.stream()

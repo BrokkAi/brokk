@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -232,16 +234,23 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
     }
 
     @Override
-    public void onLlmOutput(ProjectFile file, String token, boolean isNewMessage, boolean isReasoning) {
-        // Stream to GUI output area only as a count; do not spam with tokens
-        int newLines = (int) token.chars().filter(c -> c == '\n').count();
-        if (newLines > 0) {
-            llmLineCount.addAndGet(newLines);
-        }
+    public IConsoleIO getConsoleIO(ProjectFile file) {
+        // Provide a per-file console that counts LLM lines for this dialog
+        return new DialogConsoleIO(this, "[" + file + "] ");
     }
+
 
     @Override
     public void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {
+        // Update progress here (since onProgress was removed)
+        int processed = processedFileCount.incrementAndGet();
+        SwingUtilities.invokeLater(() -> {
+            progressBar.setValue(processed);
+            int denom = totalFiles > 0 ? totalFiles : progressBar.getMaximum();
+            if (denom <= 0) denom = 1;
+            progressBar.setString(String.format("%d of %d files processed", processed, denom));
+        });
+
         if (errorMessage != null) {
             appendOutput(fileContext(file) + "Error: " + errorMessage);
         } else {
@@ -253,16 +262,6 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
         }
     }
 
-    @Override
-    public void onProgress(int processed, int total) {
-        processedFileCount.set(processed);
-        SwingUtilities.invokeLater(() -> {
-            progressBar.setValue(processed);
-            int denom = total > 0 ? total : totalFiles;
-            if (denom <= 0) denom = 1;
-            progressBar.setString(String.format("%d of %d files processed", processed, denom));
-        });
-    }
 
     @Override
     public void onDone(TaskResult result) {
@@ -293,12 +292,46 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
             } finally {
                 chrome.enableActionButtons();
             }
-});
+        });
     }
 
-    // For tests: supply fake callbacks and messages to validate updates.
-    public void feedTestCallbacks(List<Runnable> events) {
-        events.forEach(Runnable::run);
-    }
+    private class DialogConsoleIO implements IConsoleIO {
+        private final BlitzForgeProgressDialog dialog;
+        private final String fileContext;
 
+        /** @param fileContext To prefix messages related to a specific file */
+        private DialogConsoleIO(BlitzForgeProgressDialog dialog, String fileContext) {
+            this.dialog = dialog;
+            this.fileContext = fileContext;
+        }
+
+        @Override
+        public void toolError(String message, String title) {
+            var msg = "[%s] %s: %s\n".formatted(fileContext, title, message);
+            logger.error(msg);
+            SwingUtilities.invokeLater(() -> {
+                outputTextArea.append(msg);
+                outputTextArea.setCaretPosition(outputTextArea.getDocument().getLength());
+            });
+        }
+
+        @Override
+        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+            long newLines = token.chars().filter(c -> c == '\n').count();
+            if (newLines > 0) {
+                llmLineCount.addAndGet((int) newLines);
+                // Start the timer if it's not already running
+                SwingUtilities.invokeLater(() -> {
+                    if (!dialog.llmLineCountTimer.isRunning()) {
+                        dialog.llmLineCountTimer.start();
+                    }
+                });
+            }
+        }
+
+        @Override
+        public List<ChatMessage> getLlmRawMessages() {
+            return List.of();
+        }
+    }
 }
