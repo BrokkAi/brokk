@@ -4,7 +4,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import java.awt.*;
 import java.util.List;
@@ -37,7 +36,7 @@ public interface IConsoleIO {
     }
 
     default void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
-        llmOutput(taskEntry.toString(), ChatMessageType.CUSTOM, false, false);
+        llmOutput(taskEntry.toString(), ChatMessageType.CUSTOM);
     }
 
     enum MessageSubType {
@@ -56,24 +55,20 @@ public interface IConsoleIO {
         llmOutput(token, type, false, false);
     }
 
-    default void systemOutput(String message) {
-        llmOutput("\n" + message, ChatMessageType.USER);
-    }
-
     /**
      * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;
      * messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)
      */
     default void systemNotify(String message, String title, int messageType) {
-        systemOutput(message);
+        showNotification(NotificationRole.INFO, message);
     }
 
     /**
      * Generic, non-blocking notifications for output panels or headless use. Default implementation forwards to
      * systemOutput.
      */
-    default void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
-        systemOutput(message);
+    default void showNotification(NotificationRole role, String message) {
+        llmOutput("\n" + message, ChatMessageType.CUSTOM, true, false);
     }
 
     default void showOutputSpinner(String message) {}
@@ -140,6 +135,13 @@ public interface IConsoleIO {
         // pass
     }
 
+    enum NotificationRole {
+        ERROR,
+        CONFIRM,
+        COST,
+        INFO
+    }
+
     /**
      * Returns a BlitzForge.Listener implementation suitable for the current console type (GUI or headless).
      * @param config The configuration for the BlitzForge run.
@@ -148,12 +150,5 @@ public interface IConsoleIO {
      */
     default BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config, Runnable cancelCallback) {
         throw new UnsupportedOperationException("getBlitzForgeListener not implemented for this console type");
-    }
-
-    /**
-     * Convenience overload without a cancel callback; implementations may ignore cancellation or use a no-op.
-     */
-    default BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config) {
-        return getBlitzForgeListener(config, () -> {});
     }
 }

@@ -35,12 +35,12 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
     @Override
     public void onStart(int total) {
         totalFiles = total;
-        io.systemOutput("Starting BlitzForge: " + total + " file(s) to process...");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Starting BlitzForge: " + total + " file(s) to process...");
     }
 
     @Override
     public void onFileStart(ProjectFile file) {
-        io.systemOutput("[BlitzForge] Processing: " + file);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "[BlitzForge] Processing: " + file);
     }
 
     @Override
@@ -64,9 +64,9 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
         if (errorMessage != null) {
             failures.put(file, errorMessage);
             failedCount.incrementAndGet();
-            io.systemOutput("[BlitzForge] Error in " + file + ": " + errorMessage);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "[BlitzForge] Error in " + file + ": " + errorMessage);
         } else {
-            io.systemOutput("[BlitzForge] Completed: " + file + (edited ? " (changed)" : ""));
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "[BlitzForge] Completed: " + file + (edited ? " (changed)" : ""));
         }
 
         if (!llmOutput.isBlank()) {
@@ -82,7 +82,7 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
     @Override
     public void onProgress(int processed, int total) {
         processedCount.set(processed); // Keep internal counter aligned with engine's callback
-        io.systemOutput("[BlitzForge] Progress: " + processed + " / " + total);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "[BlitzForge] Progress: " + processed + " / " + total);
     }
 
     @Override
@@ -112,6 +112,6 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
             changedFiles.forEach(f -> summary.append("\n - ").append(f));
         }
 
-        io.systemOutput(summary.toString());
+        io.showNotification(IConsoleIO.NotificationRole.INFO, summary.toString());
     }
 }

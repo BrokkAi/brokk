@@ -684,7 +684,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
             contextManager.submitContextTask(() -> {
                 contextManager.addVirtualFragment(fragment);
-                contextManager.getIo().systemOutput("Added captured diff to context: " + description);
+                IConsoleIO iConsoleIO = contextManager.getIo();
+                iConsoleIO.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Added captured diff to context: " + description);
             });
         });
         // Add buttons to toolbar with spacing
@@ -970,10 +972,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     changedFiles.add(pf);
                 } else {
                     // Outside-project file: keep it in the transcript; not tracked in changedFiles
-                    contextManager
-                            .getIo()
-                            .systemOutput("Saved file outside project scope: " + filename
-                                    + " (not added to workspace history)");
+                    IConsoleIO iConsoleIO = contextManager.getIo();
+                    iConsoleIO.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Saved file outside project scope: " + filename + " (not added to workspace history)");
                 }
             }
 

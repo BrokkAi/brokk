@@ -177,7 +177,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 contextManager,
                 () -> {
                     activateCommandInput();
-                    chrome.systemOutput("Recording");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Recording");
                 },
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
@@ -610,7 +610,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                             logger.debug("Error updating branch UI after checkout", ex);
                                             refreshBranchUi(b);
                                         }
-                                        chrome.systemOutput("Checked out: " + b);
+                                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
                                     });
                                 } catch (Exception ex) {
                                     logger.error("Error checking out branch {}", b, ex);
@@ -675,7 +675,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     } catch (Exception ex) {
                                         logger.debug("Error updating branch UI after branch creation", ex);
                                     }
-                                    chrome.systemOutput("Created and checked out: " + sanitized);
+                                    chrome.showNotification(
+                                            IConsoleIO.NotificationRole.INFO, "Created and checked out: " + sanitized);
                                 });
                             } catch (Exception ex) {
                                 logger.error("Error creating branch", ex);
@@ -690,7 +691,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 JMenuItem refresh = new JMenuItem("Refresh Branches");
                 refresh.addActionListener(ev -> {
                     // Menu is rebuilt when shown; simply notify user
-                    SwingUtilities.invokeLater(() -> chrome.systemOutput("Branches refreshed"));
+                    SwingUtilities.invokeLater(
+                            () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed"));
                 });
                 menu.add(refresh);
             }
@@ -1763,7 +1765,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 newWorktreePath = setupResult.worktreePath();
                 actualBranchName = setupResult.branchName();
 
-                chrome.systemOutput("New worktree created at: " + newWorktreePath + " on branch: " + actualBranchName);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "New worktree created at: " + newWorktreePath + " on branch: " + actualBranchName);
 
                 // Define the initial task to run in the new project, using pre-collected options
                 Consumer<Chrome> initialArchitectTask = newWorktreeChrome -> {
@@ -1783,7 +1787,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .open()
                         .thenAccept(success -> {
                             if (Boolean.TRUE.equals(success)) {
-                                chrome.systemOutput("New worktree opened for Architect");
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "New worktree opened for Architect");
                             } else {
                                 chrome.toolError("Failed to open the new worktree project for Architect.");
                                 populateInstructionsArea(originalInstructions);

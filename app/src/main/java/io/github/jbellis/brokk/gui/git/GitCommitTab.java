@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -236,9 +237,11 @@ public class GitCommitTab extends JPanel {
                     workflowService,
                     filesToCommit,
                     commitResult -> { // This is the onCommitSuccessCallback
-                        chrome.systemOutput("Committed "
-                                + getRepo().shortHash(commitResult.commitId())
-                                + ": " + commitResult.firstLine());
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Committed "
+                                        + getRepo().shortHash(commitResult.commitId())
+                                        + ": " + commitResult.firstLine());
                         updateCommitPanel(); // Refresh file list
                         chrome.updateLogTab();
                         chrome.selectCurrentBranchInLogTab();
@@ -674,7 +677,7 @@ public class GitCommitTab extends JPanel {
                         new HashSet<>(selectedFiles),
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 
-                try (var scope = contextManager.beginTask("", false)) {
+                try (var scope = contextManager.beginTask(rollbackDescription, false)) {
                     scope.append(taskResult);
                 }
 
@@ -709,7 +712,7 @@ public class GitCommitTab extends JPanel {
                 // 11. Update UI on EDT.
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
-                    chrome.systemOutput(successMessage);
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);
                     updateCommitPanel();
                     chrome.updateLogTab();
                 });
@@ -743,10 +746,12 @@ public class GitCommitTab extends JPanel {
 
         SwingUtilities.invokeLater(() -> {
             if (selectedFiles.isEmpty()) {
-                chrome.systemOutput("All changes stashed successfully: " + stashDescription);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "All changes stashed successfully: " + stashDescription);
             } else {
                 String fileList = GitUiUtil.formatFileList(selectedFiles);
-                chrome.systemOutput("Stashed " + fileList + ": " + stashDescription);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Stashed " + fileList + ": " + stashDescription);
             }
             updateCommitPanel(); // Refresh file list
             chrome.updateLogTab(); // Refresh log

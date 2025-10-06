@@ -68,7 +68,7 @@ public final class HeadlessConsole implements IConsoleIO {
     }
 
     @Override
-    public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
+    public void showNotification(NotificationRole role, String message) {
         String prefix =
                 switch (role) {
                     case ERROR -> "[ERROR] ";
@@ -76,7 +76,7 @@ public final class HeadlessConsole implements IConsoleIO {
                     case COST -> "[COST] ";
                     case INFO -> "[INFO] ";
                 };
-        if (role == HistoryOutputPanel.NotificationRole.ERROR) {
+        if (role == IConsoleIO.NotificationRole.ERROR) {
             System.err.println(prefix + message);
         } else {
             System.out.println(prefix + message);

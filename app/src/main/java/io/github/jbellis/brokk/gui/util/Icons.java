@@ -60,5 +60,7 @@ public final class Icons {
     public static final Icon VIEW_SIDE_BY_SIDE = SwingUtil.uiIcon("Brokk.view_side_by_side");
     public static final Icon NOTIFICATIONS = SwingUtil.uiIcon("Brokk.notifications");
     public static final Icon NOTIFICATIONS_UNREAD = SwingUtil.uiIcon("Brokk.notifications_unread");
+    public static final Icon TRASH = SwingUtil.uiIcon("Brokk.trash");
     public static final Icon CLOSE = SwingUtil.uiIcon("Brokk.close");
+    public static final Icon COMPRESS = SwingUtil.uiIcon("Brokk.compress");
 }

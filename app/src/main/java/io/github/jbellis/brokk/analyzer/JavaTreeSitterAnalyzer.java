@@ -253,6 +253,8 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
         // Strip trailing source-location suffixes like :16 or :123:45
         s = LOCATION_SUFFIX.matcher(s).replaceFirst("");
+        // Replace subclass delimiters with dots
+        s = s.replaceAll("\\$", ".");
 
         return s;
     }

@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
@@ -305,8 +306,10 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
-            io.systemOutput("# Workspace (pre-scan)");
-            io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    ContextFragment.getSummary(cm.topContext().allFragments()));
 
             String goalForScan = Stream.of(
                             architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, searchTasksPrompt)
@@ -316,18 +319,21 @@ public final class BrokkCli implements Callable<Integer> {
             var scanModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
             var agent = new ContextAgent(cm, scanModel, goalForScan, true);
             var recommendations = agent.getRecommendations(false);
-            io.systemOutput("Deep Scan token usage: " + recommendations.tokenUsage());
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
 
             if (recommendations.success()) {
-                io.systemOutput("Deep Scan suggested "
-                        + recommendations.fragments().stream()
-                                .map(ContextFragment::shortDescription)
-                                .toList());
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Deep Scan suggested "
+                                + recommendations.fragments().stream()
+                                        .map(ContextFragment::shortDescription)
+                                        .toList());
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
                             cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
-                            io.systemOutput("Added " + fragment);
+                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
                         default -> cm.addSummaries(fragment.files(), Set.of());
                     }
@@ -338,8 +344,10 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Run Action ---
-        io.systemOutput("# Workspace (pre-task)");
-        io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                ContextFragment.getSummary(cm.topContext().allFragments()));
 
         TaskResult result = null;
         // Decide scope action/input

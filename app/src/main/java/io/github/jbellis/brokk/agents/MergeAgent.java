@@ -252,14 +252,7 @@ public class MergeAgent {
                 .toList();
 
         blitz.executeParallel(allAnnotatedFiles, file -> {
-            var ac = acByFile.get(file);
-            if (ac == null) {
-                var err = "Internal error: missing annotated conflict for " + file;
-                synchronized (codeAgentFailures) {
-                    codeAgentFailures.add(err);
-                }
-                return new BlitzForge.FileResult(file, false, err, "");
-            }
+            var ac = requireNonNull(acByFile.get(file));
 
             try {
                 boolean isTest = ContextManager.isTestFile(file);

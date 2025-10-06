@@ -61,14 +61,8 @@ public class CompletionsTest {
 
     @Test
     public void testCamelCaseCompletion() {
-        var seeded = createTestAnalyzer();
-        var mock = new TestAnalyzer(seeded.getAllDeclarations(), seeded.getMethodsMap()) {
-            @Override
-            public List<CodeUnit> autocompleteDefinitions(String query) {
-                // give all for the sake of testing camel case fuzzy matching
-                return super.autocompleteDefinitions(".*");
-            }
-        };
+        var mock = createTestAnalyzer();
+
         // Input "CC" -> should match "test.CamelClass" due to camel case matching
         var completions = Completions.completeSymbols("CC", mock);
         var values = toValues(completions);

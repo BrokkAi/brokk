@@ -5,6 +5,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -66,7 +67,6 @@ public class SearchTools {
      */
     public static CompressedSymbols compressSymbolsWithPackagePrefix(List<String> symbols) {
         List<String[]> packageParts = symbols.stream()
-                .filter(Objects::nonNull) // Filter nulls just in case
                 .map(s -> s.split("\\."))
                 .filter(arr -> arr.length > 0) // Ensure split resulted in something
                 .toList();
@@ -832,7 +832,9 @@ public class SearchTools {
         } catch (ClassCastException ignored) {
             // Not running in Chrome UI; skip appending
         }
-        io.systemOutput("Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
 
         var lines = java.util.stream.IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
@@ -840,5 +842,45 @@ public class SearchTools {
         var formattedTaskList = "# Task List\n" + lines + "\n";
         io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
         return formattedTaskList;
+    }
+
+    @Tool(
+            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to record findings, hypotheses, checklists, links, and decisions in Markdown.")
+    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
+        if (markdown.isBlank()) {
+            throw new IllegalArgumentException("Note content cannot be empty");
+        }
+
+        final var description = ContextFragment.SEARCH_NOTES.description();
+        final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
+        final var appendedFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        contextManager.pushContext(ctx -> {
+            var existing = ctx.virtualFragments()
+                    .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
+                    .filter(vf -> description.equals(vf.description()))
+                    .findFirst();
+
+            if (existing.isPresent()) {
+                appendedFlag.set(true);
+                var prev = existing.get();
+                String prevText = prev.text();
+                String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
+
+                var next = ctx.removeFragmentsByIds(java.util.List.of(prev.id()));
+                var newFrag = new ContextFragment.StringFragment(contextManager, combined, description, syntax);
+                logger.debug(
+                        "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
+                        prev.id(),
+                        combined.length());
+                return next.addVirtualFragment(newFrag);
+            } else {
+                var newFrag = new ContextFragment.StringFragment(contextManager, markdown, description, syntax);
+                logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
+                return ctx.addVirtualFragment(newFrag);
+            }
+        });
+
+        return appendedFlag.get() ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
     }
 }

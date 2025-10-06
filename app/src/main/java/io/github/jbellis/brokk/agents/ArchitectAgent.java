@@ -189,16 +189,16 @@ public class ArchitectAgent {
             "Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
     public String undoLastChanges() {
         logger.debug("undoLastChanges invoked");
-        io.systemOutput("Undoing last CodeAgent changes...");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Undoing last CodeAgent changes...");
         if (cm.undoContext()) {
             var resultMsg = "Successfully reverted the last CodeAgent changes.";
             logger.debug(resultMsg);
-            io.systemOutput(resultMsg);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             return resultMsg;
         } else {
             var resultMsg = "Nothing to undo (concurrency bug?)";
             logger.debug(resultMsg);
-            io.systemOutput(resultMsg);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             return resultMsg;
         }
     }
@@ -260,7 +260,7 @@ public class ArchitectAgent {
             architectMessages.add(new AiMessage("Initial CodeAgent attempt:\n" + initialSummary));
         } catch (FatalLlmException e) {
             var errorMessage = "Fatal LLM error executing initial Code Agent: %s".formatted(e.getMessage());
-            io.systemOutput(errorMessage);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
             return resultWithMessages(StopReason.LLM_ERROR);
         }
 
@@ -304,11 +304,13 @@ public class ArchitectAgent {
                     && workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit);
 
             if (criticalWorkspaceSize) {
-                io.systemOutput(String.format(
-                        "Workspace size (%,d tokens) is %.0f%% of limit %,d. Tool usage restricted to workspace modification.",
-                        workspaceTokenSize,
-                        (double) workspaceTokenSize / minInputTokenLimit * 100,
-                        minInputTokenLimit));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "Workspace size (%,d tokens) is %.0f%% of limit %,d. Tool usage restricted to workspace modification.",
+                                workspaceTokenSize,
+                                (double) workspaceTokenSize / minInputTokenLimit * 100,
+                                minInputTokenLimit));
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
 
                 var allowedWorkspaceModTools = new ArrayList<String>();
@@ -350,7 +352,9 @@ public class ArchitectAgent {
                 logger.debug(
                         "Error from LLM while deciding next action: {}",
                         result.error().getMessage());
-                io.systemOutput("Error from LLM while deciding next action (see debug log for details)");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Error from LLM while deciding next action (see debug log for details)");
                 return resultWithMessages(StopReason.LLM_ERROR);
             }
             // show thinking
@@ -477,7 +481,7 @@ public class ArchitectAgent {
                     if (e.getCause() instanceof FatalLlmException) {
                         var errorMessage = "Fatal LLM error executing Search Agent: %s"
                                 .formatted(Objects.toString(e.getCause().getMessage(), "Unknown error"));
-                        io.systemOutput(errorMessage);
+                        io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
                         break;
                     }
                     var errorMessage = "Error executing Search Agent: %s"

@@ -64,7 +64,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     private final AtomicInteger processedFileCount = new AtomicInteger(0);
     private final AtomicBoolean done = new AtomicBoolean(false);
 
-    public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runnable cancelCallback) {
+public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runnable cancelCallback) {
         super(chrome.getFrame(), "BlitzForge Progress", false);
         assert SwingUtilities.isEventDispatchThread() : "Must construct dialog on EDT";
 
@@ -293,7 +293,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
             } finally {
                 chrome.enableActionButtons();
             }
-        });
+});
     }
 
     // For tests: supply fake callbacks and messages to validate updates.

@@ -25,6 +25,9 @@ public class ProjectWatchService implements IWatchService {
     @Nullable
     private final Path gitRepoRoot;
 
+    @Nullable
+    private final Path gitMetaDir;
+
     private final Listener listener;
 
     private volatile boolean running = true;
@@ -34,6 +37,7 @@ public class ProjectWatchService implements IWatchService {
         this.root = root;
         this.gitRepoRoot = gitRepoRoot;
         this.listener = listener;
+        this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
     }
 
     @Override
@@ -47,18 +51,19 @@ public class ProjectWatchService implements IWatchService {
     private void beginWatching(CompletableFuture<?> delayNotificationsUntilCompleted) {
         logger.debug("Setting up WatchService for {}", root);
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-            // Recursively register all directories under project root except .brokk
+            // Recursively register all directories under project root except .brokk and .git
             registerAllDirectories(root, watchService);
 
-            // If the actual .git directory's parent (gitRepoRoot) is different from the project root
-            // (common in worktrees), explicitly watch the .git directory within gitRepoRoot.
-            // The registerAllDirectories method's .brokk exclusion (relative to this.root)
-            // will not interfere with watching contents of .git.
-            if (gitRepoRoot != null && !gitRepoRoot.equals(this.root)) {
-                Path actualGitMetaDir = gitRepoRoot.resolve(".git");
-                assert Files.isDirectory(actualGitMetaDir);
-                logger.debug("Additionally watching git metadata directory for changes: {}", actualGitMetaDir);
-                registerAllDirectories(actualGitMetaDir, watchService);
+            // Always watch git metadata to ensure ref changes (HEAD, refs/heads/*) trigger onRepoChange
+            if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
+                logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
+                registerGitMetadata(gitMetaDir, watchService);
+            } else if (gitRepoRoot != null) {
+                logger.debug(
+                        "Git metadata directory not found at {}; skipping git metadata watch setup",
+                        gitRepoRoot.resolve(".git"));
+            } else {
+                logger.debug("No git repository detected for {}; skipping git metadata watch setup", root);
             }
 
             // Wait for the initial future to complete.
@@ -132,7 +137,12 @@ public class ProjectWatchService implements IWatchService {
             // If it's a directory creation, register it so we can watch its children
             if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {
                 try {
-                    registerAllDirectories(eventPath, watchService);
+                    if (gitMetaDir != null && eventPath.startsWith(gitMetaDir)) {
+                        // Do not exclude .git if the created directory is under git metadata
+                        registerGitMetadata(eventPath, watchService);
+                    } else {
+                        registerAllDirectories(eventPath, watchService);
+                    }
                 } catch (IOException ex) {
                     logger.warn("Failed to register new directory for watching: {}", eventPath, ex);
                 }
@@ -190,6 +200,46 @@ public class ProjectWatchService implements IWatchService {
             }
         } // End of retry loop
         logger.debug("Failed to (completely) register directory `{}` for watching", start);
+    }
+
+    /**
+     * Recursively register the git metadata directory and its subdirectories without excluding ".git". This ensures we
+     * observe ref changes like updates to HEAD and refs/heads/* files.
+     */
+    private void registerGitMetadata(Path start, WatchService watchService) throws IOException {
+        if (!Files.isDirectory(start)) return;
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try (var walker = Files.walk(start)) {
+                walker.filter(Files::isDirectory).forEach(dir -> {
+                    try {
+                        dir.register(
+                                watchService,
+                                StandardWatchEventKinds.ENTRY_CREATE,
+                                StandardWatchEventKinds.ENTRY_DELETE,
+                                StandardWatchEventKinds.ENTRY_MODIFY);
+                    } catch (IOException e) {
+                        logger.warn("Failed to register git metadata directory for watching: {}", dir, e);
+                    }
+                });
+                return;
+            } catch (IOException | java.io.UncheckedIOException e) {
+                Throwable cause = (e instanceof java.io.UncheckedIOException uioe) ? uioe.getCause() : e;
+                if (cause instanceof java.nio.file.NoSuchFileException && attempt < 3) {
+                    logger.warn(
+                            "Attempt {} failed to walk git metadata directory {} due to NoSuchFileException. Retrying in 10ms...",
+                            attempt,
+                            start,
+                            cause);
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException ie) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+        }
+        logger.debug("Failed to (completely) register git metadata directory `{}` for watching", start);
     }
 
     /** Pause the file watching service. */
