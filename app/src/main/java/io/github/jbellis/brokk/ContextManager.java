@@ -4,7 +4,7 @@ import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
+import io.github.jbellis.brokk.gui.tests.TestEntry;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.IConsoleIO.NotificationRole;
@@ -122,51 +122,207 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        // If we have a Chrome UI, clear/open the Tests tab and show a header
-        if (io instanceof Chrome chrome) {
-            try {
-                chrome.clearTestRunnerOutput();
-            } catch (Exception ex) {
-                logger.debug("Failed to clear Tests tab", ex);
+        // Lightweight adapter that prefers structured TestRunnerPanel API (via reflection) and
+        // falls back to legacy Chrome methods when unavailable.
+        final class TestUiAdapter {
+            private final IConsoleIO ioRef = io;
+            private final @org.jetbrains.annotations.Nullable Object panel;
+            private final @org.jetbrains.annotations.Nullable java.lang.reflect.Method mAddTest;
+            private final @org.jetbrains.annotations.Nullable java.lang.reflect.Method mAppendToTest;
+            private final @org.jetbrains.annotations.Nullable java.lang.reflect.Method mSetTestStatus;
+            private final @org.jetbrains.annotations.Nullable java.lang.reflect.Method mClearAllTests;
+            private final @org.jetbrains.annotations.Nullable java.lang.reflect.Method mSetOutput;
+            private final @org.jetbrains.annotations.Nullable java.lang.reflect.Method mAppendOutput;
+
+            TestUiAdapter() {
+                Object p = null;
+                java.lang.reflect.Method add = null, app = null, set = null, clr = null, setOut = null, appOut = null;
+                if (ioRef instanceof Chrome chrome) {
+                    try {
+                        var getPanel = chrome.getClass().getMethod("getTestRunnerPanel");
+                        p = getPanel.invoke(chrome);
+                        // Resolve structured methods if present
+                        try {
+                            add = p.getClass().getMethod("addTest", String.class, String.class);
+                        } catch (Exception ex) {
+                            logger.debug("TestRunnerPanel.addTest unavailable", ex);
+                        }
+                        try {
+                            app = p.getClass().getMethod("appendToTest", String.class, String.class);
+                        } catch (Exception ex) {
+                            logger.debug("TestRunnerPanel.appendToTest unavailable", ex);
+                        }
+                        try {
+                            set = p.getClass().getMethod("setTestStatus", String.class, TestEntry.Status.class);
+                        } catch (Exception ex) {
+                            logger.debug("TestRunnerPanel.setTestStatus unavailable", ex);
+                        }
+                        try {
+                            clr = p.getClass().getMethod("clearAllTests");
+                        } catch (Exception ex) {
+                            logger.debug("TestRunnerPanel.clearAllTests unavailable", ex);
+                        }
+                        try {
+                            setOut = p.getClass().getMethod("setOutput", String.class);
+                        } catch (Exception ex) {
+                            logger.debug("TestRunnerPanel.setOutput unavailable", ex);
+                        }
+                        try {
+                            appOut = p.getClass().getMethod("appendOutput", String.class);
+                        } catch (Exception ex) {
+                            logger.debug("TestRunnerPanel.appendOutput unavailable", ex);
+                        }
+                    } catch (Exception ex) {
+                        logger.debug("Chrome.getTestRunnerPanel unavailable", ex);
+                    }
+                }
+                panel = p;
+                mAddTest = add;
+                mAppendToTest = app;
+                mSetTestStatus = set;
+                mClearAllTests = clr;
+                mSetOutput = setOut;
+                mAppendOutput = appOut;
             }
-            int fileCount = testFiles.size();
-            String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s") + "...\n";
-            chrome.appendToTestRunner(heading);
-            chrome.appendToTestRunner(cmd + "\n\n");
-        } else {
-            // Headless or non-Chrome I/O
-            int fileCount = testFiles.size();
-            String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s") + "...\n";
-            io.systemNotify(cmd, heading, JOptionPane.INFORMATION_MESSAGE);
+
+            void clear() {
+                if (panel != null && mClearAllTests != null) {
+                    try { mClearAllTests.invoke(panel); return; } catch (Exception e) { logger.debug("clearAllTests failed", e); }
+                }
+                if (ioRef instanceof Chrome chrome) {
+                    try { chrome.clearTestRunnerOutput(); } catch (Exception e) { logger.debug("clearTestRunnerOutput failed", e); }
+                }
+            }
+
+            void showHeading(String heading, String cmdLine) {
+                String text = heading + cmdLine + "\n\n";
+                if (panel != null && mSetOutput != null) {
+                    try { mSetOutput.invoke(panel, text); return; } catch (Exception e) { logger.debug("setOutput failed", e); }
+                }
+                if (ioRef instanceof Chrome chrome) {
+                    chrome.appendToTestRunner(heading);
+                    chrome.appendToTestRunner(cmdLine + "\n\n");
+                } else {
+                    ioRef.systemNotify(cmdLine, heading, JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+
+            void addTest(String key, String display) {
+                if (panel != null && mAddTest != null) {
+                    try { mAddTest.invoke(panel, key, display); return; } catch (Exception e) { logger.debug("addTest failed", e); }
+                }
+                if (ioRef instanceof Chrome chrome) {
+                    chrome.appendToTestRunner("[test] " + display + "\n");
+                }
+            }
+
+            void appendToTest(String key, String text) {
+                if (panel != null && mAppendToTest != null) {
+                    try { mAppendToTest.invoke(panel, key, text); return; } catch (Exception e) { logger.debug("appendToTest failed", e); }
+                }
+                if (ioRef instanceof Chrome chrome) {
+                    chrome.appendToTestRunner(text);
+                } else {
+                    ioRef.systemNotify("", text, JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+
+            void setStatus(String key, TestEntry.Status status) {
+                if (panel != null && mSetTestStatus != null) {
+                    try { mSetTestStatus.invoke(panel, key, status); return; } catch (Exception e) { logger.debug("setTestStatus failed", e); }
+                }
+                if (ioRef instanceof Chrome chrome) {
+                    chrome.appendToTestRunner("[status] " + key + " -> " + status + "\n");
+                }
+            }
+
+            void showExitCode(int exit) {
+                String text = "\nProcess finished with exit code " + exit + "\n";
+                if (panel != null && mAppendOutput != null) {
+                    try { mAppendOutput.invoke(panel, text); return; } catch (Exception e) { logger.debug("appendOutput failed", e); }
+                }
+                if (ioRef instanceof Chrome chrome) {
+                    chrome.appendToTestRunner(text);
+                } else {
+                    ioRef.systemNotify("Process finished with exit code " + exit, "Tests Run", JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
         }
 
-        // Run the test command in the background and stream output to the Tests tab
+        // Initialize UI: clear, heading, and pre-register selected test files.
+        var uiAdapter = new TestUiAdapter();
+        uiAdapter.clear();
+
+        int fileCount = testFiles.size();
+        String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s") + "...\n";
+        uiAdapter.showHeading(heading, cmd);
+
+        // Build a simpleName -> key map for associating runtime test names to selected files.
+        var simpleNameToKey = new HashMap<String, String>();
+        for (var pf : testFiles) {
+            var key = pf.toString();
+            var display = key;
+            // Try to add to UI; display may be improved if Chrome panel formats it.
+            uiAdapter.addTest(key, display);
+            // best-effort class simple name from file name (strip extension)
+            String simple = display;
+            int lastSep = simple.lastIndexOf('/');
+            if (lastSep >= 0) simple = simple.substring(lastSep + 1);
+            lastSep = simple.lastIndexOf('\\');
+            if (lastSep >= 0) simple = simple.substring(lastSep + 1);
+            int dot = simple.lastIndexOf('.');
+            if (dot > 0) simple = simple.substring(0, dot);
+            simpleNameToKey.put(simple, key);
+        }
+
+        // Run the test command in the background and stream parsed output to the structured UI.
         submitBackgroundTask("Running tests", () -> {
+            var parser = new io.github.jbellis.brokk.gui.tests.TestOutputParser(new io.github.jbellis.brokk.gui.tests.TestOutputListener() {
+                private String resolveKey(String testName) {
+                    // Map "pkg.Class > method" or "pkg.Class" to selected file key by simple class name
+                    String classPart = testName;
+                    int gt = classPart.indexOf(" > ");
+                    if (gt >= 0) classPart = classPart.substring(0, gt);
+                    int lastDot = classPart.lastIndexOf('.');
+                    String simple = lastDot >= 0 ? classPart.substring(lastDot + 1) : classPart;
+                    return simpleNameToKey.getOrDefault(simple, testName);
+                }
+
+                @Override
+                public void onTestStarted(String testName) {
+                    var key = resolveKey(testName);
+                    uiAdapter.addTest(key, testName);
+                    uiAdapter.setStatus(key, TestEntry.Status.RUNNING);
+                }
+
+                @Override
+                public void onTestOutput(String testName, String text) {
+                    var key = resolveKey(testName);
+                    uiAdapter.appendToTest(key, text);
+                }
+
+                @Override
+                public void onTestCompleted(String testName, TestEntry.Status status, String output) {
+                    var key = resolveKey(testName);
+                    // Output has already been streamed via onTestOutput; just ensure final status.
+                    uiAdapter.setStatus(key, status);
+                }
+            });
+
             try {
                 var result = runShellCommandStreaming(cmd, line -> {
-                    if (io instanceof Chrome chrome) {
-                        chrome.appendToTestRunner(line + "\n");
-                    } else {
-                        io.systemNotify(cmd, line, JOptionPane.INFORMATION_MESSAGE);
-                    }
+                    // Feed each line (with newline) to the parser to attribute it per test.
+                    parser.processChunk(line + "\n");
                 });
 
                 int exit = result.exitCode();
-                if (io instanceof Chrome chrome) {
-                    chrome.appendToTestRunner("\nProcess finished with exit code " + exit + "\n");
-                } else {
-                    io.systemNotify("Process finished with exit code "+ exit, "Tests Run", JOptionPane.INFORMATION_MESSAGE);
-                }
+                uiAdapter.showExitCode(exit);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                if (io instanceof Chrome chrome) {
-                    chrome.appendToTestRunner("\nTest run interrupted.\n");
-                }
+                uiAdapter.appendToTest("Run", "\nTest run interrupted.\n");
                 io.toolError("Test run interrupted.");
             } catch (IOException e) {
-                if (io instanceof Chrome chrome) {
-                    chrome.appendToTestRunner("\nError running tests: " + e.getMessage() + "\n");
-                }
+                uiAdapter.appendToTest("Run", "\nError running tests: " + e.getMessage() + "\n");
                 io.toolError("Error running tests: " + e.getMessage());
             }
             return null;

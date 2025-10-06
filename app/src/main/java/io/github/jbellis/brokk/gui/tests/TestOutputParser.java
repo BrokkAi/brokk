@@ -15,6 +15,9 @@ import org.jetbrains.annotations.Nullable;
  * Parses streaming test output from common tools (Gradle, Maven/Surefire, JUnit) and emits events
  * when tests start and complete, along with the accumulated output for each test.
  *
+ * Additionally, emits streaming output via {@link TestOutputListener#onTestOutput(String, String)}
+ * for incremental UI updates.
+ *
  * Recognized patterns:
  * - Gradle (JUnit Platform): "ClassName > methodName STARTED" and "... PASSED|FAILED|SKIPPED"
  * - Maven Surefire:
@@ -190,6 +193,11 @@ public final class TestOutputParser {
             buf = activeBuffers.get(testName);
         }
         requireNonNull(buf).append(line);
+        try {
+            listener.onTestOutput(testName, line);
+        } catch (RuntimeException e) {
+            logger.warn("Listener threw in onTestOutput for {}: {}", testName, e.toString());
+        }
     }
 
     private void completeTest(String testName, TestEntry.Status status) {

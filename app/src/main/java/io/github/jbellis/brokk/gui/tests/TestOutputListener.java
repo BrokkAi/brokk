@@ -12,6 +12,12 @@ public interface TestOutputListener {
     void onTestStarted(String testName);
 
     /**
+     * Called for streaming output attributed to a specific test while it is running.
+     * Text may include line terminators; the listener should append as-is.
+     */
+    void onTestOutput(String testName, String text);
+
+    /**
      * Called when a test is detected as completed.
      * The output contains all accumulated lines attributed to the test.
      */
