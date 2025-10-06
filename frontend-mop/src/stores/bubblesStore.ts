@@ -32,14 +32,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
                 if (lastBubble?.reasoning && !lastBubble.reasoningComplete && !evt.reasoning) {
-                    const durationInMs = lastBubble.startTime ? Date.now() - lastBubble.startTime : 0;
-                    const updatedBubble: BubbleState = {
-                        ...lastBubble,
-                        reasoningComplete: true,
-                        streaming: false,
-                        duration: durationInMs / 1000,
-                        isCollapsed: true, // Auto-collapse reasoning bubble
-                    };
+                    const updatedBubble = finalizeReasoningBubble(lastBubble);
                     list = [...list.slice(0, -1), updatedBubble];
                 }
 
@@ -138,43 +131,36 @@ export function toggleBubbleCollapsed(seq: number): void {
     });
 }
 
+/* ─── helpers ─────────────────────────────────────────── */
+function finalizeReasoningBubble(b: BubbleState): BubbleState {
+    if (!b.reasoning) return b;
+    const durationInMs = b.startTime ? Date.now() - b.startTime : 0;
+    return {
+        ...b,
+        streaming: false,
+        reasoningComplete: true,
+        duration: durationInMs / 1000,
+        isCollapsed: true,
+    };
+}
+
 /**
- * Sets the live task progress state for the current thread.
- * When a task ends (inProgress=false), finalize the latest bubble in the live thread:
- * - stop streaming
- * - if it's a reasoning bubble, mark it complete, set duration, and auto-collapse it
- */
-/**
- * Update live task progress state.
- * - When inProgress is true: no-op.
- * - When inProgress is false: find the last bubble in the current live thread and finalize it if needed.
- *   Finalization sets streaming=false. If it's a reasoning bubble, also set reasoningComplete=true,
- *   duration (in seconds) from startTime, and isCollapsed=true. Updates the list immutably.
+ * Track live task progress. On end (inProgress=false), finalize all bubbles:
+ * stop streaming; for reasoning bubbles, mark complete, set duration, and collapse.
  */
 export function setLiveTaskInProgress(inProgress: boolean): void {
     if (inProgress) return; // nothing to do on start; bubbles will stream as chunks arrive
 
     bubblesStore.update(list => {
-        // Find the most recent bubble belonging to the current live thread
-        for (let i = list.length - 1; i >= 0; i--) {
-            const b = list[i];
-            if (b.threadId === currentThreadId) {
-                // If it's streaming or has an unfinished reasoning state, finalize it
-                if (b.streaming || (b.reasoning && !b.reasoningComplete)) {
-                    const durationInMs = b.startTime ? Date.now() - b.startTime : 0;
-                    const updated: BubbleState = {
-                        ...b,
-                        streaming: false,
-                        ...(b.reasoning
-                            ? { reasoningComplete: true, duration: durationInMs / 1000, isCollapsed: true }
-                            : {})
-                    };
-                    return [...list.slice(0, i), updated, ...list.slice(i + 1)];
-                }
-                // Last bubble of current thread is not streaming; nothing to change
-                break;
+        return list.map(b => {
+            let updated = b;
+            if (b.streaming) {
+                updated = {...updated, streaming: false};
             }
-        }
-        return list;
+            if (b.reasoning && !b.reasoningComplete) {
+                updated = finalizeReasoningBubble(updated);
+            }
+            return updated;
+        });
     });
 }
