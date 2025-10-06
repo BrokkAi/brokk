@@ -93,6 +93,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
     private final MaterialButton playBtn = new MaterialButton();
+    private final MaterialButton stopBtn = new MaterialButton();
     private final MaterialButton playAllBtn = new MaterialButton();
     private final MaterialButton combineBtn = new MaterialButton();
     private final MaterialButton splitBtn = new MaterialButton();
@@ -356,6 +357,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
         playBtn.addActionListener(e -> runArchitectOnSelected());
 
+        // Stop button: cancel current AI task (concise tooltip, no shortcut)
+        stopBtn.setIcon(Icons.STOP);
+        stopBtn.setToolTipText("Cancel the current AI task");
+        stopBtn.addActionListener(e -> chrome.getContextManager().interruptLlmAction());
+
         playAllBtn.setIcon(Icons.FAST_FORWARD);
         playAllBtn.setToolTipText(
                 "<html><body style='width:300px'>Run Architect on all tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
@@ -381,6 +387,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             removeBtn.setMargin(new Insets(0, 0, 0, 0));
             toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
             playBtn.setMargin(new Insets(0, 0, 0, 0));
+            stopBtn.setMargin(new Insets(0, 0, 0, 0));
             playAllBtn.setMargin(new Insets(0, 0, 0, 0));
             combineBtn.setMargin(new Insets(0, 0, 0, 0));
             splitBtn.setMargin(new Insets(0, 0, 0, 0));
@@ -394,6 +401,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             topToolbar.add(removeBtn);
             topToolbar.add(toggleDoneBtn);
             topToolbar.add(playBtn);
+            topToolbar.add(stopBtn);
             topToolbar.add(combineBtn);
             topToolbar.add(splitBtn);
 
@@ -779,6 +787,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Play All enabled if: there are tasks, not busy, no active queue
         boolean hasTasks = model.getSize() > 0;
         playAllBtn.setEnabled(hasTasks && !llmBusy && !queueActive);
+
+        // Stop is enabled only when an AI task is running; remains available even if other controls are disabled
+        stopBtn.setEnabled(llmBusy);
 
         // Combine enabled only if 2 or more tasks selected and no running/pending in selection
         combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
