@@ -468,11 +468,11 @@ public final class DependenciesPanel extends JPanel {
                 isProgrammaticChange = false;
             }
 
-            // count files in background
-            new FileCountingWorker().execute();
-
             // Update Dependencies tab badge with current enabled count
             updateDependenciesBadge();
+
+            // count files in background
+            new FileCountingWorker().execute();
         }
     }
 
