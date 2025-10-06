@@ -9,6 +9,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Service;
@@ -180,12 +181,6 @@ public final class GitWorkflow {
         return new BranchDiff(commits, files, merge);
     }
 
-    private static void throwIfInterrupted() throws InterruptedException {
-        if (Thread.currentThread().isInterrupted()) {
-            throw new InterruptedException("Operation cancelled by interrupt");
-        }
-    }
-
     public static class PrDetailsToolHandler {
         @org.jetbrains.annotations.Nullable
         String title;
@@ -204,22 +199,19 @@ public final class GitWorkflow {
 
     /**
      * Suggests pull request title and description with streaming output using tool calling. Blocks; caller should
-     * off-load to a background thread (SwingWorker, etc.). This method is designed to be responsive to thread
-     * interruption.
+     * off-load to a background thread (SwingWorker, etc.). Interruption is detected during LLM request and propagates
+     * as InterruptedException.
      *
      * @param source The source branch name
      * @param target The target branch name
      * @param streamingOutput IConsoleIO for streaming output
-     * @throws InterruptedException if the calling thread is interrupted during processing.
+     * @throws GitAPIException if git operations fail
+     * @throws InterruptedException if the calling thread is interrupted during LLM request
      */
-    public PrSuggestion suggestPullRequestDetails(
-            String source, String target, io.github.jbellis.brokk.IConsoleIO streamingOutput) throws Exception {
-        throwIfInterrupted();
-
+    public PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO streamingOutput)
+            throws GitAPIException, InterruptedException {
         var mergeBase = repo.getMergeBase(source, target);
-        throwIfInterrupted();
         String diff = (mergeBase != null) ? repo.showDiff(source, mergeBase) : "";
-        throwIfInterrupted();
 
         var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI);
@@ -230,12 +222,10 @@ public final class GitWorkflow {
         List<ChatMessage> messages;
         if (useCommitMsgs) {
             var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
-            throwIfInterrupted();
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
         }
-        throwIfInterrupted();
 
         var handler = new PrDetailsToolHandler();
         var toolSpec = ToolSpecifications.toolSpecificationsFrom(handler).get(0);
@@ -244,7 +234,6 @@ public final class GitWorkflow {
         var llm = contextManager.getLlm(modelToUse, "PR-description", true);
         llm.setOutput(streamingOutput);
         var result = llm.sendRequest(messages, toolContext, true);
-        throwIfInterrupted();
 
         if (result.error() != null) {
             throw new RuntimeException("LLM error while generating PR details", result.error());

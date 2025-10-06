@@ -19,6 +19,8 @@ public class PrDetailsConsoleIO implements IConsoleIO {
 
     private int dotCount = 0;
     private boolean hasReceivedTokens = false;
+    private boolean hasStartedContent = false;
+    private boolean lastWasReasoning = true;
 
     public PrDetailsConsoleIO(JTextField titleField, JTextArea descriptionArea, IConsoleIO errorReporter) {
         this.titleField = titleField;
@@ -63,18 +65,29 @@ public class PrDetailsConsoleIO implements IConsoleIO {
             boolean isNewMessage,
             boolean isReasoning) {
 
+        if (!isReasoning && lastWasReasoning && !hasStartedContent) {
+            // Transition from reasoning to content: clear the reasoning tokens
+            SwingUtilities.invokeLater(() -> descriptionArea.setText(""));
+            hasStartedContent = true;
+        } else if (isReasoning && !lastWasReasoning) {
+            // Illegal transition back to reasoning
+            throw new IllegalStateException("PR generation stream switched from non-reasoning to reasoning");
+        }
+
         if (!token.isEmpty()) {
             String finalToken = token;
             SwingUtilities.invokeLater(() -> {
                 if (!hasReceivedTokens) {
                     hasReceivedTokens = true;
                     stopThinkingAnimation();
-                    descriptionArea.setText("Generating description...\nThinking...\n\n");
+                    descriptionArea.setText("Generating description...\n\n");
                 }
                 descriptionArea.append(finalToken);
                 descriptionArea.setCaretPosition(descriptionArea.getText().length());
             });
         }
+
+        lastWasReasoning = isReasoning;
     }
 
     public void onComplete() {

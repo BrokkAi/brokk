@@ -696,10 +696,7 @@ public class CreatePullRequestDialog extends JDialog {
         }
 
         @Override
-        protected GitWorkflow.PrSuggestion doInBackground() throws Exception {
-            if (isCancelled()) {
-                throw new InterruptedException("Worker cancelled before starting");
-            }
+        protected GitWorkflow.PrSuggestion doInBackground() throws GitAPIException, InterruptedException {
             return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch, streamingIO);
         }
 
@@ -746,6 +743,21 @@ public class CreatePullRequestDialog extends JDialog {
                         setTextAndResetCaret(titleField, "(suggestion interrupted)");
                         setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                         showDescriptionHint(false);
+                    });
+                } else if (cause instanceof GitAPIException gitException) {
+                    logger.error(
+                            "SuggestPrDetailsWorker failed with Git error for {} -> {}",
+                            sourceBranch,
+                            targetBranch,
+                            gitException);
+                    SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete();
+                        setTextAndResetCaret(titleField, "(suggestion failed)");
+                        setTextAndResetCaret(descriptionArea, "(Git error occurred)");
+                        showDescriptionHint(false);
+                        chrome.toolError(
+                                "Failed to generate PR details due to Git error:\n" + gitException.getMessage(),
+                                "Git Error");
                     });
                 } else {
                     logger.warn(
