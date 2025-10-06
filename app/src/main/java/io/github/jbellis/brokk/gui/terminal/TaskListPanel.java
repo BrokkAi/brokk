@@ -746,10 +746,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     saveTasksForCurrentSession();
                     list.revalidate();
                     list.repaint();
+                    updateTasksTabBadgeFromModel();
                 }
             }
             dialog.dispose();
-                    updateTasksTabBadgeFromModel();
         });
         cancelBtn.addActionListener(e -> dialog.dispose());
 
