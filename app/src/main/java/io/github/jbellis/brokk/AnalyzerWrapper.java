@@ -109,7 +109,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         Path gitMetaRel = (gitRepoRoot != null) ? root.relativize(gitRepoRoot.resolve(".git")) : null;
         boolean dueToGitMeta = gitMetaRel != null
                 && batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaRel));
-        boolean watchingGitMeta = gitRepoRoot != null && !gitRepoRoot.equals(root);
+        boolean watchingGitMeta = gitRepoRoot != null;
 
         int repoChangeCallbacks = 0;
         int trackedFileChangeCallbacks = 0;
