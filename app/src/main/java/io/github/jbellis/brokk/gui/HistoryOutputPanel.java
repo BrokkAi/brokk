@@ -948,7 +948,8 @@ public class HistoryOutputPanel extends JPanel {
             // Ensure minimum size is computed after icon is applied
             compressButton.setMinimumSize(compressButton.getPreferredSize());
         });
-        compressButton.setToolTipText("<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
+        compressButton.setToolTipText(
+                "<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
         for (var al : compressButton.getActionListeners()) {
             compressButton.removeActionListener(al);
         }
@@ -1970,10 +1971,10 @@ public class HistoryOutputPanel extends JPanel {
     public void disableHistory() {
         SwingUtilities.invokeLater(() -> {
             historyTable.setEnabled(false);
-        undoButton.setEnabled(false);
-        redoButton.setEnabled(false);
-        compressButton.setEnabled(false);
-        // Optionally change appearance to indicate disabled state
+            undoButton.setEnabled(false);
+            redoButton.setEnabled(false);
+            compressButton.setEnabled(false);
+            // Optionally change appearance to indicate disabled state
             historyTable.setForeground(UIManager.getColor("Label.disabledForeground"));
             // Make the table visually distinct when disabled
             historyTable.setBackground(UIManager.getColor("Panel.background").darker());
@@ -1984,11 +1985,11 @@ public class HistoryOutputPanel extends JPanel {
     public void enableHistory() {
         SwingUtilities.invokeLater(() -> {
             historyTable.setEnabled(true);
-        // Restore appearance
-        historyTable.setForeground(UIManager.getColor("Table.foreground"));
-        historyTable.setBackground(UIManager.getColor("Table.background"));
-        compressButton.setEnabled(true);
-        updateUndoRedoButtonStates();
+            // Restore appearance
+            historyTable.setForeground(UIManager.getColor("Table.foreground"));
+            historyTable.setBackground(UIManager.getColor("Table.background"));
+            compressButton.setEnabled(true);
+            updateUndoRedoButtonStates();
         });
     }
 

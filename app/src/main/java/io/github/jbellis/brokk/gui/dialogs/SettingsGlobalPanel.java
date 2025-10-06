@@ -1040,8 +1040,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Enable/disable spinner based on checkbox
         autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
-        autoCompressCheckbox.addActionListener(e ->
-                autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected()));
+        autoCompressCheckbox.addActionListener(
+                e -> autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected()));
 
         // filler
         gbc.gridx = 0;
