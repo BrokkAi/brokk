@@ -196,6 +196,45 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Trigger a background save of the current runs snapshot if a store is present.
+     * Snapshots on the EDT, performs I/O in a daemon thread, and logs exceptions.
+     */
+    private void triggerSave() {
+        var store = runsStore;
+        if (store == null) {
+            return;
+        }
+        Runnable snapshotTask = () -> {
+            List<RunRecord> snapshot;
+            try {
+                snapshot = snapshotRunsFromModel(maxRuns);
+            } catch (Exception e) {
+                logger.warn("Failed to snapshot test runs for saving: {}", e.getMessage(), e);
+                return;
+            }
+            startSaveThread(store, snapshot);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            snapshotTask.run();
+        } else {
+            SwingUtilities.invokeLater(snapshotTask);
+        }
+    }
+
+    private void startSaveThread(TestRunsStore store, List<RunRecord> snapshot) {
+        Thread t = new Thread(() -> {
+            try {
+                store.save(snapshot);
+            } catch (Exception e) {
+                logger.warn("Failed to save test runs: {}", e.getMessage(), e);
+            }
+        }, "TestRunnerPanel-SaveRuns");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /**
      * Restore runs into the UI. Preserves order (oldest -> newest),
      * truncates to maxRuns most recent, rebuilds state, selects newest,
      * and updates the output area accordingly.
@@ -276,6 +315,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             } catch (RuntimeException ex) {
                 logger.warn("Failed to initialize output area for new run", ex);
             }
+            // Persist after updating the UI/model
+            triggerSave();
         });
         return id;
     }
@@ -303,6 +344,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 } catch (RuntimeException ex) {
                     logger.warn("Failed to append run output", ex);
                 }
+                // Persist only when appending to the currently selected run to avoid excessive writes
+                triggerSave();
             }
         });
     }
@@ -332,6 +375,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
         run.complete(exitCode, completedAt);
         runOnEdt(() -> runList.repaint());
+        // Persist updated completion state
+        triggerSave();
     }
 
     /**
@@ -354,6 +399,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             } catch (RuntimeException ex) {
                 logger.warn("Failed to clear output", ex);
             }
+            // Persist cleared state
+            triggerSave();
         });
     }
 
