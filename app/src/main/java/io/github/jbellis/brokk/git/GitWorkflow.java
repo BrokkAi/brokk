@@ -1,8 +1,13 @@
 package io.github.jbellis.brokk.git;
 
 import com.google.common.base.Splitter;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
@@ -181,9 +186,26 @@ public final class GitWorkflow {
         }
     }
 
+    public static class PrDetailsToolHandler {
+        @org.jetbrains.annotations.Nullable
+        String title;
+
+        @org.jetbrains.annotations.Nullable
+        String description;
+
+        @Tool("Suggest pull request title and description based on the changes")
+        public void suggestPrDetails(
+                @P("Brief PR title (12 words or fewer)") String title,
+                @P("PR description in markdown (75-150 words, focus on intent and key changes)") String description) {
+            this.title = title;
+            this.description = description;
+        }
+    }
+
     /**
-     * Suggests pull request title and description with streaming output. Blocks; caller should off-load to a background
-     * thread (SwingWorker, etc.). This method is designed to be responsive to thread interruption.
+     * Suggests pull request title and description with streaming output using tool calling. Blocks; caller should
+     * off-load to a background thread (SwingWorker, etc.). This method is designed to be responsive to thread
+     * interruption.
      *
      * @param source The source branch name
      * @param target The target branch name
@@ -192,22 +214,19 @@ public final class GitWorkflow {
      */
     public PrSuggestion suggestPullRequestDetails(
             String source, String target, io.github.jbellis.brokk.IConsoleIO streamingOutput) throws Exception {
-        throwIfInterrupted(); // Check at the beginning
+        throwIfInterrupted();
 
-        // 1. Compute merge base & diff text
         var mergeBase = repo.getMergeBase(source, target);
-        throwIfInterrupted(); // Check after potential Git operation
+        throwIfInterrupted();
         String diff = (mergeBase != null) ? repo.showDiff(source, mergeBase) : "";
-        throwIfInterrupted(); // Check after potential Git operation
+        throwIfInterrupted();
 
-        // 2. Decide "too big?" heuristic
         var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI);
-        var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
+        var modelToUse = preferredModel != null ? preferredModel : service.quickestModel();
         var maxTokens = service.getMaxInputTokens(modelToUse);
         boolean useCommitMsgs = diff.length() / 3.0 > maxTokens * 0.9;
 
-        // 3. Build messages
         List<ChatMessage> messages;
         if (useCommitMsgs) {
             var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
@@ -218,39 +237,34 @@ public final class GitWorkflow {
         }
         throwIfInterrupted();
 
-        // 4. Call LLM
+        var handler = new PrDetailsToolHandler();
+        var toolSpec = ToolSpecifications.toolSpecificationsFrom(handler).get(0);
+        var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, handler);
+
         var llm = contextManager.getLlm(modelToUse, "PR-description", true);
         llm.setOutput(streamingOutput);
-        var response = llm.sendRequest(messages, true);
+        var result = llm.sendRequest(messages, toolContext, true);
         throwIfInterrupted();
 
-        String responseText = response.text().trim();
-        String title = extractXmlTag(responseText, "title");
-        String description = extractXmlTag(responseText, "description");
+        if (result.error() != null) {
+            throw new RuntimeException("LLM error while generating PR details", result.error());
+        }
 
-        if (title.isEmpty() || description.isEmpty()) {
-            String truncated = responseText.length() > 500 ? responseText.substring(0, 500) + "..." : responseText;
-            logger.warn(
-                    "LLM response missing XML tags. Title empty: {}, Description empty: {}. Response: {}",
-                    title.isEmpty(),
-                    description.isEmpty(),
-                    truncated);
-            throw new RuntimeException("LLM failed to generate properly formatted PR details. "
-                    + "Expected <title> and <description> tags but got: " + truncated);
+        if (result.toolRequests().isEmpty()) {
+            throw new RuntimeException("LLM did not call the suggestPrDetails tool");
+        }
+
+        var toolRegistry = contextManager.getToolRegistry();
+        toolRegistry.executeTool(handler, result.toolRequests().get(0));
+
+        String title = handler.title;
+        String description = handler.description;
+
+        if (title == null || title.isEmpty() || description == null || description.isEmpty()) {
+            throw new RuntimeException("LLM provided empty title or description");
         }
 
         return new PrSuggestion(title, description, useCommitMsgs);
-    }
-
-    private String extractXmlTag(String xml, String tagName) {
-        String openTag = "<" + tagName + ">";
-        String closeTag = "</" + tagName + ">";
-        int start = xml.indexOf(openTag);
-        int end = xml.indexOf(closeTag);
-        if (start >= 0 && end > start) {
-            return xml.substring(start + openTag.length(), end).trim();
-        }
-        return "";
     }
 
     /** Pushes branch if needed and opens a PR. Returns the PR url. */

@@ -709,12 +709,10 @@ public class CreatePullRequestDialog extends JDialog {
                 GitWorkflow.PrSuggestion suggestion = get();
                 SwingUtilities.invokeLater(() -> {
                     streamingIO.onComplete();
-                    if (!streamingIO.hasReceivedContent()) {
-                        titleField.setText(suggestion.title());
-                        descriptionArea.setText(suggestion.description());
-                        titleField.setCaretPosition(0);
-                        descriptionArea.setCaretPosition(0);
-                    }
+                    titleField.setText(suggestion.title());
+                    descriptionArea.setText(suggestion.description());
+                    titleField.setCaretPosition(0);
+                    descriptionArea.setCaretPosition(0);
                     showDescriptionHint(suggestion.usedCommitMessages());
                 });
             } catch (InterruptedException e) {

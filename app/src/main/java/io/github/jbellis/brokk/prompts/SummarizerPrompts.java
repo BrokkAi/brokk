@@ -144,11 +144,10 @@ public class SummarizerPrompts {
                     You are an expert software engineer writing clear pull-request titles and descriptions.
 
                     First, you may explain your thinking process about the changes.
-                    Then output your final response in this exact XML format:
-                    <title>Brief PR title (12 words or fewer)</title>
-                    <description>
-                    %s</description>
-                    """
+                    Then call the suggestPrDetails tool with appropriate title and description.
+
+                    Guidelines for the description:
+                    %s"""
                                 .stripIndent()
                                 .formatted(prDescriptionGuidance())),
                 new UserMessage("<diff>\n" + diff + "\n</diff>"));
@@ -163,11 +162,10 @@ public class SummarizerPrompts {
                     You are an expert software engineer writing clear pull-request titles and descriptions.
 
                     First, you may explain your thinking process about the changes.
-                    Then output your final response in this exact XML format:
-                    <title>Brief PR title (12 words or fewer)</title>
-                    <description>
-                    %s</description>
-                    """
+                    Then call the suggestPrDetails tool with appropriate title and description.
+
+                    Guidelines for the description:
+                    %s"""
                                 .stripIndent()
                                 .formatted(prDescriptionFromCommitsGuidance())),
                 new UserMessage("<commits>\n" + body + "\n</commits>"));
