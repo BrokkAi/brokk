@@ -2587,6 +2587,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Ensure that prev setText calls are processed before blocking => we need the invokeLater
         SwingUtilities.invokeLater(() -> {
             historyOutputPanel.setMarkdownOutputPanelBlocking(blocked);
+            // Also propagate task progress state to the WebView so the frontend can react
+            historyOutputPanel.getLlmStreamArea().setTaskInProgress(blocked);
         });
     }
 

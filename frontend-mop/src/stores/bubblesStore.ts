@@ -137,3 +137,37 @@ export function toggleBubbleCollapsed(seq: number): void {
         });
     });
 }
+
+/**
+ * Sets the live task progress state for the current thread.
+ * When a task ends (inProgress=false), finalize the latest bubble in the live thread:
+ * - stop streaming
+ * - if it's a reasoning bubble, mark it complete, set duration, and auto-collapse it
+ */
+export function setLiveTaskInProgress(inProgress: boolean): void {
+    if (inProgress) return; // nothing to do on start; bubbles will stream as chunks arrive
+
+    bubblesStore.update(list => {
+        // Find the most recent bubble belonging to the current live thread
+        for (let i = list.length - 1; i >= 0; i--) {
+            const b = list[i];
+            if (b.threadId === currentThreadId) {
+                // If it's streaming or has an unfinished reasoning state, finalize it
+                if (b.streaming || (b.reasoning && !b.reasoningComplete)) {
+                    const durationInMs = b.startTime ? Date.now() - b.startTime : 0;
+                    const updated: BubbleState = {
+                        ...b,
+                        streaming: false,
+                        ...(b.reasoning
+                            ? { reasoningComplete: true, duration: durationInMs / 1000, isCollapsed: true }
+                            : {})
+                    };
+                    return [...list.slice(0, i), updated, ...list.slice(i + 1)];
+                }
+                // Last bubble of current thread is not streaming; nothing to change
+                break;
+            }
+        }
+        return list;
+    });
+}
