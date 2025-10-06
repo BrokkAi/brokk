@@ -36,6 +36,7 @@ import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.ByteArrayOutputStream;
@@ -277,8 +278,10 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     logger.debug(th);
                     var retryable = !(th instanceof NonRetriableException);
-                    io.systemOutput("LLM Error: " + th.getMessage()
-                            + (retryable ? " (retry-able)" : " (non-retriable)")); // Immediate feedback for user
+                    // Immediate feedback for user
+                    String message =
+                            "LLM Error: " + th.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(th);
                     if (echo && addJsonFence && fenceOpen.get()) {
                         io.llmOutput("\n```", ChatMessageType.AI);
@@ -300,8 +303,9 @@ public class Llm {
                 cancelled.set(true);
                 logger.debug(mapped);
                 var retryable = !(mapped instanceof NonRetriableException);
-                io.systemOutput(
-                        "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)"));
+                String message =
+                        "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
                 if (echo && addJsonFence && fenceOpen.get()) {
                     io.llmOutput("\n```", ChatMessageType.AI);
@@ -453,7 +457,7 @@ public class Llm {
                 && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED) {
-            io.systemOutput("Enforcing tool selection");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Enforcing tool selection");
 
             var extraMessages = new ArrayList<>(messages);
             extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
@@ -517,16 +521,22 @@ public class Llm {
 
             // Busywait with countdown
             if (backoffSeconds > 1) {
-                io.systemOutput(String.format(
-                        "LLM issue on attempt %d/%d (retrying in %d seconds).", attempt, maxAttempts, backoffSeconds));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "LLM issue on attempt %d/%d (retrying in %d seconds).",
+                                attempt, maxAttempts, backoffSeconds));
             } else {
-                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
             }
             long endTime = System.currentTimeMillis() + backoffSeconds * 1000;
             while (System.currentTimeMillis() < endTime) {
                 long remain = endTime - System.currentTimeMillis();
                 if (remain <= 0) break;
-                io.systemOutput("Retrying in %.1f seconds...".formatted(remain / 1000.0));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Retrying in %.1f seconds...".formatted(remain / 1000.0));
                 Thread.sleep(Math.min(remain, 100));
             }
         }
@@ -1290,6 +1300,61 @@ public class Llm {
             Files.writeString(filePath, formattedRequest + formattedTools + formattedResponse, options);
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
+        }
+
+        // Compute and show cost notification if usage/pricing are available
+        try {
+            if (result != null) {
+                var usage = result.tokenUsage();
+                if (usage != null) {
+                    var service = contextManager.getService();
+                    var modelName = service.nameOf(model);
+                    // Filter out cost notifications for Gemini Flash Lite unless explicitly enabled
+                    boolean isGeminiLite =
+                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.5-flash-lite".equals(modelName);
+                    if (isGeminiLite && !GlobalUiSettings.isShowGeminiLiteCostNotifications()) {
+                        logger.debug("Skipping cost notification for {} (user preference for Gemini Lite)", modelName);
+                        return;
+                    }
+                    // Respect user preference for cost notifications
+                    if (!GlobalUiSettings.isShowCostNotifications()) {
+                        logger.debug("Cost notifications disabled by user settings");
+                        return;
+                    }
+                    var pricing = service.getModelPricing(modelName);
+
+                    int input = usage.inputTokens();
+                    int cached = usage.cachedInputTokens();
+                    int uncached = Math.max(0, input - cached);
+                    int output = usage.outputTokens();
+
+                    int totalTokens = Math.max(0, input) + Math.max(0, output);
+                    int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
+                    String tokenSummary = "tokens: %,d (%d%% cached)".formatted(totalTokens, cachedPct);
+
+                    String message;
+                    if (pricing.bands().isEmpty()) {
+                        message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
+                    } else {
+                        double cost = pricing.estimateCost(uncached, cached, output);
+                        java.text.DecimalFormat df =
+                                (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
+                        df.applyPattern("#,##0.0000");
+                        String costStr = df.format(cost);
+                        message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
+                    }
+
+                    try {
+                        io.showNotification(IConsoleIO.NotificationRole.COST, message);
+                    } catch (Throwable t) {
+                        logger.debug("Unable to show cost notification; falling back to system output", t);
+                        io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                    }
+                    logger.debug("LLM cost: {}", message);
+                }
+            }
+        } catch (Throwable t) {
+            logger.debug("Unable to compute cost notification", t);
         }
     }
 

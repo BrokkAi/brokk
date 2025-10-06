@@ -38,6 +38,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
 
+    // I/O bridge to UI (Chrome) to request UI updates like updateGitRepo()
+    private final IConsoleIO io;
+
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean wasReady = false;
@@ -52,6 +55,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         this.root = project.getRoot();
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = listener;
+        this.io = io;
         if (listener == null) {
             this.watchService = new IWatchService() {};
         } else {
@@ -84,7 +88,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             long start = System.currentTimeMillis();
-            currentAnalyzer = loadOrCreateAnalyzer(io);
+            currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
 
             delayNotificationsUntilCompleted.complete(null);
@@ -105,32 +109,45 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     public void onFilesChanged(EventBatch batch) {
         logger.trace("Events batch: {}", batch);
 
-        // Instrumentation: log reason for callback and whether it includes .git metadata changes
+        // Instrumentation: identify whether .git paths are included and whether we are watching .git at all
         Path gitMetaRel = (gitRepoRoot != null) ? root.relativize(gitRepoRoot.resolve(".git")) : null;
         boolean dueToGitMeta = gitMetaRel != null
                 && batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaRel));
+        boolean watchingGitMeta = gitRepoRoot != null;
+
+        int repoChangeCallbacks = 0;
+        int trackedFileChangeCallbacks = 0;
+
         logger.debug(
-                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}, gitMetaDir={}",
+                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}, watchingGitMeta={}, gitMetaDir={}",
                 batch.files.size(),
                 batch.isOverflowed,
                 dueToGitMeta,
+                watchingGitMeta,
                 (gitMetaRel != null ? gitMetaRel : "(none)"));
 
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
             Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            if (batch.isOverflowed
-                    || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir))) {
+            boolean gitMetaTouched =
+                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+            if (batch.isOverflowed || gitMetaTouched) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
+                    repoChangeCallbacks++;
                     listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
+                    trackedFileChangeCallbacks++;
                 }
             }
         }
+
         // 2) If overflowed, assume something changed
         if (batch.isOverflowed) {
-            if (listener != null) listener.onTrackedFileChange();
+            if (listener != null) {
+                listener.onTrackedFileChange();
+                trackedFileChangeCallbacks++;
+            }
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
                 IAnalyzer result = prev.update();
@@ -150,8 +167,11 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
         if (!changedTrackedFiles.isEmpty()) {
             // call listener (refreshes git panel)
-            logger.debug("Changes in tracked files detected");
-            if (listener != null) listener.onTrackedFileChange();
+            logger.debug("Changes in tracked files detected ({} files)", changedTrackedFiles.size());
+            if (listener != null) {
+                listener.onTrackedFileChange();
+                trackedFileChangeCallbacks++;
+            }
         }
 
         var relevantFiles = changedTrackedFiles.stream()
@@ -176,6 +196,16 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             logger.trace(
                     "No tracked files changed for any of the configured analyzer languages; skipping analyzer rebuild");
         }
+
+        // 4) Summary instrumentation helps verify whether only onTrackedFileChange() fires for e.g. CLI branch switches
+        logger.debug(
+                "Callbacks summary for batch: repoChangeCalls={}, trackedFileChangeCalls={}, overflow={}, dueToGitMeta={}, watchingGitMeta={}, changedTrackedFiles={}",
+                repoChangeCallbacks,
+                trackedFileChangeCallbacks,
+                batch.isOverflowed,
+                dueToGitMeta,
+                watchingGitMeta,
+                changedTrackedFiles.size());
     }
 
     @Override
@@ -218,7 +248,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * loadSingleCachedAnalyzerForLanguage</code> are now performed here <em>before</em> we decide whether to call
      * <code>langHandle.loadAnalyzer()</code> (use cache) or <code>langHandle.createAnalyzer()</code> (full rebuild).
      */
-    private IAnalyzer loadOrCreateAnalyzer(IConsoleIO io) {
+    private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
         var projectLangs = project.getAnalyzerLanguages().stream()
@@ -267,7 +297,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
             if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
-                communicativeAnalyzer.setIo(io);
+                communicativeAnalyzer.setIo(this.io);
+            } else if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
+                multiAnalyzer.getDelegates().values().forEach(delegate -> {
+                    if (delegate instanceof CanCommunicate communicativeAnalyzer) {
+                        communicativeAnalyzer.setIo(this.io);
+                    }
+                });
             }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
@@ -492,6 +528,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     @Override
     public void close() {
         watchService.close();
+
         try {
             // Attempt a graceful shutdown of the analyzer executor; do not propagate exceptions.
             analyzerExecutor.shutdownAndAwait(5000L, "AnalyzerWrapper");

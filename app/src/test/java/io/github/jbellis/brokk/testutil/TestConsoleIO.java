@@ -24,6 +24,15 @@ public class TestConsoleIO implements IConsoleIO {
     }
 
     @Override
+    public void showNotification(NotificationRole role, String message) {
+        if (role == IConsoleIO.NotificationRole.ERROR) {
+            errorLog.append(message).append("\n");
+        } else {
+            outputLog.append(message).append("\n");
+        }
+    }
+
+    @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         if (type == ChatMessageType.AI) {
             if (isNewMessage && streamingAiMessage.length() > 0) {

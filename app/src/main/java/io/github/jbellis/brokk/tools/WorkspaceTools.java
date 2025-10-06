@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.tools;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.Completions;
@@ -8,6 +9,7 @@ import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
+import io.github.jbellis.brokk.util.Json;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -16,7 +18,9 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -241,30 +245,92 @@ public class WorkspaceTools {
 
     @Tool(
             value =
-                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace using their unique string IDs")
+                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map.")
     public String dropWorkspaceFragments(
-            @P(
-                            "List of string IDs corresponding to the fragments visible in the workspace that you want to remove. Must not be empty.")
-                    List<String> fragmentIds) {
-        if (fragmentIds.isEmpty()) {
-            return "Fragment IDs list cannot be empty.";
+            @P("Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty.")
+                    Map<String, String> idToExplanation) {
+        if (idToExplanation.isEmpty()) {
+            return "Fragment map cannot be empty.";
         }
 
         var currentContext = contextManager.liveContext();
         var allFragments = currentContext.getAllFragmentsInDisplayOrder();
-        var idsToDropSet = new HashSet<>(fragmentIds);
 
-        var toDrop = allFragments.stream()
-                .filter(frag -> idsToDropSet.contains(frag.id()))
-                .toList();
+        var idsToDropSet = new HashSet<>(idToExplanation.keySet());
+        var toDrop =
+                allFragments.stream().filter(f -> idsToDropSet.contains(f.id())).toList();
+        var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
 
-        if (!toDrop.isEmpty()) {
-            contextManager.drop(toDrop);
-            var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
-            return "Dropped %d fragment(s): [%s]".formatted(toDrop.size(), droppedReprs);
-        } else {
-            return "No valid fragments found to drop for the given IDs: " + fragmentIds;
+        // Prepare existing DISCARDED_CONTEXT map if present
+        var discardedDescription = ContextFragment.DISCARDED_CONTEXT.description();
+        var existingDiscarded = currentContext
+                .virtualFragments()
+                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
+                .filter(vf -> vf instanceof ContextFragment.StringFragment)
+                .map(vf -> (ContextFragment.StringFragment) vf)
+                .filter(sf -> discardedDescription.equals(sf.description()))
+                .findFirst();
+
+        var mapper = Json.getMapper();
+        Map<String, String> mergedDiscarded = new LinkedHashMap<>();
+        existingDiscarded.ifPresent(sf -> {
+            try {
+                var existing = mapper.readValue(sf.text(), new TypeReference<Map<String, String>>() {});
+                mergedDiscarded.putAll(existing);
+            } catch (Exception e) {
+                logger.warn("Failed to parse existing DISCARDED_CONTEXT JSON; starting fresh", e);
+            }
+        });
+
+        // Merge explanations for successfully dropped fragments (new overwrites old)
+        for (var f : toDrop) {
+            var explanation = idToExplanation.getOrDefault(f.id(), "");
+            mergedDiscarded.put(f.description(), explanation);
         }
+
+        // Serialize updated JSON
+        String discardedJson;
+        try {
+            discardedJson = mapper.writeValueAsString(mergedDiscarded);
+        } catch (Exception e) {
+            logger.error("Failed to serialize DISCARDED_CONTEXT JSON", e);
+            return "Error: Failed to serialize DISCARDED_CONTEXT JSON: " + e.getMessage();
+        }
+
+        // Atomically: drop requested fragments, refresh DISCARDED_CONTEXT as a StringFragment
+        contextManager.pushContext(ctx -> {
+            var next = ctx.removeFragmentsByIds(droppedIds);
+
+            // Remove previous DISCARDED_CONTEXT fragment if present
+            if (existingDiscarded.isPresent()) {
+                next = next.removeFragmentsByIds(List.of(existingDiscarded.get().id()));
+            }
+
+            // Add the updated DISCARDED_CONTEXT fragment
+            var fragment = new ContextFragment.StringFragment(
+                    contextManager,
+                    discardedJson,
+                    ContextFragment.DISCARDED_CONTEXT.description(),
+                    ContextFragment.DISCARDED_CONTEXT.syntaxStyle());
+
+            return next.addVirtualFragment(fragment);
+        });
+
+        var unknownIds =
+                idsToDropSet.stream().filter(id -> !droppedIds.contains(id)).collect(Collectors.toList());
+        logger.debug(
+                "dropWorkspaceFragments: dropped={}, unknown={}, updatedDiscardedEntries={}",
+                droppedIds.size(),
+                unknownIds.size(),
+                mergedDiscarded.size());
+
+        var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
+        var baseMsg = "Dropped %d fragment(s): [%s]. Updated DISCARDED_CONTEXT with %d entr%s."
+                .formatted(droppedIds.size(), droppedReprs, droppedIds.size(), droppedIds.size() == 1 ? "y" : "ies");
+        if (!unknownIds.isEmpty()) {
+            return baseMsg + " Unknown fragment IDs: " + String.join(", ", unknownIds);
+        }
+        return baseMsg;
     }
 
     @Tool(

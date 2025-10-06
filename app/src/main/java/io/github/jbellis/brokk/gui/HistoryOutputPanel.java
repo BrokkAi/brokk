@@ -11,6 +11,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskEntry;
@@ -26,6 +27,7 @@ import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -37,10 +39,16 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.geom.Path2D;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -68,6 +76,7 @@ public class HistoryOutputPanel extends JPanel {
     private final DefaultTableModel historyModel;
     private final MaterialButton undoButton;
     private final MaterialButton redoButton;
+    private final MaterialButton compressButton;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
@@ -92,6 +101,50 @@ public class HistoryOutputPanel extends JPanel {
     private JTextArea captureDescriptionArea;
 
     private final MaterialButton copyButton;
+    private final MaterialButton clearButton;
+    private final MaterialButton captureButton;
+    private final MaterialButton openWindowButton;
+    private final JPanel notificationAreaPanel;
+
+    private final MaterialButton notificationsButton = new MaterialButton();
+    private final java.util.List<NotificationEntry> notifications = new java.util.ArrayList<>();
+    private final java.util.Queue<NotificationEntry> notificationQueue = new java.util.ArrayDeque<>();
+    private final Path notificationsFile;
+    private boolean isDisplayingNotification = false;
+
+    @Nullable
+    private JFrame notificationsDialog;
+
+    @Nullable
+    private JPanel notificationsListPanel;
+
+    // Resolve notification colors from ThemeColors for current theme.
+    // Returns a list of [background, foreground, border] colors.
+    private java.util.List<Color> resolveNotificationColors(IConsoleIO.NotificationRole role) {
+        boolean isDark = chrome.themeManager.isDarkTheme();
+        return switch (role) {
+            case ERROR ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_error_bg"),
+                        ThemeColors.getColor(isDark, "notif_error_fg"),
+                        ThemeColors.getColor(isDark, "notif_error_border"));
+            case CONFIRM ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_confirm_bg"),
+                        ThemeColors.getColor(isDark, "notif_confirm_fg"),
+                        ThemeColors.getColor(isDark, "notif_confirm_border"));
+            case COST ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_cost_bg"),
+                        ThemeColors.getColor(isDark, "notif_cost_fg"),
+                        ThemeColors.getColor(isDark, "notif_cost_border"));
+            case INFO ->
+                java.util.List.of(
+                        ThemeColors.getColor(isDark, "notif_info_bg"),
+                        ThemeColors.getColor(isDark, "notif_info_fg"),
+                        ThemeColors.getColor(isDark, "notif_info_border"));
+        };
+    }
 
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
@@ -136,11 +189,20 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new MaterialButton();
+        this.clearButton = new MaterialButton();
+        this.captureButton = new MaterialButton();
+        this.openWindowButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
+        this.compressButton = new MaterialButton();
+        this.notificationAreaPanel = buildNotificationAreaPanel();
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
+
+        // Initialize notification persistence and load saved notifications
+        this.notificationsFile = computeNotificationsFile();
+        loadPersistedNotifications();
 
         // Build session controls and activity panel (East)
         this.historyModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
@@ -180,6 +242,12 @@ public class HistoryOutputPanel extends JPanel {
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
+
+        // Initialize capture controls to disabled until output is available
+        setCopyButtonEnabled(false);
+        setClearButtonEnabled(false);
+        setCaptureButtonEnabled(false);
+        setOpenWindowButtonEnabled(false);
     }
 
     private void buildSessionSwitchPanel() {
@@ -463,9 +531,7 @@ public class HistoryOutputPanel extends JPanel {
         });
 
         // Add undo/redo buttons at the bottom, side by side
-        // Use GridLayout to make buttons share width equally
         var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
-        buttonPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
@@ -487,6 +553,7 @@ public class HistoryOutputPanel extends JPanel {
 
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
+        buttonPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
 
         historyLayeredPane.add(layer, JLayeredPane.DEFAULT_LAYER);
 
@@ -818,38 +885,22 @@ public class HistoryOutputPanel extends JPanel {
         captureDescriptionArea.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         captureDescriptionArea.setLineWrap(true);
         captureDescriptionArea.setWrapStyleWord(true);
-        panel.add(captureDescriptionArea, BorderLayout.CENTER);
+        // notification area now occupies the CENTER; description area removed
 
-        // Buttons panel on the right
+        // Buttons panel on the left
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
 
         copyButton.setMnemonic(KeyEvent.VK_T);
         copyButton.setToolTipText("Copy the output to clipboard");
         copyButton.addActionListener(e -> {
-            var ctx = contextManager.selectedContext();
-            if (ctx == null) {
-                chrome.systemOutput("No active context to copy from.");
-                return;
-            }
-
-            var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
-                    .reduce((first, second) -> second); // use the most recent HISTORY fragment
-
-            if (historyOpt.isEmpty()) {
-                chrome.systemOutput("No conversation history found in the current workspace.");
-                return;
-            }
-
-            var historyFrag = historyOpt.get();
-            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of(historyFrag));
+            performContextActionOnLatestHistoryFragment(
+                    WorkspacePanel.ContextAction.COPY, "No active context to copy from.");
         });
         // Set minimum size
         copyButton.setMinimumSize(copyButton.getPreferredSize());
         buttonsPanel.add(copyButton);
 
         // "Capture" button
-        var captureButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             captureButton.setIcon(Icons.CONTENT_CAPTURE);
         });
@@ -863,7 +914,6 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(captureButton);
 
         // "Open in New Window" button
-        var openWindowButton = new MaterialButton();
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
         });
@@ -885,10 +935,670 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
+        // "Clear Output" button (drop Task History)
+        SwingUtilities.invokeLater(() -> {
+            clearButton.setIcon(Icons.CLEAR_ALL);
+        });
+        clearButton.setToolTipText("Clear the output");
+        clearButton.addActionListener(e -> {
+            performContextActionOnLatestHistoryFragment(
+                    WorkspacePanel.ContextAction.DROP, "No active context to clear from.");
+        });
+        clearButton.setMinimumSize(clearButton.getPreferredSize());
+        buttonsPanel.add(clearButton);
+
+        // Compress button (icon-only, with improved tooltip)
+        compressButton.setText(null);
+        SwingUtilities.invokeLater(() -> {
+            compressButton.setIcon(Icons.COMPRESS);
+            // Ensure minimum size is computed after icon is applied
+            compressButton.setMinimumSize(compressButton.getPreferredSize());
+        });
+        compressButton.setToolTipText(
+                "<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
+        for (var al : compressButton.getActionListeners()) {
+            compressButton.removeActionListener(al);
+        }
+        compressButton.addActionListener(e -> {
+            int choice = chrome.showConfirmDialog(
+                    HistoryOutputPanel.this,
+                    "This will summarize your conversation history into shorter entries. Continue?",
+                    "Compress conversation history",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+            if (choice == JOptionPane.YES_OPTION) {
+                contextManager.compressHistoryAsync();
+            }
+        });
+        buttonsPanel.add(compressButton);
+
+        // Notifications button
+        notificationsButton.setToolTipText("Show notifications");
+        notificationsButton.addActionListener(e -> showNotificationsDialog());
+        SwingUtilities.invokeLater(() -> {
+            notificationsButton.setIcon(Icons.NOTIFICATIONS);
+            notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+        });
+        buttonsPanel.add(notificationsButton);
+
         // Add buttons panel to the left
         panel.add(buttonsPanel, BorderLayout.WEST);
 
+        // Add notification area to the right of the buttons panel
+        panel.add(notificationAreaPanel, BorderLayout.CENTER);
+
+        // Compress control moved to left buttons; right-side panel removed
+
         return panel;
+    }
+
+    /**
+     * Performs a context action (COPY, DROP, etc.) on the most recent HISTORY fragment in the currently selected
+     * context. Shows appropriate user feedback if there is no active context or no history fragment.
+     */
+    private void performContextActionOnLatestHistoryFragment(
+            WorkspacePanel.ContextAction action, String noContextMessage) {
+        var ctx = contextManager.selectedContext();
+        if (ctx == null) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, noContextMessage);
+            return;
+        }
+
+        var historyOpt = ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
+                .reduce((first, second) -> second);
+
+        if (historyOpt.isEmpty()) {
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No conversation history found in the current workspace.");
+            return;
+        }
+
+        var historyFrag = historyOpt.get();
+        chrome.getContextPanel().performContextActionAsync(action, List.of(historyFrag));
+    }
+
+    // Notification API
+    public void showNotification(IConsoleIO.NotificationRole role, String message) {
+        Runnable r = () -> {
+            var entry = new NotificationEntry(role, message, System.currentTimeMillis());
+            notifications.add(entry);
+            notificationQueue.offer(entry);
+            updateNotificationsButton();
+            persistNotificationsAsync();
+            refreshLatestNotificationCard();
+            refreshNotificationsDialog();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
+        Runnable r = () -> {
+            var entry = new NotificationEntry(IConsoleIO.NotificationRole.CONFIRM, message, System.currentTimeMillis());
+            notifications.add(entry);
+            updateNotificationsButton();
+            persistNotificationsAsync();
+            refreshNotificationsDialog();
+
+            if (isDisplayingNotification) {
+                notificationQueue.offer(entry);
+            } else {
+                notificationAreaPanel.removeAll();
+                isDisplayingNotification = true;
+                JPanel card = createNotificationCard(IConsoleIO.NotificationRole.CONFIRM, message, onAccept, onReject);
+                notificationAreaPanel.add(card);
+                animateNotificationCard(card);
+                notificationAreaPanel.revalidate();
+                notificationAreaPanel.repaint();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    private JPanel buildNotificationAreaPanel() {
+        var p = new JPanel();
+        p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+        p.setOpaque(false);
+        p.setBorder(new EmptyBorder(0, 5, 0, 0));
+        // Preferred width to allow message text and controls; height flexes with content
+        p.setPreferredSize(new Dimension(0, 0));
+        return p;
+    }
+
+    // Show the next notification from the queue
+    private void refreshLatestNotificationCard() {
+        if (isDisplayingNotification || notificationQueue.isEmpty()) {
+            return;
+        }
+
+        var nextToShow = notificationQueue.poll();
+        if (nextToShow == null) {
+            return;
+        }
+
+        notificationAreaPanel.removeAll();
+        isDisplayingNotification = true;
+        JPanel card = createNotificationCard(nextToShow.role, nextToShow.message, null, null);
+        notificationAreaPanel.add(card);
+        animateNotificationCard(card);
+        notificationAreaPanel.revalidate();
+        notificationAreaPanel.repaint();
+    }
+
+    private void animateNotificationCard(JPanel card) {
+        card.putClientProperty("notificationOpacity", 1.0f);
+
+        final int holdDuration = 1000; // 1 second
+        final int fadeOutDuration = 1000; // 1 second
+        final int fps = 30;
+        final int fadeOutFrames = (fadeOutDuration * fps) / 1000;
+        final float fadeOutStep = 1.0f / fadeOutFrames;
+
+        final Timer[] timerHolder = new Timer[1];
+        final int[] frameCounter = {0};
+        final int[] phase = {0}; // 0=hold, 1=fade out
+
+        Timer timer = new Timer(1000 / fps, e -> {
+            float currentOpacity = (Float) card.getClientProperty("notificationOpacity");
+
+            if (phase[0] == 0) {
+                // Hold
+                frameCounter[0]++;
+                if (frameCounter[0] >= (holdDuration / (1000 / fps))) {
+                    phase[0] = 1;
+                    frameCounter[0] = 0;
+                }
+            } else if (phase[0] == 1) {
+                // Fade out
+                currentOpacity = Math.max(0.0f, currentOpacity - fadeOutStep);
+                card.putClientProperty("notificationOpacity", currentOpacity);
+                card.repaint();
+
+                if (currentOpacity <= 0.0f) {
+                    timerHolder[0].stop();
+                    dismissCurrentNotification();
+                }
+            }
+        });
+
+        timerHolder[0] = timer;
+        card.putClientProperty("notificationTimer", timer);
+        timer.start();
+    }
+
+    private void dismissCurrentNotification() {
+        isDisplayingNotification = false;
+        notificationAreaPanel.removeAll();
+        notificationAreaPanel.revalidate();
+        notificationAreaPanel.repaint();
+        // Show the next notification (if any)
+        refreshLatestNotificationCard();
+    }
+
+    private JPanel createNotificationCard(
+            IConsoleIO.NotificationRole role,
+            String message,
+            @Nullable Runnable onAccept,
+            @Nullable Runnable onReject) {
+        var colors = resolveNotificationColors(role);
+        Color bg = colors.get(0);
+        Color fg = colors.get(1);
+        Color border = colors.get(2);
+
+        // Rounded, modern container
+        var card = new RoundedPanel(12, bg, border);
+        card.setLayout(new BorderLayout(8, 4));
+        card.setBorder(new EmptyBorder(2, 8, 2, 8));
+
+        // Center: show full message (including full cost details for COST)
+        String display = compactMessageForToolbar(role, message);
+        var msg = new JLabel(
+                "<html><div style='width:100%; text-align: left; word-wrap: break-word; white-space: normal;'>"
+                        + escapeHtml(display) + "</div></html>");
+        msg.setForeground(fg);
+        msg.setVerticalAlignment(JLabel.CENTER);
+        msg.setHorizontalAlignment(JLabel.LEFT);
+        card.add(msg, BorderLayout.CENTER);
+
+        // Right: actions
+        var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        actions.setOpaque(false);
+
+        if (role == IConsoleIO.NotificationRole.CONFIRM) {
+            var acceptBtn = new MaterialButton("Accept");
+            acceptBtn.setToolTipText("Accept");
+            acceptBtn.addActionListener(e -> {
+                if (onAccept != null) onAccept.run();
+                removeNotificationCard();
+            });
+            actions.add(acceptBtn);
+
+            var rejectBtn = new MaterialButton("Reject");
+            rejectBtn.setToolTipText("Reject");
+            rejectBtn.addActionListener(e -> {
+                if (onReject != null) onReject.run();
+                removeNotificationCard();
+            });
+            actions.add(rejectBtn);
+        } else {
+            var closeBtn = new MaterialButton();
+            closeBtn.setToolTipText("Dismiss");
+            SwingUtilities.invokeLater(() -> {
+                var icon = Icons.CLOSE;
+                if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                    closeBtn.setIcon(themedIcon.withSize(18));
+                } else {
+                    closeBtn.setIcon(icon);
+                }
+            });
+            closeBtn.addActionListener(e -> {
+                var timer = (Timer) card.getClientProperty("notificationTimer");
+                if (timer != null) {
+                    timer.stop();
+                }
+                dismissCurrentNotification();
+            });
+            actions.add(closeBtn);
+        }
+        card.add(actions, BorderLayout.EAST);
+
+        // Allow card to grow vertically; overall area scrolls when necessary
+        return card;
+    }
+
+    private static String compactMessageForToolbar(IConsoleIO.NotificationRole role, String message) {
+        // Show full details for COST; compact other long messages to keep the toolbar tidy
+        if (role == IConsoleIO.NotificationRole.COST) {
+            return message;
+        }
+        int max = 160;
+        if (message.length() <= max) return message;
+        return message.substring(0, max - 3) + "...";
+    }
+
+    private static class RoundedPanel extends JPanel {
+        private final int radius;
+        private final Color bg;
+        private final Color border;
+
+        RoundedPanel(int radius, Color bg, Color border) {
+            super();
+            this.radius = radius;
+            this.bg = bg;
+            this.border = border;
+            setOpaque(false);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                // Apply opacity animation if present
+                Float opacity = (Float) getClientProperty("notificationOpacity");
+                if (opacity != null && opacity < 1.0f) {
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity));
+                }
+
+                int w = getWidth();
+                int h = getHeight();
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, radius, radius);
+                g2.setColor(border);
+                g2.drawRoundRect(0, 0, w - 1, h - 1, radius, radius);
+            } finally {
+                g2.dispose();
+            }
+            super.paintComponent(g);
+        }
+    }
+
+    private static class ScrollableWidthPanel extends JPanel implements Scrollable {
+        ScrollableWidthPanel(LayoutManager layout) {
+            super(layout);
+            setOpaque(false);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 64;
+        }
+    }
+
+    // Update the notifications button (removed count display)
+    private void updateNotificationsButton() {
+        // No-op: button just shows icon without count
+    }
+
+    // Notification persistence
+
+    private Path computeNotificationsFile() {
+        var dir = Paths.get(System.getProperty("user.home"), ".brokk");
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            logger.warn("Unable to create notifications directory {}", dir, e);
+        }
+        return dir.resolve("notifications.log");
+    }
+
+    private void persistNotificationsAsync() {
+        CompletableFuture.runAsync(this::persistNotifications);
+    }
+
+    private void persistNotifications() {
+        try {
+            var linesToPersist = notifications.stream()
+                    .sorted(Comparator.comparingLong((NotificationEntry n) -> n.timestamp)
+                            .reversed())
+                    .limit(100)
+                    .map(n -> {
+                        var msgB64 = Base64.getEncoder().encodeToString(n.message.getBytes(StandardCharsets.UTF_8));
+                        return "2|" + n.role.name() + "|" + n.timestamp + "|" + msgB64;
+                    })
+                    .toList();
+            Files.write(notificationsFile, linesToPersist, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            logger.warn("Failed to persist notifications to {}", notificationsFile, e);
+        }
+    }
+
+    private void loadPersistedNotifications() {
+        try {
+            if (!Files.exists(notificationsFile)) {
+                return;
+            }
+            var lines = Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
+            for (var line : lines) {
+                if (line == null || line.isBlank()) continue;
+                var parts = line.split("\\|", 4);
+                if (parts.length < 4) continue;
+
+                // Skip old format (version 1)
+                if ("1".equals(parts[0])) continue;
+                if (!"2".equals(parts[0])) continue;
+
+                IConsoleIO.NotificationRole role;
+                try {
+                    role = IConsoleIO.NotificationRole.valueOf(parts[1]);
+                } catch (IllegalArgumentException iae) {
+                    continue;
+                }
+
+                long ts;
+                try {
+                    ts = Long.parseLong(parts[2]);
+                } catch (NumberFormatException nfe) {
+                    ts = System.currentTimeMillis();
+                }
+
+                String message;
+                try {
+                    var bytes = Base64.getDecoder().decode(parts[3]);
+                    message = new String(bytes, StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException iae) {
+                    message = parts[3];
+                }
+
+                notifications.add(new NotificationEntry(role, message, ts));
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                updateNotificationsButton();
+            });
+        } catch (Exception e) {
+            logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
+        }
+    }
+
+    // Dialog showing a list of all notifications (modeless, reusable)
+    private void showNotificationsDialog() {
+        if (notificationsDialog != null && notificationsDialog.isDisplayable()) {
+            // Reuse existing window
+            var lp = requireNonNull(notificationsListPanel, "notificationsListPanel");
+            rebuildNotificationsList(notificationsDialog, lp);
+            notificationsDialog.toFront();
+            notificationsDialog.requestFocus();
+            notificationsDialog.setVisible(true);
+            return;
+        }
+
+        notificationsDialog = new JFrame("Notifications (" + notifications.size() + ")");
+        // Set window icon similar to OutputWindow
+        try {
+            var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
+            if (iconUrl != null) {
+                var icon = new ImageIcon(iconUrl);
+                notificationsDialog.setIconImage(icon.getImage());
+            }
+        } catch (Exception ex) {
+            logger.debug("Failed to set notifications window icon", ex);
+        }
+        notificationsDialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        notificationsDialog.setLayout(new BorderLayout(8, 8));
+        notificationsDialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                notificationsDialog = null;
+                notificationsListPanel = null;
+            }
+        });
+
+        // Build list panel
+        notificationsListPanel = new ScrollableWidthPanel(new GridBagLayout());
+        notificationsListPanel.setOpaque(false);
+        notificationsListPanel.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        rebuildNotificationsList(notificationsDialog, notificationsListPanel);
+
+        var scroll = new JScrollPane(notificationsListPanel);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        // Footer with limit note and buttons
+        var footer = new JPanel(new BorderLayout());
+        footer.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        var noteLabel = new JLabel("The most recent 100 notifications are retained.");
+        noteLabel.setFont(noteLabel.getFont().deriveFont(Font.ITALIC));
+        noteLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        footer.add(noteLabel, BorderLayout.WEST);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+
+        var closeBtn = new MaterialButton("Ok");
+        SwingUtil.applyPrimaryButtonStyle(closeBtn);
+        closeBtn.addActionListener(e -> {
+            if (notificationsDialog != null) {
+                notificationsDialog.dispose();
+                notificationsDialog = null;
+                notificationsListPanel = null;
+            }
+        });
+        buttonPanel.add(closeBtn);
+
+        var clearAllBtn = new MaterialButton("Clear All");
+        clearAllBtn.addActionListener(e -> {
+            notifications.clear();
+            notificationQueue.clear();
+            updateNotificationsButton();
+            persistNotificationsAsync();
+            if (notificationsDialog != null && notificationsListPanel != null) {
+                rebuildNotificationsList(notificationsDialog, notificationsListPanel);
+            }
+        });
+        buttonPanel.add(clearAllBtn);
+
+        footer.add(buttonPanel, BorderLayout.EAST);
+
+        notificationsDialog.add(scroll, BorderLayout.CENTER);
+        notificationsDialog.add(footer, BorderLayout.SOUTH);
+
+        notificationsDialog.setSize(640, 480);
+        notificationsDialog.setLocationRelativeTo(chrome.getFrame());
+        notificationsDialog.setVisible(true);
+    }
+
+    private void rebuildNotificationsList(JFrame dialog, JPanel listPanel) {
+        listPanel.removeAll();
+        dialog.setTitle("Notifications (" + notifications.size() + ")");
+
+        if (notifications.isEmpty()) {
+            GridBagConstraints gbcEmpty = new GridBagConstraints();
+            gbcEmpty.gridx = 0;
+            gbcEmpty.gridy = 0;
+            gbcEmpty.weightx = 1.0;
+            gbcEmpty.fill = GridBagConstraints.HORIZONTAL;
+            listPanel.add(new JLabel("No notifications."), gbcEmpty);
+        } else {
+            // Sort by timestamp descending (newest first)
+            var sortedNotifications = new ArrayList<>(notifications);
+            sortedNotifications.sort(Comparator.comparingLong((NotificationEntry n) -> n.timestamp)
+                    .reversed());
+
+            for (int i = 0; i < sortedNotifications.size(); i++) {
+                var n = sortedNotifications.get(i);
+                var colors = resolveNotificationColors(n.role);
+                Color bg = colors.get(0);
+                Color fg = colors.get(1);
+                Color border = colors.get(2);
+
+                var card = new RoundedPanel(12, bg, border);
+                card.setLayout(new BorderLayout(8, 4));
+                card.setBorder(new EmptyBorder(4, 8, 4, 8));
+                card.setMinimumSize(new Dimension(0, 30));
+
+                // Left: unread indicator (if unread) + message with bold timestamp at end
+                var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                leftPanel.setOpaque(false);
+
+                String timeStr = formatModified(n.timestamp);
+                String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
+                var msgLabel = new JLabel("<html><div style='width:100%; word-wrap: break-word; white-space: normal;'>"
+                        + combined + "</div></html>");
+                msgLabel.setForeground(fg);
+                msgLabel.setHorizontalAlignment(JLabel.LEFT);
+                msgLabel.setVerticalAlignment(JLabel.CENTER);
+
+                leftPanel.add(msgLabel);
+                card.add(leftPanel, BorderLayout.CENTER);
+
+                // Right: close button (half size)
+                var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+                actions.setOpaque(false);
+
+                var closeBtn = new MaterialButton();
+                closeBtn.setToolTipText("Remove this notification");
+                SwingUtilities.invokeLater(() -> {
+                    var icon = Icons.CLOSE;
+                    if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                        closeBtn.setIcon(themedIcon.withSize(12));
+                    } else {
+                        closeBtn.setIcon(icon);
+                    }
+                });
+                closeBtn.addActionListener(e -> {
+                    notifications.remove(n);
+                    notificationQueue.removeIf(entry -> entry == n);
+                    updateNotificationsButton();
+                    persistNotificationsAsync();
+                    rebuildNotificationsList(dialog, listPanel);
+                });
+                closeBtn.setPreferredSize(new Dimension(24, 24));
+                actions.add(closeBtn);
+
+                card.add(actions, BorderLayout.EAST);
+
+                GridBagConstraints gbc = new GridBagConstraints();
+                gbc.gridx = 0;
+                gbc.gridy = i;
+                gbc.weightx = 1.0;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.insets = new Insets(0, 0, 6, 0);
+                listPanel.add(card, gbc);
+            }
+
+            // Add a filler component that takes up all extra vertical space
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.gridx = 0;
+            gbc.gridy = sortedNotifications.size();
+            gbc.weighty = 1.0;
+            gbc.fill = GridBagConstraints.VERTICAL;
+            var filler = new JPanel();
+            filler.setOpaque(false);
+            listPanel.add(filler, gbc);
+        }
+        listPanel.revalidate();
+        listPanel.repaint();
+    }
+
+    // Simple container for notifications
+    private static class NotificationEntry {
+        final IConsoleIO.NotificationRole role;
+        final String message;
+        final long timestamp;
+
+        NotificationEntry(IConsoleIO.NotificationRole role, String message, long timestamp) {
+            this.role = role;
+            this.message = message;
+            this.timestamp = timestamp;
+        }
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private void removeNotificationCard() {
+        Runnable r = () -> {
+            refreshLatestNotificationCard();
+            updateNotificationsButton();
+            persistNotificationsAsync();
+            refreshNotificationsDialog();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    // If the notifications window is open, rebuild it to reflect latest items.
+    private void refreshNotificationsDialog() {
+        SwingUtilities.invokeLater(() -> {
+            if (notificationsDialog != null && notificationsDialog.isVisible() && notificationsListPanel != null) {
+                rebuildNotificationsList(notificationsDialog, notificationsListPanel);
+            }
+        });
     }
 
     public List<ChatMessage> getLlmRawMessages() {
@@ -917,6 +1627,21 @@ public class HistoryOutputPanel extends JPanel {
     /** Sets the enabled state of the copy text button */
     public void setCopyButtonEnabled(boolean enabled) {
         copyButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the clear output button */
+    public void setClearButtonEnabled(boolean enabled) {
+        clearButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the capture (add to context) button */
+    public void setCaptureButtonEnabled(boolean enabled) {
+        captureButton.setEnabled(enabled);
+    }
+
+    /** Sets the enabled state of the open-in-new-window button */
+    public void setOpenWindowButtonEnabled(boolean enabled) {
+        openWindowButton.setEnabled(enabled);
     }
 
     /** Shows the loading spinner with a message in the Markdown area. */
@@ -983,8 +1708,12 @@ public class HistoryOutputPanel extends JPanel {
         if (!blocked) {
             activeStreamingWindows.forEach(
                     window -> window.getMarkdownOutputPanel().setBlocking(false));
-            activeStreamingWindows.clear();
         }
+    }
+
+    public void setTaskInProgress(boolean inProgress) {
+        llmStreamArea.setTaskInProgress(inProgress);
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setTaskInProgress(inProgress));
     }
 
     private void openOutputWindowFromContext(Context context) {
@@ -1054,15 +1783,18 @@ public class HistoryOutputPanel extends JPanel {
             chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        var parsedOutput = selected.getParsedOutput();
-        if (parsedOutput == null) {
+
+        var history = selected.getTaskHistory();
+        if (history.isEmpty()) {
             chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        var captureText = parsedOutput.text();
-        if (captureText.isBlank()) {
-            chrome.systemNotify(
-                    "Nothing to capture from the selected output", "Capture failed", JOptionPane.WARNING_MESSAGE);
+
+        var last = history.getLast();
+        String captureText = (last.log() != null) ? last.log().text() : last.summary();
+
+        if (captureText == null || captureText.isBlank()) {
+            chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -1289,6 +2021,7 @@ public class HistoryOutputPanel extends JPanel {
             historyTable.setEnabled(false);
             undoButton.setEnabled(false);
             redoButton.setEnabled(false);
+            compressButton.setEnabled(false);
             // Optionally change appearance to indicate disabled state
             historyTable.setForeground(UIManager.getColor("Label.disabledForeground"));
             // Make the table visually distinct when disabled
@@ -1303,6 +2036,7 @@ public class HistoryOutputPanel extends JPanel {
             // Restore appearance
             historyTable.setForeground(UIManager.getColor("Table.foreground"));
             historyTable.setBackground(UIManager.getColor("Table.background"));
+            compressButton.setEnabled(true);
             updateUndoRedoButtonStates();
         });
     }
@@ -1462,7 +2196,7 @@ public class HistoryOutputPanel extends JPanel {
     private void openDiffPreview(Context ctx) {
         var prev = previousContextMap.get(ctx.id());
         if (prev == null) {
-            chrome.systemOutput("No previous context to diff against.");
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No previous context to diff against.");
             return;
         }
 
@@ -1474,7 +2208,7 @@ public class HistoryOutputPanel extends JPanel {
 
     private void showDiffWindow(Context ctx, List<Context.DiffEntry> diffs) {
         if (diffs.isEmpty()) {
-            chrome.systemOutput("No changes to show.");
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No changes to show.");
             return;
         }
 

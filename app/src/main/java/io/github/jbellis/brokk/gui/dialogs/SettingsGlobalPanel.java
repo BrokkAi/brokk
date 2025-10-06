@@ -70,6 +70,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
+    private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
+    private JCheckBox showGeminiLiteCostNotificationsCheckbox =
+            new JCheckBox("Show Gemini Flash Lite cost notifications");
+    private JCheckBox showErrorNotificationsCheckbox = new JCheckBox("Show error notifications");
+    private JCheckBox showConfirmNotificationsCheckbox = new JCheckBox("Show confirmation notifications");
+    private JCheckBox showInfoNotificationsCheckbox = new JCheckBox("Show info notifications");
+
+    // Compression settings
+    private JCheckBox autoCompressCheckbox = new JCheckBox("Auto-compress conversation history");
+    private JSpinner autoCompressThresholdSpinner = new JSpinner();
 
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
@@ -103,6 +113,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
         loadSettings();
+
+        // Ensure a wider default size once the dialog is shown to avoid conflicting with pack()
+        parentDialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    Dimension current = parentDialog.getSize();
+                    int targetWidth = Math.max(1100, current.width);
+                    parentDialog.setSize(targetWidth, current.height);
+                });
+            }
+        });
 
         // Register for settings change notifications
         MainProject.addSettingsChangeListener(this);
@@ -148,6 +170,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         keybindingsScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         keybindingsScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         globalSubTabbedPane.addTab("Keybindings", null, keybindingsScroll, "Configure keyboard shortcuts");
+
+        var notificationsPanel = createNotificationsPanel();
+        globalSubTabbedPane.addTab("Notifications", null, notificationsPanel, "Notification preferences");
+
+        // Compression Tab
+        var compressionPanel = createCompressionPanel();
+        globalSubTabbedPane.addTab("Compression", null, compressionPanel, "Conversation history compression");
 
         add(globalSubTabbedPane, BorderLayout.CENTER);
     }
@@ -605,6 +634,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             servicePanel.add(forceToolEmulationCheckbox, gbc);
         }
 
+        // Cost notifications moved to Notifications tab
+
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
@@ -907,6 +938,122 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         });
     }
 
+    private JPanel createNotificationsPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        int row = 0;
+
+        // Section title
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(new JLabel("Notification preferences:"), gbc);
+        gbc.gridwidth = 1;
+
+        // Error
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(showErrorNotificationsCheckbox, gbc);
+
+        // Confirm
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(showConfirmNotificationsCheckbox, gbc);
+
+        // Info
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(showInfoNotificationsCheckbox, gbc);
+
+        // Cost
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(showCostNotificationsCheckbox, gbc);
+
+        // Gemini Flash Lite cost (applies to gemini-2.0-flash-lite and gemini-2.5-flash-light)
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(showGeminiLiteCostNotificationsCheckbox, gbc);
+
+        // Filler
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.BOTH;
+        panel.add(Box.createVerticalGlue(), gbc);
+
+        return panel;
+    }
+
+    private JPanel createCompressionPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        int row = 0;
+
+        // Auto-compress checkbox
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(autoCompressCheckbox, gbc);
+        gbc.gridwidth = 1;
+
+        // Threshold label
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Threshold (% of context window):"), gbc);
+
+        // Threshold spinner
+        var model = new SpinnerNumberModel(10, 1, 50, 1);
+        autoCompressThresholdSpinner.setModel(model);
+        autoCompressThresholdSpinner.setEditor(new JSpinner.NumberEditor(autoCompressThresholdSpinner, "#0"));
+
+        var thresholdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        thresholdPanel.add(autoCompressThresholdSpinner);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(thresholdPanel, gbc);
+
+        // Enable/disable spinner based on checkbox
+        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
+        autoCompressCheckbox.addActionListener(
+                e -> autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected()));
+
+        // filler
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weighty = 1.0;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.BOTH;
+        panel.add(Box.createVerticalGlue(), gbc);
+
+        return panel;
+    }
+
     public void loadSettings() {
         // Service Tab
         brokkKeyField.setText(MainProject.getBrokkKey());
@@ -924,6 +1071,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (forceToolEmulationCheckbox != null) {
             forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
         }
+        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
+        showGeminiLiteCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowGeminiLiteCostNotifications());
+        showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
+        showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
+        showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
+
+        // Compression Tab
+        autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
+        autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
+        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
 
         // Appearance Tab
         if (MainProject.getTheme().equals("dark")) {
@@ -1048,6 +1205,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             MainProject.setForceToolEmulation(forceToolEmulationCheckbox.isSelected());
             logger.debug("Applied Force Tool Emulation: {}", forceToolEmulationCheckbox.isSelected());
         }
+
+        // Save notification preferences
+        GlobalUiSettings.saveShowCostNotifications(showCostNotificationsCheckbox.isSelected());
+        GlobalUiSettings.saveShowGeminiLiteCostNotifications(showGeminiLiteCostNotificationsCheckbox.isSelected());
+        GlobalUiSettings.saveShowErrorNotifications(showErrorNotificationsCheckbox.isSelected());
+        GlobalUiSettings.saveShowConfirmNotifications(showConfirmNotificationsCheckbox.isSelected());
+        GlobalUiSettings.saveShowInfoNotifications(showInfoNotificationsCheckbox.isSelected());
+
+        // Compression Tab
+        MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
+        int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
+        MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
 
         // Appearance Tab
         boolean newIsDark = darkThemeRadio.isSelected();
