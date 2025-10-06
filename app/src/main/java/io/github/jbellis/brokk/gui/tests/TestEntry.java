@@ -16,7 +16,7 @@ public class TestEntry {
     }
 
     private final String filePath;
-    private final String displayName;
+    private String displayName;
     private final StringBuilder output;
     private Status status;
 
@@ -37,6 +37,10 @@ public class TestEntry {
 
     public String getDisplayName() {
         return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
     }
 
     public synchronized String getOutput() {

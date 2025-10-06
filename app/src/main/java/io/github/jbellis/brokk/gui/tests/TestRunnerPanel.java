@@ -120,7 +120,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runOnEdt(() -> {
             var existing = testsByPath.get(testFilePath);
             if (existing != null) {
-                return; // prevent duplicate entries for the same file key
+                // Update display name if it changed, then repaint; do not add a duplicate row
+                if (!existing.getDisplayName().equals(displayName)) {
+                    existing.setDisplayName(displayName);
+                    testList.repaint();
+                }
+                return;
             }
             var test = new TestEntry(testFilePath, displayName);
             testsByPath.put(testFilePath, test);
