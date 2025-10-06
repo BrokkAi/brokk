@@ -427,6 +427,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceToolsTabs.addTab("Terminal", terminalPlaceholder); // TAB_TERMINAL
         workspaceToolsTabs.addTab("Tests", testsPlaceholder); // TAB_TESTS
 
+        // Lazily create tool panels when their tabs are selected
+        workspaceToolsTabs.addChangeListener(e -> {
+            int idx = workspaceToolsTabs.getSelectedIndex();
+            switch (idx) {
+                case TAB_DEPENDENCIES -> ensureDependenciesPanel();
+                case TAB_TASKS -> ensureTaskListPanel();
+                case TAB_TERMINAL -> ensureTerminalPanel();
+                case TAB_TESTS -> ensureTestRunnerPanel();
+                default -> { /* Workspace or unknown index: nothing to create lazily */ }
+            }
+        });
+
         // Build split for (Tabs) / Instructions
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         workspaceInstructionsSplit.setTopComponent(workspaceToolsTabs);
@@ -1135,20 +1147,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Cmd/Ctrl+Shift+D => open/select Dependencies tab (replacement for drawer)
-        KeyStroke toggleDependenciesDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "drawer.toggleDependencies",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_D,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        bindKey(rootPane, toggleDependenciesDrawerKeyStroke, "toggleDependenciesDrawer");
-        rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                var dp = openDependencies();
-                dp.requestFocusInWindow();
-            }
-        });
 
         // Cmd/Ctrl+T => switch to Terminal tab and focus it
         KeyStroke switchToTerminalTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
@@ -2947,11 +2945,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     // New helpers that open tabs and lazily create panels
-    private DependenciesPanel openDependenciesTab() {
-        var p = ensureDependenciesPanel();
-        workspaceToolsTabs.setSelectedIndex(TAB_DEPENDENCIES);
-        return p;
-    }
 
     private TaskListPanel openTasksTab() {
         var p = ensureTaskListPanel();
@@ -2973,9 +2966,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     // Backward-compatibility methods delegate to new helpers
-    private DependenciesPanel openDependencies() {
-        return openDependenciesTab();
-    }
 
     private TaskListPanel openTaskList() {
         return openTasksTab();
