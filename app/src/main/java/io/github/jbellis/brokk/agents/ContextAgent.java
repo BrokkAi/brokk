@@ -316,7 +316,7 @@ public class ContextAgent {
         Map<CodeUnit, String> rawSummaries;
         var ctx = cm.liveContext();
 
-        if (isCodeInWorkspace(ctx) && !deepScan && cm.getAnalyzerWrapper().isReady()) {
+        if (isCodeInWorkspace(ctx)) {
             // If the workspace isn't empty, use Git distance candidates for Quick context
             var ac = cm.liveContext().buildAutoContext(50);
             // fetchSkeletons() is private in SkeletonFragment. We need to use its sources() or text().

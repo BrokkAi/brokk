@@ -86,8 +86,7 @@ public class MergeAgent {
     private final ContextManager.TaskScope scope;
 
     // Lightweight accumulators used during a run
-    private final List<String> codeAgentFailures = new ArrayList<>();
-    private final Map<ProjectFile, String> mergedTestSources = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ProjectFile, String> codeAgentFailures = new ConcurrentHashMap<>();
 
     public MergeAgent(
             IContextManager cm,
@@ -208,21 +207,6 @@ public class MergeAgent {
             }
         });
 
-        // Partition test vs non-test for the MERGE phase only (annotation already done above).
-        var testAnnotated = annotatedConflicts.stream()
-                .filter(ac -> ContextManager.isTestFile(ac.file()))
-                .sorted(Comparator.comparing(ac -> ac.file().toString()))
-                .toList();
-        var nonTestAnnotated = annotatedConflicts.stream()
-                .filter(ac -> !ContextManager.isTestFile(ac.file()))
-                .sorted(Comparator.comparing(ac -> ac.file().toString()))
-                .toList();
-
-        List<ProjectFile> allTestFiles = testAnnotated.stream()
-                .map(ConflictAnnotator.ConflictFileCommits::file)
-                .toList();
-
-        // Merge all files (tests and non-tests) in a single BlitzForge run.
         // Build a lookup from ProjectFile -> annotated conflict details
         var acByFile = annotatedConflicts.stream()
                 .collect(Collectors.toMap(ConflictAnnotator.ConflictFileCommits::file, ac -> ac));
@@ -254,57 +238,33 @@ public class MergeAgent {
         blitz.executeParallel(allAnnotatedFiles, file -> {
             var ac = requireNonNull(acByFile.get(file));
 
-            try {
-                boolean isTest = ContextManager.isTestFile(file);
-                var sourcesForPlanner = isTest ? Map.<ProjectFile, String>of() : mergedTestSources;
-                var planner = new MergeOneFile(
-                        cm,
-                        planningModel,
-                        codeModel,
-                        mode,
-                        baseCommitId,
-                        otherCommitId,
-                        sourcesForPlanner,
-                        allTestFiles,
-                        ac);
+            var planner = new MergeOneFile(
+                    cm,
+                    planningModel,
+                    codeModel,
+                    mode,
+                    baseCommitId,
+                    otherCommitId,
+                    ac);
 
-                var outcome = planner.merge();
+            var outcome = planner.merge();
 
-                boolean edited = false;
-                try {
-                    var textOpt = file.read();
-                    if (textOpt.isPresent()) {
-                        var text = textOpt.get();
-                        edited = !containsConflictMarkers(text);
-                        if (isTest && edited) {
-                            mergedTestSources.put(file, text);
-                        } else if (isTest && !edited) {
-                            logger.warn("Test file {} still contains conflict markers after merge attempt", file);
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.debug("Post-merge read failed for {}: {}", file, e.toString());
-                }
-
-                if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
-                    var detail = (outcome.details() != null)
-                            ? outcome.details()
-                            : "<unknown code-agent failure for " + file + ">";
-                    synchronized (codeAgentFailures) {
-                        codeAgentFailures.add(detail);
-                    }
-                    return new BlitzForge.FileResult(file, edited, detail, "");
-                }
-
-                return new BlitzForge.FileResult(file, edited, null, "");
-            } catch (Exception e) {
-                var err = "Execution error: " + e.getMessage();
-                synchronized (codeAgentFailures) {
-                    codeAgentFailures.add(err);
-                }
-                logger.error("Error merging file {}: {}", file, e.toString(), e);
-                return new BlitzForge.FileResult(file, false, err, "");
+            boolean edited = false;
+            var textOpt = file.read();
+            if (textOpt.isPresent()) {
+                var text = textOpt.get();
+                edited = !containsConflictMarkers(text);
             }
+
+            if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
+                var detail = (outcome.details() != null)
+                        ? outcome.details()
+                        : "<unknown code-agent failure for " + file + ">";
+                codeAgentFailures.put(file, detail);
+                return new BlitzForge.FileResult(file, edited, detail, "");
+            }
+
+            return new BlitzForge.FileResult(file, edited, null, "");
         });
 
         // Publish commit explanations (if available)
@@ -335,8 +295,8 @@ public class MergeAgent {
         if (buildFailureText.isBlank() && codeAgentFailures.isEmpty()) {
             logger.info("Verification passed and no CodeAgent failures; merge completed successfully.");
             var msg =
-                    "Merge completed successfully. Annotated %d conflicted files (%d tests, %d sources). Verification passed."
-                            .formatted(annotatedConflicts.size(), testAnnotated.size(), nonTestAnnotated.size());
+                    "Merge completed successfully. Annotated %d conflicted files. Verification passed."
+                            .formatted(annotatedConflicts.size());
             return new TaskResult(
                     cm,
                     "Merge",
@@ -351,17 +311,20 @@ public class MergeAgent {
 
         // Kick off Architect in the background to attempt to fix build failures and code-agent errors.
         var contextManager = (ContextManager) cm;
-        var codeAgentText = codeAgentFailures.isEmpty() ? "" : String.join("\n\n", codeAgentFailures);
+        var codeAgentText = "";
+        if (!codeAgentFailures.isEmpty()) {
+            codeAgentText = "The Code Agent reported these failures:\n"
+                    + codeAgentFailures.entrySet().stream()
+                        .map(e -> e.getKey() + "\n```\n" + e.getValue() + "\n```")
+                        .collect(Collectors.joining("\n\n"));
+        }
 
         var agentInstructions =
                 """
                         I attempted to merge changes from %s into our branch (mode: %s). I have added summaries
                         of the changes involved to the Workspace.
                         
-                        The per-file code agent reported these failures:
-                        ```
                         %s
-                        ```
                         
                         The verification/build output has been added to the Workspace as a Build fragment. Please fix the build and tests, update code as necessary, and produce a clean build. Commit any changes.
                         """

@@ -17,6 +17,7 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -46,6 +47,7 @@ public final class MergeOneFile {
     public enum Status {
         RESOLVED,
         UNRESOLVED,
+        INTERRUPTED,
         IO_ERROR
     }
 
@@ -57,8 +59,6 @@ public final class MergeOneFile {
     private final MergeAgent.MergeMode type;
     private final @Nullable String baseCommitId;
     private final String otherCommitId;
-    private final Map<ProjectFile, String> mergedTestSources;
-    private final List<ProjectFile> allTestFiles;
     private final ConflictAnnotator.ConflictFileCommits conflict;
 
     private transient @Nullable List<ChatMessage> currentSessionMessages = null;
@@ -78,8 +78,6 @@ public final class MergeOneFile {
             MergeAgent.MergeMode type,
             @Nullable String baseCommitId,
             String otherCommitId,
-            Map<ProjectFile, String> mergedTestSources,
-            List<ProjectFile> allTestFiles,
             ConflictAnnotator.ConflictFileCommits conflict) {
         this.cm = cm;
         this.planningModel = planningModel;
@@ -87,14 +85,12 @@ public final class MergeOneFile {
         this.type = type;
         this.baseCommitId = baseCommitId;
         this.otherCommitId = otherCommitId;
-        this.mergedTestSources = mergedTestSources;
-        this.allTestFiles = allTestFiles;
         this.conflict = conflict;
         this.tr = cm.getToolRegistry();
     }
 
     /** Merge-loop for a single file. Returns an Outcome describing the result. */
-    public Outcome merge() throws InterruptedException {
+    public Outcome merge() {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
         var llm = cm.getLlm(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file));
@@ -118,12 +114,9 @@ public final class MergeOneFile {
                 """
                         .stripIndent());
         var header = buildMergeHeader(file, conflict.ourCommits(), conflict.theirCommits());
-        var testsSection = buildRelevantTestsSection(file); // may be empty
         var conflicted = readFileAsCodeBlock(file);
         var firstUser = new UserMessage(
                 """
-                %s
-
                 %s
 
                 <conflicted_file path="%s">
@@ -135,7 +128,7 @@ public final class MergeOneFile {
                 Remember, when making tool calls you can call multiple tools per turn, this will improve your performance.
                 """
                         .stripIndent()
-                        .formatted(header, testsSection, file.toString(), conflicted));
+                        .formatted(header, file.toString(), conflicted));
         currentSessionMessages.add(sys);
         currentSessionMessages.add(firstUser);
 
@@ -156,13 +149,21 @@ public final class MergeOneFile {
         // Bounded loop; stop once conflicts are gone or we hit max steps
         final int MAX_STEPS = 10;
         for (int step = 1; step <= MAX_STEPS; step++) {
-            if (Thread.interrupted()) throw new InterruptedException();
+            if (Thread.interrupted()) {
+                return new Outcome(Status.INTERRUPTED, null);
+            }
             io.llmOutput("\n# Merge %s (step %d)".formatted(file, step), ChatMessageType.AI, true, false);
 
-            var result = llm.sendRequest(
-                    List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
+            Llm.StreamingResult result;
+            try {
+                result = llm.sendRequest(
+                        List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                continue;
+            }
             if (result.error() != null) {
-                var msg = result.error() != null ? result.error().getMessage() : "Empty response";
+                var msg = result.error().getMessage();
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM error in merge loop: " + msg);
                 break;
             }
@@ -181,7 +182,9 @@ public final class MergeOneFile {
             sorted.sort(
                     Comparator.comparingInt(r -> isTerminalToolName(r.name()) ? 1 : 0)); // stable sort; terminals last
             for (var req : sorted) {
-                if (Thread.interrupted()) throw new InterruptedException();
+                if (Thread.interrupted()) {
+                    return new Outcome(Status.INTERRUPTED, null);
+                }
 
                 var explanation = cm.getToolRegistry().getExplanationForToolRequest(this, req);
                 if (!explanation.isBlank()) {
@@ -417,54 +420,6 @@ public final class MergeOneFile {
         return "```" + ext + "\n" + text + "\n```";
     }
 
-    private String buildRelevantTestsSection(ProjectFile targetFile) throws InterruptedException {
-        if (mergedTestSources.isEmpty() || allTestFiles.isEmpty()) return "";
-        var quickest = cm.getService().quickestModel();
-        var clf = cm.getLlm(quickest, "Merge/Relevance");
-
-        var candidates = allTestFiles.stream()
-                .filter(tf -> !tf.equals(targetFile))
-                .filter(mergedTestSources::containsKey)
-                .sorted(Comparator.comparing(ProjectFile::toString))
-                .toList();
-
-        if (candidates.isEmpty()) return "";
-
-        var filterDescription =
-                """
-                Determine if the following test is relevant to resolving conflicts in "%s".
-                Consider class/method names referenced in the conflict, imports, and behavior expectations.
-                Reply strictly with BRK_RELEVANT or BRK_IRRELEVANT.
-                """
-                        .stripIndent()
-                        .formatted(targetFile);
-
-        var relevant = new ArrayList<ProjectFile>();
-        for (var tf : candidates) {
-            var src = mergedTestSources.get(tf);
-            boolean keep;
-            try {
-                keep = RelevanceClassifier.isRelevant(clf, filterDescription, requireNonNull(src));
-            } catch (InterruptedException ie) {
-                throw ie;
-            } catch (Exception e) {
-                logger.warn("RelevanceClassifier failed for {}: {}", tf, e.toString());
-                continue;
-            }
-            if (keep) relevant.add(tf);
-        }
-        if (relevant.isEmpty()) return "";
-
-        var sb = new StringBuilder();
-        sb.append("<relevant_tests>\n");
-        for (var tf : relevant) {
-            var src = mergedTestSources.get(tf);
-            sb.append("### ").append(tf).append("\n");
-            sb.append("```").append(tf.extension()).append("\n").append(src).append("\n```\n\n");
-        }
-        sb.append("</relevant_tests>");
-        return sb.toString();
-    }
 
     private static boolean containsConflictMarkers(String text) {
         return text.contains("<<<<<<<") || text.contains("=======") || text.contains(">>>>>>>");
