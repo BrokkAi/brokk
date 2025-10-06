@@ -437,6 +437,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             workspaceToolsTabs.setToolTipTextAt(TAB_TASKS, "Tasks");
         }
 
+        // Set static icons for other tabs (these persist across lazy component replacements)
+        workspaceToolsTabs.setIconAt(0, Icons.VIEW_SIDE_BY_SIDE); // Workspace
+        workspaceToolsTabs.setIconAt(TAB_DEPENDENCIES, Icons.MANAGE_DEPENDENCIES);
+        workspaceToolsTabs.setIconAt(TAB_TERMINAL, Icons.TERMINAL);
+        workspaceToolsTabs.setIconAt(TAB_TESTS, Icons.CHECK);
+
         // Lazily create tool panels when their tabs are selected
         workspaceToolsTabs.addChangeListener(e -> {
             int idx = workspaceToolsTabs.getSelectedIndex();
