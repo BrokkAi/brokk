@@ -67,6 +67,7 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
 
         // Initialize Tasks tab badged icon with count=0
         tasksTabBadgedIcon = new BadgedIcon(Icons.LIST, chrome.getTheme());
+        tasksTabBadgedIcon.setCount(0, tabs);
 
         // Instructions tab uses the existing instance
         tabs.addTab("Instructions", Icons.CHAT_BUBBLE, this.instructionsPanel, "Instructions and actions");
