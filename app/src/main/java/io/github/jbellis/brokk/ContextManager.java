@@ -738,8 +738,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * <p>Creates a new context state with: - updated task history (with the entry removed), - null parsedOutput, - and
      * action set to "Dropped message".
      *
-     * Special behavior:
-     * - sequence == -1 means "drop the last item of the history"
+     * <p>Special behavior: - sequence == -1 means "drop the last item of the history"
      *
      * @param sequence the TaskEntry.sequence() to remove, or -1 to remove the last entry
      */
@@ -750,9 +749,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        final int seqToDrop = (sequence == -1)
-                ? currentHistory.getLast().sequence()
-                : sequence;
+        final int seqToDrop = (sequence == -1) ? currentHistory.getLast().sequence() : sequence;
 
         var newHistory = currentHistory.stream()
                 .filter(entry -> entry.sequence() != seqToDrop)

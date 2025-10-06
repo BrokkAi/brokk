@@ -429,9 +429,7 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     public void setTaskInProgress(boolean inProgress) {
-        sendOrQueue(
-                new HostCommand.SetTaskInProgress(inProgress),
-                bridge -> bridge.setTaskInProgress(inProgress));
+        sendOrQueue(new HostCommand.SetTaskInProgress(inProgress), bridge -> bridge.setTaskInProgress(inProgress));
     }
 
     /**
