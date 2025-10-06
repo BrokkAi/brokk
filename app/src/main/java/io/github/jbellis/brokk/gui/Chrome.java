@@ -210,6 +210,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     private BadgedIcon gitTabBadgedIcon;
 
+    // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
+    @Nullable
+    private String lastDisplayedBranchLabel = null;
+
     // Reference to Tools ▸ BlitzForge… menu item so we can enable/disable it
     @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
     private JMenuItem blitzForgeMenuItem;
@@ -845,7 +849,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             final String display = branchToDisplay;
             SwingUtilities.invokeLater(() -> {
                 try {
+                    // Redundancy guard: only refresh if the displayed branch text actually changed
+                    if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
+                        logger.debug("updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
+                        return;
+                    }
                     instructionsPanel.refreshBranchUi(display);
+                    lastDisplayedBranchLabel = display;
                 } catch (Exception ex) {
                     logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
                 }
