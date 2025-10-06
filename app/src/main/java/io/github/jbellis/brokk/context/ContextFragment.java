@@ -1296,8 +1296,7 @@ public interface ContextFragment {
                         .filter(cu -> !ContextManager.isTestFile(cu.file()))
                         .toList();
             }
-            return AnalyzerUtil.processUsages(
-                    analyzer, uses.stream().map(UsageHit::enclosing).distinct().toList());
+            return AnalyzerUtil.processUsages(analyzer, uses.stream().map(UsageHit::enclosing).toList());
         }
 
         @Override

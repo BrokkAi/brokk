@@ -114,10 +114,12 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.TooManyCallsites(target.shortName(), hits.size(), maxUsages);
         }
 
-        var scoredHits = new HashSet<>(hits);
-        if (llm != null && service != null) {
+        Set<UsageHit> finalHits = hits;
+        if (llm != null && service != null && !hits.isEmpty()) {
             // Case 4: This symbol is not unique among code units, disambiguate with LLM if possible
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
+            var unscoredHits = new HashSet<>(hits);
+            var scoredHits = new HashSet<UsageHit>(hits.size());
             try {
                 var tasks = new ArrayList<RelevanceTask>(hits.size());
                 var mapping = new ArrayList<UsageHit>(hits.size());
@@ -130,16 +132,21 @@ public final class FuzzyUsageFinder {
                 for (int i = 0; i < tasks.size(); i++) {
                     var task = tasks.get(i);
                     var score = scores.getOrDefault(task, 0.0);
-                    scoredHits.add(mapping.get(i).withConfidence(score));
+                    var base = mapping.get(i);
+                    var scored = base.withConfidence(score);
+                    scoredHits.add(scored);
+                    unscoredHits.remove(base);
                 }
             } catch (InterruptedException e) {
-                logger.error(
-                        "Unable to batch classify relevance with {} due to exception. Assuming score of 1.0.", llm, e);
-                // scoredHits already contains unscored hits; leave as-is
+                logger.error("Unable to batch classify relevance with {} due to exception. Leaving hits unscored.", llm, e);
                 Thread.currentThread().interrupt();
             }
+            var combined = new HashSet<UsageHit>(scoredHits.size() + unscoredHits.size());
+            combined.addAll(scoredHits);
+            combined.addAll(unscoredHits);
+            finalHits = combined;
         }
-        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, scoredHits);
+        return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, finalHits);
     }
 
     /**

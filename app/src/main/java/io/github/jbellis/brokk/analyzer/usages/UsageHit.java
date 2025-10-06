@@ -5,6 +5,11 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 
 /**
  * Immutable metadata describing a usage occurrence.
+ * <p>
+ * Equality and hashing are based on the enclosing CodeUnit only. This allows sets/maps of UsageHit
+ * to deduplicate by the logical usage context (the enclosing unit), regardless of specific offsets,
+ * line numbers, or snippet text.
+ * </p>
  *
  * @param file the file containing the usage
  * @param line 1-based line number
@@ -24,5 +29,17 @@ public record UsageHit(
         String snippet) {
     public UsageHit withConfidence(double confidence) {
         return new UsageHit(file, line, startOffset, endOffset, enclosing, confidence, snippet);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof UsageHit that)) return false;
+        return enclosing.equals(that.enclosing);
+    }
+
+    @Override
+    public int hashCode() {
+        return enclosing.hashCode();
     }
 }
