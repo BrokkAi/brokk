@@ -59,6 +59,13 @@ public class ProjectWatchService implements IWatchService {
                 assert Files.isDirectory(actualGitMetaDir);
                 logger.debug("Additionally watching git metadata directory for changes: {}", actualGitMetaDir);
                 registerAllDirectories(actualGitMetaDir, watchService);
+            } else if (gitRepoRoot != null) {
+                // We are at the git top-level already; .git under project root will be ignored by registerAllDirectories.
+                // This means repo changes (e.g., branch switches) will be inferred from working tree file changes.
+                logger.debug("Git metadata under project root will not be watched due to ignore settings: {}",
+                        root.resolve(".git"));
+            } else {
+                logger.debug("No git repository detected for {}; skipping git metadata watch setup", root);
             }
 
             // Wait for the initial future to complete.
