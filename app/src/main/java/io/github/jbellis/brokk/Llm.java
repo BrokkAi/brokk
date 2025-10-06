@@ -1327,22 +1327,21 @@ public class Llm {
                     int cached = usage.cachedInputTokens();
                     int uncached = Math.max(0, input - cached);
                     int output = usage.outputTokens();
-                    int think = usage.thinkingTokens();
+
+                    int totalTokens = Math.max(0, input) + Math.max(0, output);
+                    int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
+                    String tokenSummary = "tokens: %,d (%d%% cached)".formatted(totalTokens, cachedPct);
 
                     String message;
                     if (pricing.bands().isEmpty()) {
-                        message =
-                                "Cost unknown for %s (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
-                                        .formatted(modelName, input, uncached, cached, output, think);
+                        message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                     } else {
                         double cost = pricing.estimateCost(uncached, cached, output);
                         java.text.DecimalFormat df =
                                 (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
                         df.applyPattern("#,##0.0000");
                         String costStr = df.format(cost);
-                        message = "$" + costStr + " for " + modelName
-                                + " (%,d input tokens: %,d uncached, %,d cached; %,d output tokens, %,d reasoning)"
-                                        .formatted(input, uncached, cached, output, think);
+                        message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
                     }
 
                     try {
