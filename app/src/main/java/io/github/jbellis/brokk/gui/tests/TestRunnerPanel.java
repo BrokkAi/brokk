@@ -2,11 +2,20 @@ package io.github.jbellis.brokk.gui.tests;
 
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Font;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
@@ -19,61 +28,58 @@ import javax.swing.UIManager;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.PlainDocument;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Font;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Test runner output panel with split view.
+ * Run-centric Test Runner panel.
  *
- * Displays a list of tests on the left and the selected test's output on the right.
- * - addTest(TestEntry) adds a new test to the list
- * - appendToTest(TestEntry, String) appends output to a specific test
- * - updateTestStatus(TestEntry, Status) updates the test's status
- * - clearTests() removes all tests
- * - Legacy methods (setOutput, appendOutput, clearOutput) operate on a global output buffer
- * - applyTheme(GuiTheme) updates colors to match the current UI theme
+ * Left: list of runs with status, start time, file count, duration.
+ * Right: raw output for the selected run (live for active run).
  *
  * Thread-safety: public mutating methods marshal updates to the EDT.
  */
 public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TestRunnerPanel.class);
 
-    private final DefaultListModel<TestEntry> testListModel;
-    private final JList<TestEntry> testList;
-    private final JScrollPane testListScrollPane;
+    // Model
+    private final DefaultListModel<RunEntry> runListModel;
+    private final JList<RunEntry> runList;
+    private final JScrollPane runListScrollPane;
+
+    // Output
     private final JTextArea outputArea;
-    private final JScrollPane outputScrollPane;
     private final DisplayOnlyDocument document;
+    private final JScrollPane outputScrollPane;
+
     private final JSplitPane splitPane;
-    private final Map<String, TestEntry> testsByPath;
+
+    // Runs by id
+    private final Map<String, RunEntry> runsById;
+
+    // Current active run (where live output goes)
+    private volatile @Nullable String currentActiveRunId;
 
     public TestRunnerPanel() {
         super(new BorderLayout(0, 0));
 
-        testListModel = new DefaultListModel<>();
-        testsByPath = new ConcurrentHashMap<>();
-        testList = new JList<>(testListModel);
-        testList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        testList.setCellRenderer(new TestEntryRenderer());
-        testList.addListSelectionListener(e -> {
+        runListModel = new DefaultListModel<>();
+        runsById = new ConcurrentHashMap<>();
+
+        runList = new JList<>(runListModel);
+        runList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        runList.setCellRenderer(new RunEntryRenderer());
+        runList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                updateOutputForSelectedTest();
+                updateOutputForSelectedRun();
             }
         });
 
-        testListScrollPane = new JScrollPane(testList,
+        runListScrollPane = new JScrollPane(runList,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        testListScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        runListScrollPane.setBorder(BorderFactory.createEmptyBorder());
 
         outputArea = new JTextArea();
         document = new DisplayOnlyDocument();
@@ -93,8 +99,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         outputScrollPane.setBorder(BorderFactory.createEmptyBorder());
 
-        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, testListScrollPane, outputScrollPane);
-        splitPane.setDividerLocation(250);
+        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, runListScrollPane, outputScrollPane);
+        splitPane.setDividerLocation(300);
         splitPane.setResizeWeight(0.3);
         splitPane.setBorder(BorderFactory.createEmptyBorder());
 
@@ -112,126 +118,96 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Add a new test to the list using file path and display name (EDT-safe).
-     * @param testFilePath unique identifier for the test
-     * @param displayName human-readable name to display in the UI
+     * Begin a new test run.
+     *
+     * @param fileCount number of files included in the run (may be 0/unknown)
+     * @param command the command used to launch the run
+     * @param startedAt start timestamp
+     * @return run id
      */
-    public void addTest(String testFilePath, String displayName) {
+    public String beginRun(int fileCount, String command, Instant startedAt) {
+        String id = UUID.randomUUID().toString();
+        var run = new RunEntry(id, fileCount, command, startedAt);
+        runsById.put(id, run);
+        currentActiveRunId = id;
+
         runOnEdt(() -> {
-            var existing = testsByPath.get(testFilePath);
-            if (existing != null) {
-                // Update display name if it changed, then repaint; do not add a duplicate row
-                if (!existing.getDisplayName().equals(displayName)) {
-                    existing.setDisplayName(displayName);
-                    testList.repaint();
-                }
-                return;
-            }
-            var test = new TestEntry(testFilePath, displayName);
-            testsByPath.put(testFilePath, test);
-            testListModel.addElement(test);
-            if (testListModel.getSize() == 1) {
-                testList.setSelectedIndex(0);
+            runListModel.addElement(run);
+            runList.setSelectedIndex(runListModel.getSize() - 1);
+            try {
+                document.withWritePermission(() -> {
+                    outputArea.setText(""); // new run => clear output view
+                    scrollToBottom();
+                });
+            } catch (RuntimeException ex) {
+                logger.warn("Failed to initialize output area for new run", ex);
             }
         });
+        return id;
     }
 
     /**
-     * Add a test to the list (EDT-safe).
+     * Append output to a specific run.
      */
-    public void addTest(TestEntry test) {
-        runOnEdt(() -> {
-            testsByPath.put(test.getFilePath(), test);
-            testListModel.addElement(test);
-            if (testListModel.getSize() == 1) {
-                testList.setSelectedIndex(0);
-            }
-        });
-    }
-
-    /**
-     * Append output to a specific test identified by file path (EDT-safe).
-     * @param testFilePath the file path of the test
-     * @param text the text to append
-     */
-    public void appendToTest(String testFilePath, @org.jetbrains.annotations.Nullable String text) {
-        final String safe = (text == null) ? "" : text;
-        if (safe.isEmpty()) return;
-        
-        var test = testsByPath.get(testFilePath);
-        if (test == null) {
-            logger.warn("Cannot append to unknown test: {}", testFilePath);
+    public void appendToRun(String runId, String text) {
+        if (text.isEmpty()) return;
+        var run = runsById.get(runId);
+        if (run == null) {
+            logger.warn("appendToRun: unknown runId {}", runId);
             return;
         }
-        
-        appendToTest(test, safe);
-    }
+        run.appendOutput(text);
 
-    /**
-     * Append output to a specific test (EDT-safe).
-     */
-    public void appendToTest(TestEntry test, @org.jetbrains.annotations.Nullable String text) {
-        final String safe = (text == null) ? "" : text;
-        if (safe.isEmpty()) return;
-        
-        test.appendOutput(safe);
-        
         runOnEdt(() -> {
-            if (testList.getSelectedValue() == test) {
+            var selected = runList.getSelectedValue();
+            if (selected != null && selected.id.equals(runId)) {
                 try {
                     document.withWritePermission(() -> {
-                        outputArea.append(safe);
+                        outputArea.append(text);
                         scrollToBottom();
                     });
                 } catch (RuntimeException ex) {
-                    logger.warn("Failed to append test output", ex);
+                    logger.warn("Failed to append run output", ex);
                 }
             }
-            testList.repaint();
         });
     }
 
     /**
-     * Set the status of a test identified by file path (EDT-safe).
-     * @param testFilePath the file path of the test
-     * @param status the new status
+     * Append output to the active run. If no active run exists, creates a generic one.
      */
-    public void setTestStatus(String testFilePath, TestEntry.Status status) {
-        var test = testsByPath.get(testFilePath);
-        if (test == null) {
-            logger.warn("Cannot set status for unknown test: {}", testFilePath);
+    public void appendToActiveRun(String text) {
+        if (text.isEmpty()) return;
+
+        String runId = currentActiveRunId;
+        if (runId == null || !runsById.containsKey(runId)) {
+            // Create a generic "General Output" run
+            runId = beginRun(0, "General Output", Instant.now());
+        }
+        appendToRun(runId, text);
+    }
+
+    /**
+     * Complete the run, setting exit code and completion time.
+     */
+    public void completeRun(String runId, int exitCode, Instant completedAt) {
+        var run = runsById.get(runId);
+        if (run == null) {
+            logger.warn("completeRun: unknown runId {}", runId);
             return;
         }
-        
-        updateTestStatus(test, status);
+        run.complete(exitCode, completedAt);
+        runOnEdt(() -> runList.repaint());
     }
 
     /**
-     * Update the status of a test (EDT-safe).
+     * Clear all runs and output.
      */
-    public void updateTestStatus(TestEntry test, TestEntry.Status status) {
-        // Timestamp transitions
-        if (status == TestEntry.Status.RUNNING) {
-            test.setStartedAtIfAbsent(java.time.Instant.now());
-        } else {
-            // Terminal states set completion time
-            switch (status) {
-                case PASSED, FAILED, ERROR -> test.setCompletedAtIfAbsent(java.time.Instant.now());
-                default -> { /* no-op */ }
-            }
-        }
-
-        test.setStatus(status);
-        runOnEdt(() -> testList.repaint());
-    }
-
-    /**
-     * Clear all tests (EDT-safe).
-     */
-    public void clearAllTests() {
+    public void clearAllRuns() {
         runOnEdt(() -> {
-            testsByPath.clear();
-            testListModel.clear();
+            runsById.clear();
+            currentActiveRunId = null;
+            runListModel.clear();
             try {
                 document.withWritePermission(() -> outputArea.setText(""));
             } catch (RuntimeException ex) {
@@ -240,17 +216,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /**
-     * Clear all tests (EDT-safe).
-     */
-    public void clearTests() {
-        clearAllTests();
-    }
-
-    private void updateOutputForSelectedTest() {
+    private void updateOutputForSelectedRun() {
         assert SwingUtilities.isEventDispatchThread();
-        
-        TestEntry selected = testList.getSelectedValue();
+        RunEntry selected = runList.getSelectedValue();
         if (selected == null) {
             try {
                 document.withWritePermission(() -> outputArea.setText(""));
@@ -259,66 +227,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
             return;
         }
-        
+
+        String text = selected.getOutput();
         try {
             document.withWritePermission(() -> {
-                outputArea.setText(selected.getOutput());
+                outputArea.setText(text);
                 scrollToBottom();
             });
         } catch (RuntimeException ex) {
             logger.warn("Failed to update output", ex);
         }
-    }
-
-    /**
-     * Replace the entire output text (EDT-safe).
-     * Legacy method for backward compatibility.
-     */
-    public void setOutput(@org.jetbrains.annotations.Nullable String text) {
-        final String safe = (text == null) ? "" : text;
-        runOnEdt(() -> {
-            try {
-                document.withWritePermission(() -> {
-                    outputArea.setText(safe);
-                    scrollToBottom();
-                });
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to set test output", ex);
-            }
-        });
-    }
-
-    /**
-     * Append text to the output (EDT-safe).
-     * Legacy method for backward compatibility.
-     */
-    public void appendOutput(@org.jetbrains.annotations.Nullable String text) {
-        final String safe = (text == null) ? "" : text;
-        if (safe.isEmpty()) return;
-        runOnEdt(() -> {
-            try {
-                document.withWritePermission(() -> {
-                    outputArea.append(safe);
-                    scrollToBottom();
-                });
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to append test output", ex);
-            }
-        });
-    }
-
-    /**
-     * Clear the output (EDT-safe).
-     * Legacy method for backward compatibility.
-     */
-    public void clearOutput() {
-        runOnEdt(() -> {
-            try {
-                document.withWritePermission(() -> outputArea.setText(""));
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to clear test output", ex);
-            }
-        });
     }
 
     @Override
@@ -355,10 +273,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         outputArea.setBackground(bg);
         outputArea.setForeground(fg);
         outputArea.setCaretColor(fg);
-        
-        testList.setBackground(bg);
-        testList.setForeground(fg);
-        
+
+        runList.setBackground(bg);
+        runList.setForeground(fg);
+
         revalidate();
         repaint();
     }
@@ -367,44 +285,151 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         outputArea.setCaretPosition(outputArea.getDocument().getLength());
     }
 
-    private static class TestEntryRenderer extends DefaultListCellRenderer {
+    /**
+     * Compatibility API for legacy tests: update a TestEntry's status and timestamps.
+     * This panel is now run-centric, but tests still validate timestamp behavior on TestEntry.
+     */
+    public void updateTestStatus(TestEntry entry, TestEntry.Status status) {
+        Instant now = Instant.now();
+        switch (status) {
+            case RUNNING -> entry.setStartedAtIfAbsent(now);
+            case PASSED, FAILED, ERROR -> {
+                entry.setStartedAtIfAbsent(now);
+                entry.setCompletedAtIfAbsent(now);
+            }
+        }
+        entry.setStatus(status);
+        runOnEdt(() -> {
+            revalidate();
+            repaint();
+        });
+    }
+
+    /**
+     * Factory for tests: ensures TestEntryRenderer is referenced by production code
+     * so Error Prone does not flag it as UnusedNestedClass.
+     */
+    public static DefaultListCellRenderer newTestEntryRendererForTests() {
+        return new TestEntryRenderer();
+    }
+
+    // ==========================
+    // Internal model and classes
+    // ==========================
+
+    private static final class RunEntry {
+        private static final int EXIT_CODE_UNKNOWN = Integer.MIN_VALUE;
+
+        private final String id;
+        private final int fileCount;
+        private final String command;
+        private final Instant startedAt;
+        private volatile @Nullable Instant completedAt;
+        private volatile int exitCode = EXIT_CODE_UNKNOWN;
+
+        private final StringBuilder output = new StringBuilder();
+
+        RunEntry(String id, int fileCount, String command, Instant startedAt) {
+            this.id = id;
+            this.fileCount = fileCount;
+            this.command = command;
+            this.startedAt = startedAt;
+        }
+
+        void appendOutput(String text) {
+            synchronized (output) {
+                output.append(text);
+            }
+        }
+
+        String getOutput() {
+            synchronized (output) {
+                return output.toString();
+            }
+        }
+
+        void complete(int exitCode, Instant completedAt) {
+            if (this.completedAt == null) {
+                this.completedAt = completedAt;
+            }
+            this.exitCode = exitCode;
+        }
+
+        boolean isRunning() {
+            return completedAt == null;
+        }
+
+        boolean isSuccess() {
+            return !isRunning() && exitCode == 0;
+        }
+
+
+        long getDurationSeconds() {
+            Instant end = (completedAt != null) ? completedAt : Instant.now();
+            return Math.max(0L, Duration.between(startedAt, end).toSeconds());
+        }
+    }
+
+    private static class RunEntryRenderer extends DefaultListCellRenderer {
         private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                      boolean isSelected, boolean cellHasFocus) {
             JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-
-            if (value instanceof TestEntry test) {
-                String statusIcon = switch (test.getStatus()) {
-                    case RUNNING -> "⟳ ";
-                    case PASSED -> "✓ ";
-                    case FAILED -> "✗ ";
-                    case ERROR -> "⚠ ";
-                };
-
-                // Prefer completedAt; otherwise use startedAt for timestamp display
-                Instant ts = test.getCompletedAt() != null ? test.getCompletedAt() : test.getStartedAt();
-                if (ts != null) {
-                    String timeText = TIME_FORMAT.format(ts.atZone(ZoneId.systemDefault()));
-                    label.setText(statusIcon + test.getDisplayName() + " " + timeText);
-                    label.setToolTipText(DateTimeFormatter.ISO_INSTANT.format(ts));
-                } else {
-                    label.setText(statusIcon + test.getDisplayName());
-                    label.setToolTipText(null);
-                }
-
-                if (!isSelected) {
-                    Color statusColor = switch (test.getStatus()) {
-                        case RUNNING -> new Color(100, 150, 255);
-                        case PASSED -> new Color(100, 200, 100);
-                        case FAILED -> new Color(255, 100, 100);
-                        case ERROR -> new Color(255, 180, 50);
-                    };
-                    label.setForeground(statusColor);
-                }
+            if (!(value instanceof RunEntry run)) {
+                return label;
             }
 
+            String icon = run.isRunning() ? "⟳ " : (run.isSuccess() ? "✓ " : "✗ ");
+            // Start time HH:mm:ss (local tz)
+            String timeText = TIME_FORMAT.format(run.startedAt.atZone(ZoneId.systemDefault()));
+            // Files
+            String filesText = run.fileCount == 1 ? "1 file" : (run.fileCount + " files");
+            // Duration mm:ss
+            long secs = run.getDurationSeconds();
+            String dur = "%02d:%02d".formatted(secs / 60, secs % 60);
+
+            label.setText(icon + timeText + " • " + filesText + " • " + dur);
+            label.setToolTipText(run.command);
+
+            if (!isSelected) {
+                Color statusColor = run.isRunning()
+                        ? new Color(100, 150, 255)
+                        : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100));
+                label.setForeground(statusColor);
+            }
+
+            return label;
+        }
+    }
+
+    /**
+     * Compatibility renderer for legacy tests that expect TestRunnerPanel$TestEntryRenderer.
+     * Renders TestEntry display name with a timestamp suffix and sets tooltip to ISO-8601 instant.
+     * Prefers completedAt; falls back to startedAt; omits time if both are null.
+     */
+    private static class TestEntryRenderer extends DefaultListCellRenderer {
+        private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+        @Override
+        public Component getListCellRendererComponent(
+                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (!(value instanceof TestEntry te)) {
+                return label;
+            }
+
+            Instant ts = te.getCompletedAt() != null ? te.getCompletedAt() : te.getStartedAt();
+            StringBuilder text = new StringBuilder(te.getDisplayName());
+            if (ts != null) {
+                String timeText = TIME_FORMAT.format(ts.atZone(ZoneId.systemDefault()));
+                text.append(" ").append(timeText);
+                label.setToolTipText(DateTimeFormatter.ISO_INSTANT.format(ts));
+            } else {
+                label.setToolTipText(null);
+            }
+            label.setText(text.toString());
             return label;
         }
     }

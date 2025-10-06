@@ -125,235 +125,61 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        // UI adapter that prefers TestRunnerPanel API via Chrome when available; falls back to Chrome legacy methods.
-        final class TestUiAdapter {
-            private final IConsoleIO ioRef = io;
-            private final @org.jetbrains.annotations.Nullable Chrome chrome;
-            private volatile @org.jetbrains.annotations.Nullable TestRunnerPanel panel;
-
-            TestUiAdapter() {
-                this.chrome = (ioRef instanceof Chrome c) ? c : null;
-                this.panel = null;
-            }
-
-            private @org.jetbrains.annotations.Nullable TestRunnerPanel ensurePanel() {
-                if (chrome == null) {
-                    return null;
-                }
-                var p = panel;
-                if (p == null) {
-                    // Try to get existing panel, or open Tests tab by appending an empty line, then retrieve again.
-                    p = chrome.getTestRunnerPanelOrNull();
-                    if (p == null) {
-                        try {
-                            chrome.appendToTestRunner(""); // opens Tests tab, creates panel
-                        } catch (Exception ex) {
-                            logger.debug("Failed to open Tests tab", ex);
-                        }
-                        p = chrome.getTestRunnerPanelOrNull();
-                    }
-                    panel = p;
-                }
-                return p;
-            }
-
-            void clear() {
-                if (chrome != null) {
-                    try {
-                        chrome.clearTestRunnerOutput(); // also opens Tests tab and creates panel
-                        panel = chrome.getTestRunnerPanelOrNull();
-                    } catch (Exception e) {
-                        logger.debug("clearTestRunnerOutput failed", e);
-                    }
-                }
-            }
-
-            void showHeading(String heading, String cmdLine) {
-                String text = heading + cmdLine + "\n\n";
-                var p = ensurePanel();
-                if (p != null) {
-                    try {
-                        p.setOutput(text);
-                        return;
-                    } catch (Exception e) {
-                        logger.debug("TestRunnerPanel.setOutput failed", e);
-                    }
-                }
-                if (chrome != null) {
-                    chrome.appendToTestRunner(heading);
-                    chrome.appendToTestRunner(cmdLine + "\n\n");
-                } else {
-                    ioRef.systemNotify(cmdLine, heading, JOptionPane.INFORMATION_MESSAGE);
-                }
-            }
-
-            void addTest(String key, String display) {
-                var p = ensurePanel();
-                if (p != null) {
-                    try {
-                        p.addTest(key, display);
-                        return;
-                    } catch (Exception e) {
-                        logger.debug("TestRunnerPanel.addTest failed", e);
-                    }
-                }
-                if (chrome != null) {
-                    chrome.appendToTestRunner("[test] " + display + "\n");
-                }
-            }
-
-            void appendToTest(String key, String text) {
-                var p = ensurePanel();
-                if (p != null) {
-                    try {
-                        p.appendToTest(key, text);
-                        return;
-                    } catch (Exception e) {
-                        logger.debug("TestRunnerPanel.appendToTest failed", e);
-                    }
-                }
-                if (chrome != null) {
-                    chrome.appendToTestRunner(text);
-                } else {
-                    ioRef.systemNotify("", text, JOptionPane.INFORMATION_MESSAGE);
-                }
-            }
-
-            void appendGeneral(String text) {
-                var p = ensurePanel();
-                if (p != null) {
-                    try {
-                        p.appendOutput(text);
-                        return;
-                    } catch (Exception e) {
-                        logger.debug("TestRunnerPanel.appendOutput failed", e);
-                    }
-                }
-                if (chrome != null) {
-                    chrome.appendToTestRunner(text);
-                } else {
-                    ioRef.systemNotify(text, "Tests", JOptionPane.INFORMATION_MESSAGE);
-                }
-            }
-
-            void setStatus(String key, TestEntry.Status status) {
-                var p = ensurePanel();
-                if (p != null) {
-                    try {
-                        p.setTestStatus(key, status);
-                        return;
-                    } catch (Exception e) {
-                        logger.debug("TestRunnerPanel.setTestStatus failed", e);
-                    }
-                }
-                if (chrome != null) {
-                    chrome.appendToTestRunner("[status] " + key + " -> " + status + "\n");
-                }
-            }
-
-            void showExitCode(int exit) {
-                String text = "\nProcess finished with exit code " + exit + "\n";
-                var p = ensurePanel();
-                if (p != null) {
-                    try {
-                        p.appendOutput(text);
-                        return;
-                    } catch (Exception e) {
-                        logger.debug("TestRunnerPanel.appendOutput failed", e);
-                    }
-                }
-                if (chrome != null) {
-                    chrome.appendToTestRunner(text);
-                } else {
-                    ioRef.systemNotify("Process finished with exit code " + exit, "Tests Run", JOptionPane.INFORMATION_MESSAGE);
-                }
-            }
-        }
-
-        // Initialize UI: clear, heading, and pre-register selected test files.
-        var uiAdapter = new TestUiAdapter();
-        uiAdapter.clear();
-
         int fileCount = testFiles.size();
-final var runStarted = Instant.now();
-var ts = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-        .withLocale(java.util.Locale.getDefault())
-        .withZone(ZoneId.systemDefault())
-        .format(runStarted);
-String heading = "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s")
-        + " (started " + ts + ")\n";
-uiAdapter.showHeading(heading, cmd);
+        final Instant startedAt = Instant.now();
 
-        // Build selected key set and a simpleName -> key map for associating runtime test names to selected files.
-        var selectedKeys = testFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
-        var simpleNameToKey = new HashMap<String, String>();
-        for (var pf : testFiles) {
-            var key = pf.toString();
-            var display = key;
-            // Try to add to UI; display may be improved if Chrome panel formats it.
-            uiAdapter.addTest(key, display);
-            // best-effort class simple name from file name (strip extension)
-            String simple = display;
-            int lastSep = simple.lastIndexOf('/');
-            if (lastSep >= 0) simple = simple.substring(lastSep + 1);
-            lastSep = simple.lastIndexOf('\\');
-            if (lastSep >= 0) simple = simple.substring(lastSep + 1);
-            int dot = simple.lastIndexOf('.');
-            if (dot > 0) simple = simple.substring(0, dot);
-            simpleNameToKey.put(simple, key);
+        // Prepare UI if available
+        final TestRunnerPanel panel;
+        final @org.jetbrains.annotations.Nullable Chrome chrome = (io instanceof Chrome c) ? c : null;
+        if (chrome != null) {
+            // Ensure Tests tab is present and get the panel instance
+            chrome.appendToTestRunner(""); // opens Tests tab (no-op append)
+            panel = chrome.getTestRunnerPanelOrNull();
+        } else {
+            panel = null;
         }
 
-        // Run the test command in the background and stream parsed output to the structured UI.
+        final String runId;
+        if (panel != null) {
+            runId = panel.beginRun(fileCount, cmd, startedAt);
+            // Show a heading at the top of the run output
+            var ts = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withLocale(java.util.Locale.getDefault())
+                    .withZone(ZoneId.systemDefault())
+                    .format(startedAt);
+            panel.appendToRun(runId, "Running tests for " + fileCount + " file" + (fileCount == 1 ? "" : "s")
+                    + " (started " + ts + ")\n" + cmd + "\n\n");
+        } else {
+            runId = null;
+        }
+
         submitBackgroundTask("Running tests", () -> {
-            var parser = new io.github.jbellis.brokk.gui.tests.TestOutputParser(new io.github.jbellis.brokk.gui.tests.TestOutputListener() {
-                private String resolveKey(String testName) {
-                    // Map "pkg.Class > method" or "pkg.Class" to selected file key by simple class name
-                    String classPart = testName;
-                    int gt = classPart.indexOf(" > ");
-                    if (gt >= 0) classPart = classPart.substring(0, gt);
-                    int lastDot = classPart.lastIndexOf('.');
-                    String simple = lastDot >= 0 ? classPart.substring(lastDot + 1) : classPart;
-                    return simpleNameToKey.getOrDefault(simple, testName);
-                }
-
-                @Override
-                public void onTestStarted(String testName) {
-                    var key = resolveKey(testName);
-                    // Only add a new TestEntry if it was not pre-registered (i.e., not in the selected files set).
-                    if (!selectedKeys.contains(key)) {
-                        uiAdapter.addTest(key, testName);
-                    }
-                    uiAdapter.setStatus(key, TestEntry.Status.RUNNING);
-                }
-
-                @Override
-                public void onTestOutput(String testName, String text) {
-                    var key = resolveKey(testName);
-                    uiAdapter.appendToTest(key, text);
-                }
-
-                @Override
-                public void onTestCompleted(String testName, TestEntry.Status status, String output) {
-                    var key = resolveKey(testName);
-                    // Output has already been streamed via onTestOutput; just ensure final status.
-                    uiAdapter.setStatus(key, status);
-                }
-            });
-
             try {
                 var result = runShellCommandStreaming(cmd, line -> {
-                    // Feed each line (with newline) to the parser to attribute it per test.
-                    parser.processChunk(line + "\n");
+                    if (panel != null && runId != null) {
+                        panel.appendToRun(runId, line + "\n");
+                    }
                 });
 
                 int exit = result.exitCode();
-                uiAdapter.showExitCode(exit);
+                if (panel != null && runId != null) {
+                    panel.appendToRun(runId, "\nProcess finished with exit code " + exit + "\n");
+                    panel.completeRun(runId, exit, Instant.now());
+                } else {
+                    io.systemNotify("Process finished with exit code " + exit, "Tests Run", JOptionPane.INFORMATION_MESSAGE);
+                }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                uiAdapter.appendGeneral("\nTest run interrupted.\n");
+                if (panel != null && runId != null) {
+                    panel.appendToRun(runId, "\nTest run interrupted.\n");
+                    panel.completeRun(runId, 130, Instant.now()); // 130 ~ interrupted
+                }
                 io.toolError("Test run interrupted.");
             } catch (IOException e) {
-                uiAdapter.appendGeneral("\nError running tests: " + e.getMessage() + "\n");
+                if (panel != null && runId != null) {
+                    panel.appendToRun(runId, "\nError running tests: " + e.getMessage() + "\n");
+                    panel.completeRun(runId, 1, Instant.now());
+                }
                 io.toolError("Error running tests: " + e.getMessage());
             }
             return null;
