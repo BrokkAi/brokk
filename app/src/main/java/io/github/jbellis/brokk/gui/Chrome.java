@@ -2817,10 +2817,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> instructionsToolsPanel.updateTerminalFontSize());
     }
 
-    /** Returns the TestRunnerPanel if created; else null. */
-    public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrNull() {
-        return instructionsToolsPanel.getTestRunnerPanelOrNull();
-    }
+    /** Default test entry for non-test-specific output in Tests tab */
+private static final String GENERAL_TEST_KEY = "__general__";
+private static final String GENERAL_TEST_DISPLAY = "General Output";
+private boolean generalTestRegistered = false;
+
+/** Returns the TestRunnerPanel if created; else null. */
+public @org.jetbrains.annotations.Nullable TestRunnerPanel getTestRunnerPanelOrNull() {
+    return instructionsToolsPanel.getTestRunnerPanelOrNull();
+}
 
     /**
      * Appends text to the Tests panel, opening/focusing the tab if necessary.
@@ -2843,40 +2848,42 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     private void appendToTestRunnerEdt(String text) {
-        // Ensure Tests tab is open/selected so the user sees updates
-        try {
-            instructionsToolsPanel.openTests();
-        } catch (Exception ex) {
-            logger.debug("Failed to open Tests tab", ex);
+    try {
+        var panel = instructionsToolsPanel.openTests();
+        // Ensure a default "General Output" entry exists for non-test-specific output
+        if (!generalTestRegistered) {
+            try {
+                panel.addTest(GENERAL_TEST_KEY, GENERAL_TEST_DISPLAY);
+            } catch (Exception addEx) {
+                logger.debug("Failed to register default General Output test entry", addEx);
+            }
+            generalTestRegistered = true;
         }
-        var panel = instructionsToolsPanel.getTestRunnerPanelOrNull();
-        if (panel != null) {
-            panel.appendOutput(text);
-        }
+        panel.appendToTest(GENERAL_TEST_KEY, text);
+    } catch (Exception ex) {
+        logger.debug("Failed to append to Tests tab", ex);
     }
+}
 
     /**
      * Clears the Tests tab output and opens/focuses it. Safe to call from any thread.
      */
     public void clearTestRunnerOutput() {
-        if (SwingUtilities.isEventDispatchThread()) {
-            try {
-                var panel = instructionsToolsPanel.openTests();
-                panel.clearOutput();
-            } catch (Exception ex) {
-                logger.debug("Failed to clear Tests tab", ex);
-            }
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    var panel = instructionsToolsPanel.openTests();
-                    panel.clearOutput();
-                } catch (Exception ex) {
-                    logger.debug("Failed to clear Tests tab", ex);
-                }
-            });
+    Runnable clearTask = () -> {
+        try {
+            var panel = instructionsToolsPanel.openTests();
+            panel.clearAllTests();
+            generalTestRegistered = false;
+        } catch (Exception ex) {
+            logger.debug("Failed to clear Tests tab", ex);
         }
+    };
+    if (SwingUtilities.isEventDispatchThread()) {
+        clearTask.run();
+    } else {
+        SwingUtilities.invokeLater(clearTask);
     }
+}
 
     /**
      * Backward-compatibility adapter for legacy callers that used a terminal "drawer".
