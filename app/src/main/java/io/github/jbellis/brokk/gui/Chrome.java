@@ -513,7 +513,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             Component newFocusOwner = (Component) evt.getNewValue();
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
             if (newFocusOwner != null) {
-                historyOutputPanel.getLlmStreamArea();
                 if (historyOutputPanel.getHistoryTable() != null) {
                     if (newFocusOwner == instructionsPanel.getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
@@ -2663,21 +2662,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> historyOutputPanel.showNotification(role, message));
     }
 
-    /** Helper method to find JScrollPane component within a container */
-    @Nullable
-    private static Component findScrollPaneIn(Container container) {
-        for (Component comp : container.getComponents()) {
-            if (comp instanceof JScrollPane) {
-                return comp;
-            } else if (comp instanceof Container subContainer) {
-                Component found = findScrollPaneIn(subContainer);
-                if (found != null) {
-                    return found;
-                }
-            }
-        }
-        return null;
-    }
 
     private static class SearchableContentPanel extends JPanel implements ThemeAware {
         private final List<JComponent> componentsWithChatBackground;
