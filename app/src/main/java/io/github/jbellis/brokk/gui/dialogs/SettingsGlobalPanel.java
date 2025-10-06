@@ -791,7 +791,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.anchor = GridBagConstraints.WEST;
         int row = 0;
 
-        // Startup behavior
         gbc.gridx = 0;
         gbc.gridy = row;
         gbc.weightx = 0.0;
@@ -820,7 +819,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         startupPanel.add(persistPerProjectWindowCheckbox, gbc);
 
-        // Filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
