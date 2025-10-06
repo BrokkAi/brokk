@@ -10,7 +10,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -62,6 +64,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Runs by id
     private final Map<String, RunEntry> runsById;
 
+    // FIFO of queued runIds; only accessed on EDT
+    private final Deque<String> runQueue;
+
     // Current active run (where live output goes)
     private volatile @Nullable String currentActiveRunId;
 
@@ -78,6 +83,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         this.runsStore = runsStore;
         runListModel = new DefaultListModel<>();
         runsById = new ConcurrentHashMap<>();
+
+        runQueue = new ArrayDeque<>();
 
         runList = new JList<>(runListModel);
         runList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -294,26 +301,59 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         String id = UUID.randomUUID().toString();
         var run = new RunEntry(id, fileCount, command, startedAt);
         runsById.put(id, run);
-        currentActiveRunId = id;
 
         runOnEdt(() -> {
-            runListModel.addElement(run);
-            // Enforce retention cap
-            while (runListModel.getSize() > maxRuns) {
-                RunEntry removed = runListModel.remove(0);
-                runsById.remove(removed.id);
-                // If the removed run was selected, we'll reselect the most recent below
+            boolean hasActive = false;
+            if (currentActiveRunId != null) {
+                var active = runsById.get(currentActiveRunId);
+                hasActive = active != null && active.isRunning();
             }
-            // Always select the most recent run
-            runList.setSelectedIndex(runListModel.getSize() - 1);
-            try {
-                document.withWritePermission(() -> {
-                    outputArea.setText(""); // new run => clear output view
-                    scrollToBottom();
-                });
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to initialize output area for new run", ex);
+
+            if (hasActive) {
+                // Queue this run
+                run.markQueued();
+                runQueue.addLast(id);
+                runListModel.addElement(run);
+                // Enforce retention cap (drop oldest)
+                while (runListModel.getSize() > maxRuns) {
+                    RunEntry removed = runListModel.remove(0);
+                    runsById.remove(removed.id);
+                }
+                // Keep selection on the active run for clarity
+                if (currentActiveRunId != null) {
+                    int idx = -1;
+                    for (int i = 0; i < runListModel.size(); i++) {
+                        if (runListModel.get(i).id.equals(currentActiveRunId)) {
+                            idx = i;
+                            break;
+                        }
+                    }
+                    if (idx >= 0) {
+                        runList.setSelectedIndex(idx);
+                    }
+                }
+            } else {
+                // No active run -> start immediately
+                currentActiveRunId = id;
+                run.markRunning();
+                runListModel.addElement(run);
+                // Enforce retention cap (drop oldest)
+                while (runListModel.getSize() > maxRuns) {
+                    RunEntry removed = runListModel.remove(0);
+                    runsById.remove(removed.id);
+                }
+                // Select the active run and clear the output view
+                runList.setSelectedIndex(runListModel.getSize() - 1);
+                try {
+                    document.withWritePermission(() -> {
+                        outputArea.setText("");
+                        scrollToBottom();
+                    });
+                } catch (RuntimeException ex) {
+                    logger.warn("Failed to initialize output area for new run", ex);
+                }
             }
+
             // Persist after updating the UI/model
             triggerSave();
         });
@@ -373,9 +413,46 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return;
         }
         run.complete(exitCode, completedAt);
-        runOnEdt(() -> runList.repaint());
-        // Persist updated completion state
-        triggerSave();
+
+        runOnEdt(() -> {
+            runList.repaint();
+
+            // If we just completed the active run, promote the next queued run (if any)
+            if (runId.equals(currentActiveRunId)) {
+                currentActiveRunId = null;
+                if (!runQueue.isEmpty()) {
+                    String nextId = runQueue.removeFirst();
+                    var next = runsById.get(nextId);
+                    if (next != null) {
+                        currentActiveRunId = nextId;
+                        next.markRunning();
+                        // Move selection to the newly active run and display its buffered output
+                        int idx = -1;
+                        for (int i = 0; i < runListModel.size(); i++) {
+                            if (runListModel.get(i).id.equals(nextId)) {
+                                idx = i;
+                                break;
+                            }
+                        }
+                        if (idx >= 0) {
+                            runList.setSelectedIndex(idx);
+                        }
+                        try {
+                            String text = next.getOutput();
+                            document.withWritePermission(() -> {
+                                outputArea.setText(text);
+                                scrollToBottom();
+                            });
+                        } catch (RuntimeException ex) {
+                            logger.warn("Failed to display output for promoted run {}", nextId, ex);
+                        }
+                    }
+                }
+            }
+
+            // Persist updated completion state
+            triggerSave();
+        });
     }
 
     /**
@@ -539,12 +616,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final class RunEntry {
         private static final int EXIT_CODE_UNKNOWN = Integer.MIN_VALUE;
 
+        private enum RunState { QUEUED, RUNNING, COMPLETED }
+
         private final String id;
         private final int fileCount;
         private final String command;
         private final Instant startedAt;
         private volatile @Nullable Instant completedAt;
         private volatile int exitCode = EXIT_CODE_UNKNOWN;
+        private volatile RunState state = RunState.RUNNING;
 
         private final StringBuilder output = new StringBuilder();
 
@@ -553,6 +633,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             this.fileCount = fileCount;
             this.command = command;
             this.startedAt = startedAt;
+        }
+
+        void markQueued() {
+            this.state = RunState.QUEUED;
+        }
+
+        void markRunning() {
+            this.state = RunState.RUNNING;
         }
 
         void appendOutput(String text) {
@@ -572,18 +660,25 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 this.completedAt = completedAt;
             }
             this.exitCode = exitCode;
+            this.state = RunState.COMPLETED;
+        }
+
+        boolean isQueued() {
+            return state == RunState.QUEUED;
         }
 
         boolean isRunning() {
-            return completedAt == null;
+            return state == RunState.RUNNING;
         }
 
         boolean isSuccess() {
-            return !isRunning() && exitCode == 0;
+            return state == RunState.COMPLETED && exitCode == 0;
         }
 
-
         long getDurationSeconds() {
+            if (state == RunState.QUEUED) {
+                return 0L;
+            }
             Instant end = (completedAt != null) ? completedAt : Instant.now();
             return Math.max(0L, Duration.between(startedAt, end).toSeconds());
         }
@@ -600,7 +695,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 return label;
             }
 
-            String icon = run.isRunning() ? "⟳ " : (run.isSuccess() ? "✓ " : "✗ ");
+            String icon = run.isQueued()
+                    ? "... "
+                    : (run.isRunning() ? "⟳ " : (run.isSuccess() ? "✓ " : "✗ "));
             // Start time HH:mm:ss (local tz)
             String timeText = TIME_FORMAT.format(run.startedAt.atZone(ZoneId.systemDefault()));
             // Files
@@ -613,9 +710,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             label.setToolTipText(run.command);
 
             if (!isSelected) {
-                Color statusColor = run.isRunning()
-                        ? new Color(100, 150, 255)
-                        : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100));
+                Color statusColor = run.isQueued()
+                        ? new Color(170, 170, 170)
+                        : (run.isRunning()
+                            ? new Color(100, 150, 255)
+                            : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100)));
                 label.setForeground(statusColor);
             }
 
