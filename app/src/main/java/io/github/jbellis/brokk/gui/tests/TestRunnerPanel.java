@@ -23,8 +23,8 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,7 +57,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         super(new BorderLayout(0, 0));
 
         testListModel = new DefaultListModel<>();
-        testsByPath = new HashMap<>();
+        testsByPath = new ConcurrentHashMap<>();
         testList = new JList<>(testListModel);
         testList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         testList.setCellRenderer(new TestEntryRenderer());
@@ -166,7 +166,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         
         runOnEdt(() -> {
             if (testList.getSelectedValue() == test) {
-                updateOutputForSelectedTest();
+                try {
+                    document.withWritePermission(() -> {
+                        outputArea.append(safe);
+                        scrollToBottom();
+                    });
+                } catch (RuntimeException ex) {
+                    logger.warn("Failed to append test output", ex);
+                }
             }
             testList.repaint();
         });
