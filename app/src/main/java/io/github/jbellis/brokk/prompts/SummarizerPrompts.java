@@ -143,12 +143,11 @@ public class SummarizerPrompts {
                         """
                     You are an expert software engineer writing clear pull-request titles and descriptions.
 
-                    Output your response in this exact XML format:
+                    First, you may explain your thinking process about the changes.
+                    Then output your final response in this exact XML format:
                     <title>Brief PR title (12 words or fewer)</title>
                     <description>
                     %s</description>
-
-                    Do not include any text outside these XML tags.
                     """
                                 .stripIndent()
                                 .formatted(prDescriptionGuidance())),
@@ -163,12 +162,11 @@ public class SummarizerPrompts {
                         """
                     You are an expert software engineer writing clear pull-request titles and descriptions.
 
-                    Output your response in this exact XML format:
+                    First, you may explain your thinking process about the changes.
+                    Then output your final response in this exact XML format:
                     <title>Brief PR title (12 words or fewer)</title>
                     <description>
                     %s</description>
-
-                    Do not include any text outside these XML tags.
                     """
                                 .stripIndent()
                                 .formatted(prDescriptionFromCommitsGuidance())),

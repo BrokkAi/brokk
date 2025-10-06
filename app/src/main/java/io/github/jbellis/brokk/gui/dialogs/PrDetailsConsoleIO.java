@@ -79,31 +79,64 @@ public class PrDetailsConsoleIO implements IConsoleIO {
             boolean isNewMessage,
             boolean isReasoning) {
 
-        if (!isReasoning && currentPhase == StreamingPhase.REASONING) {
-            logger.debug("Transitioning from REASONING to content phase");
-            currentPhase = StreamingPhase.TITLE;
-            stopThinkingAnimation();
-            SwingUtilities.invokeLater(() -> {
-                titleField.setText("Generating title...");
-                descriptionArea.setText("");
-            });
-        } else if (isReasoning && currentPhase != StreamingPhase.REASONING) {
+        if (isReasoning && currentPhase != StreamingPhase.REASONING) {
             throw new IllegalStateException("Invalid transition back to reasoning phase");
         }
 
         if (isReasoning) {
             if (!token.isEmpty()) {
+                String finalToken = token;
                 SwingUtilities.invokeLater(() -> {
                     if (!hasReceivedTokens) {
                         hasReceivedTokens = true;
                         stopThinkingAnimation();
                         descriptionArea.setText("Generating description...\nThinking...\n\n");
                     }
-                    descriptionArea.append(token);
+                    descriptionArea.append(finalToken);
                     descriptionArea.setCaretPosition(descriptionArea.getText().length());
                 });
             }
             return;
+        }
+
+        if (currentPhase == StreamingPhase.REASONING) {
+            int xmlStart = token.indexOf('<');
+            if (xmlStart == -1) {
+                if (!token.isEmpty()) {
+                    String finalToken = token;
+                    SwingUtilities.invokeLater(() -> {
+                        if (!hasReceivedTokens) {
+                            hasReceivedTokens = true;
+                            stopThinkingAnimation();
+                            descriptionArea.setText("Generating description...\nThinking...\n\n");
+                        }
+                        descriptionArea.append(finalToken);
+                        descriptionArea.setCaretPosition(
+                                descriptionArea.getText().length());
+                    });
+                }
+                return;
+            } else {
+                if (xmlStart > 0) {
+                    String thinkingPart = token.substring(0, xmlStart);
+                    SwingUtilities.invokeLater(() -> {
+                        if (!hasReceivedTokens) {
+                            hasReceivedTokens = true;
+                            stopThinkingAnimation();
+                            descriptionArea.setText("Generating description...\nThinking...\n\n");
+                        }
+                        descriptionArea.append(thinkingPart);
+                    });
+                }
+                logger.debug("Transitioning from REASONING to content phase");
+                currentPhase = StreamingPhase.TITLE;
+                stopThinkingAnimation();
+                SwingUtilities.invokeLater(() -> {
+                    titleField.setText("Generating title...");
+                    descriptionArea.setText("");
+                });
+                token = token.substring(xmlStart);
+            }
         }
 
         parseAndRoute(token);
