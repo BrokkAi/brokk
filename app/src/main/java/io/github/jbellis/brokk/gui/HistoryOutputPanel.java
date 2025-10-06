@@ -189,7 +189,7 @@ public class HistoryOutputPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             this.copyButton.setIcon(Icons.CONTENT_COPY);
         });
-        this.compressButton = new MaterialButton("Compress");
+        this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
         add(centerPanel, BorderLayout.CENTER);
@@ -941,8 +941,12 @@ public class HistoryOutputPanel extends JPanel {
         clearButton.setMinimumSize(clearButton.getPreferredSize());
         buttonsPanel.add(clearButton);
 
-        // Compress button (moved to left buttons row)
-        compressButton.setToolTipText("Compress conversation history now");
+        // Compress button (icon-only, with improved tooltip)
+        compressButton.setText(null);
+        SwingUtilities.invokeLater(() -> {
+            compressButton.setIcon(Icons.COMPRESS);
+        });
+        compressButton.setToolTipText("<html><div style=\"width:300px\"><b>Compress:</b> Summarizes conversation history entries to reduce token usage. This does not change file contents and can be undone.</div></html>");
         for (var al : compressButton.getActionListeners()) {
             compressButton.removeActionListener(al);
         }
