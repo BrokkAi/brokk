@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -1307,7 +1308,10 @@ public class HistoryOutputPanel extends JPanel {
     // Notification persistence
 
     private Path computeNotificationsFile() {
-        var dir = Paths.get(System.getProperty("user.home"), ".brokk");
+        var dir = contextManager
+                .getProject()
+                .getMasterRootPathForConfig()
+                .resolve(AbstractProject.BROKK_DIR);
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {

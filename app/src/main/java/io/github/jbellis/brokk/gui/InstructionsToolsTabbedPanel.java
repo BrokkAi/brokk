@@ -6,6 +6,8 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import io.github.jbellis.brokk.gui.terminal.TerminalPanel;
 import io.github.jbellis.brokk.gui.tests.TestRunnerPanel;
+import io.github.jbellis.brokk.gui.tests.FileBasedTestRunsStore;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.GlobalUiSettings;
 import java.awt.BorderLayout;
@@ -86,6 +88,14 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
 
         // Eagerly create Tests panel to avoid placeholder gray background
         testRunnerPanel = new TestRunnerPanel();
+        // Inject per-project persistence for test runs
+        try {
+            Path configRoot = chrome.getProject().getMasterRootPathForConfig();
+            Path runsFile = configRoot.resolve(AbstractProject.BROKK_DIR).resolve("test_runs.json");
+            testRunnerPanel.injectTestRunsStore(new FileBasedTestRunsStore(runsFile));
+        } catch (Exception ex) {
+            logger.debug("Failed to inject per-project TestRunsStore (eager)", ex);
+        }
         replaceTabComponent(TAB_TESTS, testRunnerPanel, "Tests", Icons.CHECK);
         try {
             testRunnerPanel.applyTheme(chrome.getTheme());
@@ -178,6 +188,14 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         assert SwingUtilities.isEventDispatchThread() : "Must run on EDT";
         if (testRunnerPanel == null) {
             testRunnerPanel = new TestRunnerPanel();
+            // Inject per-project persistence for test runs
+            try {
+                Path configRoot = chrome.getProject().getMasterRootPathForConfig();
+                Path runsFile = configRoot.resolve(AbstractProject.BROKK_DIR).resolve("test_runs.json");
+                testRunnerPanel.injectTestRunsStore(new FileBasedTestRunsStore(runsFile));
+            } catch (Exception ex) {
+                logger.debug("Failed to inject per-project TestRunsStore (on-select)", ex);
+            }
             replaceTabComponent(TAB_TESTS, testRunnerPanel, "Tests", Icons.CHECK);
             try {
                 testRunnerPanel.applyTheme(chrome.getTheme());
