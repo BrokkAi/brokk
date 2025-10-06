@@ -38,6 +38,15 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
 
+    // I/O bridge to UI (Chrome) to request UI updates like updateGitRepo()
+    private final IConsoleIO io;
+
+    // Feature-flagged branch poller (fallback if OS file watches miss .git updates)
+    @Nullable
+    private java.util.concurrent.ScheduledExecutorService branchPollerExecutor = null;
+    @Nullable
+    private volatile String lastPolledBranch = null;
+
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean wasReady = false;
@@ -52,6 +61,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         this.root = project.getRoot();
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = listener;
+        this.io = io;
         if (listener == null) {
             this.watchService = new IWatchService() {};
         } else {
@@ -99,6 +109,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
             return currentAnalyzer;
         });
+
+        // Start feature-flagged branch poller fallback (no-op if flag disabled or no git)
+        startBranchPollerIfEnabled();
     }
 
     @Override
@@ -514,9 +527,101 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         watchService.resume();
     }
 
+    // ---------------------------------------------------------------------
+    // Lightweight branch poller (feature-flagged)
+    // ---------------------------------------------------------------------
+    private void startBranchPollerIfEnabled() {
+        if (!isBranchPollerEnabled()) {
+            logger.debug("Branch poller disabled via feature flag");
+            return;
+        }
+        if (!project.hasGit()) {
+            logger.debug("Branch poller not started: project has no git repository");
+            return;
+        }
+        if (branchPollerExecutor != null) {
+            logger.debug("Branch poller already started");
+            return;
+        }
+
+        // Initialize last known branch label using same semantics as UI fallback
+        lastPolledBranch = safeGetCurrentBranch();
+
+        long intervalMs = getBranchPollIntervalMs();
+        branchPollerExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "brokk-branch-poller-" + project.getRoot().getFileName());
+            t.setDaemon(true);
+            return t;
+        });
+
+        logger.info("Starting branch poller (interval={} ms). Override with -Dbrokk.git.branchPollIntervalMs or env BROKK_GIT_BRANCH_POLL_INTERVAL_MS", intervalMs);
+
+        branchPollerExecutor.scheduleAtFixedRate(() -> {
+            try {
+                String current = safeGetCurrentBranch();
+                String previous = lastPolledBranch;
+                // Only trigger when a change is detected
+                if (previous == null || !previous.equals(current)) {
+                    logger.debug("Branch poller detected change: '{}' -> '{}'", previous, current);
+                    lastPolledBranch = current;
+                    // Update UI; Chrome.updateGitRepo() handles EDT marshalling and redundancy checks.
+                    io.updateGitRepo();
+                }
+            } catch (Throwable t) {
+                logger.debug("Branch poller encountered an error: {}", t.getMessage());
+            }
+        }, intervalMs, intervalMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+
+    private String safeGetCurrentBranch() {
+        try {
+            var repo = project.getRepo();
+            String b = repo.getCurrentBranch();
+            return b.isBlank() ? "(no branch)" : b;
+        } catch (Throwable t) {
+            // Detached HEAD/empty repo or transient errors; normalize to UI-safe label
+            return "(no branch)";
+        }
+    }
+
+    private static boolean isBranchPollerEnabled() {
+        String env = System.getenv("BROKK_GIT_BRANCH_POLLER");
+        String prop = System.getProperty("brokk.git.branchPoller", "false");
+        String val = (env != null) ? env : prop;
+        return "1".equals(val) || Boolean.parseBoolean(val);
+    }
+
+    private static long getBranchPollIntervalMs() {
+        String env = System.getenv("BROKK_GIT_BRANCH_POLL_INTERVAL_MS");
+        String prop = System.getProperty("brokk.git.branchPollIntervalMs", "2000");
+        String src = (env != null) ? env : prop;
+        long parsed = 2000L;
+        try {
+            parsed = Long.parseLong(src.trim());
+        } catch (NumberFormatException nfe) {
+            LogManager.getLogger(AnalyzerWrapper.class)
+                    .debug("Invalid branch poll interval '{}', defaulting to {} ms", src, parsed);
+        }
+        if (parsed < 500L) parsed = 500L;
+        if (parsed > 60000L) parsed = 60000L;
+        return parsed;
+    }
+
     @Override
     public void close() {
         watchService.close();
+
+        // Stop branch poller if running
+        if (branchPollerExecutor != null) {
+            try {
+                branchPollerExecutor.shutdownNow();
+            } catch (Throwable th) {
+                logger.debug("Exception while shutting down branchPollerExecutor: {}", th.getMessage());
+            } finally {
+                branchPollerExecutor = null;
+            }
+        }
+
         try {
             // Attempt a graceful shutdown of the analyzer executor; do not propagate exceptions.
             analyzerExecutor.shutdownAndAwait(5000L, "AnalyzerWrapper");
