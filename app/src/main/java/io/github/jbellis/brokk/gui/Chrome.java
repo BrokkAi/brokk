@@ -1142,8 +1142,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("openTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var tp = openTerminal();
-                tp.requestFocusInWindow();
+                var tp = openTerminalTab();
+                SwingUtilities.invokeLater(tp::requestFocusInTerminal);
             }
         });
 
@@ -1157,12 +1157,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var tp = openTerminal();
-                tp.requestFocusInWindow();
+                var tp = openTerminalTab();
+                SwingUtilities.invokeLater(tp::requestFocusInTerminal);
             }
         });
 
-        // Cmd/Ctrl+K => switch to Tasks tab and focus it
+        // Cmd/Ctrl+K => switch to Tasks tab
         KeyStroke switchToTasksTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "drawer.switchToTasks",
                 KeyStroke.getKeyStroke(
@@ -1171,8 +1171,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var tlp = openTaskList();
-                tlp.requestFocusInWindow();
+                openTasksTab();
+            }
+        });
+
+        // Cmd/Ctrl+Shift+D => open Dependencies tab (no toggle)
+        KeyStroke toggleDependenciesKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.toggleDependencies",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_D,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        bindKey(rootPane, toggleDependenciesKeyStroke, "openDependenciesTab");
+        rootPane.getActionMap().put("openDependenciesTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                ensureDependenciesPanel();
+                workspaceToolsTabs.setSelectedIndex(TAB_DEPENDENCIES);
             }
         });
 
