@@ -10,10 +10,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.Map;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import static java.util.Objects.requireNonNull;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
@@ -150,11 +153,55 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Snapshot the most recent runs as RunRecord objects in display order.
+     * Returns the last 'limit' runs, keeping their original order (oldest -> newest within the slice).
+     * EDT safety: reads the Swing model on the EDT; if called off-EDT, blocks on invokeAndWait.
+     */
+    public List<RunRecord> snapshotRuns(int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            return snapshotRunsFromModel(limit);
+        }
+        var ref = new AtomicReference<List<RunRecord>>(List.of());
+        try {
+            SwingUtilities.invokeAndWait(() -> ref.set(snapshotRunsFromModel(limit)));
+        } catch (Exception e) {
+            logger.warn("Failed to snapshot runs on EDT: {}", e.getMessage(), e);
+        }
+        return requireNonNull(ref.get());
+    }
+
+    private List<RunRecord> snapshotRunsFromModel(int limit) {
+        int size = runListModel.getSize();
+        if (size == 0) {
+            return List.of();
+        }
+        int start = Math.max(0, size - limit);
+        var out = new ArrayList<RunRecord>(size - start);
+        for (int i = start; i < size; i++) {
+            var run = runListModel.get(i);
+            out.add(new RunRecord(
+                    run.id,
+                    run.fileCount,
+                    run.command,
+                    run.startedAt,
+                    run.completedAt,
+                    run.exitCode,
+                    run.getOutput()
+            ));
+        }
+        return out;
+    }
+
+    /**
      * Restore runs into the UI. Preserves order (oldest -> newest),
      * truncates to maxRuns most recent, rebuilds state, selects newest,
      * and updates the output area accordingly.
+     * EDT safety: uses runOnEdt to mutate Swing state.
      */
-    private void restoreRuns(List<RunRecord> records) {
+    public void restoreRuns(List<RunRecord> records) {
         if (records.isEmpty()) {
             return;
         }
