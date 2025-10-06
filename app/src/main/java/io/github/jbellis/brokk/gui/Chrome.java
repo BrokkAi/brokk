@@ -3030,4 +3030,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private TestRunnerPanel openTests() {
         return openTestsTab();
     }
+
+    // Expose workspace tabs visibility controls
+    public void toggleWorkspaceToolsTabsVisibility() {
+        setWorkspaceToolsTabsVisible(!isWorkspaceToolsTabsVisible());
+    }
+
+    public void setWorkspaceToolsTabsVisible(boolean visible) {
+        Runnable r = () -> {
+            workspaceToolsTabs.setVisible(visible);
+            Container parent = workspaceToolsTabs.getParent();
+            if (parent instanceof JComponent jc) {
+                jc.revalidate();
+                jc.repaint();
+            } else {
+                // Fallback to revalidating the frame if parent is not a JComponent
+                frame.revalidate();
+                frame.repaint();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    public boolean isWorkspaceToolsTabsVisible() {
+        return workspaceToolsTabs.isVisible();
+    }
 }
