@@ -215,12 +215,10 @@ public final class GitWorkflow {
 
         var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI);
-        var modelToUse = preferredModel != null ? preferredModel : service.quickestModel();
-        var maxTokens = service.getMaxInputTokens(modelToUse);
-        boolean useCommitMsgs = diff.length() / 3.0 > maxTokens * 0.9;
+        var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
 
         List<ChatMessage> messages;
-        if (useCommitMsgs) {
+        if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
             var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
@@ -253,7 +251,7 @@ public final class GitWorkflow {
             throw new RuntimeException("LLM provided empty title or description");
         }
 
-        return new PrSuggestion(title, description, useCommitMsgs);
+        return new PrSuggestion(title, description, diff.length() / 3.0 > service.getMaxInputTokens(modelToUse) * 0.9);
     }
 
     /** Pushes branch if needed and opens a PR. Returns the PR url. */

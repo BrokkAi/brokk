@@ -400,6 +400,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onRepoChange() {
+                logger.debug("AnalyzerListener.onRepoChange fired");
+                try {
+                    var branch = project.getRepo().getCurrentBranch();
+                    logger.debug("AnalyzerListener.onRepoChange current branch: {}", branch);
+                } catch (Exception e) {
+                    logger.debug("AnalyzerListener.onRepoChange: unable to get current branch", e);
+                }
                 project.getRepo().invalidateCaches();
                 io.updateGitRepo();
 
@@ -738,12 +745,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * <p>Creates a new context state with: - updated task history (with the entry removed), - null parsedOutput, - and
      * action set to "Dropped message".
      *
-     * @param sequence the TaskEntry.sequence() to remove
+     * <p>Special behavior: - sequence == -1 means "drop the last item of the history"
+     *
+     * @param sequence the TaskEntry.sequence() to remove, or -1 to remove the last entry
      */
     public void dropHistoryEntryBySequence(int sequence) {
         var currentHistory = topContext().getTaskHistory();
+
+        if (currentHistory.isEmpty()) {
+            return;
+        }
+
+        final int seqToDrop = (sequence == -1) ? currentHistory.getLast().sequence() : sequence;
+
         var newHistory = currentHistory.stream()
-                .filter(entry -> entry.sequence() != sequence)
+                .filter(entry -> entry.sequence() != seqToDrop)
                 .toList();
 
         // If nothing changed, return early
@@ -755,7 +771,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         pushContext(currentLiveCtx ->
                 currentLiveCtx.withCompressedHistory(newHistory).withParsedOutput(null, "Delete task from history"));
 
-        io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + sequence);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
 
     /** request code-intel rebuild */
@@ -968,11 +984,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void updateBuildFragment(boolean success, String buildOutput) {
         var desc = ContextFragment.BUILD_RESULTS.description();
-        pushContext(currentLiveCtx -> {
+        pushContextQuietly(currentTopCtx -> {
             // Collect build-related fragments to drop:
             //  - Legacy: BuildFragment (BUILD_LOG)
             //  - New: StringFragment with description "Latest Build Results"
-            var idsToDrop = currentLiveCtx
+            var idsToDrop = currentTopCtx
                     .virtualFragments()
                     .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
                             || (f.getType() == ContextFragment.FragmentType.STRING
@@ -981,7 +997,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .map(ContextFragment::id)
                     .toList();
 
-            var modified = idsToDrop.isEmpty() ? currentLiveCtx : currentLiveCtx.removeFragmentsByIds(idsToDrop);
+            var modified = idsToDrop.isEmpty() ? currentTopCtx : currentTopCtx.removeFragmentsByIds(idsToDrop);
 
             if (success) {
                 logger.debug(
@@ -1098,16 +1114,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Captures text from the LLM output area and adds it to the context. Called from Chrome's capture button. */
     public void captureTextFromContextAsync() {
         submitContextTask(() -> {
-            // Capture from the selected *frozen* context in history view
+            // Capture from the selected frozen context in history view
             var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
 
-            var parsedOutput = selectedFrozenCtx.getParsedOutput();
-            if (parsedOutput == null) {
+            var history = selectedFrozenCtx.getTaskHistory();
+            if (history.isEmpty()) {
                 io.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
-            addVirtualFragment(parsedOutput);
+            var last = history.getLast();
+            var log = last.log();
+            if (log != null) {
+                addVirtualFragment(log);
+                return;
+            }
+            io.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
         });
     }
 
@@ -1403,7 +1425,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         contextPushed(contextHistory.topContext());
 
-        // Auto-compress conversation history if enabled and exceeds 10% of the context window
+        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window
         if (MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
@@ -1413,7 +1435,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var svc = getService();
                 var model = getCodeModel();
                 int maxInputTokens = svc.getMaxInputTokens(model);
-                if (tokenCount > (int) Math.ceil(maxInputTokens * 0.10)) {
+                double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
+                if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
                     compressHistoryAsync();
                 }
             } catch (ServiceWrapper.ServiceInitializationException e) {
@@ -1421,6 +1444,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         return newLiveContext;
+    }
+
+    /**
+     * Pushes context changes silently using a generator function. The generator is applied to the current
+     * `topContext()` (frozen context) instead of `liveContext()`. This creates a new context state without triggering
+     * history compression or other side effects.
+     *
+     * @param contextGenerator A function that takes the current top context and returns an updated context.
+     * @return The new top context, or the existing top context if no changes were made by the generator.
+     */
+    public Context pushContextQuietly(Function<Context, Context> contextGenerator) {
+        var newTopContext = contextHistory.pushQuietly(contextGenerator);
+        if (!topContext().equals(newTopContext)) {
+            contextPushed(newTopContext);
+        }
+        return newTopContext;
     }
 
     private void contextPushed(Context frozen) {
@@ -1856,10 +1895,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         public void append(TaskResult result) {
             assert !closed : "TaskScope already closed";
-            // keep today's behavior: make changed files editable immediately
-            if (!result.changedFiles().isEmpty()) {
-                addFiles(result.changedFiles());
-            }
             results.add(result);
         }
 
@@ -1873,43 +1908,49 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
 
                 if (results.size() == 1) {
+                    var only = results.getFirst();
+                    if (!only.changedFiles().isEmpty()) {
+                        addFiles(only.changedFiles());
+                    }
                     // Use the exact unchanged TaskResult if only one was appended
-                    pushFinalHistory(results.get(0), compressAtCommit);
+                    pushFinalHistory(only, compressAtCommit);
                     return;
                 }
 
-                // Aggregate if there are multiple TaskResults
+                // Don't aggregate stop details (presumably all success except possibly the last)
+                var lastStop = results.getLast().stopDetails();
+                // Aggregate changed files
                 var aggregatedFiles =
                         results.stream().flatMap(r -> r.changedFiles().stream()).collect(Collectors.toSet());
-
-                var lastStop = results.getLast().stopDetails();
-
                 // Aggregate all messages across results (input are expected to be the first message)
                 var aggregatedMessages = results.stream()
                         .flatMap(r -> r.output().messages().stream())
                         .toList();
-
-                // Build action description from first UserMessage and the last AiMessage
-                var firstTwoUsers = aggregatedMessages.stream()
-                        .filter(m -> m instanceof UserMessage)
-                        .limit(1)
-                        .toList();
-
-                var lastAiOpt = IntStream.iterate(aggregatedMessages.size() - 1, i -> i - 1)
-                        .limit(aggregatedMessages.size())
-                        .mapToObj(aggregatedMessages::get)
-                        .filter(m -> m instanceof AiMessage)
-                        .findFirst();
-
-                var selected = new ArrayList<>(firstTwoUsers);
-                lastAiOpt.ifPresent(selected::add);
-
-                var decoratedAction = selected.isEmpty()
-                        ? "Aggregated task"
-                        : selected.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
+                // Action description
+                String actionDescription;
+                if (results.size() == 1) {
+                    actionDescription = results.getFirst().actionDescription();
+                } else {
+                    // Construct synthetic description from first UserMessage and the last AiMessage
+                    var firstUserOpt = aggregatedMessages.stream()
+                            .filter(m -> m instanceof UserMessage)
+                            .findFirst();
+                    var lastAiOpt = IntStream.iterate(aggregatedMessages.size() - 1, i -> i - 1)
+                            .limit(aggregatedMessages.size())
+                            .mapToObj(aggregatedMessages::get)
+                            .filter(m -> m instanceof AiMessage)
+                            .findFirst();
+                    if (firstUserOpt.isPresent() && lastAiOpt.isPresent()) {
+                        var selected = List.of(firstUserOpt.get(), lastAiOpt.get());
+                        actionDescription =
+                                selected.stream().map(Messages::getText).collect(Collectors.joining("\n\n"));
+                    } else {
+                        actionDescription = results.getFirst().actionDescription();
+                    }
+                }
 
                 var finalResult = new TaskResult(
-                        ContextManager.this, decoratedAction, aggregatedMessages, aggregatedFiles, lastStop);
+                        ContextManager.this, actionDescription, aggregatedMessages, aggregatedFiles, lastStop);
                 pushFinalHistory(finalResult, compressAtCommit);
             } finally {
                 io.blockLlmOutput(false);
@@ -1952,9 +1993,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (!result.changedFiles().isEmpty()) {
                 // Capture current editable files once to keep the lambda valid
                 var existingEditableFiles = updated.fileFragments()
-                        .filter(ContextFragment.ProjectPathFragment.class::isInstance)
-                        .map(ContextFragment.ProjectPathFragment.class::cast)
-                        .map(ContextFragment.ProjectPathFragment::file)
+                        .filter(cf -> cf.getType().isEditable())
+                        .flatMap(cf -> cf.files().stream())
                         .collect(Collectors.toSet());
 
                 var fragmentsToAdd = result.changedFiles().stream()
