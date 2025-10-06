@@ -269,6 +269,10 @@ public final class DependenciesPanel extends JPanel {
                         } catch (Exception e2) {
                             logger.debug("Error resuming watcher after dependency import", e2);
                         }
+                        // On successful save, refresh the badge count
+                        if (ex == null) {
+                            updateDependenciesBadge();
+                        }
                     });
                     setControlsLocked(false);
                 }
@@ -346,6 +350,8 @@ public final class DependenciesPanel extends JPanel {
                                         tableModel.setValueAt(prevVal, rowIndex, 0);
                                     } else {
                                         tableModel.setValueAt(newVal, rowIndex, 0);
+                                        // Update badge after successful toggle save
+                                        updateDependenciesBadge();
                                     }
                                     isProgrammaticChange = false;
                                     inFlightToggleSave = null;
@@ -464,6 +470,9 @@ public final class DependenciesPanel extends JPanel {
 
             // count files in background
             new FileCountingWorker().execute();
+
+            // Update Dependencies tab badge with current enabled count
+            updateDependenciesBadge();
         }
     }
 
@@ -600,6 +609,15 @@ public final class DependenciesPanel extends JPanel {
         }
     }
 
+    private void updateDependenciesBadge() {
+        try {
+            int enabled = chrome.getProject().getLiveDependencies().size();
+            chrome.updateDependenciesTabBadge(enabled);
+        } catch (Exception e) {
+            logger.debug("Failed to update dependencies badge", e);
+        }
+    }
+
     private void showTablePopup(MouseEvent e) {
         if (!e.isPopupTrigger()) {
             return;
@@ -679,7 +697,7 @@ public final class DependenciesPanel extends JPanel {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependenciesAsync();
                     // Persist changes after successful deletion and reload.
-                    saveChangesAsync();
+                    saveChangesAsync().thenRun(this::updateDependenciesBadge);
                 } catch (IOException ex) {
                     JOptionPane.showMessageDialog(
                             this,

@@ -229,6 +229,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     private BadgedIcon tasksTabBadgedIcon;
 
+    @Nullable
+    private BadgedIcon dependenciesTabBadgedIcon;
+
     // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
     @Nullable
     private String lastDisplayedBranchLabel = null;
@@ -446,7 +449,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceToolsTabs.setIconAt(0, Icons.DESK); // Workspace
         workspaceToolsTabs.setIconAt(TAB_TERMINAL, Icons.TERMINAL);
         workspaceToolsTabs.setIconAt(TAB_TESTS, Icons.CHECK);
-        workspaceToolsTabs.setIconAt(TAB_DEPENDENCIES, Icons.MANAGE_DEPENDENCIES);
+        // Dependencies: use a badged icon (count is updated via updateDependenciesTabBadge)
+        dependenciesTabBadgedIcon = new BadgedIcon(Icons.MANAGE_DEPENDENCIES, themeManager);
+        workspaceToolsTabs.setIconAt(TAB_DEPENDENCIES, dependenciesTabBadgedIcon);
+        workspaceToolsTabs.setToolTipTextAt(TAB_DEPENDENCIES, "Dependencies");
 
         // Lazily create tool panels when their tabs are selected
         workspaceToolsTabs.addChangeListener(e -> {
@@ -2799,6 +2805,35 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         ? "Tasks (" + tasksUndoneCount + " pending)"
                         : "Tasks";
                 workspaceToolsTabs.setToolTipTextAt(TAB_TASKS, tooltip);
+            }
+        });
+    }
+
+    /**
+     * Updates the Dependencies tab badge with the number of enabled dependencies.
+     * Thread-safe: marshals to EDT.
+     */
+    public void updateDependenciesTabBadge(int enabledCount) {
+        SwingUtilities.invokeLater(() -> {
+            int count = Math.max(0, enabledCount);
+
+            // Ensure the badged icon exists and is applied to the tab
+            if (dependenciesTabBadgedIcon == null) {
+                dependenciesTabBadgedIcon = new BadgedIcon(Icons.MANAGE_DEPENDENCIES, themeManager);
+                if (TAB_DEPENDENCIES >= 0 && TAB_DEPENDENCIES < workspaceToolsTabs.getTabCount()) {
+                    workspaceToolsTabs.setIconAt(TAB_DEPENDENCIES, dependenciesTabBadgedIcon);
+                }
+            }
+
+            if (dependenciesTabBadgedIcon != null) {
+                dependenciesTabBadgedIcon.setCount(count, workspaceToolsTabs);
+            }
+
+            // Keep title constant as "Dependencies"; use tooltip to show count
+            if (TAB_DEPENDENCIES >= 0 && TAB_DEPENDENCIES < workspaceToolsTabs.getTabCount()) {
+                workspaceToolsTabs.setTitleAt(TAB_DEPENDENCIES, "Dependencies");
+                String tooltip = count > 0 ? "Dependencies (" + count + " enabled)" : "Dependencies";
+                workspaceToolsTabs.setToolTipTextAt(TAB_DEPENDENCIES, tooltip);
             }
         });
     }
