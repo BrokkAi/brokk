@@ -63,7 +63,7 @@ public final class InstructionsToolsTabbedPanel extends JPanel implements ThemeA
         tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
 
         // Instructions tab uses the existing instance
-        tabs.addTab("Instructions", null, this.instructionsPanel, "Instructions and actions");
+        tabs.addTab("Instructions", Icons.CHAT_BUBBLE, this.instructionsPanel, "Instructions and actions");
 
         // Add placeholders first so replaceTabComponent can swap content by fixed indices
         tasksPlaceholder.setOpaque(false);
