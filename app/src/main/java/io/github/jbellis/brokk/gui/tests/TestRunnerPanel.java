@@ -71,6 +71,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Optional persistence store for runs
     private volatile @Nullable TestRunsStore runsStore = null;
 
+    // Limit stored output size to avoid unbounded JSON growth
+    private static final int MAX_SNAPSHOT_OUTPUT_CHARS = 200_000;
+
     public TestRunnerPanel() {
         super(new BorderLayout(0, 0));
 
@@ -136,20 +139,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         if (this.runsStore == null) {
             return;
         }
-        var loader = new Thread(() -> {
-            List<RunRecord> records;
-            try {
-                var rs = this.runsStore;
-                if (rs == null) return;
-                records = rs.load();
-            } catch (Exception e) {
-                logger.warn("Failed to load test runs from store: {}", e.getMessage(), e);
-                return;
-            }
+        try {
+            List<RunRecord> records = this.runsStore.load();
             restoreRuns(records);
-        }, "TestRunnerPanel-LoadRuns");
-        loader.setDaemon(true);
-        loader.start();
+        } catch (Exception e) {
+            logger.warn("Failed to load test runs from store: {}", e.getMessage(), e);
+        }
     }
 
     /**
@@ -182,6 +177,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         var out = new ArrayList<RunRecord>(size - start);
         for (int i = start; i < size; i++) {
             var run = runListModel.get(i);
+            String output = run.getOutput();
+            if (output.length() > MAX_SNAPSHOT_OUTPUT_CHARS) {
+                int keep = Math.max(0, MAX_SNAPSHOT_OUTPUT_CHARS - 3);
+                output = output.substring(0, keep) + "...";
+            }
             out.add(new RunRecord(
                     run.id,
                     run.fileCount,
@@ -189,7 +189,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     run.startedAt,
                     run.completedAt,
                     run.exitCode,
-                    run.getOutput()
+                    output
             ));
         }
         return out;
@@ -244,43 +244,53 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         if (records.isEmpty()) {
             return;
         }
+        if (SwingUtilities.isEventDispatchThread()) {
+            doRestore(records);
+        } else {
+            try {
+                SwingUtilities.invokeAndWait(() -> doRestore(records));
+            } catch (Exception e) {
+                logger.warn("Failed to restore runs on EDT: {}", e.getMessage(), e);
+            }
+        }
+    }
+
+    private void doRestore(List<RunRecord> records) {
         int start = Math.max(0, records.size() - maxRuns);
         List<RunRecord> slice = records.subList(start, records.size());
 
-        runOnEdt(() -> {
-            runsById.clear();
-            runListModel.clear();
+        runsById.clear();
+        runListModel.clear();
 
-            String lastRunningId = null;
-            for (RunRecord r : slice) {
-                var run = new RunEntry(r.id(), r.fileCount(), r.command(), r.startedAt());
-                String out = r.output();
-                if (!out.isEmpty()) {
-                    run.appendOutput(out);
-                }
-                if (r.completedAt() != null) {
-                    run.complete(r.exitCode(), r.completedAt());
-                }
-                runsById.put(r.id(), run);
-                runListModel.addElement(run);
-                if (run.isRunning()) {
-                    lastRunningId = r.id();
-                }
+        String lastRunningId = null;
+        for (RunRecord r : slice) {
+            var run = new RunEntry(r.id(), r.fileCount(), r.command(), r.startedAt());
+            String out = r.output();
+            if (!out.isEmpty()) {
+                run.appendOutput(out);
             }
-
-            if (runListModel.getSize() > 0) {
-                runList.setSelectedIndex(runListModel.getSize() - 1);
-                updateOutputForSelectedRun();
-            } else {
-                try {
-                    document.withWritePermission(() -> outputArea.setText(""));
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to clear output during restore", ex);
-                }
+            if (r.completedAt() != null) {
+                run.complete(r.exitCode(), r.completedAt());
             }
+            runsById.put(r.id(), run);
+            runListModel.addElement(run);
+            if (run.isRunning()) {
+                lastRunningId = r.id();
+            }
+        }
 
-            currentActiveRunId = lastRunningId;
-        });
+        if (runListModel.getSize() > 0) {
+            runList.setSelectedIndex(runListModel.getSize() - 1);
+            updateOutputForSelectedRun();
+        } else {
+            try {
+                document.withWritePermission(() -> outputArea.setText(""));
+            } catch (RuntimeException ex) {
+                logger.warn("Failed to clear output during restore", ex);
+            }
+        }
+
+        currentActiveRunId = lastRunningId;
     }
 
     /**
