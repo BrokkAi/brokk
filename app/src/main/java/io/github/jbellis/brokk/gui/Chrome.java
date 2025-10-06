@@ -180,10 +180,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Workspace/tools tabs
     private final JTabbedPane workspaceToolsTabs;
-    private static final int TAB_DEPENDENCIES = 1;
-    private static final int TAB_TASKS = 2;
-    private static final int TAB_TERMINAL = 3;
-    private static final int TAB_TESTS = 4;
+    private static final int TAB_TASKS = 1;
+    private static final int TAB_TERMINAL = 2;
+    private static final int TAB_TESTS = 3;
+    private static final int TAB_DEPENDENCIES = 4;
 
     // Placeholders for lazy-loaded tabs
     private final JPanel dependenciesPlaceholder = new JPanel(new BorderLayout());
@@ -430,10 +430,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Build tools tabs (bottom positioned)
         workspaceToolsTabs = new JTabbedPane(JTabbedPane.BOTTOM);
         workspaceToolsTabs.addTab("Workspace", workspacePanel); // TAB_WORKSPACE
-        workspaceToolsTabs.addTab("Dependencies", dependenciesPlaceholder); // TAB_DEPENDENCIES
         workspaceToolsTabs.addTab("Tasks", tasksPlaceholder); // TAB_TASKS
         workspaceToolsTabs.addTab("Terminal", terminalPlaceholder); // TAB_TERMINAL
         workspaceToolsTabs.addTab("Tests", testsPlaceholder); // TAB_TESTS
+        workspaceToolsTabs.addTab("Dependencies", dependenciesPlaceholder); // TAB_DEPENDENCIES
 
         // Initialize Tasks tab badged icon
         tasksTabBadgedIcon = new BadgedIcon(Icons.LIST, themeManager);
@@ -444,9 +444,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Set static icons for other tabs (these persist across lazy component replacements)
         workspaceToolsTabs.setIconAt(0, Icons.DESK); // Workspace
-        workspaceToolsTabs.setIconAt(TAB_DEPENDENCIES, Icons.MANAGE_DEPENDENCIES);
         workspaceToolsTabs.setIconAt(TAB_TERMINAL, Icons.TERMINAL);
         workspaceToolsTabs.setIconAt(TAB_TESTS, Icons.CHECK);
+        workspaceToolsTabs.setIconAt(TAB_DEPENDENCIES, Icons.MANAGE_DEPENDENCIES);
 
         // Lazily create tool panels when their tabs are selected
         workspaceToolsTabs.addChangeListener(e -> {
