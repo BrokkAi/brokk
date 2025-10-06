@@ -99,6 +99,8 @@ dependencies {
 
     // Eclipse LSP
     implementation(libs.bundles.eclipse.lsp)
+    // Eclipse JDT Core for Java parse without classpath
+    implementation(libs.eclipse.jdt.core)
 
     // Java Decompiler
     implementation(libs.java.decompiler)

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -381,7 +382,9 @@ public class ImportDependencyDialog {
 
                     SwingUtilities.invokeLater(() -> {
                         populateGitRefComboBox(info);
-                        chrome.systemOutput("Repository validated successfully. Select a branch or tag to import.");
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Repository validated successfully. Select a branch or tag to import.");
                         updateImportButtonState();
                     });
                 } catch (Exception ex) {
@@ -475,7 +478,8 @@ public class ImportDependencyDialog {
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
                     SwingUtilities.invokeLater(() -> {
-                        chrome.systemOutput(
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
                                 "Directory copied to " + targetPath + ". Reopen project to incorporate the new files.");
                         if (listener != null) listener.dependencyImportFinished(depName);
                     });
@@ -559,7 +563,9 @@ public class ImportDependencyDialog {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
 
                         SwingUtilities.invokeLater(() -> {
-                            chrome.systemOutput("Repository " + repoName + " imported successfully.");
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Repository " + repoName + " imported successfully.");
                             if (listener != null) listener.dependencyImportFinished(repoName);
                         });
                     } catch (Exception postCloneException) {

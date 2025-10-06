@@ -20,14 +20,14 @@ class WandConsoleIOTest {
 
     private JTextArea instructionsArea;
     private TestConsoleIO errorReporter;
-    private WandConsoleIO wandConsoleIO;
+    private WandAction.WandConsoleIO wandConsoleIO;
     private TestContextManager contextManager;
 
     @BeforeEach
     void setUp() throws Exception {
         instructionsArea = new JTextArea();
         errorReporter = new TestConsoleIO();
-        wandConsoleIO = new WandConsoleIO(instructionsArea, errorReporter);
+        wandConsoleIO = new WandAction.WandConsoleIO(instructionsArea, errorReporter);
         contextManager = new TestContextManager(tempDir, errorReporter);
         awaitEdtIdle();
     }
@@ -140,7 +140,7 @@ class WandConsoleIOTest {
         // Not all implementations may have a cancellation dialog; skip if absent
         java.lang.reflect.Method method;
         try {
-            method = WandConsoleIO.class.getDeclaredMethod("showInterruptDialog");
+            method = WandAction.WandConsoleIO.class.getDeclaredMethod("showInterruptDialog");
         } catch (NoSuchMethodException e) {
             assumeTrue(false, "WandConsoleIO.showInterruptDialog not present; skipping cancellation test");
             return; // Unreachable, but keeps compiler happy

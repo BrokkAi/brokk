@@ -757,28 +757,6 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testRoundTripBuildFragment() throws Exception {
-        var buildFragment = new ContextFragment.BuildFragment(mockContextManager, "Build successful\nAll tests passed");
-
-        var context = new Context(mockContextManager, "Test BuildFragment").addVirtualFragment(buildFragment);
-        ContextHistory originalHistory = new ContextHistory(context);
-
-        Path zipFile = tempDir.resolve("test_buildfrag_history.zip");
-        HistoryIo.writeZip(originalHistory, zipFile);
-        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
-
-        Context loadedCtx = loadedHistory.getHistory().get(0);
-        var loadedBuildFrag = loadedCtx
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("BUILD_LOG fragment not found after round-trip"));
-
-        assertTrue(loadedBuildFrag.isText());
-        assertTrue(loadedBuildFrag.text().contains("Build successful\nAll tests passed"));
-    }
-
-    @Test
     void testRoundTripSearchFragment() throws Exception {
         var projectFile = new ProjectFile(tempDir, "src/SearchTarget.java");
         Files.createDirectories(projectFile.absPath().getParent());

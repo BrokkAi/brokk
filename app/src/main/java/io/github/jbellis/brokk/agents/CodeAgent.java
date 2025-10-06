@@ -12,6 +12,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -20,13 +21,21 @@ import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTParser;
+import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -101,7 +110,7 @@ public class CodeAgent {
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         var msg = "Code Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(userInput));
-        io.systemOutput(msg);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, msg);
         TaskResult.StopDetails stopDetails;
 
         var parser = EditBlockParser.instance;
@@ -115,7 +124,15 @@ public class CodeAgent {
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
         var es = new EditState(
-                blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+                blocks,
+                0,
+                applyFailures,
+                0,
+                blocksAppliedWithoutBuild,
+                buildError,
+                changedFiles,
+                originalFileContents,
+                Collections.emptyMap());
 
         while (true) {
             if (Thread.interrupted()) {
@@ -222,6 +239,20 @@ public class CodeAgent {
                 }
             }
 
+            // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
+            var parseJavaOutcome = parseJavaPhase(cs, es, metrics);
+            if (parseJavaOutcome instanceof Step.Retry retryJava) {
+                cs = retryJava.cs();
+                es = retryJava.es();
+                continue;
+            }
+            if (parseJavaOutcome instanceof Step.Fatal fatalJava) {
+                stopDetails = fatalJava.stopDetails();
+                break;
+            }
+            cs = parseJavaOutcome.cs();
+            es = parseJavaOutcome.es();
+
             // VERIFY or finish if build is deferred
             assert es.pendingBlocks().isEmpty() : es;
 
@@ -297,7 +328,8 @@ public class CodeAgent {
                 contextManager, instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(
+                new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap());
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
                 .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
@@ -357,6 +389,20 @@ public class CodeAgent {
             }
             if (step instanceof Step.Fatal fatal3) {
                 stopDetails = fatal3.stopDetails();
+                break;
+            }
+            conversationState = step.cs();
+            editState = step.es();
+
+            // ----- 1-e.5.  PARSE-JAVA PHASE ----------------------------------
+            step = parseJavaPhase(conversationState, editState, null);
+            if (step instanceof Step.Retry retryJava) {
+                conversationState = retryJava.cs();
+                editState = retryJava.es();
+                continue;
+            }
+            if (step instanceof Step.Fatal fatalJava) {
+                stopDetails = fatalJava.stopDetails();
                 break;
             }
             conversationState = step.cs();
@@ -794,6 +840,275 @@ public class CodeAgent {
         }
     }
 
+    /**
+     * If any edited files in this turn include Java sources, run a parse-only check before attempting a full build. On
+     * syntax errors, we construct a diagnostic summary and ask the LLM to fix those first.
+     */
+    @VisibleForTesting
+    static final Set<Integer> LOCAL_ONLY_IDS = Set.of(
+            IProblem.UninitializedLocalVariable, // PJ-9
+            IProblem.RedefinedLocal, // PJ-20
+            IProblem.RedefinedArgument, // PJ-22
+            IProblem.ShouldReturnValue, // PJ-10
+            IProblem.FinallyMustCompleteNormally, // PJ-23
+            IProblem.IncompatibleTypesInForeach, // PJ-15
+            IProblem.InvalidTypeForCollection, // PJ-15
+            IProblem.CodeCannotBeReached, // PJ-32
+            IProblem.CannotReturnInInitializer, // PJ-33
+            IProblem.DuplicateDefaultCase, // PJ-25
+            IProblem.DuplicateCase, // PJ-24
+            IProblem.InvalidBreak, // PJ-35
+            IProblem.InvalidContinue, // PJ-36
+            IProblem.UndefinedLabel, // PJ-37
+            IProblem.InvalidTypeToSynchronized, // PJ-38
+            IProblem.InvalidNullToSynchronized, // PJ-39
+            IProblem.InvalidVoidExpression, // PJ-34
+            IProblem.MethodRequiresBody, // PJ-28
+            IProblem.VarLocalInitializedToNull, // PJ-29
+            IProblem.VarLocalInitializedToVoid, // PJ-30
+            IProblem.VarLocalCannotBeArrayInitalizers, // PJ-31
+            IProblem.VoidMethodReturnsValue, // PJ-27
+            // leaving in but doesn't seem to work as expected
+            IProblem.DuplicateLabel,
+            IProblem.InitializerMustCompleteNormally,
+            IProblem.CannotThrowNull,
+            IProblem.MethodReturnsVoid);
+
+    @VisibleForTesting
+    static final Set<Integer> METHOD_LOCAL_IDS = Set.of(
+            // Parameter / applicability for calls (e.g., ThreadLocal.withInitial(() -> { }))
+            IProblem.ParameterMismatch, // PJ-16
+            // Constructor resolution when referenced types are on bootclasspath
+            IProblem.UndefinedConstructor, // PJ-17
+            // Override / implements correctness
+            IProblem.MethodMustOverride, // PJ-13
+            IProblem.MethodMustOverrideOrImplement, // PJ-13
+            // “must implement abstract method …”
+            IProblem.AbstractMethodMustBeImplemented, // PJ-14
+            // Return type compatibility for inherited/declared methods
+            IProblem.IncompatibleReturnType, // PJ-18
+            IProblem.IncompatibleReturnTypeForNonInheritedInterfaceMethod // PJ-18
+            );
+
+    @VisibleForTesting
+    static final Set<Integer> BLACKLIST_CATS = Set.of(
+            CategorizedProblem.CAT_IMPORT, // PJ-4
+            CategorizedProblem.CAT_MODULE, // exercised implicitly by PJ-11 classpath ignore
+            CategorizedProblem.CAT_COMPLIANCE, // not targeted by pre-lint tests
+            CategorizedProblem.CAT_PREVIEW_RELATED, // not targeted by pre-lint tests
+            CategorizedProblem.CAT_RESTRICTION, // not targeted by pre-lint tests
+            CategorizedProblem.CAT_JAVADOC, // PJ-11 (ignore missing external types in signatures)
+            CategorizedProblem.CAT_NLS, // not targeted
+            CategorizedProblem.CAT_CODE_STYLE, // not targeted
+            CategorizedProblem.CAT_UNNECESSARY_CODE, // not targeted
+            CategorizedProblem.CAT_POTENTIAL_PROGRAMMING_PROBLEM, // not targeted
+            CategorizedProblem.CAT_DEPRECATION, // not targeted
+            CategorizedProblem.CAT_UNCHECKED_RAW // PJ-5/7/8/12/19 (type/import/classpath noise ignored)
+            );
+
+    @VisibleForTesting
+    static final Set<Integer> CROSS_FILE_INFERENCE_IDS = Set.of(
+            IProblem.MissingTypeInLambda,
+            IProblem.CannotInferElidedTypes,
+            IProblem.CannotInferInvocationType,
+            IProblem.GenericInferenceError,
+            IProblem.MissingTypeForInference
+            // Verified by PJ-19 (missing external type via var inference ignored)
+            );
+
+    /**
+     * Problem IDs that indicate type resolution/inference is unreliable for this compilation unit. If any of these are
+     * present, we treat the CU as having "shaky type info" and suppress diagnostics that depend on precise symbol
+     * resolution.
+     */
+    @VisibleForTesting
+    static final Set<Integer> RESOLUTION_NOISE_IDS = Set.of(
+            IProblem.UndefinedType,
+            IProblem.UndefinedMethod,
+            IProblem.UndefinedField,
+            IProblem.UndefinedName,
+            IProblem.UnresolvedVariable,
+            IProblem.ImportNotFound,
+            IProblem.CannotInferInvocationType,
+            IProblem.CannotInferElidedTypes,
+            IProblem.GenericInferenceError,
+            IProblem.MissingTypeForInference);
+
+    /**
+     * Diagnostics that require stable type info and should be suppressed when the CU shows resolution/inference noise.
+     * Includes method applicability/override errors and foreach target/type errors.
+     */
+    @VisibleForTesting
+    static final Set<Integer> REQUIRES_STABLE_TYPE_INFO;
+
+    static {
+        var tmp = new HashSet<Integer>(METHOD_LOCAL_IDS);
+        tmp.add(IProblem.IncompatibleTypesInForeach);
+        tmp.add(IProblem.InvalidTypeForCollection);
+        // Be conservative and include the pre-1.4 target as well, though tests focus on the two above.
+        tmp.add(IProblem.InvalidTypeForCollectionTarget14);
+        REQUIRES_STABLE_TYPE_INFO = Collections.unmodifiableSet(tmp);
+    }
+
+    /** Decide if a JDT problem should be recorded by the pre-build Java parse step. */
+    @VisibleForTesting
+    static boolean shouldKeepJavaProblem(
+            int id, boolean isError, @Nullable Integer categoryId, boolean hasShakyTypeInfo) {
+        // 0) If type info is shaky, suppress diagnostics that require stable symbol resolution.
+        if (hasShakyTypeInfo && REQUIRES_STABLE_TYPE_INFO.contains(id)) {
+            return false;
+        }
+
+        // 1) Force-keep explicitly local problems (syntax/control-flow/value-category), independent of category.
+        // Note: foreach and method-override/applicability items are gated above via REQUIRES_STABLE_TYPE_INFO.
+        if (LOCAL_ONLY_IDS.contains(id) || METHOD_LOCAL_IDS.contains(id)) {
+            return true;
+        }
+
+        // 2) Otherwise, keep only errors.
+        if (!isError) return false;
+
+        // 3) Category blacklists.
+        if (categoryId != null) {
+            if (BLACKLIST_CATS.contains(categoryId)) return false;
+            if (categoryId == CategorizedProblem.CAT_TYPE) return false;
+        }
+
+        // 4) Classpath-ish symbol noise.
+        if (id == IProblem.UndefinedMethod || id == IProblem.UndefinedField) return false;
+        if (id == IProblem.UndefinedName || id == IProblem.UnresolvedVariable) return false;
+        if (id == IProblem.MissingTypeInMethod || id == IProblem.MissingTypeInConstructor) return false;
+
+        // 5) Cross-file inference noise.
+        if (CROSS_FILE_INFERENCE_IDS.contains(id)) return false;
+
+        // 6) Nullness analysis cluster (config-dependent).
+        if (id >= IProblem.RequiredNonNullButProvidedNull && id <= IProblem.FieldWithUnresolvedOwningAnnotation)
+            return false;
+
+        return true;
+    }
+
+    /**
+     * Quickly parse files in memory for local-only errors, with no classpath bindings, before proceeding to the
+     * expensive full build. Goal is to catch as many true positives as possible with zero false positives.
+     */
+    Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
+        // Only run if there were edits since the last build attempt (PJ-21)
+        if (es.blocksAppliedWithoutBuild() == 0) {
+            return new Step.Continue(cs, es);
+        }
+
+        // Collect changed .java files
+        var javaFiles = es.changedFiles().stream()
+                .filter(f -> Languages.JAVA.getExtensions().contains(f.extension()))
+                .toList();
+
+        if (javaFiles.isEmpty()) {
+            return new Step.Continue(cs, es);
+        }
+
+        // Use Eclipse JDT ASTParser without classpath/bindings
+        var projectRoot = contextManager.getProject().getRoot();
+
+        // Map from ProjectFile -> diagnostic list for that file
+        var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
+
+        javaFiles.parallelStream().forEach(file -> {
+            var absPath = projectRoot.resolve(file.toString());
+            String src = file.read().orElse("");
+            if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
+                return;
+            }
+            char[] sourceChars = src.toCharArray();
+
+            ASTParser parser = ASTParser.newParser(AST.JLS24);
+            parser.setKind(ASTParser.K_COMPILATION_UNIT);
+            parser.setSource(sourceChars);
+            // Enable binding resolution with recovery and use the running JVM's boot classpath.
+            parser.setResolveBindings(true);
+            parser.setStatementsRecovery(true);
+            parser.setBindingsRecovery(true);
+            parser.setUnitName(absPath.getFileName().toString());
+            parser.setEnvironment(new String[0], new String[0], null, true);
+            var options = JavaCore.getOptions();
+            JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
+            // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
+            // lint
+            options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
+            // Enable preview features for maximum compatibility
+            options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
+            parser.setCompilerOptions(options);
+
+            CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+
+            IProblem[] problems = cu.getProblems();
+
+            // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
+            boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
+                int pid = p.getID();
+                return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
+            });
+
+            var diags = new ArrayList<JavaDiagnostic>();
+            for (IProblem prob : problems) {
+                int id = prob.getID();
+                @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
+
+                if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
+                    continue;
+                }
+
+                var description = formatJdtProblem(absPath, cu, prob);
+                diags.add(new JavaDiagnostic(id, catId, description));
+            }
+
+            if (!diags.isEmpty()) {
+                perFileProblems.put(file, diags);
+            }
+        });
+
+        // If no diagnostics, continue. Otherwise, ask LLM to fix syntax/identifier issues first.
+        if (perFileProblems.isEmpty()) {
+            var nextEs = es.withJavaLintDiagnostics(perFileProblems);
+            return new Step.Continue(cs, nextEs);
+        }
+
+        // Build a concise diagnostic summary for the LLM
+        var summary = perFileProblems.entrySet().stream()
+                .sorted(Comparator.comparing(e -> e.getKey().toString()))
+                .flatMap(e -> e.getValue().stream().map(CodeAgent.JavaDiagnostic::description))
+                .collect(Collectors.joining("\n"));
+
+        var prompt =
+                """
+                Java syntax or identifier errors were detected in the edited files. Please fix these before we proceed to the full build.
+
+                %s
+                """
+                        .stripIndent()
+                        .formatted(summary);
+
+        var nextRequest = new UserMessage(prompt);
+        var nextCs = new ConversationState(
+                cs.taskMessages(), nextRequest, cs.taskMessages().size());
+
+        // Save diagnostics and record a "build failure" so we reset the per-turn baseline and stop before verifying
+        var withDiags = es.withJavaLintDiagnostics(perFileProblems);
+        var nextEs = withDiags.afterBuildFailure(summary);
+
+        report("Java parse errors detected; asking LLM to fix syntax/identifier issues before building.");
+        return new Step.Retry(nextCs, nextEs);
+    }
+
+    private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob) {
+        int start = Math.max(0, prob.getSourceStart());
+        long line = Math.max(1, cu.getLineNumber(start));
+        long col = Math.max(1, cu.getColumnNumber(start));
+        var message = Objects.toString(prob.getMessage(), "Problem");
+        return "%s:%d:%d: %s".formatted(absPath.toString(), line, col, message);
+    }
+
     /** next FSM state */
     sealed interface Step permits Step.Continue, Step.Retry, Step.Fatal {
         ConversationState cs();
@@ -877,6 +1192,8 @@ public class CodeAgent {
         }
     }
 
+    public record JavaDiagnostic(int problemId, @Nullable Integer categoryId, String description) {}
+
     record EditState(
             // parsed but not yet applied
             List<EditBlock.SearchReplaceBlock> pendingBlocks,
@@ -886,7 +1203,8 @@ public class CodeAgent {
             int blocksAppliedWithoutBuild,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
-            Map<ProjectFile, String> originalFileContents) {
+            Map<ProjectFile, String> originalFileContents,
+            Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
@@ -897,7 +1215,8 @@ public class CodeAgent {
                     blocksAppliedWithoutBuild,
                     lastBuildError,
                     changedFiles,
-                    originalFileContents);
+                    originalFileContents,
+                    javaLintDiagnostics);
         }
 
         /**
@@ -913,7 +1232,8 @@ public class CodeAgent {
                     0,
                     newBuildError,
                     changedFiles,
-                    new HashMap<>()); // Clear per-turn baseline
+                    new HashMap<>(), // Clear per-turn baseline
+                    javaLintDiagnostics);
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -930,7 +1250,21 @@ public class CodeAgent {
                     newBlocksApplied,
                     lastBuildError,
                     changedFiles,
-                    newOriginalContents);
+                    newOriginalContents,
+                    javaLintDiagnostics);
+        }
+
+        EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
+            return new EditState(
+                    pendingBlocks,
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    diags);
         }
 
         /**

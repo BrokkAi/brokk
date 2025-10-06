@@ -11,14 +11,11 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.search.SearchableComponent;
-import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.awt.*;
 import java.awt.Font;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
-import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
@@ -43,6 +40,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private JScrollPane scrollPane;
     private RSyntaxTextArea editor;
     private JMHighlighter jmHighlighter;
+    private DiffGutterComponent gutterComponent;
 
     @Nullable
     private BufferDocumentIF bufferDocument;
@@ -128,9 +126,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         editor.addFocusListener(getFocusListener());
         // Undo listener will be added in setBufferDocument when editor is active
 
+        // Create gutter component for side-by-side mode
+        gutterComponent = new DiffGutterComponent(editor, DiffGutterComponent.DisplayMode.SIDE_BY_SIDE_SINGLE);
+        gutterComponent.setDarkTheme(diffPanel.isDarkTheme());
+
         // Wrap editor inside a scroll pane with optimized scrolling
         scrollPane = new JScrollPane(editor);
         scrollPane.getViewport().setScrollMode(JViewport.BLIT_SCROLL_MODE);
+
+        // Set the gutter component as the row header
+        scrollPane.setRowHeaderView(gutterComponent);
 
         // If the document is "ORIGINAL", reposition the scrollbar to the left
         if (BufferDocumentIF.ORIGINAL.equals(name)) {
@@ -406,7 +411,44 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     /** Fallback method to paint all deltas (original behavior). */
     private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch, boolean isOriginal) {
+        // Highlight text area
         patch.getDeltas().forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
+
+        // Build gutter highlights to match text area
+        var gutterHighlights = new java.util.ArrayList<DiffGutterComponent.DiffHighlightInfo>();
+        boolean isDark = diffPanel.isDarkTheme();
+
+        for (var delta : patch.getDeltas()) {
+            var chunk = DiffHighlightUtil.getChunkForHighlight(delta, isOriginal);
+            if (chunk == null) {
+                continue;
+            }
+
+            // Get color based on delta type
+            var color =
+                    switch (delta.getType()) {
+                        case INSERT -> io.github.jbellis.brokk.difftool.utils.Colors.getAdded(isDark);
+                        case DELETE -> io.github.jbellis.brokk.difftool.utils.Colors.getDeleted(isDark);
+                        case CHANGE -> io.github.jbellis.brokk.difftool.utils.Colors.getChanged(isDark);
+                        case EQUAL -> null; // Should not happen
+                    };
+
+            if (color == null) {
+                continue;
+            }
+
+            // Add highlight for each line in the chunk
+            int startLine = chunk.getPosition();
+            int endLine = startLine + Math.max(chunk.size(), 1); // At least one line for empty chunks
+
+            for (int line = startLine; line < endLine; line++) {
+                // Convert to 1-based line number for gutter display
+                gutterHighlights.add(new DiffGutterComponent.DiffHighlightInfo(line + 1, color));
+            }
+        }
+
+        // Update gutter component with highlights
+        gutterComponent.setDiffHighlights(gutterHighlights);
     }
 
     /** Cached viewport calculation to avoid expensive repeated calls. */
@@ -713,6 +755,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             if (editor.getHighlighter() instanceof ThemeAware high) {
                 high.applyTheme(guiTheme);
             }
+
+            // Apply theme to the gutter component
+            gutterComponent.setDarkTheme(guiTheme.isDarkTheme());
+
             theme.apply(editor);
             reDisplay();
         });
@@ -728,11 +774,18 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         return diffPanel;
     }
 
+    /** Provide access to the gutter component for setting diff highlights. */
+    public DiffGutterComponent getGutterComponent() {
+        return gutterComponent;
+    }
+
     private void removeHighlights() {
         JMHighlighter jmhl = getHighlighter();
         jmhl.removeHighlights(JMHighlighter.LAYER0);
         jmhl.removeHighlights(JMHighlighter.LAYER1);
         jmhl.removeHighlights(JMHighlighter.LAYER2);
+        // Also clear gutter highlights
+        gutterComponent.setDiffHighlights(null);
     }
 
     private void setHighlight(Integer layer, int offset, int size, Highlighter.HighlightPainter highlight) {
@@ -861,7 +914,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     private void initConfiguration() {
         Font font = new Font("Arial", Font.PLAIN, 14);
-        editor.setBorder(new LineNumberBorder(this));
+        // LineNumberBorder is no longer used - gutter component handles line numbers
         FontMetrics fm = editor.getFontMetrics(font);
         scrollPane.getHorizontalScrollBar().setUnitIncrement(fm.getHeight());
 
@@ -884,52 +937,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             return;
         }
 
-        /*
-         * Heuristic 1: strip well-known VCS/backup suffixes and decide
-         *              the style from the remaining extension.
-         * Heuristic 2: if still undecided, inherit the style of the
-         */
-        var style = SyntaxConstants.SYNTAX_STYLE_NONE;
+        // Use shared syntax detection logic from AbstractDiffPanel
+        var filename = bufferDocument != null ? bufferDocument.getName() : null;
 
-        // --------------------------- Heuristic 1 -----------------------------
-        if (bufferDocument != null) {
-            var fileName = bufferDocument.getName();
-            if (!fileName.isBlank()) {
-                // Remove trailing '~'
-                var candidate = fileName.endsWith("~") ? fileName.substring(0, fileName.length() - 1) : fileName;
+        // Get fallback editor from the other panel (same logic as before)
+        RSyntaxTextArea fallbackEditor = null;
+        var otherPanel = BufferDocumentIF.ORIGINAL.equals(name)
+                ? diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT)
+                : diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
 
-                // Remove dotted suffixes (case-insensitive)
-                for (var suffix : List.of("orig", "base", "mine", "theirs", "backup")) {
-                    var sfx = "." + suffix;
-                    if (candidate.toLowerCase(Locale.ROOT).endsWith(sfx)) {
-                        candidate = candidate.substring(0, candidate.length() - sfx.length());
-                        break;
-                    }
-                }
-
-                // Extract extension
-                var lastDot = candidate.lastIndexOf('.');
-                if (lastDot > 0 && lastDot < candidate.length() - 1) {
-                    var ext = candidate.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-                    style = SyntaxDetector.fromExtension(ext);
-                }
-            }
+        if (otherPanel != null) {
+            fallbackEditor = otherPanel.getEditor();
         }
 
-        // --------------------------- Heuristic 2 -----------------------------
-        if (SyntaxConstants.SYNTAX_STYLE_NONE.equals(style)) {
-            var otherPanel = BufferDocumentIF.ORIGINAL.equals(name)
-                    ? diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT)
-                    : diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-
-            if (otherPanel != null) {
-                var otherStyle = otherPanel.getEditor().getSyntaxEditingStyle();
-                if (!SyntaxConstants.SYNTAX_STYLE_NONE.equals(otherStyle)) {
-                    style = otherStyle;
-                }
-            }
-        }
-
+        var style = AbstractDiffPanel.detectSyntaxStyle(filename, fallbackEditor);
         editor.setSyntaxEditingStyle(style);
 
         // Scroll to first diff only after document has been set up
@@ -1184,14 +1205,50 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     public static class LeftScrollPaneLayout extends ScrollPaneLayout {
         @Override
         public void layoutContainer(Container parent) {
-            ComponentOrientation originalOrientation;
-
-            // Dirty trick to get the vertical scrollbar to the left side of
-            //  a scroll-pane.
-            originalOrientation = parent.getComponentOrientation();
-            parent.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
+            // First, do default layout (gutter left, scrollbar right)
             super.layoutContainer(parent);
-            parent.setComponentOrientation(originalOrientation);
+
+            if (!(parent instanceof JScrollPane scrollPane)) {
+                return;
+            }
+
+            // Get components
+            var vsb = scrollPane.getVerticalScrollBar();
+            var viewport = scrollPane.getViewport();
+            var rowHeader = scrollPane.getRowHeader();
+
+            if (vsb == null || viewport == null) {
+                return;
+            }
+
+            // Get current bounds from default layout
+            var vsbBounds = vsb.getBounds();
+            var viewportBounds = viewport.getBounds();
+
+            // Only proceed if scrollbar is visible
+            if (vsbBounds.width == 0) {
+                return;
+            }
+
+            // Move scrollbar to left edge (x=0)
+            vsb.setBounds(0, vsbBounds.y, vsbBounds.width, vsbBounds.height);
+
+            // Shift row header right by scrollbar width (if present)
+            if (rowHeader != null) {
+                var rowHeaderBounds = rowHeader.getBounds();
+                rowHeader.setBounds(
+                        rowHeaderBounds.x + vsbBounds.width,
+                        rowHeaderBounds.y,
+                        rowHeaderBounds.width,
+                        rowHeaderBounds.height);
+            }
+
+            // Shift viewport right by scrollbar width and reduce its width
+            viewport.setBounds(
+                    viewportBounds.x + vsbBounds.width,
+                    viewportBounds.y,
+                    viewportBounds.width - vsbBounds.width,
+                    viewportBounds.height);
         }
     }
 

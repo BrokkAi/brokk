@@ -227,8 +227,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             logger.error("Uncaught exception in executor", th);
-            io.systemOutput("Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
-                    .formatted(thread.getName(), getStackTraceAsString(th)));
+            String message = "Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
+                    .formatted(thread.getName(), getStackTraceAsString(th));
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         });
     }
 
@@ -503,7 +504,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             "Code Intelligence Warning",
                             JOptionPane.WARNING_MESSAGE);
                 } else {
-                    io.systemOutput(msg);
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, msg);
                 }
             }
 
@@ -745,17 +746,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH));
         if (model != null) {
-            io.systemOutput(String.format(
-                    "Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
-                    config.name(), modelTypeName, Service.GPT_5_MINI));
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    String.format(
+                            "Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+                            config.name(), modelTypeName, Service.GPT_5_MINI));
             return model;
         }
 
         var quickModel = service.get().quickModel();
         String quickModelName = service.get().nameOf(quickModel);
-        io.systemOutput(String.format(
-                "Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
-                config.name(), modelTypeName, quickModelName));
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                String.format(
+                        "Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
+                        config.name(), modelTypeName, quickModelName));
         return quickModel;
     }
 
@@ -812,7 +817,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Add the given files to editable. */
     public void addPathFragments(List<? extends PathFragment> fragments) {
         pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
-        io.systemOutput("Edit " + contextDescription(fragments));
+        String message = "Edit " + contextDescription(fragments);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
     /** Drop all context. */
@@ -826,7 +832,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .map(f -> contextHistory.mapToLiveFragment(f).id())
                 .toList();
         pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
-        io.systemOutput("Remove " + contextDescription(fragments));
+        String message = "Remove " + contextDescription(fragments);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
     /** Clear conversation history. */
@@ -858,7 +865,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         pushContext(currentLiveCtx ->
                 currentLiveCtx.withCompressedHistory(newHistory).withParsedOutput(null, "Delete task from history"));
 
-        io.systemOutput("Remove history entry " + sequence);
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + sequence);
     }
 
     /** request code-intel rebuild */
@@ -872,9 +879,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> undoContextAsync() {
         return submitExclusiveAction(() -> {
             if (undoContext()) {
-                io.systemOutput("Undo most recent step");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Undo most recent step");
             } else {
-                io.systemOutput("Nothing to undo");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Nothing to undo");
             }
         });
     }
@@ -898,9 +905,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (result.wasUndone()) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
-                io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
+                String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
+                io.showNotification(IConsoleIO.NotificationRole.INFO, message);
             } else {
-                io.systemOutput("Context not found or already at that point");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
             }
         });
     }
@@ -912,9 +920,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (wasRedone) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
-                io.systemOutput("Redo!");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
             } else {
-                io.systemOutput("no redo state available");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
             }
         });
     }
@@ -933,9 +941,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
                 SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
-                io.systemOutput("Reset workspace to historical state");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace to historical state");
             } catch (CancellationException cex) {
-                io.systemOutput("Reset workspace canceled.");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace canceled.");
             }
         });
     }
@@ -954,9 +962,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 contextHistory.addResetEdge(targetFrozenContext, fr.frozenContext());
                 SwingUtilities.invokeLater(() -> notifyContextListeners(fr.frozenContext()));
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
-                io.systemOutput("Reset workspace and history to historical state");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Reset workspace and history to historical state");
             } catch (CancellationException cex) {
-                io.systemOutput("Reset workspace and history canceled.");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Reset workspace and history canceled.");
             }
         });
     }
@@ -1049,9 +1058,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             CompletableFuture.completedFuture(actionMessage));
                 });
 
-                io.systemOutput(actionMessage);
+                io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
             } catch (CancellationException cex) {
-                io.systemOutput("Copying context items from historical state canceled.");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Copying context items from historical state canceled.");
             }
         });
     }
@@ -1067,42 +1077,55 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public void updateBuildFragment(boolean success, String buildOutput) {
-        // Remove any existing BUILD_LOG fragments
-        var idsToDrop = liveContext()
-                .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
-                .map(ContextFragment::id)
-                .toList();
-        if (!idsToDrop.isEmpty()) {
-            pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(idsToDrop));
-        }
+        var desc = ContextFragment.BUILD_RESULTS.description();
+        pushContext(currentLiveCtx -> {
+            // Collect build-related fragments to drop:
+            //  - Legacy: BuildFragment (BUILD_LOG)
+            //  - New: StringFragment with description "Latest Build Results"
+            var idsToDrop = currentLiveCtx
+                    .virtualFragments()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
+                            || (f.getType() == ContextFragment.FragmentType.STRING
+                                    && f instanceof ContextFragment.StringFragment sf
+                                    && desc.equals(sf.description())))
+                    .map(ContextFragment::id)
+                    .toList();
 
-        // Only add a new BuildFragment if the build failed
-        if (success) {
-            return;
-        }
+            var modified = idsToDrop.isEmpty() ? currentLiveCtx : currentLiveCtx.removeFragmentsByIds(idsToDrop);
 
-        var bf = new ContextFragment.BuildFragment(this, buildOutput);
-        addVirtualFragment(bf);
+            if (success) {
+                logger.debug(
+                        "Cleared {} previous build fragment(s); build succeeded so not adding new results.",
+                        idsToDrop.size());
+                return modified;
+            }
+
+            var sf = new ContextFragment.StringFragment(
+                    this, buildOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
+
+            logger.debug(
+                    "Cleared {} previous build fragment(s); added new build results StringFragment {}",
+                    idsToDrop.size(),
+                    sf.id());
+            return modified.addVirtualFragment(sf);
+        });
     }
 
     @Override
     public String getProcessedBuildOutput() {
-        return liveContext()
+        // Prefer new StringFragment with the BUILD_RESULTS description
+        var latestString = liveContext()
                 .virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG)
-                .findFirst()
-                .map(f -> {
-                    var bf = (ContextFragment.BuildFragment) f;
-                    // Extract content without the "# CURRENT BUILD STATUS\n\n" header
-                    String fullText = bf.text();
-                    String header = "# CURRENT BUILD STATUS\n\n";
-                    if (fullText.startsWith(header)) {
-                        return fullText.substring(header.length());
-                    }
-                    return fullText;
-                })
-                .orElse("");
+                .filter(f -> f.getType() == ContextFragment.FragmentType.STRING)
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .filter(sf -> sf.description().equals(ContextFragment.BUILD_RESULTS.description()))
+                .findFirst();
+
+        if (latestString.isPresent()) {
+            return latestString.get().text();
+        }
+        return "";
     }
 
     /**
@@ -1202,7 +1225,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
         var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Added uses of " + identifier + (includeTestFiles ? " (including tests)" : ""));
+        String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
     public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
@@ -1223,7 +1247,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     "Source code for " + codeUnit.fqName(),
                     codeUnit.source().getSyntaxStyle());
             pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-            io.systemOutput("Add source code for " + codeUnit.shortName());
+            String message = "Add source code for " + codeUnit.shortName();
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         } else {
             // Notify user of failed source capture
             SwingUtilities.invokeLater(() -> {
@@ -1238,23 +1263,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
-            io.systemOutput("No callers found for " + methodName + " (pre-check).");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + " (pre-check).");
             return;
         }
         var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, false);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Add call graph for callers of " + methodName + " with depth " + depth);
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Add call graph for callers of " + methodName + " with depth " + depth);
     }
 
     /** callees for method */
     public void calleesForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
-            io.systemOutput("No callees found for " + methodName + " (pre-check).");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + " (pre-check).");
             return;
         }
         var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, true);
         pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
-        io.systemOutput("Add call graph for methods called by " + methodName + " with depth " + depth);
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Add call graph for methods called by " + methodName + " with depth " + depth);
     }
 
     /** parse stacktrace */
@@ -1314,7 +1345,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var fileSummaryFragment = new ContextFragment.SkeletonFragment(
                     this, filePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass IContextManager
             addVirtualFragment(fileSummaryFragment);
-            io.systemOutput("Summarize " + joinFilesForOutput(files));
+            String message = "Summarize " + joinFilesForOutput(files);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
             summariesAdded = true;
         }
 
@@ -1323,7 +1355,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var classSummaryFragment = new ContextFragment.SkeletonFragment(
                     this, classFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass IContextManager
             addVirtualFragment(classSummaryFragment);
-            io.systemOutput("Summarize " + joinClassesForOutput(classFqns));
+            String message = "Summarize " + joinClassesForOutput(classFqns);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
             summariesAdded = true;
         }
         if (!summariesAdded) {
@@ -1469,6 +1502,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextGenerator A function that takes the current live context and returns an updated context.
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
+    @Override
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var oldLiveContext = liveContext();
         var newLiveContext = contextHistory.push(contextGenerator);
@@ -1479,7 +1513,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         contextPushed(contextHistory.topContext());
 
-        // Auto-compress conversation history if enabled and exceeds 10% of the context window
+        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window
         if (MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
@@ -1489,7 +1523,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var svc = getService();
                 var model = getCodeModel();
                 int maxInputTokens = svc.getMaxInputTokens(model);
-                if (tokenCount > (int) Math.ceil(maxInputTokens * 0.10)) {
+                double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
+                if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
                     compressHistoryAsync();
                 }
             } catch (ServiceWrapper.ServiceInitializationException e) {
@@ -1661,7 +1696,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // No details found, run the BuildAgent asynchronously
         buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
-            io.systemOutput("Inferring project build details");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
 
             // Check if task was cancelled before starting
             if (Thread.currentThread().isInterrupted()) {
@@ -1701,7 +1736,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
             }
 
-            io.systemOutput("Build details inferred and saved");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
             return inferredDetails;
         });
     }
@@ -1766,14 +1801,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         submitBackgroundTask("Generating style guide", () -> {
             try {
-                io.systemOutput("Generating project style guide...");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
                 var topClasses = AnalyzerUtil.combinedRankingFor(project, Map.of()).stream()
                         .limit(10)
                         .toList();
 
                 if (topClasses.isEmpty()) {
-                    io.systemOutput("No classes found via PageRank for style guide generation.");
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "No classes found via PageRank for style guide generation.");
                     project.saveStyleGuide(
                             "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n");
                     return null;
@@ -1815,7 +1852,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
 
                 if (codeForLLM.isEmpty()) {
-                    io.systemOutput("No relevant code found for style guide generation");
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
                     return null;
                 }
 
@@ -1835,19 +1873,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 var result = getLlm(getSearchModel(), "Generate style guide").sendRequest(messages);
                 if (result.error() != null) {
-                    io.systemOutput(
-                            "Failed to generate style guide: " + result.error().getMessage());
+                    String message =
+                            "Failed to generate style guide: " + result.error().getMessage();
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     project.saveStyleGuide("# Style Guide\n\n(Generation failed)\n");
                     return null;
                 }
                 var styleGuide = result.text();
                 if (styleGuide.isBlank()) {
-                    io.systemOutput("LLM returned empty style guide.");
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
                     project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
                     return null;
                 }
                 project.saveStyleGuide(styleGuide);
-                io.systemOutput("Style guide generated and saved to .brokk/style.md");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to .brokk/style.md");
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
             }
@@ -1862,7 +1902,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
-        io.systemOutput("Review guide created at .brokk/review.md");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
     }
 
     /**
@@ -2516,11 +2556,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Operate on the task history
             var taskHistoryToCompress = topContext().getTaskHistory();
             if (taskHistoryToCompress.isEmpty()) {
-                io.systemOutput("No history to compress.");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
                 return;
             }
 
-            io.systemOutput("Compressing conversation history...");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
             List<TaskEntry> compressedTaskEntries = taskHistoryToCompress.parallelStream()
                     .map(this::compressHistory)
@@ -2530,14 +2570,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
 
             if (!changed) {
-                io.systemOutput("History is already compressed.");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
                 return;
             }
 
             // pushContext will update liveContext with the compressed history
             // and add a frozen version to contextHistory.
             pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
-            io.systemOutput("Task history compressed successfully.");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
         }

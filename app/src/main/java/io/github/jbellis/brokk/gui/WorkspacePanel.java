@@ -7,6 +7,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
@@ -449,7 +450,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Immutable record containing description text and associated file references */
-    public static record DescriptionWithReferences(
+    public record DescriptionWithReferences(
             String description,
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences,
             ContextFragment fragment) {
@@ -490,9 +491,6 @@ public class WorkspacePanel extends JPanel {
 
             // Extract data from the DescriptionWithReferences record
             DescriptionWithReferences data = (DescriptionWithReferences) value;
-            if (data == null) {
-                return panel; // Return empty panel if no data
-            }
 
             String description = data.description();
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
@@ -604,11 +602,7 @@ public class WorkspacePanel extends JPanel {
 
         public PopupBuilder add(List<Action> actions) {
             for (var action : actions) {
-                if (action == null) {
-                    popup.addSeparator();
-                } else {
-                    popup.add(new JMenuItem(action));
-                }
+                popup.add(new JMenuItem(action));
             }
             return this;
         }
@@ -667,6 +661,9 @@ public class WorkspacePanel extends JPanel {
     // Buttons
     // Table popup menu (when no row is selected)
     private JPopupMenu tablePopupMenu;
+
+    // Right-side action buttons
+    private final MaterialButton dropSelectedButton = new MaterialButton();
 
     private static final String READ_ONLY_TIP = "Select latest activity to enable";
     private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
@@ -902,8 +899,7 @@ public class WorkspacePanel extends JPanel {
                 if (popupMenuMode == PopupMenuMode.COPY_ONLY) {
                     if (row >= 0) {
                         if (contextTable.getSelectedRowCount() == 0
-                                || !Arrays.stream(contextTable.getSelectedRows())
-                                        .anyMatch(r -> r == row)) {
+                                || Arrays.stream(contextTable.getSelectedRows()).noneMatch(r -> r == row)) {
                             contextTable.setRowSelectionInterval(row, row);
                         }
                         JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
@@ -950,6 +946,13 @@ public class WorkspacePanel extends JPanel {
         // Set selection mode to allow multiple selection
         contextTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
+        // Update drop button enablement on selection changes
+        contextTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateDropSelectedButtonEnabled();
+            }
+        });
+
         // Install custom TransferHandler for copy operations and file-list drop import from ProjectTree
         final TransferHandler fileListDropHandler = new TransferHandler() {
             @Override
@@ -970,8 +973,7 @@ public class WorkspacePanel extends JPanel {
             @Override
             public boolean canImport(TransferSupport support) {
                 // Accept file list drops only
-                boolean isFileList = support.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
-                return isFileList;
+                return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
             }
 
             @Override
@@ -989,7 +991,7 @@ public class WorkspacePanel extends JPanel {
                     @SuppressWarnings("unchecked")
                     List<File> files =
                             (List<File>) support.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
-                    if (files == null || files.isEmpty()) {
+                    if (files.isEmpty()) {
                         return false;
                     }
 
@@ -1010,12 +1012,12 @@ public class WorkspacePanel extends JPanel {
                                 }
                                 return inside;
                             })
-                            .map(p -> projectRoot.relativize(p))
+                            .map(projectRoot::relativize)
                             .map(rel -> new ProjectFile(projectRoot, rel))
                             .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
 
                     if (projectFiles.isEmpty()) {
-                        chrome.systemOutput("No project files found in drop");
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No project files found in drop");
                         return false;
                     }
 
@@ -1035,7 +1037,7 @@ public class WorkspacePanel extends JPanel {
                     }
                     var selection = DropActionDialog.show(chrome.getFrame(), canSummarize, pointer);
                     if (selection == null) {
-                        chrome.systemOutput("Drop canceled");
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Drop canceled");
                         return false;
                     }
                     switch (selection) {
@@ -1051,8 +1053,7 @@ public class WorkspacePanel extends JPanel {
                             }
                             contextManager.submitContextTask(() -> {
                                 contextManager.addSummaries(
-                                        new java.util.HashSet<ProjectFile>(projectFiles),
-                                        Collections.<CodeUnit>emptySet());
+                                        new java.util.HashSet<>(projectFiles), Collections.emptySet());
                             });
                         }
                         default -> {
@@ -1151,21 +1152,42 @@ public class WorkspacePanel extends JPanel {
             addButton.addActionListener(e -> {
                 attachContextViaDialog();
             });
-            // Keyboard shortcut: Cmd/Ctrl+Shift+A opens the Attach Context dialog
+            // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
             KeyboardShortcutUtil.registerGlobalShortcut(
                     WorkspacePanel.this,
                     KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
                     "attachContext",
-                    () -> SwingUtilities.invokeLater(() -> {
-                        attachContextViaDialog();
-                    }));
+                    () -> SwingUtilities.invokeLater(this::attachContextViaDialog));
 
-            // Wrap the button so it vertically centers nicely with the labels
+            // Create a trash button to drop selected fragment(s)
+            dropSelectedButton.setIcon(Icons.TRASH);
+            dropSelectedButton.setToolTipText("Drop selected item(s) from workspace");
+            dropSelectedButton.setFocusable(false);
+            dropSelectedButton.setOpaque(false);
+            dropSelectedButton.addActionListener(e -> {
+                var fragsToDrop = getSelectedFragments();
+                if (fragsToDrop.isEmpty()) {
+                    // No-op if no selection; enable state prevents this in normal flow.
+                    return;
+                }
+                performContextActionAsync(ContextAction.DROP, fragsToDrop);
+            });
+
+            // Panel to hold buttons with horizontal gap
+            var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
+            buttonsPanel.setOpaque(false);
+            buttonsPanel.add(addButton);
+            buttonsPanel.add(dropSelectedButton);
+
+            // Wrap the buttons so they vertically center nicely with the labels
             var buttonWrapper = new JPanel(new GridBagLayout());
             buttonWrapper.setOpaque(false);
-            buttonWrapper.add(addButton);
+            buttonWrapper.add(buttonsPanel);
 
             summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
+
+            // Initialize the enabled state according to selection/editability
+            updateDropSelectedButtonEnabled();
         }
 
         contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
@@ -1258,11 +1280,11 @@ public class WorkspacePanel extends JPanel {
 
             private void handleScrollPanePopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    // Use the scroll pane directly instead of getting it from the layered pane
-                    var scrollPane = tableScrollPane;
                     // Get the event point in view coordinates
                     var viewPoint = SwingUtilities.convertPoint(
-                            scrollPane, e.getPoint(), scrollPane.getViewport().getView());
+                            tableScrollPane,
+                            e.getPoint(),
+                            tableScrollPane.getViewport().getView());
 
                     // If the click is in the table and on a row, let the table's listener handle it
                     if (contextTable.getRowCount() > 0) {
@@ -1273,7 +1295,7 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // Otherwise show the table popup menu
-                    tablePopupMenu.show(scrollPane, e.getX(), e.getY());
+                    tablePopupMenu.show(tableScrollPane, e.getX(), e.getY());
                 }
             }
         };
@@ -1490,15 +1512,10 @@ public class WorkspacePanel extends JPanel {
     /** Returns true if all files from the fragments are tracked project files */
     private boolean allTrackedProjectFiles(List<ContextFragment> fragments) {
         var project = contextManager.getProject();
-        var allFiles = fragments.stream()
-                .flatMap(frag -> frag.files().stream())
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+        var allFiles = fragments.stream().flatMap(frag -> frag.files().stream()).collect(Collectors.toSet());
 
         return !allFiles.isEmpty()
                 && allFiles.stream()
-                        .filter(ProjectFile.class::isInstance)
-                        .map(ProjectFile.class::cast)
                         .allMatch(pf -> pf.exists()
                                 && project.getRepo().getTrackedFiles().contains(pf));
     }
@@ -1525,7 +1542,7 @@ public class WorkspacePanel extends JPanel {
                                 file.getFileName(), file.toString(), file))
                         .distinct()
                         .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-                        .collect(Collectors.toList());
+                        .toList();
 
                 if (!fileReferences.isEmpty()) {
                     // We need to determine if the click was specifically on a badge
@@ -1576,10 +1593,10 @@ public class WorkspacePanel extends JPanel {
                         && !selection.symbol().isBlank()) {
                     contextManager.usageForIdentifier(selection.symbol(), selection.includeTestFiles());
                 } else {
-                    chrome.systemOutput("No symbol selected.");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No symbol selected.");
                 }
             } catch (CancellationException cex) {
-                chrome.systemOutput("Symbol selection canceled.");
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Symbol selection canceled.");
             }
             // No finally needed, submitContextTask handles enabling buttons
         });
@@ -1601,18 +1618,19 @@ public class WorkspacePanel extends JPanel {
 
                 var dialog = showCallGraphDialog("Select Method", true);
                 if (dialog == null || !dialog.isConfirmed()) { // Check confirmed state
-                    chrome.systemOutput("No method selected.");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No method selected.");
                 } else {
                     var selectedMethod = dialog.getSelectedMethod();
                     var callGraph = dialog.getCallGraph();
                     if (selectedMethod != null && callGraph != null) {
                         contextManager.addCallersForMethod(selectedMethod, dialog.getDepth(), callGraph);
                     } else {
-                        chrome.systemOutput("Method selection incomplete or cancelled.");
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Method selection incomplete or cancelled.");
                     }
                 }
             } catch (CancellationException cex) {
-                chrome.systemOutput("Method selection canceled.");
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Method selection canceled.");
             }
             // No finally needed, submitContextTask handles enabling buttons
         });
@@ -1634,18 +1652,19 @@ public class WorkspacePanel extends JPanel {
 
                 var dialog = showCallGraphDialog("Select Method for Callees", false);
                 if (dialog == null || !dialog.isConfirmed()) {
-                    chrome.systemOutput("No method selected.");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No method selected.");
                 } else {
                     var selectedMethod = dialog.getSelectedMethod();
                     var callGraph = dialog.getCallGraph();
                     if (selectedMethod != null && callGraph != null) {
                         contextManager.calleesForMethod(selectedMethod, dialog.getDepth(), callGraph);
                     } else {
-                        chrome.systemOutput("Method selection incomplete or cancelled.");
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Method selection incomplete or cancelled.");
                     }
                 }
             } catch (CancellationException cex) {
-                chrome.systemOutput("Method selection canceled.");
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Method selection canceled.");
             }
             // No finally needed, submitContextTask handles enabling buttons
         });
@@ -1702,7 +1721,7 @@ public class WorkspacePanel extends JPanel {
                     case RUN_TESTS -> doRunTestsAction(selectedFragments);
                 }
             } catch (CancellationException cex) {
-                chrome.systemOutput(action + " canceled.");
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, action + " canceled.");
             } finally {
                 SwingUtilities.invokeLater(chrome::focusInput);
             }
@@ -1723,7 +1742,7 @@ public class WorkspacePanel extends JPanel {
         var sel = new java.awt.datatransfer.StringSelection(content);
         var cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
         cb.setContents(sel, sel);
-        chrome.systemOutput("Content copied to clipboard");
+        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
     }
 
     private String getSelectedContent(List<? extends ContextFragment> selectedFragments) {
@@ -1802,7 +1821,7 @@ public class WorkspacePanel extends JPanel {
 
                     if (image != null) {
                         contextManager.addPastedImageFragment(image);
-                        chrome.systemOutput("Pasted image added to context");
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pasted image added to context");
                         return;
                     }
                 }
@@ -1849,18 +1868,22 @@ public class WorkspacePanel extends JPanel {
                     // Try to handle as image URL first
                     if (ImageUtil.isImageUri(uri, httpClient)) {
                         try {
-                            chrome.systemOutput("Fetching image from " + clipboardText);
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO, "Fetching image from " + clipboardText);
                             java.awt.Image image = ImageUtil.downloadImage(uri, httpClient);
                             if (image != null) {
                                 contextManager.addPastedImageFragment(image);
-                                chrome.systemOutput("Pasted image from URL added to context");
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "Pasted image from URL added to context");
                                 chrome.actionComplete();
                                 return; // Image handled, done with paste action
                             } else {
                                 logger.warn(
                                         "URL {} identified as image by ImageUtil, but downloadImage returned null. Falling back to text.",
                                         clipboardText);
-                                chrome.systemOutput("Could not load image from URL. Trying to fetch as text.");
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO,
+                                        "Could not load image from URL. Trying to fetch as text.");
                             }
                         } catch (
                                 Exception e) { // Catching general exception as downloadImage might throw various things
@@ -1869,7 +1892,8 @@ public class WorkspacePanel extends JPanel {
                                     "Failed to fetch or decode image from URL {}: {}. Falling back to text.",
                                     clipboardText,
                                     e.getMessage());
-                            chrome.systemOutput(
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
                                     "Failed to load image from URL: " + e.getMessage() + ". Trying to fetch as text.");
                             // Fall through to fetching as text
                         }
@@ -1877,7 +1901,8 @@ public class WorkspacePanel extends JPanel {
 
                     // Fallback: If not an image URL or image fetching failed, try to fetch as text
                     try {
-                        chrome.systemOutput("Fetching content from " + clipboardText);
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Fetching content from " + clipboardText);
                         content = WorkspaceTools.fetchUrlContent(uri);
                         content = HtmlToMarkdown.maybeConvertToMarkdown(content);
                         wasUrl = true;
@@ -1902,7 +1927,7 @@ public class WorkspacePanel extends JPanel {
             if (stacktrace == null) {
                 // addStackTraceFragment sends its own messages
                 String message = wasUrl ? "URL content fetched and added" : "Clipboard content added as text";
-                chrome.systemOutput(message);
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, message);
             }
         } else {
             chrome.toolError("Unsupported clipboard content type");
@@ -1916,14 +1941,26 @@ public class WorkspacePanel extends JPanel {
             }
             contextManager.dropAll();
             contextManager.setSelectedContext(contextManager.topContext());
-        } else {
-            for (var frag : selectedFragments) {
-                if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
-                    contextManager.clearHistory();
-                    break;
-                }
-            }
+            return;
+        }
 
+        boolean hasHistory =
+                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
+
+        if (hasHistory) {
+            // 1) Clear task history if any HISTORY fragment is included
+            contextManager.clearHistory();
+
+            // 2) Drop only the non-HISTORY fragments, if any
+            var nonHistory = selectedFragments.stream()
+                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                    .toList();
+
+            if (!nonHistory.isEmpty()) {
+                contextManager.drop(nonHistory);
+            }
+        } else {
+            // 3) No HISTORY fragments in the selection: keep existing behavior
             contextManager.drop(selectedFragments); // Use the new ID-based method
         }
     }
@@ -2026,7 +2063,7 @@ public class WorkspacePanel extends JPanel {
         // FIXME: prefer classes where available (more selective)
         selectedFragments.stream().flatMap(frag -> frag.files().stream()).forEach(selectedFiles::add);
 
-        if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
+        if (selectedFiles.isEmpty()) {
             chrome.toolError("No files or classes identified for summarization in the selection.");
             return;
         }
@@ -2254,6 +2291,7 @@ public class WorkspacePanel extends JPanel {
             repaint();
 
             refreshMenuState();
+            updateDropSelectedButtonEnabled();
         });
     }
 
@@ -2319,6 +2357,26 @@ public class WorkspacePanel extends JPanel {
         this.dropAllMenuItem = dropAllMenuItem;
     }
 
+    /** Enable/disable the Drop Selected button based on selection and workspace state. */
+    private void updateDropSelectedButtonEnabled() {
+        boolean hasSelection = contextTable.getSelectedRowCount() > 0;
+        boolean editable = workspaceCurrentlyEditable;
+        boolean onLatest = isOnLatestContext();
+
+        boolean enabled = editable && onLatest && hasSelection;
+        dropSelectedButton.setEnabled(enabled);
+
+        if (!editable) {
+            dropSelectedButton.setToolTipText(READ_ONLY_TIP);
+        } else if (!onLatest) {
+            dropSelectedButton.setToolTipText("Drop is only available when viewing the latest context");
+        } else if (!hasSelection) {
+            dropSelectedButton.setToolTipText("Select item(s) to drop");
+        } else {
+            dropSelectedButton.setToolTipText("Drop selected item(s) from workspace");
+        }
+    }
+
     private void refreshMenuState() {
         var editable = workspaceCurrentlyEditable;
 
@@ -2350,6 +2408,9 @@ public class WorkspacePanel extends JPanel {
         if (dropAllMenuItem != null) {
             dropAllMenuItem.setEnabled(true);
         }
+
+        // Update drop-selected button
+        updateDropSelectedButtonEnabled();
     }
 
     @Override
@@ -2367,24 +2428,20 @@ public class WorkspacePanel extends JPanel {
     private void registerGlobalAttachDispatcher() {
         if (globalAttachDispatcher != null) return;
 
-        globalAttachDispatcher = new KeyEventDispatcher() {
-            @Override
-            public boolean dispatchKeyEvent(KeyEvent e) {
-                if (e.getID() != KeyEvent.KEY_PRESSED) return false;
+        globalAttachDispatcher = e -> {
+            if (e.getID() != KeyEvent.KEY_PRESSED) return false;
 
-                int mods = e.getModifiersEx();
-                int shortcutMask =
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // Cmd on macOS, Ctrl elsewhere
-                boolean hasShortcut = (mods & shortcutMask) != 0;
-                boolean hasShift = (mods & InputEvent.SHIFT_DOWN_MASK) != 0;
+            int mods = e.getModifiersEx();
+            int shortcutMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // Cmd on macOS, Ctrl elsewhere
+            boolean hasShortcut = (mods & shortcutMask) != 0;
+            boolean hasShift = (mods & InputEvent.SHIFT_DOWN_MASK) != 0;
 
-                if (hasShortcut && hasShift && e.getKeyCode() == KeyEvent.VK_I) {
-                    SwingUtilities.invokeLater(() -> attachContextViaDialog());
-                    // Consume the event so focused components (e.g., terminal) don't handle it
-                    return true;
-                }
-                return false;
+            if (hasShortcut && hasShift && e.getKeyCode() == KeyEvent.VK_I) {
+                SwingUtilities.invokeLater(() -> attachContextViaDialog());
+                // Consume the event so focused components (e.g., terminal) don't handle it
+                return true;
             }
+            return false;
         };
 
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(globalAttachDispatcher);

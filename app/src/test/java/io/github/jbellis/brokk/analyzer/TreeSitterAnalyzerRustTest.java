@@ -22,7 +22,7 @@ public class TreeSitterAnalyzerRustTest {
     // Helper to normalize multiline strings for comparison (strips leading/trailing whitespace from each line and
     // joins)
     private static final java.util.function.Function<String, String> normalizeSource =
-            (String s) -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
+            s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
     @BeforeAll
     static void setup() {

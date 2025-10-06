@@ -7,7 +7,6 @@ import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +65,7 @@ public final class HeadlessConsole implements IConsoleIO {
     }
 
     @Override
-    public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
+    public void showNotification(NotificationRole role, String message) {
         String prefix =
                 switch (role) {
                     case ERROR -> "[ERROR] ";
@@ -74,7 +73,7 @@ public final class HeadlessConsole implements IConsoleIO {
                     case COST -> "[COST] ";
                     case INFO -> "[INFO] ";
                 };
-        if (role == HistoryOutputPanel.NotificationRole.ERROR) {
+        if (role == IConsoleIO.NotificationRole.ERROR) {
             System.err.println(prefix + message);
         } else {
             System.out.println(prefix + message);

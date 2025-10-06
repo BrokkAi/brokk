@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
-import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
 public class UTF8ByteOffsetTest {
@@ -29,13 +28,13 @@ public class UTF8ByteOffsetTest {
             """;
 
         // Parse with TreeSitter
-        TSParser parser = new TSParser();
+        var parser = new TSParser();
         parser.setLanguage(new TreeSitterJava());
-        TSTree tree = parser.parseString(null, javaCodeWithUnicode);
-        TSNode root = tree.getRootNode();
+        var tree = parser.parseString(null, javaCodeWithUnicode);
+        var root = tree.getRootNode();
 
         // Find the class declaration node
-        TSNode classNode = findNodeByType(root, "class_declaration");
+        var classNode = findNodeByType(root, "class_declaration");
         assertNotNull(classNode, "Should find class declaration");
 
         // Get byte offsets from TreeSitter (this is what TreeSitter provides)
@@ -94,12 +93,12 @@ public class UTF8ByteOffsetTest {
             }
             """;
 
-        TSParser parser = new TSParser();
+        var parser = new TSParser();
         parser.setLanguage(new TreeSitterJava());
-        TSTree tree = parser.parseString(null, codeWithManyUnicode);
-        TSNode root = tree.getRootNode();
+        var tree = parser.parseString(null, codeWithManyUnicode);
+        var root = tree.getRootNode();
 
-        TSNode classNode = findNodeByType(root, "class_declaration");
+        var classNode = findNodeByType(root, "class_declaration");
         assertNotNull(classNode);
 
         int startByte = classNode.getStartByte();
@@ -134,9 +133,9 @@ public class UTF8ByteOffsetTest {
         }
 
         for (int i = 0; i < root.getChildCount(); i++) {
-            TSNode child = root.getChild(i);
+            var child = root.getChild(i);
             if (child != null && !child.isNull()) {
-                TSNode result = findNodeByType(child, nodeType);
+                var result = findNodeByType(child, nodeType);
                 if (result != null) {
                     return result;
                 }
