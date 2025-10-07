@@ -11,6 +11,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Image;
+import java.awt.Cursor;
 import java.awt.Insets;
 import java.awt.Graphics2D;
 import java.awt.event.MouseAdapter;
@@ -167,6 +168,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             if (d == null) d = "";
             sb.append(htmlEscape(d));
         }
+        // Add preview hint
+        if (sb.length() > 0) {
+            sb.append("<br/><br/><i>Click to preview contents</i>");
+        } else {
+            sb.append("<i>Click to preview contents</i>");
+        }
         return wrapTooltipHtml(sb.toString(), 420);
     }
 
@@ -180,6 +187,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         if (d == null) d = "";
         // Preserve existing newlines as line breaks for readability
         String html = htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
+        html = html + "<br/><br/><i>Click to preview contents</i>";
         return wrapTooltipHtml(html, 420);
     }
 
@@ -249,6 +257,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         } catch (Exception ignored) {
             // Defensive: avoid issues if any accessor fails
         }
+
+        // Make label clickable to open preview
+        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        label.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                    chrome.openFragmentPreview(fragment);
+                }
+            }
+        });
 
         var originalIcon = Icons.CLOSE;
 
@@ -323,6 +342,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             @Override
             public void mouseReleased(MouseEvent e) {
                 maybeShowPopup(e);
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                // Open preview on left-click anywhere on the chip (excluding close button which handles its own events)
+                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                    chrome.openFragmentPreview(fragment);
+                }
             }
 
             private void maybeShowPopup(MouseEvent e) {
