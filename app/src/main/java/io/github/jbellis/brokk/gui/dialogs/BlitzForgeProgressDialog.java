@@ -271,11 +271,6 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
         if (errorMessage != null && !errorMessage.isBlank()) {
             chrome.toolError(errorMessage, "Processing Error");
-        } else {
-            // Emit as a new AI message in the main UI stream, preserving previous behavior
-            if (!llmOutput.isBlank()) {
-                chrome.llmOutput(llmOutput, ChatMessageType.AI, true, false);
-            }
         }
     }
 

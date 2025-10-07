@@ -1481,6 +1481,7 @@ String contextFilter = contextFilterTextField.getText().trim();
                 try {
                     var quickestModel = cm.getService().quickestModel();
                     var filterLlm = cm.getLlm(quickestModel, "ContextFilter");
+                    filterLlm.setOutput(dialogIo);
                     boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, llmOutput);
                     if (!keep) {
                         llmOutput = "";
