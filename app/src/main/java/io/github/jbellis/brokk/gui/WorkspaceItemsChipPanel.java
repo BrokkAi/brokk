@@ -28,8 +28,7 @@ import org.jetbrains.annotations.Nullable;
  * Displays current workspace items as "chips" with a close button to remove them from the workspace.
  * Listens to context changes and updates itself accordingly.
  */
-public class WorkspaceItemsChipPanel extends JPanel
-        implements IContextManager.ContextListener, ThemeAware {
+public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -40,11 +39,6 @@ public class WorkspaceItemsChipPanel extends JPanel
         setOpaque(false);
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
-        this.contextManager.addContextListener(this);
-
-        // Initialize with the current context
-        var fragments = contextManager.topContext().getAllFragmentsInDisplayOrder();
-        SwingUtilities.invokeLater(() -> updateChips(fragments));
     }
 
     /**
@@ -63,11 +57,6 @@ public class WorkspaceItemsChipPanel extends JPanel
         this.onRemoveFragment = listener;
     }
 
-    @Override
-    public void contextChanged(Context newCtx) {
-        var fragments = newCtx.getAllFragmentsInDisplayOrder();
-        SwingUtilities.invokeLater(() -> updateChips(fragments));
-    }
 
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
