@@ -106,6 +106,83 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         return isDarkColor(bg) ? Color.WHITE : Color.BLACK;
     }
 
+    // Tooltip helpers
+    private static String htmlEscape(String s) {
+        String out = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        // Normalize whitespace a bit for readability
+        out = out.replace("\t", "    ");
+        return out;
+    }
+
+    private static String wrapTooltipHtml(String innerHtml, int maxWidthPx) {
+        // Use Swing's HTML renderer with a width style to enable wrapping.
+        // The BasicHTML engine respects width on body in practice.
+        return "<html><body style='width: " + maxWidthPx + "px'>" + innerHtml + "</body></html>";
+    }
+
+    private static String[] summaryLinesFrom(ContextFragment fragment) {
+        String desc;
+        try {
+            desc = fragment.description();
+        } catch (Exception e) {
+            desc = fragment.shortDescription();
+        }
+        if (desc == null) desc = "";
+        // Split on CRLF/CR/LF
+        String[] raw = desc.split("\\R");
+        // Trim lines but keep empty filtering decisions for counting and display
+        for (int i = 0; i < raw.length; i++) {
+            raw[i] = raw[i].trim();
+        }
+        return raw;
+    }
+
+
+    private static String buildSummaryLabel(ContextFragment fragment) {
+        int n = (int) fragment.files().stream()
+                .map(f -> f.toString())
+                .distinct()
+                .count();
+        return "Summary" + (n > 0 ? " (" + n + ")" : "");
+    }
+
+    private static String buildSummaryTooltip(ContextFragment fragment) {
+        String[] lines = summaryLinesFrom(fragment);
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (String s : lines) {
+            if (s.isBlank()) continue;
+            if (!first) sb.append("<br/>");
+            sb.append(htmlEscape(s));
+            first = false;
+        }
+        if (sb.length() == 0) {
+            // Fallback to any available description
+            String d;
+            try {
+                d = fragment.description();
+            } catch (Exception e) {
+                d = fragment.shortDescription();
+            }
+            if (d == null) d = "";
+            sb.append(htmlEscape(d));
+        }
+        return wrapTooltipHtml(sb.toString(), 420);
+    }
+
+    private static String buildDefaultTooltip(ContextFragment fragment) {
+        String d;
+        try {
+            d = fragment.description();
+        } catch (Exception e) {
+            d = fragment.shortDescription();
+        }
+        if (d == null) d = "";
+        // Preserve existing newlines as line breaks for readability
+        String html = htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
+        return wrapTooltipHtml(html, 420);
+    }
+
     private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
         ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
 
@@ -152,11 +229,23 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         var chip = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(true);
 
-        var label = new JLabel(fragment.shortDescription());
-        // Improve discoverability and accessibility
+        // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
+        ChipKind kindForLabel = classify(fragment);
+        String labelText = (kindForLabel == ChipKind.SUMMARY)
+                ? buildSummaryLabel(fragment)
+                : fragment.shortDescription();
+        var label = new JLabel(labelText);
+
+        // Improve discoverability and accessibility with wrapped HTML tooltips
         try {
-            label.setToolTipText(fragment.description());
-            label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            if (kindForLabel == ChipKind.SUMMARY) {
+                label.setToolTipText(buildSummaryTooltip(fragment));
+                // Accessible description: use the full (non-HTML) description
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            } else {
+                label.setToolTipText(buildDefaultTooltip(fragment));
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            }
         } catch (Exception ignored) {
             // Defensive: avoid issues if any accessor fails
         }
