@@ -80,7 +80,7 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
 
 
     @Override
-    public void onDone(TaskResult result) {
+    public void onComplete(TaskResult result) {
         // Summarize outcome
         var summary = new StringBuilder();
         summary.append("BlitzForge finished.\n")

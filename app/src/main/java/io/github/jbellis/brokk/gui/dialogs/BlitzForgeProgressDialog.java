@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -198,7 +197,7 @@ public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
 
 
     @Override
-    public void onDone(TaskResult result) {
+    public void onComplete(TaskResult result) {
         // Ensure UI updates run on EDT
         SwingUtilities.invokeLater(() -> {
             try {
@@ -213,16 +212,6 @@ public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
                 progressBar.setValue(progressBar.getMaximum());
                 progressBar.setString(String.format("Completed. %d of %d files processed.", progressBar.getMaximum(), progressBar.getMaximum()));
                 appendOutput("Parallel processing complete.");
-
-                // Append TaskResult to history (same UI plumbing as prior implementation)
-                ContextManager contextManager = chrome.getContextManager();
-                try (var scope = contextManager.beginTask(result.actionDescription(), true)) {
-                    scope.append(result);
-                }
-
-            } catch (Exception e) {
-                logger.error("Error finalizing BlitzForge dialog", e);
-                chrome.toolError("Error finalizing BlitzForge: " + e.getMessage(), "Error");
             } finally {
                 chrome.enableActionButtons();
             }
