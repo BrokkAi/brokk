@@ -32,6 +32,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
+import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
@@ -98,6 +99,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
+    private final JLabel tokenCostLabel;
     private String storedAction;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
@@ -301,8 +303,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
         modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
+        // Also recompute token/cost indicator when model changes
+        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
+
+        // Initialize compact token/cost indicator (left of Attach button)
+        tokenCostLabel = new JLabel(" ");
+        tokenCostLabel.setVisible(false);
+        tokenCostLabel.setOpaque(false);
+        tokenCostLabel.setBorder(new EmptyBorder(0, 4, 0, 8));
+        tokenCostLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -338,6 +349,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
         disableButtons();
+
+        // Initial compute of the token/cost indicator
+        updateTokenCostIndicator();
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -878,6 +892,84 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    /** Recomputes the compact token/cost indicator to mirror the Workspace panel summary. Safe to call from any thread. */
+    private void updateTokenCostIndicator() {
+        var ctx = chrome.getContextManager().selectedContext();
+        if (ctx == null || ctx.isEmpty()) {
+            SwingUtilities.invokeLater(() -> {
+                tokenCostLabel.setText(" ");
+                tokenCostLabel.setVisible(false);
+            });
+            return;
+        }
+
+        // Build full text of current context, similar to WorkspacePanel
+        var allFragments = ctx.getAllFragmentsInDisplayOrder();
+        var fullText = new StringBuilder();
+        int totalLines = 0;
+        for (var frag : allFragments) {
+            if (frag.isText() || frag.getType().isOutput()) {
+                var text = frag.text();
+                fullText.append(text).append("\n");
+                int loc = text.split("\\r?\\n", -1).length;
+                totalLines += loc;
+            }
+        }
+
+        // Capture totals for lambda usage
+        final int totalLinesFinal = totalLines;
+
+        // Compute tokens off-EDT
+        chrome.getContextManager()
+                .submitBackgroundTask("Compute token estimate (Instructions)", () -> Messages.getApproximateTokens(fullText.toString()))
+                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+                    try {
+                        var service = chrome.getContextManager().getService();
+                        var costEstimate = calculateCostEstimate(approxTokens, service);
+                        String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
+                        tokenCostLabel.setText("%,dK tokens \u2248 %s/req".formatted(approxTokens / 1000, costText));
+                        tokenCostLabel.setToolTipText(
+                                "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                                        .formatted(totalLinesFinal, approxTokens, costText));
+                        tokenCostLabel.setVisible(true);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to update token cost indicator", ex);
+                        tokenCostLabel.setVisible(false);
+                    }
+                }));
+    }
+
+    /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
+    private String calculateCostEstimate(int inputTokens, Service service) {
+        Service.ModelConfig config = getSelectedModel();
+
+        if (config.name().isBlank()) {
+            return "";
+        }
+
+        var model = service.getModel(config);
+        if (model instanceof Service.UnavailableStreamingModel) {
+            return "";
+        }
+
+        var pricing = service.getModelPricing(config.name());
+        if (pricing.bands().isEmpty()) {
+            return "";
+        }
+
+        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+        if (service.isReasoning(config)) {
+            estimatedOutputTokens += 1000;
+        }
+        double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
+
+        if (service.isFreeTier(config.name())) {
+            return "$0.00 (Free Tier)";
+        } else {
+            return String.format("$%.2f", estimatedCost);
+        }
+    }
+
     /**
      * Public hook to refresh branch UI (branch selector label and Project Files drawer title). Ensures EDT compliance
      * and no-ops if not a git project or selector not initialized.
@@ -991,6 +1083,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
+
+        // Token/cost indicator (to the left/"west" of the Attach Files button)
+        bottomPanel.add(tokenCostLabel);
+        bottomPanel.add(Box.createHorizontalStrut(4));
 
         // Attach button
         var attachButton = new MaterialButton();
@@ -1822,6 +1918,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var fragments = newCtx.getAllFragmentsInDisplayOrder();
         logger.debug("Context updated: {} fragments", fragments.size());
         workspaceItemsChipPanel.setFragments(fragments);
+        // Update compact token/cost indicator on context change
+        updateTokenCostIndicator();
     }
 
     void enableButtons() {
