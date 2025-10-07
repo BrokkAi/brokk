@@ -1,10 +1,7 @@
 package io.github.jbellis.brokk.agents;
 
-import static java.util.Objects.requireNonNull;
-
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.IConsoleIO;
@@ -16,10 +13,15 @@ import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.TokenAware;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -27,11 +29,11 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Core engine for parallel "BlitzForge" style processing of files. GUI-agnostic and reusable.
@@ -58,30 +60,13 @@ public final class BlitzForge {
     public interface Listener {
         default void onStart(int total) {}
         default void onFileStart(ProjectFile file) {}
-        default void onProgress(int processed, int total) {}
-        /** Provide a console for routing per-file LLM streaming output and notifications. */
-        default IConsoleIO getConsoleIO(ProjectFile file) {
-            return new IConsoleIO() {
-                @Override
-                public void toolError(String msg, String title) {
-                    // no-op default
-                }
-                @Override
-                public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-                    // no-op default
-                }
-                @Override
-                public java.util.List<dev.langchain4j.data.message.ChatMessage> getLlmRawMessages() {
-                    return java.util.List.of();
-                }
-            };
-        }
+        IConsoleIO getConsoleIO(ProjectFile file);
         default void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
         default void onDone(TaskResult result) {}
     }
 
     /** Configuration for a BlitzForge run. */
-    public static record RunConfig(
+    public record RunConfig(
             String instructions,
             @Nullable StreamingChatModel model,
             boolean includeWorkspace,
@@ -92,12 +77,10 @@ public final class BlitzForge {
             boolean buildFirst,
             String postProcessingInstructions,
             Action action) {
-
-        public RunConfig {}
     }
 
     /** Result of processing a single file. */
-    public static record FileResult(
+    public record FileResult(
             ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
 
     private final @Nullable IContextManager cm;
@@ -137,7 +120,7 @@ public final class BlitzForge {
         }
 
         // Sort by on-disk size ascending (smallest first)
-        var sortedFiles = files.stream().sorted(Comparator.comparingLong(f -> fileSize(f))).toList();
+        var sortedFiles = files.stream().sorted(Comparator.comparingLong(BlitzForge::fileSize)).toList();
 
         // Prepare executor
         final ExecutorService executor;
@@ -165,40 +148,35 @@ public final class BlitzForge {
                 results.add(fr);
                 ++processedCount;
                 listener.onFileResult(fr.file(), fr.edited(), fr.errorMessage(), fr.llmOutput());
-                listener.onProgress(processedCount, files.size());
                 startIdx = 1;
             }
 
             // Submit the rest using a completion service
             CompletionService<FileResult> completionService = new ExecutorCompletionService<>(executor);
+            HashMap<Future<FileResult>, ProjectFile> futureFiles = new HashMap<>();
             for (var file : sortedFiles.subList(startIdx, sortedFiles.size())) {
                 listener.onFileStart(file);
 
                 interface TokenAwareCallable extends Callable<FileResult>, TokenAware {}
 
-                completionService.submit(new TokenAwareCallable() {
+                var future = completionService.submit(new TokenAwareCallable() {
                     @Override
                     public int tokens() {
-                        // best-effort token budget estimate
-                        try {
-                            int fileTokens = Messages.getApproximateTokens(file.read().orElse(""));
-                            int workspaceTokens = 0;
-                            int historyTokens = 0;
-                            if (cm != null && config.includeWorkspace()) {
-                                var ctx = cm.topContext();
-                                workspaceTokens = Messages.getApproximateTokens(
-                                        CodePrompts.instance.getWorkspaceContentsMessages(ctx));
-                                var hist = cm.getHistoryMessages().stream().map(m -> (ChatMessage) m).toList();
-                                historyTokens = Messages.getApproximateTokens(hist);
-                            }
-                            int relatedAdd = 0;
-                            if (config.relatedK() != null && config.relatedK() > 0) {
-                                relatedAdd = Math.round((float) (fileTokens * (config.relatedK() * 0.1)));
-                            }
-                            return Math.max(1, fileTokens + workspaceTokens + historyTokens + relatedAdd);
-                        } catch (Exception e) {
-                            return 1;
+                        int fileTokens = Messages.getApproximateTokens(file.read().orElse(""));
+                        int workspaceTokens = 0;
+                        int historyTokens = 0;
+                        if (cm != null && config.includeWorkspace()) {
+                            var ctx = cm.topContext();
+                            workspaceTokens = Messages.getApproximateTokens(
+                                    CodePrompts.instance.getWorkspaceContentsMessages(ctx));
+                            var hist = cm.getHistoryMessages().stream().map(m -> (ChatMessage) m).toList();
+                            historyTokens = Messages.getApproximateTokens(hist);
                         }
+                        int relatedAdd = 0;
+                        if (config.relatedK() != null && config.relatedK() > 0) {
+                            relatedAdd = Math.round((float) (fileTokens * (config.relatedK() * 0.1)));
+                        }
+                        return Math.max(1, fileTokens + workspaceTokens + historyTokens + relatedAdd);
                     }
 
                     @Override
@@ -206,6 +184,7 @@ public final class BlitzForge {
                         return processor.apply(file);
                     }
                 });
+                futureFiles.put(future, file);
             }
 
             // Collect completions
@@ -214,26 +193,31 @@ public final class BlitzForge {
                 if (Thread.currentThread().isInterrupted()) {
                     return interruptedResult(processedCount, files);
                 }
+
+                Future<FileResult> fut;
                 try {
-                    var fut = completionService.take();
+                    fut = completionService.take();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return interruptedResult(processedCount, files);
+                }
+
+                try {
                     var res = fut.get();
                     results.add(res);
                     ++processedCount;
                     listener.onFileResult(res.file(), res.edited(), res.errorMessage(), res.llmOutput());
-                    listener.onProgress(processedCount, files.size());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return interruptedResult(processedCount, files);
                 } catch (ExecutionException e) {
                     var cause = e.getCause() == null ? e : e.getCause();
                     logger.error("Error during file processing", cause);
-                    // fabricate a failure for accounting using a best-effort association
-                    var fallbackFile = i < sortedFiles.size() ? sortedFiles.get(i) : sortedFiles.getLast();
-                    var failure = new FileResult(fallbackFile, false, "Execution error: " + cause.getMessage(), "");
+                    var source = futureFiles.get(fut);
+                    var failure = new FileResult(source, false, "Execution error: " + cause.getMessage(), "");
                     results.add(failure);
                     ++processedCount;
-                    listener.onFileResult(fallbackFile, false, failure.errorMessage(), "");
-                    listener.onProgress(processedCount, files.size());
+                    listener.onFileResult(source, false, failure.errorMessage(), "");
                 }
             }
         } finally {
@@ -242,7 +226,7 @@ public final class BlitzForge {
 
         // Aggregate results
         var changedFiles =
-                results.stream().filter(FileResult::edited).map(fr -> fr.file()).collect(Collectors.toSet());
+                results.stream().filter(FileResult::edited).map(FileResult::file).collect(Collectors.toSet());
 
         // Build output according to the configured ParallelOutputMode
         var outputStream = results.stream()
@@ -257,14 +241,9 @@ public final class BlitzForge {
                 .map(r -> "## " + r.file() + "\n" + r.llmOutput() + "\n\n")
                 .collect(Collectors.joining());
 
-        // For MERGE action, avoid injecting an extra UserMessage with instructions; only include AI output if any.
         List<ChatMessage> uiMessages;
         if (outputText.isBlank()) {
             uiMessages = List.of();
-        } else if (config.action() == Action.MERGE) {
-            uiMessages = List.of(
-                    CodePrompts.redactAiMessage(new AiMessage(outputText), EditBlockParser.instance)
-                            .orElse(new AiMessage("")));
         } else {
             uiMessages = List.of(
                     new UserMessage(config.instructions()),

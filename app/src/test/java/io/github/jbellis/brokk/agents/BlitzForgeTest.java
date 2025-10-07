@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import dev.langchain4j.model.chat.StreamingChatModel;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -12,6 +13,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.github.jbellis.brokk.cli.HeadlessConsole;
 import org.junit.jupiter.api.Test;
 
 class BlitzForgeTest {
@@ -30,7 +33,7 @@ class BlitzForgeTest {
         Files.writeString(f2.absPath(), "hello B");
 
         BlitzForge.RunConfig cfg = new BlitzForge.RunConfig(
-                "Do thing", (StreamingChatModel) null, false, null, null, "", BlitzForge.ParallelOutputMode.ALL, false, "",
+                "Do thing", null, false, null, null, "", BlitzForge.ParallelOutputMode.ALL, false, "",
                 BlitzForge.Action.CODE);
 
         class StubListener implements BlitzForge.Listener {
@@ -44,8 +47,8 @@ class BlitzForgeTest {
             }
 
             @Override
-            public void onProgress(int processed, int total) {
-                progresses.set(processed);
+            public IConsoleIO getConsoleIO(ProjectFile file) {
+                return new HeadlessConsole();
             }
 
             @Override
