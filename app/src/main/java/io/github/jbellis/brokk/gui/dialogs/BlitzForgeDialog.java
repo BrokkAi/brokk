@@ -25,7 +25,6 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
-import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.ScaledIcon;
@@ -1168,9 +1167,9 @@ public class BlitzForgeDialog extends JDialog {
         var selectedInclude = (String) parallelOutputCombo.getSelectedItem();
         var parallelOutputMode =
                 switch (selectedInclude) {
-                    case "Include none" -> ParallelOutputMode.NONE;
-                    case "Include changed files" -> ParallelOutputMode.CHANGED;
-                    default -> ParallelOutputMode.ALL;
+                    case "Include none" -> BlitzForge.ParallelOutputMode.NONE;
+                    case "Include changed files" -> BlitzForge.ParallelOutputMode.CHANGED;
+                    default -> BlitzForge.ParallelOutputMode.ALL;
                 };
         boolean buildFirst = buildFirstCheckbox.isSelected();
         String contextFilter = contextFilterTextField.getText().trim();

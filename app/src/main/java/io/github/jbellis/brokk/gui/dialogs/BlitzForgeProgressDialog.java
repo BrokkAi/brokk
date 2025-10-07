@@ -27,13 +27,6 @@ import java.util.stream.Collectors;
  */
 public final class BlitzForgeProgressDialog extends JDialog implements BlitzForge.Listener {
 
-    // Back-compat: nested enums expected by BlitzForgeDialog imports
-    public enum ParallelOutputMode {
-        NONE,
-        ALL,
-        CHANGED
-    }
-
     public enum PostProcessingOption {
         NONE,
         ASK,

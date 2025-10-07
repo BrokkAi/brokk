@@ -112,7 +112,7 @@ public final class BlitzForge {
         }
 
         // Sort by on-disk size ascending (smallest first)
-        var sortedFiles = files.stream().sorted(Comparator.comparingLong(f -> fileSize(f))).toList();
+        var sortedFiles = files.stream().sorted(Comparator.comparingLong(BlitzForge::fileSize)).toList();
 
         // Prepare executor
         final ExecutorService executor;
@@ -159,13 +159,13 @@ public final class BlitzForge {
                         int perFileCtxTokens = 0;
                         try {
                             var shared = config.sharedContext().get();
-                            sharedTokens = Messages.getApproximateTokens(shared == null ? "" : shared);
+                            sharedTokens = Messages.getApproximateTokens(shared);
                         } catch (Exception ignore) {
                             // ignore
                         }
                         try {
                             var pfc = config.perFileContext().get();
-                            perFileCtxTokens = Messages.getApproximateTokens(pfc == null ? "" : pfc);
+                            perFileCtxTokens = Messages.getApproximateTokens(pfc);
                         } catch (Exception ignore) {
                             // ignore
                         }
@@ -219,7 +219,7 @@ public final class BlitzForge {
 
         // Aggregate results
         var changedFiles =
-                results.stream().filter(FileResult::edited).map(r -> r.file()).collect(Collectors.toSet());
+                results.stream().filter(FileResult::edited).map(FileResult::file).collect(Collectors.toSet());
 
         // Build output according to the configured ParallelOutputMode
         var outputStream = results.stream()
