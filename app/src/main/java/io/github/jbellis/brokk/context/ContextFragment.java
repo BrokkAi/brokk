@@ -29,6 +29,8 @@ import java.util.stream.Stream;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
@@ -1238,6 +1240,7 @@ public interface ContextFragment {
     }
 
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
+        private static final Logger logger = LoggerFactory.getLogger(UsageFragment.class);
         private final String targetIdentifier;
         private final boolean includeTestFiles;
         private final @Nullable Map<CodeUnit, Long> persistedUsages;
@@ -1295,10 +1298,6 @@ public interface ContextFragment {
             this.includeTestFiles = includeTestFiles;
             this.persistedUsages =
                     (persistedUsages == null || persistedUsages.isEmpty()) ? null : Map.copyOf(persistedUsages);
-        }
-
-        public @Nullable Map<CodeUnit, Long> persistedUsages() {
-            return persistedUsages;
         }
 
         @Override
@@ -1362,7 +1361,16 @@ public interface ContextFragment {
                             || !ContextManager.isTestFile(e.getKey().source()))
                     .anyMatch(e -> {
                         long stored = e.getValue();
-                        long current = e.getKey().source().getLastModifiedTimeMillis();
+                        long current;
+                        var file = e.getKey().source();
+                        try {
+                            current = file.getLastModifiedTimeMillis();
+                        } catch (IOException ex) {
+                            logger.error(
+                                    "Unable to determine `mtime` for {}. Assuming file has been removed and will re-compute usages.",
+                                    file.getRelPath());
+                            return true;
+                        }
                         return current > stored;
                     });
 
