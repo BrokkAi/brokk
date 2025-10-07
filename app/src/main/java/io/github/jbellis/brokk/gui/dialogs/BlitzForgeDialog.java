@@ -1171,7 +1171,7 @@ public class BlitzForgeDialog extends JDialog {
                     case "Include changed files" -> BlitzForge.ParallelOutputMode.CHANGED;
                     default -> BlitzForge.ParallelOutputMode.ALL;
                 };
-        boolean buildFirst = buildFirstCheckbox.isSelected();
+//        boolean buildFirst = buildFirstCheckbox.isSelected();
         String contextFilter = contextFilterTextField.getText().trim();
         String postProcessingInstructions =
                 postProcessingInstructionsArea.getText().trim();

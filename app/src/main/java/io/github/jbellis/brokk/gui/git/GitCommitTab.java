@@ -56,6 +56,7 @@ public class GitCommitTab extends JPanel {
     private MaterialButton commitButton;
     private MaterialButton stashButton;
     private JPanel buttonPanel;
+    private JTextArea customInstructionsArea;
 
     @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
@@ -288,7 +289,24 @@ public class GitCommitTab extends JPanel {
         titledPanel.add(fileStatusPane, BorderLayout.CENTER);
         titledPanel.add(buttonPanel, BorderLayout.SOUTH);
 
+        // Custom Instructions panel
+        customInstructionsArea = new JTextArea(3, 20);
+        customInstructionsArea.setLineWrap(true);
+        customInstructionsArea.setWrapStyleWord(true);
+        customInstructionsArea.setText("""
+                Resolve ALL conflicts with the minimal change that preserves the
+                semantics of the changes made in both "theirs" and "ours."
+                """.stripIndent().trim());
+        var customScroll = new JScrollPane(customInstructionsArea);
+        customScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        customScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        var customPanel = new JPanel(new BorderLayout());
+        customPanel.setBorder(BorderFactory.createTitledBorder("Custom Instructions"));
+        customPanel.add(customScroll, BorderLayout.CENTER);
+
         add(titledPanel, BorderLayout.CENTER);
+        add(customPanel, BorderLayout.SOUTH);
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -821,6 +839,9 @@ public class GitCommitTab extends JPanel {
 
     /** Run MergeAgent using the InstructionsPanel-selected planning model and GPT-5-mini as code model. */
     private void runAiMerge(MergeAgent.MergeConflict conflict) {
+        assert SwingUtilities.isEventDispatchThread();
+        final String customInstructions = customInstructionsArea.getText();
+
         contextManager.submitExclusiveAction(() -> {
             var service = contextManager.getService();
 
@@ -831,7 +852,7 @@ public class GitCommitTab extends JPanel {
             var codeModel = requireNonNull(service.getModel(Service.GPT_5_MINI));
 
             try (var scope = contextManager.beginTask("AI Merge", false)) {
-                var agent = new MergeAgent(contextManager, planningModel, codeModel, conflict, scope);
+                var agent = new MergeAgent(contextManager, planningModel, codeModel, conflict, scope, customInstructions);
                 var result = agent.execute();
                 scope.append(result);
             } catch (Exception ex) {
