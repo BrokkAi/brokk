@@ -201,14 +201,12 @@ public final class GitWorkflow {
         var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI);
         var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
-        var maxTokens = service.getMaxInputTokens(modelToUse);
-        boolean useCommitMsgs = diff.length() / 3.0 > maxTokens * 0.9;
 
         // 3. Build messages
         List<ChatMessage> messages;
-        if (useCommitMsgs) {
+        if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
             var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
-            throwIfInterrupted(); // Check after potential Git operation
+            throwIfInterrupted();
             messages = SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
             messages = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
@@ -229,7 +227,7 @@ public final class GitWorkflow {
         titleWorker.execute(); // Schedule the worker
         String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
 
-        return new PrSuggestion(title, description, useCommitMsgs);
+        return new PrSuggestion(title, description, diff.length() / 3.0 > service.getMaxInputTokens(modelToUse) * 0.9);
     }
 
     /** Pushes branch if needed and opens a PR. Returns the PR url. */

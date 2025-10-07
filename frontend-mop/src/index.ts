@@ -2,13 +2,12 @@ import './styles/global.scss';
 import {mount, tick} from 'svelte';
 import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
-import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
+import {bubblesStore, onBrokkEvent, reparseAll, setLiveTaskInProgress} from './stores/bubblesStore';
 import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
 import { threadStore } from './stores/threadStore';
 import {createSearchController, type SearchController} from './search/search';
-import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
 import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePathCacheStore';
@@ -60,6 +59,8 @@ function setupBrokkInterface(): any[] {
         setTheme: setAppTheme,
         showSpinner: showSpinnerMessage,
         hideSpinner: hideSpinnerMessage,
+        // Task progress API
+        setTaskInProgress: (inProgress: boolean) => setLiveTaskInProgress(inProgress),
 
         // Search API
         setSearch: (query: string, caseSensitive: boolean) => searchCtrl?.setQuery(query, caseSensitive),

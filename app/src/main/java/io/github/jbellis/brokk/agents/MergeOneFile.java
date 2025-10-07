@@ -15,6 +15,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
@@ -162,7 +163,7 @@ public final class MergeOneFile {
                     List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
             if (result.error() != null) {
                 var msg = result.error() != null ? result.error().getMessage() : "Empty response";
-                io.systemOutput("LLM error in merge loop: " + msg);
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM error in merge loop: " + msg);
                 break;
             }
             if (!result.text().isBlank()) {
@@ -225,7 +226,9 @@ public final class MergeOneFile {
                             io.llmOutput("Conflicts resolved for " + file + " (staged)", ChatMessageType.AI);
                         } catch (GitAPIException e) {
                             logger.warn("Failed to add {} to index after CodeAgent success: {}", file, e.getMessage());
-                            io.systemOutput("Warning: failed to git add " + file + ": " + e.getMessage());
+                            io.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Warning: failed to git add " + file + ": " + e.getMessage());
                             io.llmOutput("Conflicts resolved for " + file, ChatMessageType.AI);
                         }
                         return new Outcome(Status.RESOLVED, null);

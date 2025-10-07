@@ -136,7 +136,36 @@ public interface IAnalyzer {
      * @return a list of candidates where their fully qualified names may match the query.
      */
     default List<CodeUnit> autocompleteDefinitions(String query) {
-        return searchDefinitions(".*" + query + ".*");
+        if (query.isEmpty()) {
+            return List.of();
+        }
+
+        // Base: current behavior (case-insensitive substring via searchDefinitions)
+        List<CodeUnit> baseResults = searchDefinitions(".*" + query + ".*");
+
+        // Fuzzy: if short query, over-approximate by inserting ".*" between characters
+        List<CodeUnit> fuzzyResults = List.of();
+        if (query.length() < 5) {
+            StringBuilder sb = new StringBuilder("(?i)");
+            sb.append(".*");
+            for (int i = 0; i < query.length(); i++) {
+                sb.append(Pattern.quote(String.valueOf(query.charAt(i))));
+                if (i < query.length() - 1) sb.append(".*");
+            }
+            sb.append(".*");
+            fuzzyResults = searchDefinitions(sb.toString());
+        }
+
+        if (fuzzyResults.isEmpty()) {
+            return baseResults;
+        }
+
+        // Deduplicate by fqName, preserve insertion order (base first, then fuzzy)
+        LinkedHashMap<String, CodeUnit> byFqName = new LinkedHashMap<>();
+        for (CodeUnit cu : baseResults) byFqName.put(cu.fqName(), cu);
+        for (CodeUnit cu : fuzzyResults) byFqName.putIfAbsent(cu.fqName(), cu);
+
+        return new ArrayList<>(byFqName.values());
     }
 
     /**

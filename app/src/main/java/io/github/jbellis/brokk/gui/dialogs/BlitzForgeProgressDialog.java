@@ -118,7 +118,8 @@ public class BlitzForgeProgressDialog extends JDialog {
 
         if (Thread.currentThread().isInterrupted() || worker.isCancelled()) {
             errorMessage = "Cancelled by user.";
-            dialogConsoleIO.systemOutput("Processing cancelled by user for file: " + file);
+            dialogConsoleIO.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Processing cancelled by user for file: " + file);
             return new FileProcessingResult(file, errorMessage, "", false);
         }
 
@@ -156,7 +157,8 @@ public class BlitzForgeProgressDialog extends JDialog {
                 mustache.execute(writer, scope);
                 String finalCommand = writer.toString();
 
-                dialogConsoleIO.systemOutput("Executing per-file command: " + finalCommand);
+                dialogConsoleIO.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Executing per-file command: " + finalCommand);
                 logger.info("Executing per-file command for {}: {}", file, finalCommand);
                 String commandOutputText;
                 try {
@@ -194,7 +196,8 @@ public class BlitzForgeProgressDialog extends JDialog {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             errorMessage = "Interrupted during message preparation.";
-            dialogConsoleIO.systemOutput("Interrupted during message preparation for file: " + file);
+            dialogConsoleIO.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Interrupted during message preparation for file: " + file);
         }
 
         if (errorMessage != null) {
@@ -216,7 +219,8 @@ public class BlitzForgeProgressDialog extends JDialog {
         if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
             Thread.currentThread().interrupt(); // Preserve interrupt status
             errorMessage = "Processing interrupted.";
-            dialogConsoleIO.systemOutput("File processing for " + file + " was interrupted.");
+            dialogConsoleIO.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "File processing for " + file + " was interrupted.");
         } else if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             errorMessage = "Processing failed: " + result.stopDetails().reason();
             String explanation = result.stopDetails().explanation();
@@ -705,8 +709,8 @@ public class BlitzForgeProgressDialog extends JDialog {
         }
 
         @Override
-        public void systemOutput(String message) {
-            appendToOutput(message);
+        public void showNotification(NotificationRole role, String message) {
+            appendToOutput("%s: %s".formatted(role.name(), message));
         }
 
         @Override

@@ -37,9 +37,6 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -69,7 +66,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
-    private final String SYSMSG_EMPTY = "Ready";
 
     // is a setContext updating the MOP?
     private boolean skipNextUpdateOutputPanelOnContextChange = false;
@@ -161,8 +157,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
-    private JLabel systemMessageLabel;
-    private final List<String> systemMessages = new ArrayList<>();
     private final JPanel bottomPanel;
 
     private final JSplitPane topSplitPane; // Instructions | Workspace
@@ -216,6 +210,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     private BadgedIcon gitTabBadgedIcon;
 
+    // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
+    @Nullable
+    private String lastDisplayedBranchLabel = null;
+
     // Reference to Tools ▸ BlitzForge… menu item so we can enable/disable it
     @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
     private JMenuItem blitzForgeMenuItem;
@@ -260,8 +258,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomPanel = new JPanel(new BorderLayout());
         // Status labels at the very bottom
         // System message label (left side)
-        systemMessageLabel = new JLabel(SYSMSG_EMPTY);
-        systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
 
         // Background status label (right side)
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
@@ -269,7 +265,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Panel to hold both labels
         var statusPanel = new JPanel(new BorderLayout());
-        statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
 
         var statusLabels = (JComponent) statusPanel;
@@ -298,7 +293,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.setTitle("Brokk: " + getProject().getRoot());
 
         // Show initial system message
-        systemOutput("Opening project at " + getProject().getRoot());
+        showNotification(
+                NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
@@ -636,7 +632,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
                     Files.writeString(gitignorePath, content);
-                    systemOutput("Updated .gitignore with .brokk entries");
+                    showNotification(NotificationRole.INFO, "Updated .gitignore with .brokk entries");
 
                     // Add .gitignore itself to git if it's not already in the index
                     // The path for 'add' should be relative to the git repo's CWD, or absolute.
@@ -676,7 +672,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // The GitRepo instance is for the current project (which could be a worktree),
                 // but 'add' operations apply to the whole repository.
                 gitRepo.add(filesToAdd);
-                systemOutput("Added shared .brokk project files (style.md, review.md, project.properties) to git");
+                showNotification(
+                        NotificationRole.INFO,
+                        "Added shared .brokk project files (style.md, review.md, project.properties) to git");
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
@@ -775,7 +773,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // retry
             } catch (ExecutionException | InvocationTargetException e) {
                 logger.error(e);
-                systemOutput("Error retrieving LLM messages");
+                showNotification(NotificationRole.INFO, "Error retrieving LLM messages");
                 return List.of();
             }
         }
@@ -822,16 +820,74 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateGitRepo() {
+        logger.trace("updateGitRepo invoked");
+
+        // Determine current branch (if available) and update InstructionsPanel on EDT
+        String branchToDisplay = null;
+        boolean hasGit = getProject().hasGit();
+        try {
+            if (hasGit) {
+                var currentBranch = getProject().getRepo().getCurrentBranch();
+                logger.trace("updateGitRepo: current branch='{}'", currentBranch);
+                if (!currentBranch.isBlank()) {
+                    branchToDisplay = currentBranch;
+                }
+            } else {
+                logger.trace("updateGitRepo: project has no Git repository");
+            }
+        } catch (Exception e) {
+            // Detached HEAD without resolvable HEAD or empty repo can land here
+            logger.warn("updateGitRepo: unable to determine current branch: {}", e.getMessage());
+        }
+
+        // Fallback to a safe label for UI to avoid stale/missing branch display
+        if (hasGit) {
+            if (branchToDisplay == null || branchToDisplay.isBlank()) {
+                branchToDisplay = "(no branch)";
+                logger.trace("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
+            }
+            final String display = branchToDisplay;
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    // Redundancy guard: only refresh if the displayed branch text actually changed
+                    if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
+                        logger.trace(
+                                "updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
+                        return;
+                    }
+                    instructionsPanel.refreshBranchUi(display);
+                    lastDisplayedBranchLabel = display;
+                } catch (Exception ex) {
+                    logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+                }
+            });
+        }
+
+        // Update individual Git-related panels and log what is being updated
         if (gitCommitTab != null) {
+            logger.trace("updateGitRepo: updating GitCommitTab");
             gitCommitTab.updateCommitPanel();
+        } else {
+            logger.trace("updateGitRepo: GitCommitTab not present (skipping)");
         }
+
         if (gitLogTab != null) {
+            logger.trace("updateGitRepo: updating GitLogTab");
             gitLogTab.update();
+        } else {
+            logger.trace("updateGitRepo: GitLogTab not present (skipping)");
         }
+
         if (gitWorktreeTab != null) {
+            logger.trace("updateGitRepo: refreshing GitWorktreeTab");
             gitWorktreeTab.refresh();
+        } else {
+            logger.trace("updateGitRepo: GitWorktreeTab not present (skipping)");
         }
+
+        logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
+        logger.trace("updateGitRepo: finished");
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */
@@ -941,7 +997,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 SwingUtilities.invokeLater(() -> {
                     try {
                         instructionsPanel.toggleCodeAnswerMode();
-                        systemOutput("Toggled Code/Ask mode");
+                        showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
                     } catch (Exception ex) {
                         logger.warn("Error toggling Code/Answer mode via shortcut", ex);
                     }
@@ -1216,42 +1272,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void toolError(String msg, String title) {
         logger.warn("%s: %s".formatted(msg, title));
         SwingUtilities.invokeLater(() -> systemNotify(msg, title, JOptionPane.ERROR_MESSAGE));
-    }
-
-    @Override
-    public void systemOutput(String message) {
-        logger.debug(message);
-        systemOutputInternal(message);
-    }
-
-    private void systemOutputInternal(String message) {
-        SwingUtilities.invokeLater(() -> {
-            // Format timestamp as HH:MM
-            String timestamp = LocalTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"));
-            String timestampedMessage = timestamp + ": " + message;
-
-            // Add to messages list
-            systemMessages.add(timestampedMessage);
-
-            // Keep only last 50 messages to prevent memory issues
-            if (systemMessages.size() > 50) {
-                systemMessages.removeFirst();
-            }
-
-            // Update label text (show only the latest message)
-            systemMessageLabel.setText(timestampedMessage);
-
-            // Update tooltip with all recent messages
-            StringBuilder tooltipText = new StringBuilder("<html>");
-            for (int i = Math.max(0, systemMessages.size() - 10); i < systemMessages.size(); i++) {
-                if (i > Math.max(0, systemMessages.size() - 10)) {
-                    tooltipText.append("<br>");
-                }
-                tooltipText.append(systemMessages.get(i));
-            }
-            tooltipText.append("</html>");
-            systemMessageLabel.setToolTipText(tooltipText.toString());
-        });
     }
 
     @Override
@@ -1678,8 +1698,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 for (TaskEntry entry : outputFragment.entries()) {
                     if (entry.isCompressed()) {
 
-                        combinedMessages.add(Messages.create(
-                                Objects.toString(entry.summary(), "Summary not available"), ChatMessageType.SYSTEM));
+                        combinedMessages.add(
+                                Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
                     } else {
                         combinedMessages.addAll(castNonNull(entry.log()).messages());
                     }
@@ -2093,7 +2113,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public void updateCaptureButtons() {
         var messageSize = historyOutputPanel.getLlmRawMessages().size();
-        SwingUtilities.invokeLater(() -> historyOutputPanel.setCopyButtonEnabled(messageSize > 0));
+        SwingUtilities.invokeLater(() -> {
+            var enabled = messageSize > 0;
+            historyOutputPanel.setCopyButtonEnabled(enabled);
+            historyOutputPanel.setClearButtonEnabled(enabled);
+            historyOutputPanel.setCaptureButtonEnabled(enabled);
+            historyOutputPanel.setOpenWindowButtonEnabled(enabled);
+        });
     }
 
     public JFrame getFrame() {
@@ -2623,6 +2649,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Ensure that prev setText calls are processed before blocking => we need the invokeLater
         SwingUtilities.invokeLater(() -> {
             historyOutputPanel.setMarkdownOutputPanelBlocking(blocked);
+            // Also propagate task progress state to the WebView so the frontend can react
+            historyOutputPanel.setTaskInProgress(blocked);
         });
     }
 
@@ -2653,7 +2681,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void showNotification(HistoryOutputPanel.NotificationRole role, String message) {
+    public void showNotification(NotificationRole role, String message) {
         boolean allowed =
                 switch (role) {
                     case COST -> GlobalUiSettings.isShowCostNotifications();

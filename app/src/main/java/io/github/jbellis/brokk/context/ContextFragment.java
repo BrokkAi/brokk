@@ -801,6 +801,14 @@ public interface ContextFragment {
         }
     }
 
+    record StringFragmentType(String description, String syntaxStyle) {}
+
+    StringFragmentType BUILD_RESULTS =
+            new StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+    StringFragmentType SEARCH_NOTES = new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+    StringFragmentType DISCARDED_CONTEXT =
+            new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
+
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         private final String text;
         private final String description;
@@ -1717,52 +1725,6 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "SkeletonFragment('%s')".formatted(description());
-        }
-    }
-
-    class BuildFragment extends VirtualFragment {
-        private final String content;
-
-        public BuildFragment(IContextManager contextManager, String buildOutput) {
-            super(contextManager);
-            this.content = buildOutput;
-        }
-
-        @Override
-        public FragmentType getType() {
-            return FragmentType.BUILD_LOG;
-        }
-
-        @Override
-        public String description() {
-            return "Latest build results";
-        }
-
-        @Override
-        public String text() {
-            return "# CURRENT BUILD STATUS\n\n" + content;
-        }
-
-        @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
-        public boolean isEligibleForAutoContext() {
-            // Do not seed auto-context from build output
-            return false;
-        }
-
-        @Override
-        public String syntaxStyle() {
-            // Build output may contain Markdown formatting
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
-        }
-
-        @Override
-        public String toString() {
-            return "BuildFragment('%s')".formatted(description());
         }
     }
 

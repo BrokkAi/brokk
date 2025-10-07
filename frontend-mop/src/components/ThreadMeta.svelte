@@ -7,8 +7,9 @@
     export let showEdits: boolean;
     export let msgLabel: string;
     export let totalLines: number;
-    export let taskSequence: number | undefined;
     export let threadId: number;
+    export let taskSequence: number | undefined;
+    export let allowDelete: boolean = false;
 
     export let onCopy: ((threadId: number) => void) | undefined;
     export let onDelete: ((threadId: number) => void) | undefined;
@@ -65,7 +66,7 @@
     >
       <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} style={copied ? 'color: var(--diff-add);' : ''}/>
     </button>
-    {#if taskSequence !== undefined}
+    {#if allowDelete}
     <button
             type="button"
             class="delete-btn"

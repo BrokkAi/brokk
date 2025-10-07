@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
@@ -115,7 +116,7 @@ public class MenuBar {
         exitItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_Q, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         exitItem.addActionListener(e -> {
-            chrome.systemOutput("Exiting Brokk...");
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Exiting Brokk...");
             Thread.ofPlatform().start(Brokk::exit);
         });
         fileMenu.add(exitItem);
@@ -167,7 +168,8 @@ public class MenuBar {
         var refreshItem = new JMenuItem("Refresh Code Intelligence");
         refreshItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.contextManager.requestRebuild();
-            chrome.systemOutput("Code intelligence will refresh in the background");
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Code intelligence will refresh in the background");
         }));
         refreshItem.setEnabled(true);
         contextMenu.add(refreshItem);
@@ -225,7 +227,7 @@ public class MenuBar {
                 if (returnValue == JFileChooser.APPROVE_OPTION) {
                     var selectedFiles = fileChooser.getSelectedFiles();
                     if (selectedFiles.length == 0) {
-                        chrome.systemOutput("No files or folders selected.");
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files or folders selected.");
                         return;
                     }
 
@@ -245,7 +247,7 @@ public class MenuBar {
                         }
 
                         if (pathsToAttach.isEmpty()) {
-                            chrome.systemOutput("No files found to attach.");
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files found to attach.");
                             return;
                         }
 
@@ -258,10 +260,11 @@ public class MenuBar {
                             fragments.add(pathFrag);
                         }
                         cm.addPathFragments(fragments);
-                        chrome.systemOutput("Attached " + fragments.size() + " files.");
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Attached " + fragments.size() + " files.");
                     });
                 } else {
-                    chrome.systemOutput("File attachment cancelled.");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File attachment cancelled.");
                 }
             });
         });

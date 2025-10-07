@@ -249,8 +249,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
         });
 
-        // Set up view mode toggle with icons
         viewModeToggle.setSelected(isUnifiedView); // Load from global preference
+        // Set up view mode toggle with icons
         viewModeToggle.setIcon(Icons.VIEW_UNIFIED); // Show unified icon when in side-by-side mode
         viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE); // Show side-by-side icon when in unified mode
         viewModeToggle.setText(null); // Remove text, use icon only
@@ -742,7 +742,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
             contextManager.submitContextTask(() -> {
                 contextManager.addVirtualFragment(fragment);
-                contextManager.getIo().systemOutput("Added captured diff to context: " + description);
+                IConsoleIO iConsoleIO = contextManager.getIo();
+                iConsoleIO.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Added captured diff to context: " + description);
             });
         });
         // Add buttons to toolbar with spacing
@@ -772,13 +774,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(Box.createHorizontalStrut(20));
         toolBar.addSeparator();
         toolBar.add(Box.createHorizontalStrut(10));
-
-        // Only show unified view toggle if dev mode is enabled
-        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-        if (isDevMode) {
-            toolBar.add(viewModeToggle);
-            toolBar.add(Box.createHorizontalStrut(10));
-        }
 
         // Add tools button with popup menu
         btnTools.setIcon(Icons.DIFF_TOOLS);
@@ -1050,10 +1045,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     changedFiles.add(pf);
                 } else {
                     // Outside-project file: keep it in the transcript; not tracked in changedFiles
-                    contextManager
-                            .getIo()
-                            .systemOutput("Saved file outside project scope: " + filename
-                                    + " (not added to workspace history)");
+                    IConsoleIO iConsoleIO = contextManager.getIo();
+                    iConsoleIO.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Saved file outside project scope: " + filename + " (not added to workspace history)");
                 }
             }
 
@@ -1276,7 +1271,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         } else if (cachedPanel instanceof UnifiedDiffPanel up) {
             up.setShowGutterBlame(shouldShowBlame);
         }
-
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
 

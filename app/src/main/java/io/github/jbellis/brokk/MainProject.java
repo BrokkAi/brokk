@@ -1141,6 +1141,8 @@ public final class MainProject extends AbstractProject {
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
+    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
+    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1203,6 +1205,10 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // ------------------------------------------------------------
+    // Git branch poller (global) settings
+    // ------------------------------------------------------------
+
     public static boolean getForceToolEmulation() {
         var props = loadGlobalProperties();
         return Boolean.parseBoolean(props.getProperty(FORCE_TOOL_EMULATION_KEY, "false"));
@@ -1214,6 +1220,45 @@ public final class MainProject extends AbstractProject {
             props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
         } else {
             props.remove(FORCE_TOOL_EMULATION_KEY);
+        }
+        saveGlobalProperties(props);
+    }
+
+    public static boolean getHistoryAutoCompress() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
+    }
+
+    public static void setHistoryAutoCompress(boolean autoCompress) {
+        var props = loadGlobalProperties();
+        props.setProperty(HISTORY_AUTO_COMPRESS_KEY, Boolean.toString(autoCompress));
+        saveGlobalProperties(props);
+    }
+
+    public static int getHistoryAutoCompressThresholdPercent() {
+        var props = loadGlobalProperties();
+        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+        int def = 10;
+        if (value == null || value.isBlank()) {
+            return def;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 1) parsed = 1;
+            if (parsed > 50) parsed = 50;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    public static void setHistoryAutoCompressThresholdPercent(int percent) {
+        int clamped = Math.max(1, Math.min(50, percent));
+        var props = loadGlobalProperties();
+        if (clamped == 10) {
+            props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+        } else {
+            props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
         }
         saveGlobalProperties(props);
     }

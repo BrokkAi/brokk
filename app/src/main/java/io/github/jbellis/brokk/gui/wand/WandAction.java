@@ -71,13 +71,10 @@ public class WandAction {
                 </draft_prompt>
 
                 <goal>
-                Take the draft prompt and rewrite it so it is:
-                - Clear
-                - Concise
-                - Structured
-                - Leverages information from the Workspace but without speculating beyond what you know for sure
+                Take the draft prompt and rewrite it so it is clear, concise, and well-structured.
+                You may leverage information from the Workspace, but do not speculate beyond what you know for sure.
 
-                Output only the improved prompt.
+                Output only the improved prompt in 2-4 paragraphs.
                 </goal>
                 """
                         .formatted(
@@ -117,5 +114,56 @@ public class WandAction {
             }
         }
         return refined;
+    }
+
+    public static class WandConsoleIO implements IConsoleIO {
+        private final JTextArea instructionsArea;
+        private final IConsoleIO errorReporter;
+        private boolean hasStartedContent = false;
+        private boolean lastWasReasoning = true;
+
+        public WandConsoleIO(JTextArea instructionsArea, IConsoleIO errorReporter) {
+            this.instructionsArea = instructionsArea;
+            this.errorReporter = errorReporter;
+            SwingUtilities.invokeLater(() -> {
+                instructionsArea.setEnabled(false);
+                instructionsArea.setText("Improving your prompt...\n\n");
+                instructionsArea.setCaretPosition(instructionsArea.getText().length());
+            });
+        }
+
+        @Override
+        public void llmOutput(
+                String token,
+                dev.langchain4j.data.message.ChatMessageType type,
+                boolean isNewMessage,
+                boolean isReasoning) {
+            if (!isReasoning && lastWasReasoning && !hasStartedContent) {
+                // Transition from reasoning to content: clear the area first
+                SwingUtilities.invokeLater(() -> instructionsArea.setText(""));
+                hasStartedContent = true;
+            } else if (isReasoning && !lastWasReasoning) {
+                // Illegal transition back to reasoning
+                throw new IllegalStateException("Wand stream switched from non-reasoning to reasoning");
+            }
+
+            if (!token.isEmpty()) {
+                SwingUtilities.invokeLater(() -> {
+                    instructionsArea.append(token);
+                    instructionsArea.setCaretPosition(instructionsArea.getText().length());
+                });
+            }
+            lastWasReasoning = isReasoning;
+        }
+
+        @Override
+        public void toolError(String message, String title) {
+            errorReporter.toolError(message, title);
+        }
+
+        @Override
+        public List<ChatMessage> getLlmRawMessages() {
+            return List.of();
+        }
     }
 }

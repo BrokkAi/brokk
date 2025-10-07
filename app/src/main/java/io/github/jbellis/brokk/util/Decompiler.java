@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.io.IOException;
 import java.io.InputStream;
@@ -70,7 +71,7 @@ public class Decompiler {
         Path depsDir = brokkDir.resolve("dependencies");
         Path outputDir = depsDir.resolve(jarName.replaceAll("\\.jar$", ""));
 
-        io.systemOutput("Importing " + jarName + "...");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Importing " + jarName + "...");
 
         runner.submit("Importing " + jarName, () -> {
             try {
@@ -80,7 +81,9 @@ public class Decompiler {
                 Optional<Path> sourcesJarPathOpt = Optional.empty();
                 if (coordsOpt.isPresent()) {
                     var coords = coordsOpt.get();
-                    io.systemOutput("Detected Maven coordinates: " + coords + ". Attempting to download sources...");
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Detected Maven coordinates: " + coords + ". Attempting to download sources...");
                     var fetcher = new MavenArtifactFetcher();
                     sourcesJarPathOpt = fetcher.fetch(coords, "sources");
                 }
@@ -106,9 +109,13 @@ public class Decompiler {
 
                 if (sourcesJarPathOpt.isPresent()) {
                     Path sourcesJarPath = sourcesJarPathOpt.get();
-                    io.systemOutput("Found sources JAR. Unpacking " + sourcesJarPath.getFileName() + "...");
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Found sources JAR. Unpacking " + sourcesJarPath.getFileName() + "...");
                     extractJarToTemp(sourcesJarPath, outputDir);
-                    io.systemOutput("Sources unpacked. Reopen project to incorporate the new source files.");
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Sources unpacked. Reopen project to incorporate the new source files.");
                 } else {
                     if (coordsOpt.isPresent()) {
                         logger.info("Could not find sources for {}. Falling back to decompilation.", coordsOpt.get());
@@ -167,7 +174,7 @@ public class Decompiler {
     }
 
     private static void decompile(Chrome io, Path jarPath, Path outputDir) throws Exception {
-        io.systemOutput("Decompiling " + jarPath.getFileName() + "...");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Decompiling " + jarPath.getFileName() + "...");
         logger.debug("Starting decompilation in background thread for {}", jarPath);
         Path tempDir = null;
 
@@ -204,7 +211,9 @@ public class Decompiler {
             decompiler.addSource(tempDir.toFile());
             decompiler.decompileContext();
 
-            io.systemOutput("Decompilation completed. Reopen project to incorporate the new source files.");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Decompilation completed. Reopen project to incorporate the new source files.");
         } finally {
             if (tempDir != null) {
                 try {

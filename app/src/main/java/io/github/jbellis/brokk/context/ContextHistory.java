@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -146,7 +147,7 @@ public class ContextHistory {
      * @param contextGenerator a function to apply to the live context
      * @return the new live context
      */
-    public synchronized Context push(java.util.function.Function<Context, Context> contextGenerator) {
+    public synchronized Context push(Function<Context, Context> contextGenerator) {
         var updatedLiveContext = contextGenerator.apply(this.liveContext);
         if (this.liveContext.equals(updatedLiveContext)) {
             return this.liveContext;
@@ -156,6 +157,26 @@ public class ContextHistory {
         this.liveContext = fr.liveContext();
         addFrozenContextAndClearRedo(fr.frozenContext());
         return this.liveContext;
+    }
+
+    /**
+     * Applies the given function to the top (frozen) context and pushes the result to the history. This operates on the
+     * frozen context rather than the live context, making it suitable for silent updates that shouldn't trigger file
+     * reloading or history compression.
+     *
+     * <p>Unlike with push(), the `contextGenerator` must not generate dynamic ContextFragments.
+     */
+    public synchronized Context pushQuietly(Function<Context, Context> contextGenerator) {
+        var updatedTopContext = contextGenerator.apply(topContext());
+        if (topContext().equals(updatedTopContext)) {
+            return topContext();
+        }
+
+        // apply the same transformation to the live context
+        assert !updatedTopContext.containsDynamicFragments();
+        liveContext = contextGenerator.apply(liveContext);
+        addFrozenContextAndClearRedo(updatedTopContext);
+        return updatedTopContext;
     }
 
     public synchronized void pushLiveAndFrozen(Context live, Context frozen) {
@@ -288,12 +309,14 @@ public class ContextHistory {
             if (!trackedToStage.isEmpty() && project.hasGit()) {
                 try {
                     project.getRepo().add(trackedToStage);
-                    io.systemOutput("Restored and staged files: "
-                            + String.join(
-                                    ", ",
-                                    trackedToStage.stream()
-                                            .map(Object::toString)
-                                            .toList()));
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Restored and staged files: "
+                                    + String.join(
+                                            ", ",
+                                            trackedToStage.stream()
+                                                    .map(Object::toString)
+                                                    .toList()));
                 } catch (Exception e) {
                     var msg = "Failed to stage restored files during undo: " + e.getMessage();
                     io.toolError(msg, "Undo Error");
@@ -344,10 +367,14 @@ public class ContextHistory {
                             Files.deleteIfExists(file.absPath());
                         }
                     }
-                    io.systemOutput("Deleted files as part of redo: "
-                            + String.join(
-                                    ", ",
-                                    filesToDelete.stream().map(Object::toString).toList()));
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Deleted files as part of redo: "
+                                    + String.join(
+                                            ", ",
+                                            filesToDelete.stream()
+                                                    .map(Object::toString)
+                                                    .toList()));
                 } catch (Exception e) {
                     io.toolError("Failed to delete files during redo: " + e.getMessage(), "Redo error");
                     logger.error("Failed to delete files during redo", e);
@@ -450,7 +477,9 @@ public class ContextHistory {
                             pf.write(newContent);
                             var restoredFiles = new ArrayList<String>();
                             restoredFiles.add(pf.toString());
-                            io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
+                            io.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Restored files: " + String.join(", ", restoredFiles));
                             io.updateWorkspace();
                         }
                     } catch (IOException e) {
