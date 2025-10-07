@@ -699,6 +699,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Replace former suggestion table with the workspace chips panel
         this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(this.contextManager);
 
+        // Wire chip removal behavior: block while LLM running; otherwise drop and refocus input
+        workspaceItemsChipPanel.setOnRemoveFragment(fragment -> {
+            var cm = chrome.getContextManager();
+            if (cm.isLlmTaskInProgress()) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "An action is running; cannot modify Workspace now.");
+                return;
+            }
+            cm.drop(List.of(fragment));
+            requestCommandInputFocus();
+        });
+
         var container = new JPanel(new BorderLayout(H_GLUE, 0));
         container.setOpaque(false);
         container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
