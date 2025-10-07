@@ -161,8 +161,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private boolean workspaceCollapsed = false;
     // Saved divider location for Workspace|Instructions split (topSplitPane)
     private int savedWorkspaceDividerLocation = -1;
-    // Saved divider size for Output|(Workspace+Instructions) split (mainVerticalSplitPane)
-    private int savedMainVerticalDividerSize = -1;
 
     // Swing components:
     final JFrame frame;
@@ -2890,52 +2888,64 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Collapse/expand the Workspace area. When collapsed:
-     * - Move topSplitPane divider to 0 (Workspace height -> 0)
-     * - Hide mainVerticalSplitPane divider (size -> 0)
-     * When expanded, restore previous divider location/size or reasonable defaults.
+     * Collapse/expand the Workspace area.
+     *
+     * New behavior:
+     * - When collapsed, completely remove the Workspace+Instructions split from the bottom stack and
+     *   show only the Instructions/Drawer as the bottom component. The Output↔Bottom divider remains visible.
+     * - When expanded, restore the original Workspace+Instructions split as the bottom component and
+     *   restore the previous divider location for the top split (Workspace↔Instructions).
      */
     public void setWorkspaceCollapsed(boolean collapsed) {
         Runnable r = () -> {
             if (this.workspaceCollapsed == collapsed) {
                 return;
             }
-            if (collapsed) {
-                // Save current top split divider location to restore later
-                savedWorkspaceDividerLocation = topSplitPane.getDividerLocation();
 
-                // Save current divider size of Output|(Workspace+Instructions) to restore later
-                if (savedMainVerticalDividerSize < 0) {
-                    savedMainVerticalDividerSize = mainVerticalSplitPane.getDividerSize();
+            if (collapsed) {
+                // Save current top split divider location (Workspace ↔ Instructions) to restore later
+                try {
+                    savedWorkspaceDividerLocation = topSplitPane.getDividerLocation();
+                } catch (Exception ignored) {
+                    // Defensive: divider may not be realized yet
                 }
 
-                // Collapse Workspace (top of Workspace|Instructions)
-                topSplitPane.setDividerLocation(0);
+                // Swap bottom of Output split to show ONLY the Instructions/Drawer.
+                // This automatically detaches instructionsDrawerSplit from topSplitPane (workspaceInstructionsSplit).
+                mainVerticalSplitPane.setBottomComponent(instructionsDrawerSplit);
 
-                // Hide the divider "north of the workspace" (between Output and bottom stack)
-                mainVerticalSplitPane.setDividerSize(0);
-
+                // Do NOT hide the mainVerticalSplitPane divider; we want Output ↔ Instructions divider to remain visible
                 this.workspaceCollapsed = true;
             } else {
-                // Restore Workspace height
-                int height = topSplitPane.getHeight();
-                int target = savedWorkspaceDividerLocation > 0
-                        ? savedWorkspaceDividerLocation
-                        : (int) (height * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT);
-                target = Math.max(0, target);
-                topSplitPane.setDividerLocation(target);
+                // Restore the Workspace+Instructions split as the bottom component
+                // Ensure bottom of the workspace split points to the instructions drawer again
+                try {
+                    topSplitPane.setBottomComponent(instructionsDrawerSplit);
+                } catch (Exception ignored) {
+                    // If it's already set due to prior operations, ignore
+                }
 
-                // Restore the divider size between Output and bottom stack
-                if (savedMainVerticalDividerSize > 0) {
-                    mainVerticalSplitPane.setDividerSize(savedMainVerticalDividerSize);
+                mainVerticalSplitPane.setBottomComponent(topSplitPane);
+
+                // Restore divider location for Workspace ↔ Instructions split
+                int height = topSplitPane.getHeight();
+                int target = (savedWorkspaceDividerLocation > 0 && savedWorkspaceDividerLocation < Integer.MAX_VALUE)
+                        ? savedWorkspaceDividerLocation
+                        : (height > 0
+                                ? (int) (height * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT)
+                                : 0);
+                if (target > 0) {
+                    try {
+                        topSplitPane.setDividerLocation(target);
+                    } catch (Exception ignored) {
+                        // Non-fatal if divider not realized yet
+                    }
                 }
 
                 this.workspaceCollapsed = false;
             }
 
             // Refresh layout/paint
-            topSplitPane.revalidate();
-            topSplitPane.repaint();
             mainVerticalSplitPane.revalidate();
             mainVerticalSplitPane.repaint();
         };
