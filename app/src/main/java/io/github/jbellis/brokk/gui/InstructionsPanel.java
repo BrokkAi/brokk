@@ -1767,7 +1767,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     @Override
     public void contextChanged(Context newCtx) {
-        // No-op; WorkspaceItemsChipPanel observes context changes directly.
+        var all = newCtx.getAllFragmentsInDisplayOrder();
+        var pathFragments = all.stream()
+                .filter(f -> f.getType().isPath())
+                .toList();
+        logger.debug("Context updated: {} fragments ({} path)", all.size(), pathFragments.size());
+        workspaceItemsChipPanel.setFragments(pathFragments);
     }
 
     void enableButtons() {
