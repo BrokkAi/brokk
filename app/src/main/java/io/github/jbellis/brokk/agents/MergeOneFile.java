@@ -127,7 +127,10 @@ public final class MergeOneFile {
                 %s
                 </conflicted_file>
 
-                Goal: resolve ALL conflict markers in this file with the minimal change that preserves semantics and passes tests.
+                <goal>
+                Resolve ALL conflicts with the minimal change that preserves the
+                semantics of the changes made in both "theirs" and "ours."
+                </goal>
 
                 Remember, when making tool calls you can call multiple tools per turn, this will improve your performance.
                 """

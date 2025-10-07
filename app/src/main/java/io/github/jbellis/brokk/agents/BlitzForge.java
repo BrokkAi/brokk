@@ -42,13 +42,6 @@ public final class BlitzForge {
 
     private static final Logger logger = LogManager.getLogger(BlitzForge.class);
 
-    /** High-level action the engine is asked to perform. */
-    public enum Action {
-        CODE,
-        ASK,
-        MERGE
-    }
-
     /** How much of the per-file output to include in the aggregated result. */
     public enum ParallelOutputMode {
         NONE,
@@ -74,8 +67,8 @@ public final class BlitzForge {
             String contextFilter,
             ParallelOutputMode outputMode,
             boolean postProcessBuild,
-            String postProcessingInstructions,
-            Action action) {
+            String postProcessingInstructions
+    ) {
     }
 
     /** Result of processing a single file. */

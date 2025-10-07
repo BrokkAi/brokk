@@ -148,27 +148,6 @@ public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
         llmLineCountTimer.start();
     }
 
-    @SuppressWarnings("UnusedMethod")
-    private static BlitzForge.ParallelOutputMode mapOutputMode(ParallelOutputMode m) {
-        return switch (m) {
-            case ALL -> BlitzForge.ParallelOutputMode.ALL;
-            case CHANGED -> BlitzForge.ParallelOutputMode.CHANGED;
-            case NONE -> BlitzForge.ParallelOutputMode.NONE;
-        };
-    }
-
-    @SuppressWarnings("UnusedMethod")
-    private static BlitzForge.Action mapAction(@Nullable String a) {
-        if (a == null) return BlitzForge.Action.CODE;
-        var upper = a.trim().toUpperCase(java.util.Locale.ROOT);
-        return switch (upper) {
-            case "ASK" -> BlitzForge.Action.ASK;
-            case "MERGE" -> BlitzForge.Action.MERGE;
-            case "CODE" -> BlitzForge.Action.CODE;
-            default -> BlitzForge.Action.CODE;
-        };
-    }
-
     private void appendOutput(String text) {
         SwingUtilities.invokeLater(() -> {
             outputTextArea.append(text + "\n");

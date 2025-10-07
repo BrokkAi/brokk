@@ -211,8 +211,8 @@ public class MergeAgent {
                 "",                     // contextFilter
                 BlitzForge.ParallelOutputMode.CHANGED,
                 false,                  // buildFirst
-                "",                     // postProcessingInstructions
-                BlitzForge.Action.MERGE);
+                ""                     // postProcessingInstructions
+        );
 
         var bfListener = cm.getIo().getBlitzForgeListener(() -> {});
 

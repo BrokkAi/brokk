@@ -906,7 +906,6 @@ public class BlitzForgeDialog extends JDialog {
             }
         } catch (NumberFormatException ex) {
             // Invalid number → treat as zero related classes
-            relatedK = 0;
         }
         long relatedAdd = relatedK > 0 ? Math.round(n * relatedK * avgTokens * 0.1) : 0;
 
@@ -1081,6 +1080,12 @@ public class BlitzForgeDialog extends JDialog {
                 .thenAccept(files -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(files)));
     }
 
+    /** High-level action the engine is asked to perform. */
+    public enum Action {
+        CODE,
+        ASK,
+    }
+
     private void onOK() {
         String instructions = instructionsArea.getText().trim();
         if (instructions.isEmpty()) {
@@ -1198,10 +1203,9 @@ public class BlitzForgeDialog extends JDialog {
             case CHANGED -> BlitzForge.ParallelOutputMode.CHANGED;
         };
         var engineAction = switch (action.trim().toUpperCase(Locale.ROOT)) {
-            case "ASK" -> BlitzForge.Action.ASK;
-            case "MERGE" -> BlitzForge.Action.MERGE;
-            case "CODE" -> BlitzForge.Action.CODE;
-            default -> BlitzForge.Action.CODE;
+            case "ASK" -> Action.ASK;
+            case "CODE" -> Action.CODE;
+            default -> Action.CODE;
         };
 
         // Snapshot values for lambda capture
@@ -1249,8 +1253,8 @@ public class BlitzForgeDialog extends JDialog {
                 contextFilter,
                 engineOutputMode,
                 buildFirst,
-                postProcessingInstructions,
-                engineAction);
+                postProcessingInstructions
+        );
 
         // Snapshot locals for lambda capture
         final @Nullable Integer fRelatedK = relatedK;
@@ -1265,10 +1269,8 @@ public class BlitzForgeDialog extends JDialog {
         var progressDialog = new BlitzForgeProgressDialog(
                 chrome,
                 () -> {
-                    var f = taskRef.get();
-                    if (f != null) {
-                        f.cancel(true);
-                    }
+                    var f = requireNonNull(taskRef.get());
+                    f.cancel(true);
                     cm.interruptLlmAction();
                 });
 
@@ -1366,7 +1368,7 @@ public class BlitzForgeDialog extends JDialog {
 
                     // Run the task
                     TaskResult tr;
-                    if (engineAction == BlitzForge.Action.ASK) {
+                    if (engineAction == Action.ASK) {
                         var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
                         var llm = cm.getLlm(model, "Ask", true);
                         llm.setOutput(dialogIo);
