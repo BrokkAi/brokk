@@ -4,6 +4,7 @@ import com.jakewharton.disklrucache.DiskLruCache;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -240,5 +241,15 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setInstructionsAskMode(boolean ask) {
         parent.setInstructionsAskMode(ask);
+    }
+
+    @Override
+    public McpConfig getMcpConfig() {
+        return parent.getMcpConfig();
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {
+        parent.setMcpConfig(config);
     }
 }
