@@ -1493,6 +1493,27 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 SwingUtil.runOnEdt(() -> chrome.toolError(
                         "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: " + ex.getMessage(),
                         "Push Rejected"));
+            } catch (org.eclipse.jgit.api.errors.TransportException ex) {
+                logger.error("Push failed for {} due to transport/permission error: {}", branchName, ex.getMessage());
+                SwingUtil.runOnEdt(() -> {
+                    String errorMessage;
+                    if (GitRepo.isGitHubPermissionDenied(ex)) {
+                        errorMessage = String.format(
+                                """
+                                Push to %s was denied. This usually means:
+
+                                1. Missing or invalid GitHub token
+                                   → Go to Settings → Global → GitHub and verify your token
+
+                                2. You don't have write access to this repository
+                                   → Verify you own or are a collaborator on this repository
+                                """,
+                                branchName);
+                    } else {
+                        errorMessage = "Push failed for " + branchName + ": " + ex.getMessage();
+                    }
+                    chrome.toolError(errorMessage, "Push Permission Denied");
+                });
             } catch (GitAPIException ex) {
                 logger.error("Error pushing {}: {}", branchName, ex.getMessage());
                 SwingUtil.runOnEdt(() -> chrome.toolError("Push error for " + branchName + ": " + ex.getMessage()));

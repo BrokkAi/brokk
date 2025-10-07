@@ -320,6 +320,66 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Determines if a TransportException indicates a GitHub permission denial. This checks for GitHub-specific error
+     * messages from both HTTPS and SSH protocols, including examining the exception cause chain.
+     *
+     * @param ex the TransportException to check
+     * @return true if the exception indicates a GitHub permission error
+     */
+    public static boolean isGitHubPermissionDenied(org.eclipse.jgit.api.errors.TransportException ex) {
+        // Check main exception message
+        if (checkMessageForPermissionDenial(ex.getMessage())) {
+            return true;
+        }
+
+        // Check cause chain for HTTP-related exceptions
+        Throwable cause = ex.getCause();
+        while (cause != null) {
+            if (checkMessageForPermissionDenial(cause.getMessage())) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+
+        return false;
+    }
+
+    /**
+     * Checks if an exception message indicates a GitHub permission denial.
+     *
+     * @param msg the exception message to check
+     * @return true if the message indicates a permission error
+     */
+    private static boolean checkMessageForPermissionDenial(@Nullable String msg) {
+        if (msg == null) {
+            return false;
+        }
+
+        var lower = msg.toLowerCase(java.util.Locale.ROOT);
+
+        // GitHub HTTPS: token permission errors
+        if (lower.contains("git-receive-pack not permitted")) {
+            return true;
+        }
+
+        // GitHub SSH: "Permission to user/repo denied"
+        if (lower.contains("permission to") && lower.contains("denied")) {
+            return true;
+        }
+
+        // HTTP status codes indicating permission/auth failures
+        if (lower.contains("403") || lower.contains("forbidden")) {
+            return true;
+        }
+
+        if (lower.contains("401") || lower.contains("unauthorized")) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Gets a user-friendly description of a merge result status.
      *
      * @param result the MergeResult to describe
