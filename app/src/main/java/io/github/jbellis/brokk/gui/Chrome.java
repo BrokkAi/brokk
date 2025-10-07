@@ -157,6 +157,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private int lastExpandedSidebarLocation = -1;
     private boolean sidebarCollapsed = false;
 
+    // Workspace collapse state (toggled by clicking token/cost label)
+    private boolean workspaceCollapsed = false;
+    // Saved divider location for Workspace|Instructions split (topSplitPane)
+    private int savedWorkspaceDividerLocation = -1;
+    // Saved divider size for Output|(Workspace+Instructions) split (mainVerticalSplitPane)
+    private int savedMainVerticalDividerSize = -1;
+
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
@@ -2872,6 +2879,72 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         int max = (int) (frameWidth * maxFraction);
 
         return Math.max(min, Math.min(ideal, max));
+    }
+
+    /**
+     * Toggle collapsing the Workspace (top of Workspace|Instructions split) and hide/show
+     * the divider between Output and the bottom stack.
+     */
+    public void toggleWorkspaceCollapsed() {
+        setWorkspaceCollapsed(!workspaceCollapsed);
+    }
+
+    /**
+     * Collapse/expand the Workspace area. When collapsed:
+     * - Move topSplitPane divider to 0 (Workspace height -> 0)
+     * - Hide mainVerticalSplitPane divider (size -> 0)
+     * When expanded, restore previous divider location/size or reasonable defaults.
+     */
+    public void setWorkspaceCollapsed(boolean collapsed) {
+        Runnable r = () -> {
+            if (this.workspaceCollapsed == collapsed) {
+                return;
+            }
+            if (collapsed) {
+                // Save current top split divider location to restore later
+                savedWorkspaceDividerLocation = topSplitPane.getDividerLocation();
+
+                // Save current divider size of Output|(Workspace+Instructions) to restore later
+                if (savedMainVerticalDividerSize < 0) {
+                    savedMainVerticalDividerSize = mainVerticalSplitPane.getDividerSize();
+                }
+
+                // Collapse Workspace (top of Workspace|Instructions)
+                topSplitPane.setDividerLocation(0);
+
+                // Hide the divider "north of the workspace" (between Output and bottom stack)
+                mainVerticalSplitPane.setDividerSize(0);
+
+                this.workspaceCollapsed = true;
+            } else {
+                // Restore Workspace height
+                int height = topSplitPane.getHeight();
+                int target = savedWorkspaceDividerLocation > 0
+                        ? savedWorkspaceDividerLocation
+                        : (int) (height * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT);
+                target = Math.max(0, target);
+                topSplitPane.setDividerLocation(target);
+
+                // Restore the divider size between Output and bottom stack
+                if (savedMainVerticalDividerSize > 0) {
+                    mainVerticalSplitPane.setDividerSize(savedMainVerticalDividerSize);
+                }
+
+                this.workspaceCollapsed = false;
+            }
+
+            // Refresh layout/paint
+            topSplitPane.revalidate();
+            topSplitPane.repaint();
+            mainVerticalSplitPane.revalidate();
+            mainVerticalSplitPane.repaint();
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
     }
 
     /** Updates the terminal font size for all active terminals. */
