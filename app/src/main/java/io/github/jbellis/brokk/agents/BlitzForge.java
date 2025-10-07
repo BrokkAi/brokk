@@ -52,6 +52,8 @@ public final class BlitzForge {
     /** Listener for lifecycle and per-file console access. Callbacks may be invoked from worker threads. */
     public interface Listener {
         default void onStart(int total) {}
+        /** Called with the initial, sorted queue of files before any processing begins. */
+        default void onQueued(List<ProjectFile> queued) {}
         default void onFileStart(ProjectFile file) {}
         IConsoleIO getConsoleIO(ProjectFile file);
         default void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
@@ -109,7 +111,9 @@ public final class BlitzForge {
         }
 
         // Sort by on-disk size ascending (smallest first)
-        var sortedFiles = files.stream().sorted(Comparator.comparingLong(BlitzForge::fileSize)).toList();
+        var sortedFiles = files.stream().sorted(Comparator.comparingLong((ProjectFile f) -> fileSize(f))).toList();
+        // Notify listener of the initial queue ordering
+        listener.onQueued(sortedFiles);
 
         // Prepare executor
         final ExecutorService executor;
@@ -216,7 +220,7 @@ public final class BlitzForge {
 
         // Aggregate results
         var changedFiles =
-                results.stream().filter(FileResult::edited).map(FileResult::file).collect(Collectors.toSet());
+                results.stream().filter(FileResult::edited).map(r -> r.file()).collect(Collectors.toSet());
 
         // Build output according to the configured ParallelOutputMode
         var outputStream = results.stream()
