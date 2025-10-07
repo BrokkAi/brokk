@@ -213,6 +213,54 @@ public final class RelevanceClassifier {
         return recommendationTasks;
     }
 
+    /**
+     * Batch boolean relevance classification. Preserves insertion order in the returned map.
+     *
+     * @param llm the model to use
+     * @param service the LLM service
+     * @param tasks tasks to classify
+     * @return a map from task to boolean relevance
+     */
+    public static Map<RelevanceTask, Boolean> relevanceBooleanBatch(Llm llm, Service service, List<RelevanceTask> tasks)
+            throws InterruptedException {
+        if (tasks.isEmpty()) return Collections.emptyMap();
+
+        var results = new HashMap<RelevanceTask, Boolean>();
+
+        try (var executor = AdaptiveExecutor.create(service, llm.getModel(), tasks.size())) {
+            var booleanTasks = getBooleanTasks(llm, tasks);
+            var futures = executor.invokeAll(booleanTasks);
+
+            for (var future : futures) {
+                try {
+                    var result = future.get();
+                    results.put(result.task(), result.relevant());
+                } catch (ExecutionException e) {
+                    logger.error("Execution of a boolean task failed while waiting for result", e);
+                }
+            }
+        }
+
+        return Map.copyOf(results);
+    }
+
+    private static List<Callable<BoolRelevanceResult>> getBooleanTasks(Llm llm, List<RelevanceTask> tasks) {
+        var booleanTasks = new ArrayList<Callable<BoolRelevanceResult>>();
+        for (var task : tasks) {
+            booleanTasks.add(() -> {
+                try {
+                    return new BoolRelevanceResult(
+                            task, isRelevant(llm, task.filterDescription(), task.candidateText()));
+                } catch (InterruptedException e) {
+                    logger.error(
+                            "Interrupted while determining boolean relevance for {}. Defaulting to true.", task, e);
+                    return new BoolRelevanceResult(task, true);
+                }
+            });
+        }
+        return booleanTasks;
+    }
+
     private static double extractScore(String response) {
         if (response.isEmpty()) return Double.NaN;
 

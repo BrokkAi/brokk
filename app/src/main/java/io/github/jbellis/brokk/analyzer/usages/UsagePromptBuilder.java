@@ -109,8 +109,14 @@ public final class UsagePromptBuilder {
     }
 
     private static String buildFilterDescription(CodeUnit targetCodeUnit) {
-        return ("Determine if the snippet represents a usage of " + targetCodeUnit
-                + ". Consider the <candidates> list of alternative code units and score how likely the usage "
-                + "matches ONLY the target (not any alternative). Return a real number in [0.0, 1.0].");
+        if (UsageConfig.isBooleanUsageMode()) {
+            return ("Determine if the snippet represents a usage of " + targetCodeUnit
+                    + ". Consider the <candidates> list of alternative code units and decide if the usage "
+                    + "matches ONLY the target (not any alternative).");
+        } else {
+            return ("Determine if the snippet represents a usage of " + targetCodeUnit
+                    + ". Consider the <candidates> list of alternative code units and score how likely the usage "
+                    + "matches ONLY the target (not any alternative). Return a real number in [0.0, 1.0].");
+        }
     }
 }
