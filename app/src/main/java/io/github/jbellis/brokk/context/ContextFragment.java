@@ -1345,7 +1345,7 @@ public interface ContextFragment {
             }
             var up = maybeUsagesProvider.get();
 
-            // If nothing persisted, compute as before
+            // If nothing persisted, compute fresh
             if (persistedUsages == null || persistedUsages.isEmpty()) {
                 List<CodeUnit> uses = up.getUses(targetIdentifier);
                 if (!includeTestFiles) {
@@ -1356,62 +1356,30 @@ public interface ContextFragment {
                 return uses;
             }
 
-            // Lazily compute the full current uses if/when we need them
-            class UsesCache {
-                private @Nullable List<CodeUnit> allUses;
+            // If any file has changed since we persisted, recompute once globally.
+            boolean anyFileStale = persistedUsages.entrySet().stream()
+                    .filter(e -> includeTestFiles
+                            || !ContextManager.isTestFile(e.getKey().source()))
+                    .anyMatch(e -> {
+                        long stored = e.getValue();
+                        long current = e.getKey().source().getLastModifiedTimeMillis();
+                        return current > stored;
+                    });
 
-                List<CodeUnit> get() {
-                    if (allUses == null) {
-                        var computed = up.getUses(targetIdentifier);
-                        if (!includeTestFiles) {
-                            computed = computed.stream()
-                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
-                                    .toList();
-                        }
-                        allUses = computed;
-                    }
-                    return allUses;
-                }
-            }
-            var cache = new UsesCache();
-
-            // Build result based on per-file mtime comparison, avoiding duplicates
-            var result = new LinkedHashSet<CodeUnit>();
-
-            // Group persisted entries by file for efficient comparisons
-            Map<ProjectFile, List<CodeUnit>> persistedByFile = persistedUsages.keySet().stream()
-                    .filter(cu -> includeTestFiles || !ContextManager.isTestFile(cu.source()))
-                    .collect(Collectors.groupingBy(CodeUnit::source, LinkedHashMap::new, Collectors.toList()));
-
-            for (var entry : persistedByFile.entrySet()) {
-                ProjectFile file = entry.getKey();
-                List<CodeUnit> persistedForFile = entry.getValue();
-
-                boolean anyStale = persistedForFile.stream().anyMatch(cu -> {
-                    Long stored = persistedUsages.get(cu);
-                    if (stored == null) return true;
-                    long current = file.getLastModifiedTimeMillis();
-                    return current > stored;
-                });
-
-                if (anyStale) {
-                    // Recompute only for this file
-                    List<CodeUnit> recomputedForFile = cache.get().stream()
-                            .filter(cu -> cu.source().equals(file))
+            if (anyFileStale) {
+                List<CodeUnit> uses = up.getUses(targetIdentifier);
+                if (!includeTestFiles) {
+                    uses = uses.stream()
+                            .filter(cu -> !ContextManager.isTestFile(cu.source()))
                             .toList();
-                    result.addAll(recomputedForFile);
-                } else {
-                    result.addAll(persistedForFile);
                 }
+                return uses;
             }
 
-            // If we somehow ended up empty (e.g., persisted map references files that disappeared),
-            // fall back to a fresh compute.
-            if (result.isEmpty()) {
-                return cache.get();
-            }
-
-            return new ArrayList<>(result);
+            // Otherwise reuse persisted usage information (preserve insertion order if available)
+            return persistedUsages.keySet().stream()
+                    .filter(cu -> includeTestFiles || !ContextManager.isTestFile(cu.source()))
+                    .collect(Collectors.toCollection(ArrayList::new));
         }
 
         @Override

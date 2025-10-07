@@ -17,11 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -530,7 +526,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     // keep count at 0 for backward compatibility
                 }
 
-                Map<CodeUnit, Long> persisted = new HashMap<>();
+                Map<CodeUnit, Long> persisted = new LinkedHashMap<>();
                 for (int i = 0; i < count; i++) {
                     var repoRoot = meta.get("usage.%d.repoRoot".formatted(i));
                     var relPath = meta.get("usage.%d.relPath".formatted(i));
