@@ -936,9 +936,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         var costEstimate = calculateCostEstimate(approxTokens, service);
                         String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
                         tokenCostLabel.setText("%,dK tokens \u2248 %s/req".formatted(approxTokens / 1000, costText));
-                        tokenCostLabel.setToolTipText(
-                                "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
-                                        .formatted(totalLinesFinal, approxTokens, costText));
+                        tokenCostLabel.setToolTipText(String.format(
+                                "<html>"
+                                        + "Shows full Workspace context size and estimated cost.<br/>"
+                                        + "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request.<br/>"
+                                        + "<i>Click to show/hide the Workspace panel.</i>"
+                                        + "</html>",
+                                totalLinesFinal, approxTokens, costText));
                         tokenCostLabel.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token cost indicator", ex);
