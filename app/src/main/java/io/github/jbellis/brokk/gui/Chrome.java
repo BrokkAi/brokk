@@ -159,8 +159,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Workspace collapse state (toggled by clicking token/cost label)
     private boolean workspaceCollapsed = false;
-    // Saved divider location for Workspace|Instructions split (topSplitPane)
-    private int savedWorkspaceDividerLocation = -1;
+
+    // Pin exact Instructions height (in px) during collapse so only Output resizes
+    private int pinnedInstructionsHeightPx = -1;
+
+    // Save the Workspace↔Instructions divider as a proportion (0..1) to restore Workspace height precisely
+    private double savedTopSplitProportion = -1.0;
 
     // Guard to prevent recursion when clamping the Output↔Bottom divider
     private boolean adjustingMainDivider = false;
@@ -2937,50 +2941,52 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return;
             }
 
-            // Capture divider proportion before swapping so restore is resilient to height changes
-            int beforeTotal = Math.max(1, mainVerticalSplitPane.getHeight());
-            int beforeDivider = Math.max(0, mainVerticalSplitPane.getDividerLocation());
-            double prevProportion = (beforeTotal > 0) ? ((double) beforeDivider / (double) beforeTotal) : 0.6;
 
             if (collapsed) {
-                // Save current top split divider location (Workspace ↔ Instructions) to restore later
+                // Also save as a proportion for robust restore after resizes
                 try {
-                    savedWorkspaceDividerLocation = topSplitPane.getDividerLocation();
+                    int t = Math.max(0, topSplitPane.getHeight());
+                    if (t > 0) {
+                        double p = (double) Math.max(0, topSplitPane.getDividerLocation()) / (double) t;
+                        // Clamp to avoid pathological values
+                        savedTopSplitProportion = Math.max(0.05, Math.min(0.95, p));
+                    }
                 } catch (Exception ignored) {
-                    // divider may not be realized yet
+                    // fallback will be used on restore
                 }
 
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
                 int instructionsHeightPx = 0;
                 try {
-                    instructionsHeightPx = Math.max(0, instructionsDrawerSplit.getHeight());
+                    // Bottom of the topSplitPane is the Instructions container when expanded
+                    Component bottom = topSplitPane.getBottomComponent();
+                    if (bottom != null) {
+                        instructionsHeightPx = Math.max(0, bottom.getHeight());
+                    }
                     // Fallback estimate if height not realized yet
                     if (instructionsHeightPx == 0) {
                         int tsTotal = Math.max(0, topSplitPane.getHeight());
                         int tsDivider = topSplitPane.getDividerSize();
-                        Component bottom = topSplitPane.getBottomComponent();
-                        instructionsHeightPx = (bottom != null) ? Math.max(0, bottom.getHeight()) : 0;
-                        // As a last resort, keep at least its minimum size so we never under-allocate
-                        if (instructionsHeightPx == 0) {
-                            instructionsHeightPx = Math.max(0, instructionsDrawerSplit.getMinimumSize().height);
-                            // If topSplitPane is realized, try to bound the estimate by available space
-                            int maxFromTop = Math.max(0, tsTotal - tsDivider);
-                            if (maxFromTop > 0) {
-                                instructionsHeightPx = Math.min(instructionsHeightPx, maxFromTop);
-                            }
-                        }
+                        int maxFromTop = Math.max(0, tsTotal - tsDivider);
+                        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
+                        instructionsHeightPx = Math.min(
+                                Math.max(minBottom, instructionsDrawerSplit.getMinimumSize().height),
+                                maxFromTop);
                     }
                 } catch (Exception ignored) {
                     // Defensive; we'll clamp during restore regardless
                 }
+                // Pin the measured Instructions height for exact restore later
+                pinnedInstructionsHeightPx = instructionsHeightPx;
 
                 // Swap to Instructions-only in the bottom
                 mainVerticalSplitPane.setBottomComponent(instructionsDrawerSplit);
 
-                // Revalidate layout, then set the main divider so bottom == measured Instructions height
+                // Revalidate layout, then set the main divider so bottom == pinned Instructions height
                 mainVerticalSplitPane.revalidate();
-                final int desiredBottomPx = instructionsHeightPx;
-                SwingUtilities.invokeLater(() -> applyMainDividerForExactBottomHeight(desiredBottomPx));
+                SwingUtilities.invokeLater(() ->
+                        applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx))
+                );
 
                 this.workspaceCollapsed = true;
             } else {
@@ -2992,30 +2998,32 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
                 mainVerticalSplitPane.setBottomComponent(topSplitPane);
 
-                // Revalidate the top split, then restore its divider once, safely clamped, after layout
-            topSplitPane.revalidate();
-            SwingUtilities.invokeLater(() -> {
-                int total = topSplitPane.getHeight();
-                int dividerSize = topSplitPane.getDividerSize();
-                Component bottom = topSplitPane.getBottomComponent();
-                int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-                int maxLocation = Math.max(0, total - dividerSize - minBottom);
+                // Revalidate the top split, then restore Workspace and bottom height exactly
+                topSplitPane.revalidate();
+                SwingUtilities.invokeLater(() -> {
+                    // Choose saved proportion; fall back to DEFAULT if missing
+                    double p = (savedTopSplitProportion > 0.0 && savedTopSplitProportion < 1.0)
+                            ? savedTopSplitProportion
+                            : DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT;
+                    // Clamp proportion
+                    p = Math.max(0.05, Math.min(0.95, p));
 
-                int desired = (savedWorkspaceDividerLocation > 0 && savedWorkspaceDividerLocation < Integer.MAX_VALUE)
-                        ? savedWorkspaceDividerLocation
-                        : (total > 0 ? (int) (total * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT) : 0);
+                    // Compute the target bottom height so that Instructions stays at pinnedInstructionsHeightPx
+                    // For a vertical JSplitPane: bottomHeight = (1 - p) * T - dividerSize  =>  T = (pinned + dividerSize) / (1 - p)
+                    int dividerSizeTS = topSplitPane.getDividerSize();
+                    int pinned = Math.max(0, pinnedInstructionsHeightPx);
+                    int desiredBottom = (int) Math.round((pinned + dividerSizeTS) / Math.max(0.05, (1.0 - p)));
 
-                int safe = Math.max(0, Math.min(desired, maxLocation));
-                try {
-                    topSplitPane.setDividerLocation(safe);
-                } catch (Exception ignored) {
-                    // ignore
-                }
-            });
+                    // Set the main Output↔Bottom divider so bottom == desiredBottom (clamped)
+                    applyMainDividerForExactBottomHeight(desiredBottom);
 
-            // Revalidate layout, then restore Output↔Bottom divider once, safely clamped
-            mainVerticalSplitPane.revalidate();
-            SwingUtilities.invokeLater(() -> applySafeMainDivider(prevProportion));
+                    // Finally set the top split divider by proportion to restore Workspace share
+                    try {
+                        topSplitPane.setDividerLocation(p);
+                    } catch (Exception ignored) {
+                        // ignore
+                    }
+                });
 
                 this.workspaceCollapsed = false;
             }
@@ -3032,24 +3040,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    /**
-     * Applies a single, safe Output↔Bottom divider position computed from the desired proportion,
-     * clamped to guarantee the bottom component is never smaller than its minimum height.
-     */
-    private void applySafeMainDivider(double desiredProportion) {
-        int total = mainVerticalSplitPane.getHeight();
-        if (total <= 0) {
-            return;
-        }
-        int dividerSize = mainVerticalSplitPane.getDividerSize();
-        java.awt.Component bottom = mainVerticalSplitPane.getBottomComponent();
-        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-        int maxLocation = Math.max(0, total - dividerSize - minBottom);
-
-        int desiredPx = (int) Math.round(desiredProportion * total);
-        int safePx = Math.max(0, Math.min(desiredPx, maxLocation));
-        mainVerticalSplitPane.setDividerLocation(safePx);
-    }
 
     /**
      * Set the Output↔Bottom divider so that the bottom height equals the exact desired pixel height,
