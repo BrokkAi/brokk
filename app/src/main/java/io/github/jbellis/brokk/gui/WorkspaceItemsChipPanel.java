@@ -1,35 +1,49 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
+import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Image;
-import java.awt.Cursor;
-import java.awt.Insets;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.Insets;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.io.File;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javax.swing.ImageIcon;
-import io.github.jbellis.brokk.gui.components.MaterialButton;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+import javax.swing.TransferHandler;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -37,6 +51,7 @@ import org.jetbrains.annotations.Nullable;
  * Listens to context changes and updates itself accordingly.
  */
 public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -47,6 +62,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         setOpaque(false);
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
+        setTransferHandler(createFileDropHandler());
     }
 
     /**
@@ -508,5 +524,119 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
                 }
             }
         });
+    }
+
+    private boolean isAnalyzerReady() {
+        if (!contextManager.getAnalyzerWrapper().isReady()) {
+            chrome.systemNotify(
+                    AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                    AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                    JOptionPane.INFORMATION_MESSAGE);
+            return false;
+        }
+        return true;
+    }
+
+    private TransferHandler createFileDropHandler() {
+        return new TransferHandler() {
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support)) {
+                    return false;
+                }
+
+                if (contextManager.isLlmTaskInProgress()) {
+                    chrome.systemNotify("Cannot add to workspace while an action is running.", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return false;
+                }
+
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<File> files =
+                            (List<File>) support.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
+                    if (files.isEmpty()) {
+                        return false;
+                    }
+
+                    var projectRoot = contextManager
+                            .getProject()
+                            .getRoot()
+                            .toAbsolutePath()
+                            .normalize();
+                    // Map to ProjectFile inside this project; ignore anything outside
+                    var projectFiles = files.stream()
+                            .map(File::toPath)
+                            .map(Path::toAbsolutePath)
+                            .map(Path::normalize)
+                            .filter(p -> {
+                                boolean inside = p.startsWith(projectRoot);
+                                if (!inside) {
+                                    logger.debug("Ignoring dropped file outside project: {}", p);
+                                }
+                                return inside;
+                            })
+                            .map(p -> projectRoot.relativize(p))
+                            .map(rel -> new ProjectFile(projectRoot, rel))
+                            .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+
+                    if (projectFiles.isEmpty()) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No project files found in drop");
+                        return false;
+                    }
+
+                    // Ask the user what to do
+                    var analyzedExts = contextManager.getProject().getAnalyzerLanguages().stream()
+                            .flatMap(lang -> lang.getExtensions().stream())
+                            .collect(Collectors.toSet());
+                    boolean canSummarize = projectFiles.stream().anyMatch(pf -> analyzedExts.contains(pf.extension()));
+                    java.awt.Point pointer = null;
+                    try {
+                        var pi = java.awt.MouseInfo.getPointerInfo();
+                        if (pi != null) {
+                            pointer = pi.getLocation();
+                        }
+                    } catch (Exception ignore) {
+                        // ignore
+                    }
+                    var selection = DropActionDialog.show(chrome.getFrame(), canSummarize, pointer);
+                    if (selection == null) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Drop canceled");
+                        return false;
+                    }
+                    switch (selection) {
+                        case EDIT -> {
+                            // Only allow editing tracked files; others are silently ignored by editFiles
+                            contextManager.submitContextTask(() -> {
+                                contextManager.addFiles(projectFiles);
+                            });
+                        }
+                        case SUMMARIZE -> {
+                            if (!isAnalyzerReady()) {
+                                return false;
+                            }
+                            contextManager.submitContextTask(() -> {
+                                contextManager.addSummaries(
+                                        new java.util.HashSet<>(projectFiles), Collections.emptySet());
+                            });
+                        }
+                        default -> {
+                            logger.warn("Unexpected drop selection: {}", selection);
+                            return false;
+                        }
+                    }
+
+                    return true;
+                } catch (Exception ex) {
+                    logger.error("Error importing dropped files into workspace", ex);
+                    chrome.toolError("Failed to import dropped files: " + ex.getMessage());
+                    return false;
+                }
+            }
+        };
     }
 }
