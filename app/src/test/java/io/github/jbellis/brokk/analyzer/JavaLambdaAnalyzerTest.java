@@ -46,7 +46,7 @@ public class JavaLambdaAnalyzerTest {
 
         assertTrue(
                 declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
-                        .startsWith("Interface.Interface$anon$")),
+                        .equals("Interface.Interface$anon$5:24")),
                 "Expected a lambda discovered under AnonymousUsage.NestedClass.getSomething with anon suffix");
     }
 
@@ -61,7 +61,7 @@ public class JavaLambdaAnalyzerTest {
 
         assertTrue(
                 declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
-                        .startsWith("AnonymousUsage.NestedClass.getSomething$anon$")),
+                        .equals("AnonymousUsage.NestedClass.getSomething$anon$15:37")),
                 "Expected a lambda discovered under AnonymousUsage.NestedClass.getSomething with anon suffix");
     }
 }
