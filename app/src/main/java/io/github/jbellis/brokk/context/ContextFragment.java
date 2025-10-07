@@ -1240,6 +1240,7 @@ public interface ContextFragment {
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+        private final @Nullable Map<CodeUnit, Long> persistedUsages;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, false);
@@ -1250,9 +1251,9 @@ public interface ContextFragment {
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.persistedUsages = null;
         }
 
-        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
             this(existingId, contextManager, targetIdentifier, false);
         }
@@ -1263,6 +1264,41 @@ public interface ContextFragment {
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.persistedUsages = null;
+        }
+
+        // Constructor used when unfreezing with persisted CodeUnit -> mtime mapping
+        @SuppressWarnings("unused")
+        public UsageFragment(
+                String existingId,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable Map<CodeUnit, Long> persistedUsages) {
+            super(existingId, contextManager);
+            assert !targetIdentifier.isBlank();
+            this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
+            this.persistedUsages =
+                    (persistedUsages == null || persistedUsages.isEmpty()) ? null : Map.copyOf(persistedUsages);
+        }
+
+        // Constructor for unfreeze that accepts persisted usages without requiring an existing numeric ID
+        public UsageFragment(
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable Map<CodeUnit, Long> persistedUsages) {
+            super(contextManager);
+            assert !targetIdentifier.isBlank();
+            this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
+            this.persistedUsages =
+                    (persistedUsages == null || persistedUsages.isEmpty()) ? null : Map.copyOf(persistedUsages);
+        }
+
+        public @Nullable Map<CodeUnit, Long> persistedUsages() {
+            return persistedUsages;
         }
 
         @Override
@@ -1273,18 +1309,7 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
-            if (maybeUsagesProvider.isEmpty()) {
-                return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
-            }
-            var up = maybeUsagesProvider.get();
-
-            List<CodeUnit> uses = up.getUses(targetIdentifier);
-            if (!includeTestFiles) {
-                uses = uses.stream()
-                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
-                        .toList();
-            }
+            List<CodeUnit> uses = computeEffectiveUses(analyzer);
             var parts = AnalyzerUtil.processUsages(analyzer, uses);
             var formatted = CodeWithSource.text(parts);
             return formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
@@ -1298,20 +1323,7 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             var analyzer = getAnalyzer();
-            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
-            if (maybeUsagesProvider.isEmpty()) {
-                return Set.of(); // If no provider, no sources can be found.
-            }
-            var up = maybeUsagesProvider.get();
-
-            List<CodeUnit> uses = up.getUses(targetIdentifier);
-            if (!includeTestFiles) {
-                uses = uses.stream()
-                        .filter(cu -> !ContextManager.isTestFile(cu.source()))
-                        .toList();
-            }
-            var parts = AnalyzerUtil.processUsages(analyzer, uses);
-            return parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
+            return new LinkedHashSet<>(computeEffectiveUses(analyzer));
         }
 
         @Override
@@ -1324,6 +1336,82 @@ public interface ContextFragment {
             } else {
                 return allSources.collect(Collectors.toSet());
             }
+        }
+
+        private List<CodeUnit> computeEffectiveUses(IAnalyzer analyzer) {
+            var maybeUsagesProvider = analyzer.as(UsagesProvider.class);
+            if (maybeUsagesProvider.isEmpty()) {
+                return List.of();
+            }
+            var up = maybeUsagesProvider.get();
+
+            // If nothing persisted, compute as before
+            if (persistedUsages == null || persistedUsages.isEmpty()) {
+                List<CodeUnit> uses = up.getUses(targetIdentifier);
+                if (!includeTestFiles) {
+                    uses = uses.stream()
+                            .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                            .toList();
+                }
+                return uses;
+            }
+
+            // Lazily compute the full current uses if/when we need them
+            class UsesCache {
+                private @Nullable List<CodeUnit> allUses;
+
+                List<CodeUnit> get() {
+                    if (allUses == null) {
+                        var computed = up.getUses(targetIdentifier);
+                        if (!includeTestFiles) {
+                            computed = computed.stream()
+                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                                    .toList();
+                        }
+                        allUses = computed;
+                    }
+                    return allUses;
+                }
+            }
+            var cache = new UsesCache();
+
+            // Build result based on per-file mtime comparison, avoiding duplicates
+            var result = new LinkedHashSet<CodeUnit>();
+
+            // Group persisted entries by file for efficient comparisons
+            Map<ProjectFile, List<CodeUnit>> persistedByFile = persistedUsages.keySet().stream()
+                    .filter(cu -> includeTestFiles || !ContextManager.isTestFile(cu.source()))
+                    .collect(Collectors.groupingBy(CodeUnit::source, LinkedHashMap::new, Collectors.toList()));
+
+            for (var entry : persistedByFile.entrySet()) {
+                ProjectFile file = entry.getKey();
+                List<CodeUnit> persistedForFile = entry.getValue();
+
+                boolean anyStale = persistedForFile.stream().anyMatch(cu -> {
+                    Long stored = persistedUsages.get(cu);
+                    if (stored == null) return true;
+                    long current = file.getLastModifiedTimeMillis();
+                    return current > stored;
+                });
+
+                if (anyStale) {
+                    // Recompute only for this file
+                    List<CodeUnit> recomputedForFile = cache.get().stream()
+                            .filter(cu -> cu.source().equals(file))
+                            .toList();
+                    result.addAll(recomputedForFile);
+                } else {
+                    result.addAll(persistedForFile);
+                }
+            }
+
+            // If we somehow ended up empty (e.g., persisted map references files that disappeared),
+            // fall back to a fresh compute.
+            if (result.isEmpty()) {
+                return cache.get();
+            }
+
+            return new ArrayList<>(result);
         }
 
         @Override

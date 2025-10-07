@@ -374,7 +374,25 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     meta.put("targetIdentifiers", String.join(";", skelf.getTargetIdentifiers()));
                     meta.put("summaryType", skelf.getSummaryType().name());
                 }
-                case UsageFragment uf -> meta.put("targetIdentifier", uf.targetIdentifier());
+                case UsageFragment uf -> {
+                    meta.put("targetIdentifier", uf.targetIdentifier());
+                    meta.put("includeTestFiles", String.valueOf(uf.includeTestFiles()));
+
+                    // Persist the effective usages and each source file's mtime
+                    var usesList = new java.util.ArrayList<>(uf.sources()); // preserve a stable index order
+                    meta.put("usage.count", String.valueOf(usesList.size()));
+                    for (int i = 0; i < usesList.size(); i++) {
+                        var cu = usesList.get(i);
+                        var pf = cu.source();
+                        meta.put("usage.%d.repoRoot".formatted(i), pf.getRoot().toString());
+                        meta.put(
+                                "usage.%d.relPath".formatted(i), pf.getRelPath().toString());
+                        meta.put("usage.%d.kind".formatted(i), cu.kind().name());
+                        meta.put("usage.%d.package".formatted(i), cu.packageName());
+                        meta.put("usage.%d.shortName".formatted(i), cu.shortName());
+                        meta.put("usage.%d.mtime".formatted(i), String.valueOf(pf.getLastModifiedTimeMillis()));
+                    }
+                }
                 case CallGraphFragment cgf -> {
                     meta.put("methodName", cgf.getMethodName());
                     meta.put("depth", String.valueOf(cgf.getDepth()));
@@ -503,7 +521,50 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 if (targetIdentifier == null) {
                     throw new IllegalArgumentException("Missing metadata for UsageFragment");
                 }
-                yield new ContextFragment.UsageFragment(cm, targetIdentifier);
+                boolean includeTests = Boolean.parseBoolean(requireNonNullElse(meta.get("includeTestFiles"), "false"));
+
+                int count = 0;
+                try {
+                    count = Integer.parseInt(requireNonNullElse(meta.get("usage.count"), "0"));
+                } catch (NumberFormatException ignored) {
+                    // keep count at 0 for backward compatibility
+                }
+
+                Map<CodeUnit, Long> persisted = new HashMap<>();
+                for (int i = 0; i < count; i++) {
+                    var repoRoot = meta.get("usage.%d.repoRoot".formatted(i));
+                    var relPath = meta.get("usage.%d.relPath".formatted(i));
+                    var kindStr = meta.get("usage.%d.kind".formatted(i));
+                    var packageName = meta.get("usage.%d.package".formatted(i));
+                    var shortName = meta.get("usage.%d.shortName".formatted(i));
+                    var mtimeStr = meta.get("usage.%d.mtime".formatted(i));
+
+                    if (repoRoot == null
+                            || relPath == null
+                            || kindStr == null
+                            || packageName == null
+                            || shortName == null
+                            || mtimeStr == null) {
+                        continue; // skip incomplete entries
+                    }
+
+                    var pf = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
+                    var kind = CodeUnitType.valueOf(kindStr);
+                    var cu = new CodeUnit(pf, kind, packageName, shortName);
+                    long mtime;
+                    try {
+                        mtime = Long.parseLong(mtimeStr);
+                    } catch (NumberFormatException e) {
+                        mtime = Long.MAX_VALUE; // treat as stale
+                    }
+                    persisted.put(cu, mtime);
+                }
+
+                if (persisted.isEmpty()) {
+                    yield new ContextFragment.UsageFragment(cm, targetIdentifier, includeTests);
+                } else {
+                    yield new ContextFragment.UsageFragment(cm, targetIdentifier, includeTests, persisted);
+                }
             }
             case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment" -> {
                 var methodName = meta.get("methodName");

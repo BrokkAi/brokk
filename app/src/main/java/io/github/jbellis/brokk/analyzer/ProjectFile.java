@@ -59,6 +59,18 @@ public class ProjectFile implements BrokkFile {
         return root.resolve(relPath);
     }
 
+    /**
+     * Returns the last modified time of this file, in milliseconds since the epoch. If the file cannot be read or its
+     * timestamp cannot be determined, returns Long.MAX_VALUE so that callers conservatively treat it as "stale".
+     */
+    public long getLastModifiedTimeMillis() {
+        try {
+            return Files.getLastModifiedTime(absPath()).toMillis();
+        } catch (IOException e) {
+            return Long.MAX_VALUE;
+        }
+    }
+
     public void create() throws IOException {
         Files.createDirectories(absPath().getParent());
         Files.createFile(absPath());
