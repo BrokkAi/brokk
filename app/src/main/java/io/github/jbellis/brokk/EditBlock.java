@@ -114,7 +114,7 @@ public class EditBlock {
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
         List<ProjectFile> newFiles = new ArrayList<>();
         // Track original file contents before any changes
-        Map<ProjectFile, String> changedFiles = new HashMap<>();
+        Map<ProjectFile, String> originalContentsThisBatch = new HashMap<>();
 
         // First pass: resolve files and pre-resolve BRK markers BEFORE any file modifications
         record ApplyPlan(ProjectFile file, SearchReplaceBlock block, String effectiveBefore) {}
@@ -173,15 +173,16 @@ public class EditBlock {
             var effectiveBefore = plan.effectiveBefore();
 
             try {
-                if (!changedFiles.containsKey(file)) {
-                    changedFiles.put(file, file.exists() ? file.read().orElse("") : "");
+                if (!originalContentsThisBatch.containsKey(file)) {
+                    originalContentsThisBatch.put(
+                            file, file.exists() ? file.read().orElse("") : "");
                 }
 
                 replaceInFile(file, effectiveBefore, block.afterText(), contextManager);
                 succeeded.put(block, file);
             } catch (NoMatchException | AmbiguousMatchException e) {
-                assert changedFiles.containsKey(file);
-                var originalContent = changedFiles.get(file);
+                assert originalContentsThisBatch.containsKey(file);
+                var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
                     replaceMostSimilarChunk(contextManager, originalContent, block.afterText, "");
@@ -217,7 +218,7 @@ public class EditBlock {
                 var msg = "Error applying edit to " + file;
                 logger.error("{}: {}", msg, e.getMessage());
                 throw new IOException(msg, e);
-            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
+            } catch (GitAPIException e) {
                 var msg = "Non-fatal error: unable to update `%s` in Git".formatted(file);
                 logger.error("{}: {}", msg, e.getMessage());
                 io.showNotification(IConsoleIO.NotificationRole.INFO, msg);
@@ -229,14 +230,13 @@ public class EditBlock {
             try {
                 contextManager.getRepo().add(newFiles);
                 contextManager.getRepo().invalidateCaches();
-            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
+            } catch (GitAPIException e) {
                 io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
             }
-            contextManager.addFiles(newFiles);
         }
 
-        changedFiles.keySet().retainAll(succeeded.values());
-        return new EditResult(changedFiles, failed);
+        originalContentsThisBatch.keySet().retainAll(succeeded.values());
+        return new EditResult(originalContentsThisBatch, failed);
     }
 
     /**

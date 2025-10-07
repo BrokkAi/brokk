@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -146,7 +147,7 @@ public class ContextHistory {
      * @param contextGenerator a function to apply to the live context
      * @return the new live context
      */
-    public synchronized Context push(java.util.function.Function<Context, Context> contextGenerator) {
+    public synchronized Context push(Function<Context, Context> contextGenerator) {
         var updatedLiveContext = contextGenerator.apply(this.liveContext);
         if (this.liveContext.equals(updatedLiveContext)) {
             return this.liveContext;
@@ -156,6 +157,26 @@ public class ContextHistory {
         this.liveContext = fr.liveContext();
         addFrozenContextAndClearRedo(fr.frozenContext());
         return this.liveContext;
+    }
+
+    /**
+     * Applies the given function to the top (frozen) context and pushes the result to the history. This operates on the
+     * frozen context rather than the live context, making it suitable for silent updates that shouldn't trigger file
+     * reloading or history compression.
+     *
+     * <p>Unlike with push(), the `contextGenerator` must not generate dynamic ContextFragments.
+     */
+    public synchronized Context pushQuietly(Function<Context, Context> contextGenerator) {
+        var updatedTopContext = contextGenerator.apply(topContext());
+        if (topContext().equals(updatedTopContext)) {
+            return topContext();
+        }
+
+        // apply the same transformation to the live context
+        assert !updatedTopContext.containsDynamicFragments();
+        liveContext = contextGenerator.apply(liveContext);
+        addFrozenContextAndClearRedo(updatedTopContext);
+        return updatedTopContext;
     }
 
     public synchronized void pushLiveAndFrozen(Context live, Context frozen) {

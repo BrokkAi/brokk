@@ -176,6 +176,12 @@ public final class MOPBridge {
                         "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
     }
 
+    public void setTaskInProgress(boolean inProgress) {
+        var js = "if (window.brokk && window.brokk.setTaskInProgress) { window.brokk.setTaskInProgress(" + inProgress
+                + "); } else { console.error('setTaskInProgress called - bridge not ready yet'); }";
+        Platform.runLater(() -> engine.executeScript(js));
+    }
+
     public void clear() {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.Clear(e));

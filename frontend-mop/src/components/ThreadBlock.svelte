@@ -8,6 +8,7 @@
     import { rendererPlugins } from '../lib/renderer-plugins';
     import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
     import { deleteHistoryTaskByThreadId } from '../stores/historyStore';
+    import { deleteLiveTaskByThreadId } from '../stores/bubblesStore';
     import ThreadMeta from './ThreadMeta.svelte';
 
     export let threadId: number;
@@ -22,6 +23,11 @@
 
     $: defaults = getBubbleDisplayDefaults(firstBubble.type);
     $: bubbleDisplay = { tag: defaults.title, hlVar: defaults.hlVar };
+
+    // Determine if any bubble is currently streaming
+    $: hasStreaming = bubbles.some((b) => b.streaming);
+    // Allow delete for history tasks, or for current task once it is not streaming
+    $: allowDelete = (taskSequence !== undefined) || !hasStreaming;
 
     // Aggregate diff metrics across all bubbles in this thread
     $: threadTotals = bubbles.reduce(
@@ -51,6 +57,7 @@
 
     function handleDelete(threadIdParam: number) {
         deleteHistoryTaskByThreadId(threadIdParam);
+        deleteLiveTaskByThreadId(threadIdParam);
     }
 
     async function handleCopy() {
@@ -110,7 +117,8 @@
             msgLabel={msgLabel}
             totalLines={totalLinesAll}
             threadId={threadId}
-            {taskSequence}
+            taskSequence={taskSequence}
+            allowDelete={allowDelete}
             onCopy={handleCopy}
             onDelete={handleDelete}
         />
@@ -145,7 +153,8 @@
                                 msgLabel={msgLabel}
                                 totalLines={totalLinesAll}
                                 threadId={threadId}
-                                {taskSequence}
+                                taskSequence={taskSequence}
+                                allowDelete={allowDelete}
                                 onCopy={handleCopy}
                                 onDelete={handleDelete}
                             />
