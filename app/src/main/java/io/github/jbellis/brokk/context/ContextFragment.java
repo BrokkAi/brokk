@@ -1361,17 +1361,14 @@ public interface ContextFragment {
                             || !ContextManager.isTestFile(e.getKey().source()))
                     .anyMatch(e -> {
                         long stored = e.getValue();
-                        long current;
                         var file = e.getKey().source();
-                        try {
-                            current = file.getLastModifiedTimeMillis();
-                        } catch (IOException ex) {
-                            logger.error(
-                                    "Unable to determine `mtime` for {}. Assuming file has been removed and will re-compute usages.",
-                                    file.getRelPath());
+                        if (file.exists()) {
+                            logger.debug("{} has been removed and will re-compute usages.", file.getRelPath());
                             return true;
+                        } else {
+                            var current = file.getLastModifiedTimeMillis();
+                            return current > stored;
                         }
-                        return current > stored;
                     });
 
             if (anyFileStale) {
