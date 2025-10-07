@@ -340,7 +340,7 @@ public class MergeAgent {
                         .formatted(otherCommitId, mode, mergeInstructions, codeAgentText);
 
         var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, scope);
-        return agent.execute();
+        return agent.executeWithSearch(scope);
     }
 
     private static boolean containsConflictMarkers(String text) {

@@ -1348,7 +1348,7 @@ String contextFilter = contextFilterTextField.getText().trim();
                 } else {
                     mainIo.systemNotify("Architect has been invoked.", "Post-processing", javax.swing.JOptionPane.INFORMATION_MESSAGE);
                     var agent = new ArchitectAgent(cm, cm.getArchitectModel(), model, agentInstructions, scope);
-                    postProcessResult = agent.execute();
+                    postProcessResult = agent.executeWithSearch(scope);
                 }
                 scope.append(postProcessResult);
             } finally {

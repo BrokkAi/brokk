@@ -1019,7 +1019,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             chrome.showOutputSpinner("Executing Task command...");
             TaskResult result;
             try (var scope = cm.beginTask(originalPrompt, false)) {
-                result = runArchitectOnTaskInternal(idx, cm, originalPrompt, scope);
+                result = runArchitectOnTaskInternal(cm, originalPrompt, scope);
             } catch (Exception ex) {
                 logger.error("Internal error running architect", ex);
                 SwingUtilities.invokeLater(this::finishQueueOnError);
@@ -1065,33 +1065,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private @NotNull TaskResult runArchitectOnTaskInternal(
-            int idx, ContextManager cm, String originalPrompt, ContextManager.TaskScope scope) {
-        // Optionally run SearchAgent; we can skip search if this is the first task
-        // AND there are items in the context to edit (NOT context.isEmpty which includes task history)
-        boolean skipSearch =
-                idx == 0 && cm.liveContext().getEditableFragments().findAny().isPresent();
-        if (skipSearch) {
-            logger.debug("Skipping SearchAgent for first task since workspace has editable fragments");
-        } else {
-            var scanModel = cm.getService().getScanModel();
-            SearchAgent agent =
-                    new SearchAgent(originalPrompt, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            var searchResult = agent.execute();
-            scope.append(searchResult);
-            if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                return searchResult;
-            }
-        }
-
+            ContextManager cm, String originalPrompt, ContextManager.TaskScope scope) {
         var planningModel = requireNonNull(cm.getService().getModel(Service.GEMINI_2_5_PRO));
         var codeModel = requireNonNull(
                 cm.getService().getModel(chrome.getInstructionsPanel().getSelectedModel()));
 
         var architectAgent = new ArchitectAgent(cm, planningModel, codeModel, originalPrompt, scope);
-        var archResult = architectAgent.execute();
-        scope.append(archResult);
-        return archResult;
+        return architectAgent.executeWithSearch(scope);
     }
 
     private void startNextIfAny() {
