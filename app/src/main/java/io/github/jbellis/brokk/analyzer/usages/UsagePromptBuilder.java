@@ -14,7 +14,8 @@ import java.util.List;
  * <ul>
  *   <li>filterDescription: concise text describing the intended target (e.g., the short name and optional candidates)
  *   <li>candidateText: the snippet representing this single usage
- *   <li>promptText: an XML-like block including file path, imports, and a single &lt;usage&gt; block (no IDs)
+ *   <li>promptText: an XML-like block including file path, imports, a &lt;candidates&gt; section, and a single
+ *       &lt;usage&gt; block (no IDs)
  * </ul>
  *
  * <p>All textual XML content is escaped, and a conservative token-to-character budget is enforced.
@@ -27,14 +28,20 @@ public final class UsagePromptBuilder {
      * Build a prompt for a single usage hit.
      *
      * @param hit single usage occurrence (snippet should contain ~3 lines above/below already if desired)
-     * @param codeUnitTarget optional list of candidate targets to include in a comment header
+     * @param codeUnitTarget the intended target code unit
+     * @param alternativeCodeUnits other plausible code units that share the short name (target excluded if present)
      * @param analyzer used to retrieve import statements for the file containing the usage
      * @param shortName the short name being searched (e.g., "A.method2")
      * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
      * @return UsagePrompt containing filterDescription, candidateText, and promptText (no IDs)
      */
     public static UsagePrompt buildPrompt(
-            UsageHit hit, CodeUnit codeUnitTarget, IAnalyzer analyzer, String shortName, int maxTokens) {
+            UsageHit hit,
+            CodeUnit codeUnitTarget,
+            List<CodeUnit> alternativeCodeUnits,
+            IAnalyzer analyzer,
+            String shortName,
+            int maxTokens) {
 
         // Approximate token-to-character budget (very conservative)
         final int maxChars = (maxTokens <= 0) ? Integer.MAX_VALUE : Math.max(512, maxTokens * 4);
@@ -72,6 +79,15 @@ public final class UsagePromptBuilder {
         }
         sb.append("</imports>\n\n");
 
+        // Alternatives section (exclude target if present)
+        sb.append("<candidates>\n");
+        for (CodeUnit alt : alternativeCodeUnits) {
+            if (!alt.fqName().equals(codeUnitTarget.fqName())) {
+                sb.append(escapeXml(alt.fqName())).append("\n");
+            }
+        }
+        sb.append("</candidates>\n\n");
+
         // Single usage block, no id attribute
         int beforeUsageLen = sb.length();
         sb.append("<usage>\n");
@@ -93,6 +109,8 @@ public final class UsagePromptBuilder {
     }
 
     private static String buildFilterDescription(CodeUnit targetCodeUnit) {
-        return "Determine if the snippet represents a usage of " + targetCodeUnit + ".";
+        return ("Determine if the snippet represents a usage of " + targetCodeUnit
+                + ". Consider the <candidates> list of alternative code units and score how likely the usage "
+                + "matches ONLY the target (not any alternative). Return a real number in [0.0, 1.0].");
     }
 }
