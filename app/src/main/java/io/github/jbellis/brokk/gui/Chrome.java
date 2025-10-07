@@ -421,6 +421,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Create terminal drawer panel
         instructionsDrawerSplit = new DrawerSplitPanel();
+        // Ensure bottom area doesn't get squeezed to near-zero height on first layout after swaps
+        instructionsDrawerSplit.setMinimumSize(new Dimension(200, 150));
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
         // Attach instructions (left) and drawer (right)
@@ -2902,19 +2904,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return;
             }
 
+            // Capture current Output↔Bottom divider location so we can reapply after swapping components.
+            final int prevMainDivider = Math.max(0, mainVerticalSplitPane.getDividerLocation());
+
             if (collapsed) {
                 // Save current top split divider location (Workspace ↔ Instructions) to restore later
                 try {
                     savedWorkspaceDividerLocation = topSplitPane.getDividerLocation();
                 } catch (Exception ignored) {
-                    // Defensive: divider may not be realized yet
+                    // divider may not be realized yet
                 }
 
                 // Swap bottom of Output split to show ONLY the Instructions/Drawer.
                 // This automatically detaches instructionsDrawerSplit from topSplitPane (workspaceInstructionsSplit).
                 mainVerticalSplitPane.setBottomComponent(instructionsDrawerSplit);
 
-                // Do NOT hide the mainVerticalSplitPane divider; we want Output ↔ Instructions divider to remain visible
+                // Keep the Output↔Bottom divider visible and at the same location.
+                mainVerticalSplitPane.revalidate();
+                mainVerticalSplitPane.setDividerLocation(prevMainDivider);
+                SwingUtilities.invokeLater(() -> mainVerticalSplitPane.setDividerLocation(prevMainDivider));
+
                 this.workspaceCollapsed = true;
             } else {
                 // Restore the Workspace+Instructions split as the bottom component
@@ -2941,6 +2950,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         // Non-fatal if divider not realized yet
                     }
                 }
+
+                // Keep the Output↔Bottom divider visible and at the same location.
+                mainVerticalSplitPane.revalidate();
+                mainVerticalSplitPane.setDividerLocation(prevMainDivider);
+                SwingUtilities.invokeLater(() -> mainVerticalSplitPane.setDividerLocation(prevMainDivider));
 
                 this.workspaceCollapsed = false;
             }
