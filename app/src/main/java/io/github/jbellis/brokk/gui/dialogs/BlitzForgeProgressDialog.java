@@ -93,7 +93,6 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         // In-progress table with progress bar renderer
         inProgressTable = new JTable(inProgressModel);
         inProgressTable.setFillsViewportHeight(true);
-        inProgressTable.setRowHeight(11);
         inProgressTable.getColumnModel()
                 .getColumn(1)
                 .setCellRenderer(new ProgressBarRenderer());
@@ -487,11 +486,16 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
                 setValue(0);
             }
             if (isSelected) {
-                setBackground(table.getSelectionBackground());
-            } else {
-                setBackground(table.getBackground());
-            }
-            return this;
+            setBackground(table.getSelectionBackground());
+        } else {
+            setBackground(table.getBackground());
+        }
+        // Shrink the painted bar to 50% of the row height, centered vertically
+        int rowHeight = table.getRowHeight(row);
+        int desiredHeight = Math.max(4, rowHeight / 2);
+        int pad = Math.max(0, (rowHeight - desiredHeight) / 2);
+        setBorder(BorderFactory.createEmptyBorder(pad, 0, pad, 0));
+        return this;
         }
     }
 
