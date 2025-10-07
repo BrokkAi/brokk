@@ -2835,14 +2835,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Updates the terminal font size for all active terminals. */
     public void updateTerminalFontSize() {
-        SwingUtilities.invokeLater(() -> {
-            terminalDrawer.updateTerminalFontSize();
-        });
+        SwingUtilities.invokeLater(() -> terminalDrawer.updateTerminalFontSize());
     }
 
     @Override
-    public BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config, Runnable cancelCallback) {
-        var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, config, cancelCallback), null));
+    public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
+        var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
         SwingUtilities.invokeLater(() -> dialog.setVisible(true));
         return dialog;
     }

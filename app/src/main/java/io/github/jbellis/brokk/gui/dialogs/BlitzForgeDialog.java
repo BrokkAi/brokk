@@ -10,7 +10,6 @@ import com.github.mustachejava.MustacheFactory;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
@@ -1229,7 +1228,6 @@ public class BlitzForgeDialog extends JDialog {
         // Prepare listener dialog
         var progressDialog = new BlitzForgeProgressDialog(
                 chrome,
-                runCfg,
                 () -> {
                     var f = taskRef.get();
                     if (f != null) {

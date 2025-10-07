@@ -144,11 +144,11 @@ public interface IConsoleIO {
 
     /**
      * Returns a BlitzForge.Listener implementation suitable for the current console type (GUI or headless).
-     * @param config The configuration for the BlitzForge run.
+     *
      * @param cancelCallback A callback to invoke if the user requests cancellation (e.g., presses Cancel).
      * @return A BlitzForge.Listener instance.
      */
-    default BlitzForge.Listener getBlitzForgeListener(BlitzForge.RunConfig config, Runnable cancelCallback) {
+    default BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
         throw new UnsupportedOperationException("getBlitzForgeListener not implemented for this console type");
     }
 }

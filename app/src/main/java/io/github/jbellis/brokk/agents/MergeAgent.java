@@ -14,22 +14,16 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
-import io.github.jbellis.brokk.util.Messages;
-import io.github.jbellis.brokk.util.TokenAware;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
@@ -42,15 +36,6 @@ import javax.swing.JOptionPane;
 
 /* Added imports for referenced helpers/agents. These are typically in the same package;
    importing is harmless and makes intent explicit. */
-import io.github.jbellis.brokk.agents.BlitzForge;
-import io.github.jbellis.brokk.agents.NonTextResolutionMode;
-import io.github.jbellis.brokk.agents.MergeOneFile;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
-import io.github.jbellis.brokk.agents.ConflictAnnotator;
-import io.github.jbellis.brokk.agents.ConflictInspector;
-import io.github.jbellis.brokk.agents.NonTextGrouper;
-import io.github.jbellis.brokk.agents.NonTextHeuristicResolver;
-import io.github.jbellis.brokk.agents.BuildAgent;
 
 /**
  * Simplified MergeAgent that delegates conflict detection, annotation and per-file planning to ConflictInspector,
@@ -227,7 +212,7 @@ public class MergeAgent {
                 "",                     // postProcessingInstructions
                 BlitzForge.Action.MERGE);
 
-        var bfListener = cm.getIo().getBlitzForgeListener(bfConfig, () -> {});
+        var bfListener = cm.getIo().getBlitzForgeListener(() -> {});
 
         var blitz = new BlitzForge(cm, cm.getService(), bfConfig, bfListener);
 

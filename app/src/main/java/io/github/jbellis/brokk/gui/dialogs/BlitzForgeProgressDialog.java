@@ -2,31 +2,24 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.cli.MemoryConsole;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
-import java.awt.BorderLayout;
-import java.awt.Dimension;
-import java.awt.Font;
+import io.github.jbellis.brokk.util.Messages;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.swing.BorderFactory;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JProgressBar;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
-import javax.swing.SwingUtilities;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+import java.util.stream.Collectors;
 
 /**
  * UI-only progress dialog for BlitzForge runs. Implements BlitzForge.Listener and renders progress.
@@ -64,7 +57,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     private final AtomicInteger processedFileCount = new AtomicInteger(0);
     private final AtomicBoolean done = new AtomicBoolean(false);
 
-public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runnable cancelCallback) {
+public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
         super(chrome.getFrame(), "BlitzForge Progress", false);
         assert SwingUtilities.isEventDispatchThread() : "Must construct dialog on EDT";
 
@@ -153,37 +146,6 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
 
         // start LLM count timer immediately; it is cheap and keeps label fresh
         llmLineCountTimer.start();
-    }
-
-    // Back-compat constructor signature used by older BlitzForgeDialog callers.
-    // It adapts the legacy arguments into a BlitzForge.RunConfig and delegates to the primary constructor.
-    public BlitzForgeProgressDialog(
-            String instructions,
-            String action,
-            Object favoriteModel,
-            java.util.List<ProjectFile> files,
-            Chrome chrome,
-            @Nullable Integer relatedK,
-            @Nullable String perFileCommandTemplate,
-            boolean includeWorkspace,
-            PostProcessingOption postProcessing,
-            String contextFilter,
-            ParallelOutputMode outputMode,
-            boolean buildFirst,
-            String postProcessingInstructions) {
-        this(chrome,
-             new BlitzForge.RunConfig(
-                     instructions,
-                     null, // legacy favoriteModel is resolved elsewhere; default to null model
-                     includeWorkspace,
-                     relatedK,
-                     perFileCommandTemplate,
-                     contextFilter,
-                     mapOutputMode(outputMode),
-                     buildFirst,
-                     postProcessingInstructions,
-                     mapAction(action)),
-             () -> {});
     }
 
     private static BlitzForge.ParallelOutputMode mapOutputMode(ParallelOutputMode m) {
@@ -293,9 +255,8 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
         });
     }
 
-    public class DialogConsoleIO implements IConsoleIO {
+    public class DialogConsoleIO extends MemoryConsole {
         private final String fileContext;
-        private final StringBuilder llmOutput = new StringBuilder();
 
         /** @param fileContext To prefix messages related to a specific file */
         private DialogConsoleIO(String fileContext) {
@@ -303,7 +264,7 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
         }
 
         public String getLlmOutput() {
-            return llmOutput.toString();
+            return getLlmRawMessages().stream().map(Messages::getText).collect(Collectors.joining("\n"));
         }
 
         private void appendToOutput(String text) {
@@ -326,8 +287,8 @@ public BlitzForgeProgressDialog(Chrome chrome, BlitzForge.RunConfig config, Runn
         }
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-            llmOutput.append(token);
+        public void llmOutput(String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
+            super.llmOutput(token, type, explicitNewMessage, isReasoning);
             long newLines = token.chars().filter(c -> c == '\n').count();
             if (newLines > 0) {
                 llmLineCount.addAndGet((int) newLines);
