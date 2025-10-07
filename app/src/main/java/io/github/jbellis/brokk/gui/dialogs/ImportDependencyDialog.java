@@ -52,15 +52,24 @@ public class ImportDependencyDialog {
 
     public static void show(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
         assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
-        new DialogHelper(chrome, listener).buildAndShow();
+        // Default to owning the import dialog by the main frame if no explicit owner is provided.
+        show(chrome, chrome.getFrame(), listener);
     }
 
     public static void show(Chrome chrome) {
-        show(chrome, null);
+        show(chrome, chrome.getFrame(), null);
+    }
+
+    // New overload to allow specifying the owner window (e.g., the Dependencies dialog)
+    public static void show(
+            Chrome chrome, Window owner, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
+        assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
+        new DialogHelper(chrome, owner, listener).buildAndShow();
     }
 
     private static class DialogHelper {
         private final Chrome chrome;
+        private final Window owner;
         private JDialog dialog = new JDialog();
 
         @Nullable
@@ -97,8 +106,10 @@ public class ImportDependencyDialog {
         @Nullable
         private GitRepo.RemoteInfo remoteInfo;
 
-        DialogHelper(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
+        DialogHelper(
+                Chrome chrome, Window owner, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
             this.chrome = chrome;
+            this.owner = owner;
             this.dependenciesRoot = chrome.getProject()
                     .getRoot()
                     .resolve(AbstractProject.BROKK_DIR)
@@ -109,7 +120,7 @@ public class ImportDependencyDialog {
         }
 
         void buildAndShow() {
-            dialog = new JDialog(chrome.getFrame(), "Import Dependency", true);
+            dialog = new JDialog(owner, "Import Dependency", java.awt.Dialog.ModalityType.DOCUMENT_MODAL);
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
             dialog.setLayout(new BorderLayout(10, 10));
 
@@ -363,20 +374,19 @@ public class ImportDependencyDialog {
             importButton.setEnabled(enabled);
         }
 
-        // Try to bring the dependencies dialog (modeless) to the front after closing this modal import dialog.
-        // We detect it by searching for an open JDialog that contains a DependenciesPanel.
+        // Bring the owning Dependencies dialog to the front (if available), otherwise best-effort search.
         private void bringDependenciesDialogToFront() {
             try {
+                if (owner instanceof JDialog jd && jd.isShowing()) {
+                    jd.toFront();
+                    jd.requestFocus();
+                    return;
+                }
                 for (Window w : Window.getWindows()) {
                     if (w instanceof JDialog jd && jd.isShowing()) {
                         if (containsDependenciesPanel(jd)) {
-                            // Nudge it to the front and ensure focus
                             jd.toFront();
                             jd.requestFocus();
-                            // Briefly toggle always-on-top to guarantee raise over the owner
-                            boolean wasAot = jd.isAlwaysOnTop();
-                            jd.setAlwaysOnTop(true);
-                            jd.setAlwaysOnTop(wasAot);
                             break;
                         }
                     }

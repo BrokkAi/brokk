@@ -73,6 +73,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
     private @Nullable Rectangle dependenciesDialogBounds = null;
+    @Nullable
+    private JDialog dependenciesDialog = null;
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -1132,9 +1134,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var dependenciesPanel = new DependenciesDrawerPanel(Chrome.this);
-                showPreviewFrame(getContextManager(), "Manage Dependencies", dependenciesPanel);
-                dependenciesPanel.openPanel();
+                showDependenciesModalDialog();
             }
         });
 
@@ -1583,6 +1583,69 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // For other types of previews, use a generic key based on class and title
             return "preview:" + contentComponent.getClass().getSimpleName() + ":" + title;
         }
+    }
+
+    // Opens the Dependencies UI as an application-modal dialog
+    public void showDependenciesModalDialog() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        if (dependenciesDialog != null && dependenciesDialog.isDisplayable()) {
+            dependenciesDialog.toFront();
+            dependenciesDialog.requestFocus();
+            return;
+        }
+
+        var dependenciesPanel = new DependenciesDrawerPanel(this);
+        var dialog = new JDialog(frame, "Manage Dependencies", Dialog.ModalityType.APPLICATION_MODAL);
+        Chrome.applyIcon(dialog);
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.setLayout(new BorderLayout());
+        dialog.add(dependenciesPanel, BorderLayout.CENTER);
+
+        if (dependenciesDialogBounds != null
+                && dependenciesDialogBounds.width > 0
+                && dependenciesDialogBounds.height > 0) {
+            dialog.setBounds(dependenciesDialogBounds);
+            if (!isPositionOnScreen(dependenciesDialogBounds.x, dependenciesDialogBounds.y)) {
+                dialog.setLocationRelativeTo(frame);
+            }
+        } else {
+            dialog.setSize(800, 500);
+            dialog.setLocationRelativeTo(frame);
+        }
+
+        dialog.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentMoved(java.awt.event.ComponentEvent e) {
+                dependenciesDialogBounds = dialog.getBounds();
+            }
+
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                dependenciesDialogBounds = dialog.getBounds();
+            }
+        });
+
+        // Close on ESC
+        var rootPane = dialog.getRootPane();
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeWindow");
+        rootPane.getActionMap().put("closeWindow", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                dialog.dispatchEvent(new WindowEvent(dialog, WindowEvent.WINDOW_CLOSING));
+            }
+        });
+
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                dependenciesDialog = null;
+            }
+        });
+
+        dependenciesDialog = dialog;
+        dependenciesPanel.openPanel();
+        dialog.setVisible(true); // Modal; blocks until closed
     }
 
     /** Closes all active preview windows and clears the tracking map. Useful for cleanup or when switching projects. */
