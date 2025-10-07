@@ -48,6 +48,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -1817,8 +1818,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      *
      * @param goal The user's goal/instructions.
      */
-    public Future<TaskResult> runArchitectCommand(String goal) {
-        return submitAction(ACTION_ARCHITECT, goal, scope -> {
+    public void runArchitectCommand(String goal) {
+        submitAction(ACTION_ARCHITECT, goal, scope -> {
             var service = chrome.getContextManager().getService();
             var planningModel = service.getModel(Service.GEMINI_2_5_PRO);
             if (planningModel == null) {
@@ -1940,47 +1941,41 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
     }
 
-    public @Nullable Future<TaskResult> runSearchCommand() {
+    public void runSearchCommand() {
         var input = getInstructions();
         if (input.isBlank()) {
             chrome.toolError("Please provide a search query");
-            return null;
+            return;
         }
+
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
-
-        return executeSearchInternal(input);
+        executeSearchInternal(input);
     }
 
-    private Future<TaskResult> executeSearchInternal(String query) {
+    private void executeSearchInternal(String query) {
         final var modelToUse = selectDropdownModelOrShowError("Search", true);
         if (modelToUse == null) {
             throw new IllegalStateException("LLM not found, usually this indicates a network error");
         }
 
-        return submitAction(ACTION_SEARCH, query, () -> {
+        submitAction(ACTION_SEARCH, query, () -> {
             assert !query.isBlank();
 
             var cm = chrome.getContextManager();
             SearchAgent agent = new SearchAgent(
                     query, cm, modelToUse, EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST));
             var result = agent.execute();
-
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             return result;
         });
-    }
-
-    public Future<TaskResult> runSearchCommand(String query) {
-        assert !query.isBlank();
-        return executeSearchInternal(query);
     }
 
     /**
      * Runs the given task, handling spinner and add-to-history of the TaskResult, including partial result on
      * interruption
      */
-    public Future<TaskResult> submitAction(String action, String input, Callable<TaskResult> task) {
+    public void submitAction(String action, String input, Callable<TaskResult> task) {
         var cm = chrome.getContextManager();
         // Map some actions to a more user-friendly display string for the spinner.
         // We keep the original `action` (used for LLM output / history) unchanged to avoid
@@ -1997,7 +1992,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             displayAction = action;
         }
 
-        return cm.submitLlmAction(action, () -> {
+        cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner("Executing " + displayAction + " command...");
                 try (var scope = cm.beginTask(input, false)) {
@@ -2006,7 +2001,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                         populateInstructionsArea(input);
                     }
-                    return result;
                 }
             } finally {
                 chrome.hideOutputSpinner();
@@ -2017,11 +2011,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /** Overload that provides a TaskScope to the task body so callers can pass it to agents. */
-    public Future<TaskResult> submitAction(
-            String action, String input, java.util.function.Function<ContextManager.TaskScope, TaskResult> task) {
+    public CompletableFuture<Void> submitAction(
+            String action, String input, Function<ContextManager.TaskScope, TaskResult> task) {
         var cm = chrome.getContextManager();
-        // need to set the correct parser here since we're going to append to the same fragment during the action
-        String finalAction = (action + " MODE").toUpperCase(java.util.Locale.ROOT);
         // Map some actions to a more user-friendly display string for the spinner.
         // We keep the original `finalAction` (used for LLM output / history) unchanged to avoid
         // affecting other subsystems that detect action by name, but present a clearer label
@@ -2037,7 +2029,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             displayAction = action;
         }
 
-        return cm.submitLlmAction(finalAction, () -> {
+        return cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner("Executing " + displayAction + " command...");
                 try (var scope = cm.beginTask(input, false)) {
@@ -2046,7 +2038,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                         populateInstructionsArea(input);
                     }
-                    return result;
                 }
             } finally {
                 chrome.hideOutputSpinner();

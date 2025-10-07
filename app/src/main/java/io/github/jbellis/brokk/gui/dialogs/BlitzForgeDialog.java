@@ -1098,11 +1098,7 @@ public class BlitzForgeDialog extends JDialog {
             return;
         }
 
-        Service.FavoriteModel selectedFavorite = (Service.FavoriteModel) modelComboBox.getSelectedItem();
-        if (selectedFavorite == null) {
-            JOptionPane.showMessageDialog(this, "Please select a model", "Input Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+        var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
 
         // Refresh cost estimate and warn if it is more than half the balance
         updateCostEstimate();
@@ -1219,7 +1215,6 @@ String contextFilter = contextFilterTextField.getText().trim();
         // Post-processing capture
         final PostProcessingOption fRunOption = runOption;
         final BlitzForge.ParallelOutputMode fOutputMode = engineOutputMode;
-        final boolean fBuildFirst = buildFirst;
         final String fPostProcessingInstructions = postProcessingInstructions;
         final List<ProjectFile> fFilesToProcess = filesToProcessList;
 
@@ -1271,18 +1266,13 @@ String contextFilter = contextFilterTextField.getText().trim();
         final String fContextFilter = contextFilter;
 
         // Prepare listener dialog + cancel wiring
-        AtomicReference<Future<TaskResult>> taskRef = new AtomicReference<>();
         var progressDialog = new BlitzForgeProgressDialog(
                 chrome,
-                () -> {
-                    var f = requireNonNull(taskRef.get());
-                    f.cancel(true);
-                    cm.interruptLlmAction();
-                });
+                cm::interruptLlmAction);
 
         // Kick off background execution
         var analyzerWrapper = cm.getAnalyzerWrapper();
-        taskRef.set(cm.submitLlmAction("BlitzForge: " + instructions, () -> {
+        cm.submitLlmAction(() -> {
             analyzerWrapper.pause();
             try (var scope = cm.beginTask(instructions, false)) {
                 var parallelResult = runParallel(runCfg, progressDialog, filesToProcessList, includeWorkspace, fRelatedK, fPerFileCmd, engineAction, instructions, fContextFilter, contextFilter);
@@ -1294,7 +1284,12 @@ String contextFilter = contextFilterTextField.getText().trim();
                     return;
                 }
 
-                var buildFailureText = BuildAgent.runVerification(cm);
+                String buildFailureText;
+                if (buildFirst) {
+                    buildFailureText = BuildAgent.runVerification(cm);
+                } else {
+                    buildFailureText = "";
+                }
 
                 if (fPostProcessingInstructions.isEmpty() && buildFailureText.isEmpty()) {
                     logger.debug("Build successful or not run, and parallel output processing was not requested");
@@ -1359,7 +1354,7 @@ String contextFilter = contextFilterTextField.getText().trim();
             } finally {
                 analyzerWrapper.resume();
             }
-        }));
+        });
         // Show the progress dialog (modeless)
         progressDialog.setVisible(true);
     }
@@ -1368,6 +1363,7 @@ String contextFilter = contextFilterTextField.getText().trim();
         var cm = chrome.getContextManager();
         var service = cm.getService();
         var frozenContext = cm.topContext();
+        var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
         var model = requireNonNull(service.getModel(selectedFavorite.config()));
 
         // Engine + per-file processor

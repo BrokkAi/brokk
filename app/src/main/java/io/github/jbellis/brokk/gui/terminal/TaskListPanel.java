@@ -1010,47 +1010,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var cm = chrome.getContextManager();
 
-        var future = runArchitectOnTaskAsync(idx, cm, originalPrompt);
-
-        // When finished (on background thread), update UI state on EDT
-        future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
-            if (ex != null) {
-                logger.error("Internal error running architect", ex);
-                finishQueueOnError();
-                return;
-            }
-            try {
-                if (res == null || res.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                    finishQueueOnError();
-                    return;
-                }
-
-                if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                    var it = model.get(idx);
-                    if (it != null) {
-                        model.set(idx, new TaskItem(it.text(), true));
-                        saveTasksForCurrentSession();
-                    }
-                }
-            } finally {
-                // Clear running, advance queue
-                runningIndex = null;
-                runningFadeTimer.stop();
-                list.repaint();
-                updateButtonStates();
-                startNextIfAny();
-            }
-        }));
+        runArchitectOnTaskAsync(idx, cm, originalPrompt);
     }
 
-    @NotNull
-    CompletableFuture<TaskResult> runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
+    void runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
         // Submit an LLM action that will perform optional search + architect work off the EDT.
-        return cm.submitLlmAction("Execute Task " + (idx + 1), () -> {
+        cm.submitLlmAction(() -> {
             chrome.showOutputSpinner("Executing Task command...");
             TaskResult result;
             try (var scope = cm.beginTask(originalPrompt, false)) {
                 result = runArchitectOnTaskInternal(idx, cm, originalPrompt, scope);
+            } catch (Exception ex) {
+                logger.error("Internal error running architect", ex);
+                SwingUtilities.invokeLater(this::finishQueueOnError);
+                return;
             } finally {
                 chrome.hideOutputSpinner();
                 cm.checkBalanceAndNotify();
@@ -1065,7 +1038,29 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
 
-            return result;
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                        finishQueueOnError();
+                        return;
+                    }
+
+                    if (Objects.equals(runningIndex, idx) && idx < model.size()) {
+                        var it = model.get(idx);
+                        if (it != null) {
+                            model.set(idx, new TaskItem(it.text(), true));
+                            saveTasksForCurrentSession();
+                        }
+                    }
+                } finally {
+                    // Clear running, advance queue
+                    runningIndex = null;
+                    runningFadeTimer.stop();
+                    list.repaint();
+                    updateButtonStates();
+                    startNextIfAny();
+                }
+            });
         });
     }
 

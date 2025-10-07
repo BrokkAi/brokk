@@ -679,13 +679,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return userActions.submitLlmAction(task);
     }
 
-    /**
-     * The provided callable is expected to handle InterruptedException by returning a TaskResult with an INTERRUPTED StopReason.
-     */
-    public CompletableFuture<TaskResult> submitLlmAction(String description, Callable<TaskResult> task) {
-        return userActions.submitLlmAction(description, task);
-    }
-
     // TODO should we just merge ContextTask w/ BackgroundTask?
     public Future<?> submitContextTask(Runnable task) {
         return contextActionExecutor.submit(task);
