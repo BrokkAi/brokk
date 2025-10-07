@@ -651,10 +651,6 @@ public class WorkspacePanel extends JPanel {
     @Nullable
     private JMenuItem dropAllMenuItem = null;
 
-    // Global dispatcher for Cmd/Ctrl+Shift+I to open Attach Context
-    @Nullable
-    private KeyEventDispatcher globalAttachDispatcher = null;
-
     // Observers for bottom-controls height changes
     private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
 
@@ -1146,18 +1142,12 @@ public class WorkspacePanel extends JPanel {
             // Add button to show Add popup (same menu as table's Add)
             var addButton = new MaterialButton();
             SwingUtilities.invokeLater(() -> addButton.setIcon(Icons.ATTACH_FILE));
-            addButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
+            addButton.setToolTipText("Add content to workspace");
             addButton.setFocusable(false);
             addButton.setOpaque(false);
             addButton.addActionListener(e -> {
                 attachContextViaDialog();
             });
-            // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
-            KeyboardShortcutUtil.registerGlobalShortcut(
-                    WorkspacePanel.this,
-                    KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
-                    "attachContext",
-                    () -> SwingUtilities.invokeLater(this::attachContextViaDialog));
 
             // Create a trash button to drop selected fragment(s)
             SwingUtilities.invokeLater(() -> dropSelectedButton.setIcon(Icons.TRASH));
@@ -2413,44 +2403,4 @@ public class WorkspacePanel extends JPanel {
         updateDropSelectedButtonEnabled();
     }
 
-    @Override
-    public void addNotify() {
-        super.addNotify();
-        registerGlobalAttachDispatcher();
-    }
-
-    @Override
-    public void removeNotify() {
-        unregisterGlobalAttachDispatcher();
-        super.removeNotify();
-    }
-
-    private void registerGlobalAttachDispatcher() {
-        if (globalAttachDispatcher != null) return;
-
-        globalAttachDispatcher = e -> {
-            if (e.getID() != KeyEvent.KEY_PRESSED) return false;
-
-            int mods = e.getModifiersEx();
-            int shortcutMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx(); // Cmd on macOS, Ctrl elsewhere
-            boolean hasShortcut = (mods & shortcutMask) != 0;
-            boolean hasShift = (mods & InputEvent.SHIFT_DOWN_MASK) != 0;
-
-            if (hasShortcut && hasShift && e.getKeyCode() == KeyEvent.VK_I) {
-                SwingUtilities.invokeLater(() -> attachContextViaDialog());
-                // Consume the event so focused components (e.g., terminal) don't handle it
-                return true;
-            }
-            return false;
-        };
-
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(globalAttachDispatcher);
-    }
-
-    private void unregisterGlobalAttachDispatcher() {
-        if (globalAttachDispatcher != null) {
-            KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(globalAttachDispatcher);
-            globalAttachDispatcher = null;
-        }
-    }
 }

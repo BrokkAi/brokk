@@ -222,6 +222,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
+        // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
+        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                chrome.getFrame().getRootPane(),
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
+                "attachContext",
+                () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
+
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
         modeSwitch.setSelected(proj.getInstructionsAskMode());

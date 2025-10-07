@@ -14,6 +14,7 @@ import java.awt.FlowLayout;
 import java.awt.Image;
 import java.awt.Cursor;
 import java.awt.Insets;
+import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -77,6 +78,54 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
     }
 
     private enum ChipKind { EDIT, SUMMARY, OTHER }
+
+    // Rounded chip container that paints a rounded background and border
+    private static final class RoundedChipPanel extends JPanel {
+        private Color borderColor = Color.GRAY;
+        private int arc = 12;
+
+        RoundedChipPanel() {
+            setOpaque(false);
+        }
+
+        void setBorderColor(Color c) {
+            this.borderColor = c;
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                Color bg = getBackground();
+                if (bg == null) {
+                    bg = getParent() != null ? getParent().getBackground() : Color.LIGHT_GRAY;
+                }
+                int w = getWidth();
+                int h = getHeight();
+                g2.setColor(bg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, arc, arc);
+            } finally {
+                g2.dispose();
+            }
+            super.paintComponent(g);
+        }
+
+        @Override
+        protected void paintBorder(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                int w = getWidth();
+                int h = getHeight();
+                g2.setColor(borderColor);
+                g2.drawRoundRect(0, 0, w - 1, h - 1, arc, arc);
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
 
     private ChipKind classify(ContextFragment fragment) {
         Context ctx = contextManager.selectedContext();
@@ -269,14 +318,34 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         chip.setBackground(bg);
         label.setForeground(fg);
 
-        var outer = new MatteBorder(1, 1, 1, 1, border);
+        // Rounded look: padding as inner border, rounded border painted by RoundedChipPanel
         var inner = new EmptyBorder(2, 8, 2, 6);
-        chip.setBorder(new CompoundBorder(outer, inner));
+        if (chip instanceof RoundedChipPanel rc) {
+            rc.setBorderColor(border);
+            chip.setBorder(inner);
+        } else {
+            // Fallback for non-rounded panel (shouldn't happen with current creation)
+            var outer = new MatteBorder(1, 1, 1, 1, border);
+            chip.setBorder(new CompoundBorder(outer, inner));
+        }
+
+        // Style the divider (vertical line) between label and close button
+        for (var child : chip.getComponents()) {
+            if (child instanceof JPanel p && Boolean.TRUE.equals(p.getClientProperty("brokk.chip.separator"))) {
+                p.setBackground(border);
+                var pref = p.getPreferredSize();
+                int h = Math.max(label.getPreferredSize().height - 6, 10);
+                p.setPreferredSize(new Dimension(pref.width, h));
+                p.revalidate();
+                p.repaint();
+            }
+        }
     }
 
     private Component createChip(ContextFragment fragment) {
-        var chip = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        chip.setOpaque(true);
+        var chip = new RoundedChipPanel();
+        chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        chip.setOpaque(false);
 
         // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
         ChipKind kindForLabel = classify(fragment);
@@ -368,6 +437,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         });
 
         chip.add(label);
+
+        // Add a slim vertical divider between label and close button
+        var sep = new JPanel();
+        sep.putClientProperty("brokk.chip.separator", true);
+        sep.setOpaque(true);
+        sep.setPreferredSize(new Dimension(1, Math.max(label.getPreferredSize().height - 6, 10)));
+        sep.setMinimumSize(new Dimension(1, 10));
+        sep.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
+        chip.add(sep);
+
         chip.add(close);
 
         // Keep a handle to the fragment so theme changes can restyle accurately
