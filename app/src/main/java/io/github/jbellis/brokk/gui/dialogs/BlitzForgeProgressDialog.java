@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.cli.MemoryConsole;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.ContentDiffUtils;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import java.awt.event.MouseAdapter;
@@ -183,17 +184,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         return lines;
     }
 
-    private static int estimateLinesChanged(String before, String after) {
-        // Simple per-line position-based difference count
-        var a = before.split("\\R", -1);
-        var b = after.split("\\R", -1);
-        int min = Math.min(a.length, b.length);
-        int changed = Math.abs(a.length - b.length);
-        for (int i = 0; i < min; i++) {
-            if (!a[i].equals(b[i])) changed++;
-        }
-        return changed;
-    }
+    
 
     @Override
     public void onStart(int total) {
@@ -226,26 +217,37 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
     @Override
     public void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {
-        // Move from in-progress to completed and compute lines changed
-        int computedLinesChanged = 0;
+        // Move from in-progress to completed and compute added/deleted using ContentDiffUtils
+        int added = 0;
+        int deleted = 0;
         try {
             var original = originalContentByFile.getOrDefault(file, "");
             var after = file.read().orElse("");
-            computedLinesChanged = estimateLinesChanged(original, after);
             // Snapshot the contents used for the Completed table diff preview
             completedOriginalByFile.put(file, original);
             completedUpdatedByFile.put(file, after);
+
+            var pathDisplay = file.toString();
+            var diffResult = ContentDiffUtils.computeDiffResult(
+                    original, after,
+                    pathDisplay + " (before)",
+                    pathDisplay + " (after)"
+            );
+            added = diffResult.added();
+            deleted = diffResult.deleted();
         } catch (Exception e) {
-            logger.warn("Failed to compute lines changed for {}", file, e);
-            computedLinesChanged = 0;
+            logger.warn("Failed to compute added/deleted for {}", file, e);
+            added = 0;
+            deleted = 0;
         } finally {
             originalContentByFile.remove(file);
         }
 
-        final int linesChangedFinal = computedLinesChanged;
+        final int addedFinal = added;
+        final int deletedFinal = deleted;
         SwingUtilities.invokeLater(() -> {
             inProgressModel.remove(file);
-            completedModel.add(file, linesChangedFinal);
+            completedModel.add(file, addedFinal, deletedFinal);
         });
 
         if (errorMessage != null && !errorMessage.isBlank()) {
@@ -494,11 +496,13 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
     private static final class CompletedRow {
         final ProjectFile file;
-        final int linesChanged;
+        final int added;
+        final int deleted;
 
-        CompletedRow(ProjectFile file, int linesChanged) {
+        CompletedRow(ProjectFile file, int added, int deleted) {
             this.file = file;
-            this.linesChanged = linesChanged;
+            this.added = Math.max(0, added);
+            this.deleted = Math.max(0, deleted);
         }
     }
 
@@ -529,7 +533,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
             var row = rows.get(rowIndex);
             return switch (columnIndex) {
                 case 0 -> row.file.toString();
-                case 1 -> row.linesChanged;
+                case 1 -> "+%d -%d".formatted(row.added, row.deleted);
                 default -> "";
             };
         }
@@ -538,8 +542,8 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
             return rows.get(rowIndex).file;
         }
 
-        void add(ProjectFile file, int linesChanged) {
-            var row = new CompletedRow(file, Math.max(0, linesChanged));
+        void add(ProjectFile file, int added, int deleted) {
+            var row = new CompletedRow(file, added, deleted);
             int idx = rows.size();
             rows.add(row);
             fireTableRowsInserted(idx, idx);
