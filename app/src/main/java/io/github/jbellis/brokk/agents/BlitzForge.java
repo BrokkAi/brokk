@@ -57,7 +57,9 @@ public final class BlitzForge {
         default void onFileStart(ProjectFile file) {}
         IConsoleIO getConsoleIO(ProjectFile file);
         default void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
-        default void onComplete(TaskResult result) {}
+        default void onFileComplete(TaskResult result) {}
+        /** Called exactly once when the entire run is complete (success, empty, or interrupted). */
+        default void onComplete() {}
     }
 
     /** Configuration for a BlitzForge run. */
@@ -106,7 +108,8 @@ public final class BlitzForge {
                     List.of(),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-            listener.onComplete(emptyResult);
+            listener.onFileComplete(emptyResult);
+            listener.onComplete();
             return emptyResult;
         }
 
@@ -257,7 +260,8 @@ public final class BlitzForge {
         var ctx = (cm != null) ? cm : new IContextManager() {};
         var finalResult = new TaskResult(ctx, config.instructions(), uiMessages, changedFiles, sd);
 
-        listener.onComplete(finalResult);
+        listener.onFileComplete(finalResult);
+        listener.onComplete();
         return finalResult;
     }
 
@@ -273,7 +277,8 @@ public final class BlitzForge {
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
         var ctx = (cm != null) ? cm : new IContextManager() {};
         var tr = new TaskResult(ctx, config.instructions(), List.of(), Set.of(), sd);
-        listener.onComplete(tr);
+        listener.onFileComplete(tr);
+        listener.onComplete();
         logger.debug("Interrupted; processed {} of {}", processed, files.size());
         return tr;
     }

@@ -275,13 +275,25 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     }
 
     @Override
-    public void onComplete(TaskResult result) {
+    public void onFileComplete(TaskResult result) {
         SwingUtilities.invokeLater(() -> {
             try {
                 done.set(true);
                 updateTitles();
             } finally {
                 chrome.enableActionButtons();
+            }
+        });
+    }
+
+    @Override
+    public void onComplete() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                setVisible(false);
+                dispose();
+            } catch (Exception e) {
+                logger.warn("Failed to close BlitzForgeProgressDialog", e);
             }
         });
     }

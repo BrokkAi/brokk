@@ -52,7 +52,7 @@ class BlitzForgeTest {
             }
 
             @Override
-            public void onComplete(TaskResult result) {
+            public void onFileComplete(TaskResult result) {
                 done = result;
             }
         }
