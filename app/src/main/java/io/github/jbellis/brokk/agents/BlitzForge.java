@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -68,9 +69,8 @@ public final class BlitzForge {
     public record RunConfig(
             String instructions,
             @Nullable StreamingChatModel model,
-            boolean includeWorkspace,
-            @Nullable Integer relatedK,
-            @Nullable String perFileCommandTemplate,
+            Supplier<String> perFileContext,
+            Supplier<String> sharedContext,
             String contextFilter,
             ParallelOutputMode outputMode,
             boolean postProcessBuild,
@@ -135,10 +135,10 @@ public final class BlitzForge {
         var results = new ArrayList<FileResult>(files.size());
 
         try {
-            // Warm-up: if includeWorkspace, process the first (smallest) file synchronously to "prime" any server caches
+            // Warm-up: if sharedContext is non-empty, process the first (smallest) file synchronously to "prime" any server caches
             int startIdx = 0;
-            if (config.includeWorkspace()) {
-                var first = sortedFiles.get(0);
+            if (!config.sharedContext().get().isBlank()) {
+                var first = sortedFiles.getFirst();
                 listener.onFileStart(first);
                 if (Thread.currentThread().isInterrupted()) {
                     return interruptedResult(processedCount, files);
@@ -162,20 +162,21 @@ public final class BlitzForge {
                     @Override
                     public int tokens() {
                         int fileTokens = Messages.getApproximateTokens(file.read().orElse(""));
-                        int workspaceTokens = 0;
-                        int historyTokens = 0;
-                        if (cm != null && config.includeWorkspace()) {
-                            var ctx = cm.topContext();
-                            workspaceTokens = Messages.getApproximateTokens(
-                                    CodePrompts.instance.getWorkspaceContentsMessages(ctx));
-                            var hist = cm.getHistoryMessages().stream().map(m -> (ChatMessage) m).toList();
-                            historyTokens = Messages.getApproximateTokens(hist);
+                        int sharedTokens = 0;
+                        int perFileCtxTokens = 0;
+                        try {
+                            var shared = config.sharedContext().get();
+                            sharedTokens = Messages.getApproximateTokens(shared == null ? "" : shared);
+                        } catch (Exception ignore) {
+                            // ignore
                         }
-                        int relatedAdd = 0;
-                        if (config.relatedK() != null && config.relatedK() > 0) {
-                            relatedAdd = Math.round((float) (fileTokens * (config.relatedK() * 0.1)));
+                        try {
+                            var pfc = config.perFileContext().get();
+                            perFileCtxTokens = Messages.getApproximateTokens(pfc == null ? "" : pfc);
+                        } catch (Exception ignore) {
+                            // ignore
                         }
-                        return Math.max(1, fileTokens + workspaceTokens + historyTokens + relatedAdd);
+                        return Math.max(1, fileTokens + sharedTokens + perFileCtxTokens);
                     }
 
                     @Override

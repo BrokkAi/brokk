@@ -1204,12 +1204,48 @@ public class BlitzForgeDialog extends JDialog {
             default -> BlitzForge.Action.CODE;
         };
 
+        // Snapshot values for lambda capture
+        final Integer fRelatedKSupplier = relatedK;
+        final boolean fIncludeWorkspaceForSupplier = includeWorkspace;
+
         BlitzForge.RunConfig runCfg = new BlitzForge.RunConfig(
                 instructions,
                 model,
-                includeWorkspace,
-                relatedK,
-                perFileCommandTemplate,
+                () -> {
+                    if (fRelatedKSupplier != null) {
+                        ContextFragment.SkeletonFragment acFragment;
+                        try {
+                            acFragment = cm.liveContext().buildAutoContext(fRelatedKSupplier);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return "";
+                        }
+                        if (!acFragment.text().isBlank()) {
+                            return """
+                                <related_classes>
+                                The user requested to include the top %d related classes.
+
+                                %s
+                                </related_classes>
+                                """.stripIndent().formatted(fRelatedKSupplier, acFragment.text());
+                        }
+                    }
+                    return "";
+                },
+                () -> {
+                    if (!fIncludeWorkspaceForSupplier) {
+                        return "";
+                    }
+                    var ctx = cm.topContext();
+                    var list = new ArrayList<ChatMessage>();
+                    list.addAll(CodePrompts.instance.getWorkspaceContentsMessages(ctx));
+                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
+                    var text = "";
+                    for (var m : list) {
+                        text += m + "\n";
+                    }
+                    return text;
+                },
                 contextFilter,
                 engineOutputMode,
                 buildFirst,

@@ -206,9 +206,8 @@ public class MergeAgent {
         var bfConfig = new BlitzForge.RunConfig(
                 instructionsText,
                 codeModel,              // model used only for token-aware scheduling
-                true,                   // includeWorkspace
-                null,                   // relatedK
-                null,                   // perFileCommandTemplate
+                () -> "",               // perFileContext
+                () -> "",               // sharedContext
                 "",                     // contextFilter
                 BlitzForge.ParallelOutputMode.CHANGED,
                 false,                  // buildFirst
