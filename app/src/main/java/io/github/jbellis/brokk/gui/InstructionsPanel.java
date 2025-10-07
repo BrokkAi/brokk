@@ -697,7 +697,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void initializeReferenceFileTable() {
         // Replace former suggestion table with the workspace chips panel
-        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(this.contextManager);
+        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(this.chrome);
 
         // Wire chip removal behavior: block while LLM running; otherwise drop and refocus input
         workspaceItemsChipPanel.setOnRemoveFragment(fragment -> {
