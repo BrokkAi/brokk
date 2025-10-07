@@ -66,8 +66,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected static final int PRIORITY_LOW = 1;
 
     // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(this::definitionOverridePriority)
-            .thenComparingInt(this::firstStartByteForSelection)
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(this::firstStartByteForSelection)
             .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(cu -> cu.kind().name());
@@ -706,8 +705,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         final var kids = allChildren.stream()
                 .filter(child -> !headerOnly || child.isField())
                 .toList();
-        // Only add children and closer if the CU can have them (e.g. class, or function that can nest)
-        // For simplicity now, always check for children. Specific languages might refine this.
+        // Only add children and class closer.
+        // Functions may have children (e.g., lambdas) but should NOT emit a closer in skeletons.
         if (!kids.isEmpty()
                 || (cu.isClass() && !getLanguageSpecificCloser(cu).isEmpty())) { // also add closer for empty classes
             var childIndent = indent + getLanguageSpecificIndent();
@@ -720,9 +719,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     sb.append(childIndent).append("[...]").append("\n");
                 }
             }
-            var closer = getLanguageSpecificCloser(cu);
-            if (!closer.isEmpty()) {
-                sb.append(indent).append(closer).append('\n');
+            if (cu.isClass()) {
+                var closer = getLanguageSpecificCloser(cu);
+                if (!closer.isEmpty()) {
+                    sb.append(indent).append(closer).append('\n');
+                }
             }
         }
     }
@@ -1146,7 +1147,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     String expectedNameCapture = captureName.replace(".definition", ".name");
                     TSNode nameNode = capturedNodesForMatch.get(expectedNameCapture);
 
-                    if (nameNode != null && !nameNode.isNull()) {
+                    if ("lambda.definition".equals(captureName)) {
+                        // Lambdas have no explicit name capture; synthesize an anonymous name via extractSimpleName
+                        simpleName = extractSimpleName(definitionNode, src).orElse(null);
+                    } else if (nameNode != null && !nameNode.isNull()) {
                         simpleName = textSlice(nameNode, fileBytes);
                         if (simpleName.isBlank()) {
                             log.debug(
@@ -1340,13 +1344,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             if (signature.isBlank()) {
                 // buildSignatureString might legitimately return blank for some nodes that don't form part of a textual
                 // skeleton but create a CU.
-                // However, if it's blank, it shouldn't be added to signatures map.
+                // For example, Java lambdas intentionally return an empty signature to keep skeletons clean.
+                // We still need the CU for navigation, so proceed without adding a signature.
                 log.trace(
-                        "buildSignatureString returned empty/null for node {} ({}), simpleName {}. This CU might not have a direct textual signature.",
+                        "buildSignatureString returned empty/null for node {} ({}), simpleName {}. Proceeding without signature.",
                         node.getType(),
                         primaryCaptureName,
                         simpleName);
-                continue;
             }
 
             // Handle potential duplicates (e.g. JS export and direct lexical declaration).
@@ -1407,24 +1411,49 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
             localChildren.putIfAbsent(cu, new ArrayList<>()); // Ensure every CU can be a parent
 
-            if (classChain.isEmpty()) {
-                localTopLevelCUs.add(cu);
-            } else {
-                // Parent's shortName is the classChain string itself.
-                String parentFqName = buildParentFqName(cu.packageName(), classChain);
-                CodeUnit parentCu = localCuByFqName.get(parentFqName);
-                if (parentCu != null) {
-                    List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
-                    if (!kids.contains(cu)) { // Prevent adding duplicate children
-                        kids.add(cu);
+            boolean attachedToParent = false;
+
+            // Prefer attaching lambdas under their nearest function-like (method/ctor) parent when available
+            if ("lambda.definition".equals(primaryCaptureName)) {
+                var enclosingFnNameOpt = findEnclosingFunctionName(node, src);
+                if (enclosingFnNameOpt.isPresent()) {
+                    String enclosingFnName = enclosingFnNameOpt.get();
+                    String methodFqName = classChain.isEmpty() ? enclosingFnName : (classChain + "." + enclosingFnName);
+                    CodeUnit parentFnCu = localCuByFqName.get(methodFqName);
+                    if (parentFnCu != null) {
+                        List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
+                        if (!kids.contains(cu)) {
+                            kids.add(cu);
+                        }
+                        attachedToParent = true;
+                    } else {
+                        log.trace(
+                                "Nearest function-like parent '{}' for lambda not found in local map. Falling back to class-level parent.",
+                                methodFqName);
                     }
+                }
+            }
+
+            if (!attachedToParent) {
+                if (classChain.isEmpty()) {
+                    localTopLevelCUs.add(cu);
                 } else {
-                    log.trace(
-                            "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
-                            cu,
-                            parentFqName,
-                            classChain);
-                    localTopLevelCUs.add(cu); // Fallback
+                    // Parent's shortName is the classChain string itself.
+                    String parentFqName = buildParentFqName(cu.packageName(), classChain);
+                    CodeUnit parentCu = localCuByFqName.get(parentFqName);
+                    if (parentCu != null) {
+                        List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
+                        if (!kids.contains(cu)) { // Prevent adding duplicate children
+                            kids.add(cu);
+                        }
+                    } else {
+                        log.trace(
+                                "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
+                                cu,
+                                parentFqName,
+                                classChain);
+                        localTopLevelCUs.add(cu); // Fallback
+                    }
                 }
             }
             log.trace("Stored/Updated info for CU: {}", cu);
@@ -2300,6 +2329,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 identifierFieldName,
                 nameOpt.orElse("N/A"));
         return nameOpt;
+    }
+
+    /**
+     * Finds the nearest enclosing function-like ancestor and returns its simple name. Uses the language syntax
+     * profile's functionLikeNodeTypes to detect methods/constructors.
+     */
+    protected Optional<String> findEnclosingFunctionName(TSNode node, String src) {
+        var profile = getLanguageSyntaxProfile();
+        TSNode current = node.getParent();
+        while (current != null && !current.isNull()) {
+            if (profile.functionLikeNodeTypes().contains(current.getType())) {
+                return extractSimpleName(current, src);
+            }
+            current = current.getParent();
+        }
+        return Optional.empty();
     }
 
     private static String loadResource(String path) {

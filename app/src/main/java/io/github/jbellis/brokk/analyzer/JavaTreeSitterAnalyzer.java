@@ -12,8 +12,9 @@ import org.treesitter.TreeSitterJava;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
-    private final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+    private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
     private static final Pattern LOCATION_SUFFIX = Pattern.compile(":[0-9]+(?::[0-9]+)?$");
+    private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaTreeSitterAnalyzer(IProject project) {
         super(project, Languages.JAVA, project.getExcludedDirectories());
@@ -57,7 +58,8 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
                     "annotation.definition", SkeletonType.CLASS_LIKE, // for @interface
                     "method.definition", SkeletonType.FUNCTION_LIKE,
                     "constructor.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE),
+                    "field.definition", SkeletonType.FIELD_LIKE,
+                    "lambda.definition", SkeletonType.FUNCTION_LIKE),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
@@ -143,6 +145,11 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
             String paramsText,
             String returnTypeText,
             String indent) {
+        // Hide anonymous/lambda "functions" from Java skeletons while still creating CodeUnits for discovery.
+        if (LAMBDA_REGEX.matcher(functionName).find()) {
+            return "";
+        }
+
         var typeParams = typeParamsText.isEmpty() ? "" : typeParamsText + " ";
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 
@@ -257,5 +264,60 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
         s = s.replaceAll("\\$", ".");
 
         return s;
+    }
+
+    @Override
+    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+        // Special handling for Java lambdas: synthesize a bytecode-style anonymous name
+        if (LAMBDA_EXPRESSION.equals(decl.getType())) {
+            var enclosingMethod = findEnclosingJavaMethodName(decl, src).orElse("lambda");
+            int line = decl.getStartPoint().getRow();
+            int col = 0;
+            try {
+                // Some bindings may not expose column; defensively handle absence
+                col = decl.getStartPoint().getColumn();
+            } catch (Throwable ignored) {
+                // default to 0
+            }
+            String synthesized = enclosingMethod + "$anon$" + line + ":" + col;
+            return Optional.of(synthesized);
+        }
+        return super.extractSimpleName(decl, src);
+    }
+
+    private Optional<String> findEnclosingJavaMethodName(TSNode node, String src) {
+        // Walk up to nearest method or constructor
+        TSNode current = node.getParent();
+        while (current != null && !current.isNull()) {
+            String type = current.getType();
+            if (METHOD_DECLARATION.equals(type) || CONSTRUCTOR_DECLARATION.equals(type)) {
+                TSNode nameNode = current.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = textSlice(nameNode, src).strip();
+                    if (!name.isEmpty()) {
+                        return Optional.of(name);
+                    }
+                }
+                break;
+            }
+            current = current.getParent();
+        }
+
+        // Fallback: if inside an initializer, try nearest class-like to use its name
+        current = node.getParent();
+        while (current != null && !current.isNull()) {
+            if (JAVA_SYNTAX_PROFILE.classLikeNodeTypes().contains(current.getType())) {
+                TSNode nameNode = current.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String cls = textSlice(nameNode, src).strip();
+                    if (!cls.isEmpty()) {
+                        return Optional.of(cls);
+                    }
+                }
+                break;
+            }
+            current = current.getParent();
+        }
+        return Optional.empty();
     }
 }
