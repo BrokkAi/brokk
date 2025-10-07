@@ -1250,9 +1250,7 @@ public class BlitzForgeDialog extends JDialog {
                     return text;
                 },
                 contextFilter,
-                engineOutputMode,
-                buildFirst,
-                postProcessingInstructions
+                engineOutputMode
         );
 
         // Snapshot locals for lambda capture

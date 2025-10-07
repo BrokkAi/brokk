@@ -65,9 +65,7 @@ public final class BlitzForge {
             Supplier<String> perFileContext,
             Supplier<String> sharedContext,
             String contextFilter,
-            ParallelOutputMode outputMode,
-            boolean postProcessBuild,
-            String postProcessingInstructions
+            ParallelOutputMode outputMode
     ) {
     }
 

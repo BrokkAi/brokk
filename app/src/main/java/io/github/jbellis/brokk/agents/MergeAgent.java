@@ -209,9 +209,9 @@ public class MergeAgent {
                 () -> "",               // perFileContext
                 () -> "",               // sharedContext
                 "",                     // contextFilter
-                BlitzForge.ParallelOutputMode.CHANGED,
-                false,                  // buildFirst
-                ""                     // postProcessingInstructions
+                BlitzForge.ParallelOutputMode.CHANGED
+                // buildFirst
+                // postProcessingInstructions
         );
 
         var bfListener = cm.getIo().getBlitzForgeListener(() -> {});
@@ -312,14 +312,16 @@ public class MergeAgent {
 
         var agentInstructions =
                 """
-                        I attempted to merge changes from %s into our branch (mode: %s). I have added summaries
-                        of the changes involved to the Workspace.
+                        I attempted to merge changes from %s into our branch (mode: %s). My goal was:
+                        %s
+                        
+                        I have added summaries of the changes involved to the Workspace.
                         
                         %s
                         
                         The verification/build output has been added to the Workspace as a Build fragment. Please fix the build and tests, update code as necessary, and produce a clean build. Commit any changes.
                         """
-                        .formatted(otherCommitId, mode, codeAgentText);
+                        .formatted(otherCommitId, mode, mergeInstructions, codeAgentText);
 
         var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, scope);
         return agent.execute();
