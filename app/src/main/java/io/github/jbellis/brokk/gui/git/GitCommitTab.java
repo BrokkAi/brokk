@@ -532,7 +532,7 @@ public class GitCommitTab extends JPanel {
             }
         }
 
-        contextManager.submitExclusiveAction(() -> {
+        contextManager.submitBackgroundTask("Opening diff for uncommitted files", () -> {
             try {
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 

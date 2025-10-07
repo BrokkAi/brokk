@@ -20,11 +20,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -80,24 +75,6 @@ public class CreatePullRequestDialog extends JDialog {
     @Nullable
     private SuggestPrDetailsWorker currentSuggestPrDetailsWorker;
 
-    @Nullable
-    private ScheduledFuture<?> pendingDebounceTask;
-
-    private final ScheduledExecutorService debounceExec =
-            Executors.newSingleThreadScheduledExecutor(new java.util.concurrent.ThreadFactory() {
-                private final AtomicInteger threadNumber = new AtomicInteger(1);
-
-                @Override
-                public Thread newThread(Runnable r) {
-                    Thread t = Executors.defaultThreadFactory().newThread(r);
-                    t.setDaemon(true);
-                    t.setName("pr-description-debouncer-" + threadNumber.getAndIncrement());
-                    return t;
-                }
-            });
-    // private ScheduledFuture<?> pendingDebounceTask; // Removed duplicate
-    private static final long DEBOUNCE_MS = 400;
-
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         this(owner, chrome, contextManager, null); // delegate
     }
@@ -113,7 +90,6 @@ public class CreatePullRequestDialog extends JDialog {
         if (currentSuggestPrDetailsWorker != null) {
             currentSuggestPrDetailsWorker.cancel(true);
         }
-        debounceExec.shutdownNow();
         super.dispose();
     }
 
@@ -224,6 +200,8 @@ public class CreatePullRequestDialog extends JDialog {
         gbc.weighty = 1.0; // Allow description to take vertical space
         gbc.fill = GridBagConstraints.BOTH;
         descriptionArea = new JTextArea(10, 20); // Initial rows and columns
+        descriptionArea.setLineWrap(true);
+        descriptionArea.setWrapStyleWord(true);
         var scrollPane = new JScrollPane(descriptionArea);
         panel.add(scrollPane, gbc);
 
@@ -377,11 +355,9 @@ public class CreatePullRequestDialog extends JDialog {
                 this.sourceBranchNeedsPush = gitRepo.branchNeedsPush(sourceBranch);
 
                 if (branchDiff.commits().isEmpty()) {
-                    // Nothing to describe; stop any ongoing generation and clear fields.
                     cancelGenerationWorkersAndClearFields();
                 } else {
-                    // If commits exist, trigger debounced PR suggestion
-                    debounceSuggestPrDetails(sourceBranch, targetBranch);
+                    spawnSuggestPrDetailsWorker(sourceBranch, targetBranch);
                 }
 
                 SwingUtilities.invokeLater(
@@ -707,39 +683,40 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    /** SwingWorker to suggest PR title and description using GitWorkflowService. */
+    /** SwingWorker to suggest PR title and description using GitWorkflowService with streaming. */
     private class SuggestPrDetailsWorker extends SwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
+        private final PrDetailsConsoleIO streamingIO;
 
         SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
             this.sourceBranch = sourceBranch;
             this.targetBranch = targetBranch;
+            this.streamingIO = new PrDetailsConsoleIO(titleField, descriptionArea, chrome);
         }
 
         @Override
-        protected GitWorkflow.PrSuggestion doInBackground() throws Exception {
-            if (isCancelled()) {
-                throw new InterruptedException("Worker cancelled before starting");
-            }
-            // This service call is blocking and includes LLM interactions.
-            return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch);
+        protected GitWorkflow.PrSuggestion doInBackground() throws GitAPIException, InterruptedException {
+            return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch, streamingIO);
         }
 
         @Override
         protected void done() {
             try {
-                GitWorkflow.PrSuggestion suggestion =
-                        get(); // This will throw specific exceptions if cancelled/interrupted.
+                GitWorkflow.PrSuggestion suggestion = get();
                 SwingUtilities.invokeLater(() -> {
-                    setTextAndResetCaret(titleField, suggestion.title());
-                    setTextAndResetCaret(descriptionArea, suggestion.description());
+                    streamingIO.onComplete();
+                    titleField.setText(suggestion.title());
+                    descriptionArea.setText(suggestion.description());
+                    titleField.setCaretPosition(0);
+                    descriptionArea.setCaretPosition(0);
                     showDescriptionHint(suggestion.usedCommitMessages());
                 });
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // Preserve interrupt status
+                Thread.currentThread().interrupt();
                 logger.warn("SuggestPrDetailsWorker interrupted for {} -> {}", sourceBranch, targetBranch, e);
                 SwingUtilities.invokeLater(() -> {
+                    streamingIO.onComplete();
                     setTextAndResetCaret(titleField, "(suggestion interrupted)");
                     setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                     showDescriptionHint(false);
@@ -747,6 +724,7 @@ public class CreatePullRequestDialog extends JDialog {
             } catch (java.util.concurrent.CancellationException e) {
                 logger.warn("SuggestPrDetailsWorker cancelled for {} -> {}", sourceBranch, targetBranch, e);
                 SwingUtilities.invokeLater(() -> {
+                    streamingIO.onComplete();
                     setTextAndResetCaret(titleField, "(suggestion cancelled)");
                     setTextAndResetCaret(descriptionArea, "(suggestion cancelled)");
                     showDescriptionHint(false);
@@ -754,16 +732,32 @@ public class CreatePullRequestDialog extends JDialog {
             } catch (java.util.concurrent.ExecutionException e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof InterruptedException interruptedException) {
-                    Thread.currentThread().interrupt(); // Preserve interrupt status
+                    Thread.currentThread().interrupt();
                     logger.warn(
                             "SuggestPrDetailsWorker execution failed due to underlying interruption for {} -> {}",
                             sourceBranch,
                             targetBranch,
                             interruptedException);
                     SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete();
                         setTextAndResetCaret(titleField, "(suggestion interrupted)");
                         setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                         showDescriptionHint(false);
+                    });
+                } else if (cause instanceof GitAPIException gitException) {
+                    logger.error(
+                            "SuggestPrDetailsWorker failed with Git error for {} -> {}",
+                            sourceBranch,
+                            targetBranch,
+                            gitException);
+                    SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete();
+                        setTextAndResetCaret(titleField, "(suggestion failed)");
+                        setTextAndResetCaret(descriptionArea, "(Git error occurred)");
+                        showDescriptionHint(false);
+                        chrome.toolError(
+                                "Failed to generate PR details due to Git error:\n" + gitException.getMessage(),
+                                "Git Error");
                     });
                 } else {
                     logger.warn(
@@ -773,6 +767,7 @@ public class CreatePullRequestDialog extends JDialog {
                             (cause != null ? cause.getMessage() : e.getMessage()),
                             cause);
                     SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete();
                         String errorMessage =
                                 (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
                         errorMessage = (errorMessage == null) ? "Unknown error" : errorMessage;
@@ -844,12 +839,7 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    // Cancels any pending title/description generation tasks and resets the UI.
     private void cancelGenerationWorkersAndClearFields() {
-        if (pendingDebounceTask != null) {
-            pendingDebounceTask.cancel(false);
-            pendingDebounceTask = null;
-        }
         if (currentSuggestPrDetailsWorker != null) {
             currentSuggestPrDetailsWorker.cancel(true);
             currentSuggestPrDetailsWorker = null;
@@ -857,7 +847,7 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> {
             titleField.setText("");
             descriptionArea.setText("");
-            showDescriptionHint(false); // Hide hint when clearing
+            showDescriptionHint(false);
             updateCreatePrButtonState();
         });
     }
@@ -868,28 +858,8 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    /**
-     * Debounces the call to generate PR suggestions. The actual decision of using diff vs commit messages is now inside
-     * the service.
-     */
-    private void debounceSuggestPrDetails(String sourceBranch, String targetBranch) {
-        SwingUtilities.invokeLater(
-                () -> { // Ensure UI updates are on EDT
-                    setTextAndResetCaret(descriptionArea, "Generating PR details...");
-                    setTextAndResetCaret(titleField, "Generating PR details...");
-                    // The hint will be set by the worker's done() method based on service response.
-                    // For now, ensure it's hidden during generation.
-                    showDescriptionHint(false);
-                });
-
-        if (pendingDebounceTask != null) {
-            pendingDebounceTask.cancel(false);
-        }
-        pendingDebounceTask = debounceExec.schedule(
-                () -> spawnSuggestPrDetailsWorker(sourceBranch, targetBranch), DEBOUNCE_MS, TimeUnit.MILLISECONDS);
-    }
-
     private void spawnSuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
+        SwingUtilities.invokeLater(() -> showDescriptionHint(false));
         // Cancel previous background LLM calls
         if (currentSuggestPrDetailsWorker != null) {
             currentSuggestPrDetailsWorker.cancel(true);
