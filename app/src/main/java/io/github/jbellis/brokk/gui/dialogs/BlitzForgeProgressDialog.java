@@ -8,6 +8,10 @@ import io.github.jbellis.brokk.cli.MemoryConsole;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -61,6 +65,9 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     // Per-file console instances and original content to compute diffs
     private final Map<ProjectFile, DialogConsoleIO> consolesByFile = new ConcurrentHashMap<>();
     private final Map<ProjectFile, String> originalContentByFile = new ConcurrentHashMap<>();
+    // Snapshots captured at completion time for accurate diff previews
+    private final Map<ProjectFile, String> completedOriginalByFile = new ConcurrentHashMap<>();
+    private final Map<ProjectFile, String> completedUpdatedByFile = new ConcurrentHashMap<>();
 
 
     public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
@@ -90,6 +97,15 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         // Completed table
         completedTable = new JTable(completedModel);
         completedTable.setFillsViewportHeight(true);
+        completedTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e) || e.getClickCount() != 2) return;
+                int viewRow = completedTable.rowAtPoint(e.getPoint());
+                if (viewRow < 0) return;
+                openDiffForRow(viewRow);
+            }
+        });
 
         // Panels with titled borders
         var centerPanel = new JPanel();
@@ -216,6 +232,9 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
             var original = originalContentByFile.getOrDefault(file, "");
             var after = file.read().orElse("");
             computedLinesChanged = estimateLinesChanged(original, after);
+            // Snapshot the contents used for the Completed table diff preview
+            completedOriginalByFile.put(file, original);
+            completedUpdatedByFile.put(file, after);
         } catch (Exception e) {
             logger.warn("Failed to compute lines changed for {}", file, e);
             computedLinesChanged = 0;
@@ -249,6 +268,42 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
                 chrome.enableActionButtons();
             }
         });
+    }
+
+    private void openDiffForRow(int viewRow) {
+        int modelRow = completedTable.convertRowIndexToModel(viewRow);
+        var file = completedModel.getFileAt(modelRow);
+        openDiffForFile(file);
+    }
+
+    private void openDiffForFile(ProjectFile file) {
+        try {
+            var left = completedOriginalByFile.get(file);
+            var right = completedUpdatedByFile.get(file);
+            if (left == null && right == null) {
+                // Fall back to current state if snapshots are missing
+                left = "";
+                right = file.read().orElse("");
+            }
+            String pathDisplay = file.toString();
+
+            var cm = chrome.getContextManager();
+            var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                    .setMultipleCommitsContext(false)
+                    .setRootTitle("Diff: " + pathDisplay)
+                    .setInitialFileIndex(0);
+
+            var leftSrc = new BufferSource.StringSource(left == null ? "" : left, "Previous", pathDisplay);
+            var rightSrc = new BufferSource.StringSource(right == null ? "" : right, "Current", pathDisplay);
+            builder.addComparison(leftSrc, rightSrc);
+
+            var panel = builder.build();
+            panel.showInFrame("Diff: " + pathDisplay);
+        } catch (Exception ex) {
+            logger.warn("Failed to open diff for {}", file, ex);
+            SwingUtilities.invokeLater(() ->
+                    chrome.toolError("Failed to open diff: " + ex.getMessage(), "Diff Error"));
+        }
     }
 
     // Console used by the processing engine to stream LLM output per file
@@ -477,6 +532,10 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
                 case 1 -> row.linesChanged;
                 default -> "";
             };
+        }
+
+        ProjectFile getFileAt(int rowIndex) {
+            return rows.get(rowIndex).file;
         }
 
         void add(ProjectFile file, int linesChanged) {
