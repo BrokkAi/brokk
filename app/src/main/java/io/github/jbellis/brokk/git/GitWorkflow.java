@@ -4,7 +4,6 @@ import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
-import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -42,6 +41,13 @@ public final class GitWorkflow {
 
     private final IContextManager contextManager;
     private final GitRepo repo;
+
+    // Fields for tool calling results
+    @Nullable
+    private String prTitle;
+
+    @Nullable
+    private String prDescription;
 
     public GitWorkflow(IContextManager contextManager) {
         this.contextManager = contextManager;
@@ -181,20 +187,12 @@ public final class GitWorkflow {
         return new BranchDiff(commits, files, merge);
     }
 
-    public static class PrDetailsToolHandler {
-        @org.jetbrains.annotations.Nullable
-        String title;
-
-        @org.jetbrains.annotations.Nullable
-        String description;
-
-        @Tool("Suggest pull request title and description based on the changes")
-        public void suggestPrDetails(
-                @P("Brief PR title (12 words or fewer)") String title,
-                @P("PR description in markdown (75-150 words, focus on intent and key changes)") String description) {
-            this.title = title;
-            this.description = description;
-        }
+    @Tool("Suggest pull request title and description based on the changes")
+    public void suggestPrDetails(
+            @P("Brief PR title (12 words or fewer)") String title,
+            @P("PR description in markdown (75-150 words, focus on intent and key changes)") String description) {
+        this.prTitle = title;
+        this.prDescription = description;
     }
 
     /**
@@ -225,9 +223,8 @@ public final class GitWorkflow {
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
         }
 
-        var handler = new PrDetailsToolHandler();
-        var toolSpec = ToolSpecifications.toolSpecificationsFrom(handler).get(0);
-        var toolContext = new ToolContext(List.of(toolSpec), ToolChoice.REQUIRED, handler);
+        var toolSpecs = contextManager.getToolRegistry().getTools(this, List.of("suggestPrDetails"));
+        var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
 
         var llm = contextManager.getLlm(modelToUse, "PR-description", true);
         llm.setOutput(streamingOutput);
@@ -241,11 +238,10 @@ public final class GitWorkflow {
             throw new RuntimeException("LLM did not call the suggestPrDetails tool");
         }
 
-        var toolRegistry = contextManager.getToolRegistry();
-        toolRegistry.executeTool(handler, result.toolRequests().get(0));
+        contextManager.getToolRegistry().executeTool(this, result.toolRequests().get(0));
 
-        String title = handler.title;
-        String description = handler.description;
+        String title = prTitle;
+        String description = prDescription;
 
         if (title == null || title.isEmpty() || description == null || description.isEmpty()) {
             throw new RuntimeException("LLM provided empty title or description");
