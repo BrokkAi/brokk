@@ -719,8 +719,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Let chips wrap naturally; provide reasonable min/height
         container.setMinimumSize(new Dimension(100, 28));
-        // Keep suggestion bar height consistent with previous UI
-        container.setPreferredSize(new Dimension(100, 32));
+        // Set suggestion bar height to allow for two rows of chips
+        container.setPreferredSize(new Dimension(100, 64));
         container.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
 
         // Insert beneath the command-input area (index 2)
