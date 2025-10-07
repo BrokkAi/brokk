@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.util.Messages;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -147,17 +148,44 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         return "Summary" + (n > 0 ? " (" + n + ")" : "");
     }
 
+    /**
+     * Builds an HTML snippet showing approximate size metrics (LOC and tokens) for the fragment.
+     * Returns an empty string if metrics are not applicable (e.g., non-text/image fragments).
+     */
+    private static String buildMetricsHtml(ContextFragment fragment) {
+        try {
+            // Only compute for text-like fragments; non-text (e.g., images) do not have meaningful text metrics
+            if (fragment.isText() || fragment.getType().isOutput()) {
+                String text = fragment.text();
+                int loc = text.split("\\r?\\n", -1).length;
+                int tokens = Messages.getApproximateTokens(text);
+                return "<div><b>Size:</b> " + String.format("%,d", loc)
+                        + " LOC \u2022 ~" + String.format("%,d", tokens) + " tokens</div><br/>";
+            }
+        } catch (Exception ignored) {
+            // Best effort; if anything goes wrong, just return no metrics
+        }
+        return "";
+    }
+
     private static String buildSummaryTooltip(ContextFragment fragment) {
         String[] lines = summaryLinesFrom(fragment);
-        StringBuilder sb = new StringBuilder();
+        StringBuilder body = new StringBuilder();
+
+        // Prepend metrics (LOC + tokens) if available
+        String metrics = buildMetricsHtml(fragment);
+        if (!metrics.isEmpty()) {
+            body.append(metrics);
+        }
+
         boolean first = true;
         for (String s : lines) {
             if (s.isBlank()) continue;
-            if (!first) sb.append("<br/>");
-            sb.append(htmlEscape(s));
+            if (!first) body.append("<br/>");
+            body.append(htmlEscape(s));
             first = false;
         }
-        if (sb.length() == 0) {
+        if (first) { // no non-blank lines were appended
             // Fallback to any available description
             String d;
             try {
@@ -166,15 +194,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
                 d = fragment.shortDescription();
             }
             if (d == null) d = "";
-            sb.append(htmlEscape(d));
+            body.append(htmlEscape(d));
         }
+
         // Add preview hint
-        if (sb.length() > 0) {
-            sb.append("<br/><br/><i>Click to preview contents</i>");
+        if (body.length() > 0) {
+            body.append("<br/><br/><i>Click to preview contents</i>");
         } else {
-            sb.append("<i>Click to preview contents</i>");
+            body.append("<i>Click to preview contents</i>");
         }
-        return wrapTooltipHtml(sb.toString(), 420);
+        return wrapTooltipHtml(body.toString(), 420);
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
@@ -185,10 +214,22 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             d = fragment.shortDescription();
         }
         if (d == null) d = "";
+
         // Preserve existing newlines as line breaks for readability
-        String html = htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
-        html = html + "<br/><br/><i>Click to preview contents</i>";
-        return wrapTooltipHtml(html, 420);
+        String descriptionHtml = htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
+
+        StringBuilder body = new StringBuilder();
+
+        // Prepend metrics (LOC + tokens) if available
+        String metrics = buildMetricsHtml(fragment);
+        if (!metrics.isEmpty()) {
+            body.append(metrics);
+        }
+
+        body.append(descriptionHtml);
+        body.append("<br/><br/><i>Click to preview contents</i>");
+
+        return wrapTooltipHtml(body.toString(), 420);
     }
 
     private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
