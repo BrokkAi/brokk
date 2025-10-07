@@ -4,8 +4,6 @@ import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import com.github.tjake.jlama.model.AbstractModel;
-import com.github.tjake.jlama.model.functions.Generator;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
@@ -18,7 +16,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
@@ -29,13 +26,11 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
-import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.LoggingExecutorService;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
@@ -45,16 +40,12 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import javax.swing.border.TitledBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.*;
@@ -108,10 +99,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final ModelSelector modelSelector;
     private String storedAction;
     private final ContextManager contextManager;
-    private JTable referenceFileTable;
-    private JLabel failureReasonLabel;
-    private JPanel suggestionContentPanel;
-    private CardLayout suggestionCardLayout;
+    private WorkspaceItemsChipPanel workspaceItemsChipPanel;
     private final JPanel centerPanel;
     private @Nullable JPanel modeIndicatorPanel;
     private @Nullable JLabel modeBadge;
@@ -124,28 +112,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JPanel optionsPanel;
     private static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
     private static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
-    private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
-    private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
-    private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
-    private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
-    // Worker for autocontext suggestion tasks. we don't use CM.backgroundTasks b/c we want this to be single threaded
-    private final ExecutorService suggestionWorker = new LoggingExecutorService(
-            Executors.newSingleThreadExecutor(r -> {
-                Thread t = Executors.defaultThreadFactory().newThread(r);
-                t.setName("Brokk-Suggestion-Worker");
-                t.setDaemon(true);
-                return t;
-            }),
-            e -> logger.error("Unexpected error", e));
-    // Generation counter to identify the latest suggestion request
-    private final AtomicLong suggestionGeneration = new AtomicLong(0);
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
-    private @Nullable String lastCheckedInputText = null;
-    private @Nullable float[][] lastCheckedEmbeddings = null;
-    private @Nullable List<FileReferenceData> pendingQuickContext = null;
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
@@ -348,69 +318,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         updateModeLabels();
         refreshModeIndicator();
 
-        // Initialize the reference file table and suggestion area
+        // Initialize the workspace chips area below the command input
         initializeReferenceFileTable();
-
-        // Initialize and configure the context suggestion timer
-        contextSuggestionTimer = new javax.swing.Timer(CONTEXT_SUGGESTION_DELAY, this::triggerContextSuggestion);
-        contextSuggestionTimer.setRepeats(false);
-        instructionsArea.getDocument().addDocumentListener(new DocumentListener() {
-            private void checkAndHandleSuggestions(DocumentEvent e) {
-                if (getInstructions().split("\\s+").length >= 2) {
-                    // Only restart timer if significant change (not just single character)
-                    if (e.getType() == DocumentEvent.EventType.INSERT && e.getLength() > 1) {
-                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
-                        contextSuggestionTimer.restart();
-                    } else if (e.getType() == DocumentEvent.EventType.INSERT) {
-                        // For single character inserts, use longer delay
-                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_TYPING_DELAY);
-                        contextSuggestionTimer.restart();
-                    } else if (e.getType() == DocumentEvent.EventType.REMOVE) {
-                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
-                        contextSuggestionTimer.restart();
-                    }
-                } else {
-                    // Input is blank or too short: stop timer, invalidate generation, reset state, schedule UI clear.
-                    contextSuggestionTimer.stop();
-                    long myGen = suggestionGeneration.incrementAndGet(); // Invalidate any running/pending task
-                    logger.trace(
-                            "Input cleared/shortened, stopping timer and invalidating suggestions (gen {})", myGen);
-
-                    // Reset internal state immediately
-                    InstructionsPanel.this.lastCheckedInputText = null;
-                    InstructionsPanel.this.lastCheckedEmbeddings = null;
-
-                    // Schedule UI update, guarded by generation check
-                    SwingUtilities.invokeLater(() -> {
-                        if (myGen == suggestionGeneration.get()) {
-                            logger.trace("Applying UI clear for gen {}", myGen);
-                            referenceFileTable.setValueAt(List.of(), 0, 0);
-                            failureReasonLabel.setVisible(false);
-                            suggestionCardLayout.show(suggestionContentPanel, "TABLE"); // Show empty table
-                        } else {
-                            logger.trace(
-                                    "Skipping UI clear for gen {} (current gen {})", myGen, suggestionGeneration.get());
-                        }
-                    });
-                }
-            }
-
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions(e);
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions(e);
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                // Not typically fired for plain text components, but handle just in case
-                checkAndHandleSuggestions(e);
-            }
-        });
 
         // Do not set a global default button on the root pane. This prevents plain Enter
         // from submitting when focus is in other UI components (e.g., history/branch lists).
@@ -787,90 +696,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * that targets the specific badge the mouse is over (mirrors ContextPanel behaviour).
      */
     private void initializeReferenceFileTable() {
-        // ----- create the table itself --------------------------------------------------------
-        referenceFileTable = new JTable(new javax.swing.table.DefaultTableModel(new Object[] {"File References"}, 1) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
+        // Replace former suggestion table with the workspace chips panel
+        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(this.contextManager);
 
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                return List.class;
-            }
-        });
-        referenceFileTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        // Dynamically set row height based on renderer's preferred size
-        referenceFileTable.setRowHeight(TableUtils.measuredBadgeRowHeight(referenceFileTable));
+        var container = new JPanel(new BorderLayout(H_GLUE, 0));
+        container.setOpaque(false);
+        container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
+        container.add(workspaceItemsChipPanel, BorderLayout.CENTER);
 
-        referenceFileTable.setTableHeader(null); // single-column ⇒ header not needed
-        referenceFileTable.setShowGrid(false);
-        referenceFileTable
-                .getColumnModel()
-                .getColumn(0)
-                .setCellRenderer(new TableUtils.FileReferencesTableCellRenderer());
+        // Let chips wrap naturally; provide reasonable min/height
+        container.setMinimumSize(new Dimension(100, 28));
+        container.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
 
-        // Clear initial content (it will be populated by context suggestions)
-        referenceFileTable.setValueAt(List.of(), 0, 0);
-
-        // ----- context-menu support -----------------------------------------------------------
-        referenceFileTable.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    ContextMenuUtils.handleFileReferenceClick(
-                            e, referenceFileTable, chrome, () -> triggerContextSuggestion(null));
-                }
-            }
-
-            @Override
-            public void mouseReleased(java.awt.event.MouseEvent e) {
-                ContextMenuUtils.handleFileReferenceClick(
-                        e, referenceFileTable, chrome, () -> triggerContextSuggestion(null));
-            }
-        });
-
-        // Clear selection when the table loses focus
-        referenceFileTable.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                referenceFileTable.clearSelection();
-            }
-        });
-
-        // ----- create failure reason label ----------------------------------------------------
-        this.failureReasonLabel = new JLabel();
-        this.suggestionCardLayout = new CardLayout();
-        this.suggestionContentPanel = new JPanel(this.suggestionCardLayout);
-
-        // Configure failureReasonLabel
-        failureReasonLabel.setFont(referenceFileTable.getFont()); // Use same font as table/badges
-        failureReasonLabel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 0, H_PAD));
-        failureReasonLabel.setVisible(false); // Initially hidden
-
-        // Configure suggestionContentPanel
-        JScrollPane localTableScrollPane = new JScrollPane(referenceFileTable);
-        localTableScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        localTableScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
-        suggestionContentPanel.add(localTableScrollPane, "TABLE");
-        suggestionContentPanel.add(failureReasonLabel, "LABEL");
-
-        // ----- create container panel for content (table/label) -------------------------------
-        var suggestionAreaPanel = new JPanel(new BorderLayout(H_GLUE, 0));
-        suggestionAreaPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
-
-        // Only the card layout panel now (Deep Scan button removed)
-        suggestionAreaPanel.add(suggestionContentPanel, BorderLayout.CENTER);
-
-        // Apply height constraints to the container panel
-        int currentPanelRowHeight = referenceFileTable.getRowHeight();
-        int fixedHeight = currentPanelRowHeight + 2;
-        suggestionAreaPanel.setPreferredSize(new Dimension(600, fixedHeight));
-        suggestionAreaPanel.setMinimumSize(new Dimension(100, fixedHeight));
-        suggestionAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedHeight));
-
-        // Insert the container panel beneath the command-input area (index 2)
-        centerPanel.add(suggestionAreaPanel, 2);
+        // Insert beneath the command-input area (index 2)
+        centerPanel.add(container, 2);
     }
 
     // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
@@ -1392,25 +1231,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called by the contextSuggestionTimer or external events (like context changes) to initiate a context suggestion
      * task. It increments the generation counter and submits the task to the sequential worker executor.
      */
-    private void triggerContextSuggestion(@Nullable ActionEvent e) { // ActionEvent will be null for external triggers
-        var goal = getInstructions(); // Capture snapshot on EDT
-
-        // Basic checks before submitting to worker
-        if (goal.isBlank()) {
-            // The DocumentListener handles clearing
-            logger.trace("triggerContextSuggestion called with empty goal, not submitting task.");
-            return;
-        }
-
-        // Increment generation and submit the task
-        long myGen = suggestionGeneration.incrementAndGet();
-        if (e == null) { // If triggered externally (e.g., context change)
-            forceSuggestions.set(true);
-            logger.trace("Forcing suggestion at generation {} due to external trigger", myGen);
-        }
-        logger.trace("Submitting suggestion task generation {}", myGen);
-        suggestionWorker.submit(() -> processInputSuggestions(myGen, goal));
-    }
 
     /**
      * Performs the actual context suggestion logic off the EDT. This method includes checks against the current
@@ -1419,222 +1239,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param myGen The generation number of this specific task.
      * @param snapshot The input text captured when this task was initiated.
      */
-    private void processInputSuggestions(long myGen, String snapshot) {
-        logger.trace("Starting suggestion task generation {}", myGen);
 
-        // 0. Initial staleness check
-        if (myGen != suggestionGeneration.get()) {
-            logger.trace("Task {} is stale (current gen {}), aborting early.", myGen, suggestionGeneration.get());
-            showPendingContext(null);
-            return;
-        }
-
-        boolean currentForceState = forceSuggestions.get(); // Read the state for this task
-
-        // Conditionally skip checks if currentForceState is true
-        if (!currentForceState) {
-            // 1. Quick literal check
-            if (snapshot.equals(lastCheckedInputText)) {
-                logger.trace("Task {} input is literally unchanged (not forced), aborting.", myGen);
-                showPendingContext(null);
-                return;
-            }
-        } else {
-            logger.trace("Task {} is forced, skipping literal check.", myGen);
-        }
-
-        // 2. Embedding Model Check (This check MUST run even if forced, as we need the model)
-        if (!Brokk.embeddingModelFuture.isDone()) {
-            SwingUtilities.invokeLater(() -> showFailureLabel("Waiting for model download"));
-            logger.trace("Task {} waiting for model.", myGen);
-            return; // Don't proceed further until model is ready
-        }
-        AbstractModel embeddingModel;
-        try {
-            embeddingModel = Brokk.embeddingModelFuture.get();
-            assert embeddingModel != null;
-        } catch (ExecutionException | InterruptedException ex) {
-            logger.error("Task {} failed to get embedding model", myGen, ex);
-            SwingUtilities.invokeLater(() -> showFailureLabel("Error loading embedding model"));
-            return;
-        }
-
-        // 3. Staleness check before embedding
-        if (myGen != suggestionGeneration.get()) {
-            logger.trace("Task {} is stale before embedding, aborting.", myGen);
-            showPendingContext(null);
-            return;
-        }
-
-        // 4. Compute Embeddings
-        var chunks = Arrays.stream(snapshot.split("[.\\n]"))
-                .map(String::strip)
-                .filter(s -> !s.isEmpty())
-                .toList();
-        float[][] newEmbeddings = chunks.isEmpty()
-                ? new float[0][]
-                : chunks.stream()
-                        .map(chunk -> embeddingModel.embed(chunk, Generator.PoolingType.AVG))
-                        .toArray(float[][]::new);
-
-        // 5. Staleness check after embedding
-        if (myGen != suggestionGeneration.get()) {
-            logger.trace("Task {} is stale after embedding, aborting.", myGen);
-            showPendingContext(null);
-            return;
-        }
-
-        if (!currentForceState) {
-            // 6. Semantic Comparison
-            boolean isDifferent = isSemanticallyDifferent(snapshot, newEmbeddings);
-
-            if (!isDifferent) {
-                logger.trace("Task {} input is semantically similar (not forced), aborting ContextAgent.", myGen);
-                showPendingContext(null);
-                return;
-            }
-        } else {
-            logger.trace("Task {} is forced, skipping semantic similarity check.", myGen);
-        }
-
-        // 8. Run ContextAgent
-        logger.debug("Task {} fetching QUICK context recommendations for: '{}'", myGen, snapshot);
-        var model = contextManager.getService().quickestModel();
-        ContextAgent.RecommendationResult recommendations;
-        try {
-            ContextAgent agent = new ContextAgent(contextManager, model, snapshot, false);
-            recommendations = agent.getRecommendations(false);
-
-            // 10. Process results
-            if (!recommendations.success()) {
-                logger.debug("Task {} quick context suggestion failed: {}", myGen, recommendations.reasoning());
-                showPendingContext(recommendations.reasoning());
-                return;
-            }
-
-            // Set our snapshot as the new semantic baseline
-            this.lastCheckedInputText = snapshot;
-            this.lastCheckedEmbeddings = newEmbeddings;
-
-            // process the recommendations
-            var fileRefs = recommendations.fragments().stream()
-                    .flatMap(f -> f.files().stream()) // No analyzer
-                    .distinct()
-                    .map(pf -> new FileReferenceData(pf.getFileName(), pf.toString(), pf))
-                    .toList();
-            if (fileRefs.isEmpty()) {
-                logger.debug("Task {} found no relevant files.", myGen);
-                showPendingContext("No quick suggestions");
-                return;
-            }
-
-            // Update the UI with our new recommendations, or save them for the next task to use
-            logger.debug("Task {} updating quick reference table with {} suggestions", myGen, fileRefs.size());
-            if (myGen == suggestionGeneration.get()) {
-                SwingUtilities.invokeLater(() -> showSuggestionsTable(fileRefs));
-                pendingQuickContext = null;
-            } else {
-                pendingQuickContext = fileRefs;
-            }
-        } catch (InterruptedException ex) {
-            // shouldn't happen
-            throw new RuntimeException(ex);
-        } finally {
-            if (currentForceState) {
-                forceSuggestions.set(false);
-                logger.trace("Task {} cleared forceSuggestions.", myGen);
-            }
-        }
-    }
-
-    private void showPendingContext(@Nullable String failureExplanation) {
-        // do this on the serial task thread, before we move to the EDT
-        var contextToDisplay = pendingQuickContext;
-        pendingQuickContext = null;
-
-        SwingUtilities.invokeLater(() -> {
-            if (contextToDisplay != null) {
-                showSuggestionsTable(contextToDisplay);
-            } else if (failureExplanation != null) {
-                showFailureLabel(failureExplanation);
-            }
-        });
-    }
 
     /**
      * Checks if the new text/embeddings are semantically different from the last processed state
      * (`lastCheckedInputText`, `lastCheckedEmbeddings`).
      */
-    private boolean isSemanticallyDifferent(String currentText, float[][] newEmbeddings) {
-        if (lastCheckedInputText == null || lastCheckedEmbeddings == null) {
-            // First run or state was reset. Treat as different and store the new embeddings.
-            logger.debug("New embeddings input is trivially different from empty old");
-            return true;
-        }
-
-        // Compare lengths
-        if (newEmbeddings.length != lastCheckedEmbeddings.length) {
-            logger.debug("New embeddings length differs from last checked embeddings length.");
-            return true;
-        }
-
-        // Compare pairwise cosine similarity
-        final float SIMILARITY_THRESHOLD = 0.85f;
-        float minSimilarity = Float.MAX_VALUE;
-        for (int i = 0; i < newEmbeddings.length; i++) {
-            float similarity = cosine(newEmbeddings[i], lastCheckedEmbeddings[i]);
-            if (similarity < minSimilarity) {
-                minSimilarity = similarity;
-            }
-            if (similarity < SIMILARITY_THRESHOLD) {
-                var msg =
-                        """
-                          New embeddings similarity = %.3f, triggering recompute
-
-                          # Old text
-                          %s
-
-                          # New text
-                          %s
-                          """
-                                .formatted(similarity, lastCheckedInputText, currentText);
-                logger.debug(msg);
-                return true;
-            }
-        }
-
-        logger.debug("Minimum similarity was {}", minSimilarity);
-
-        // If lengths match and all similarities are above threshold, it's not different enough.
-        // Do NOT update lastCheckedEmbeddings here, keep the previous ones for the next comparison.
-        return false;
-    }
 
     /** Helper to show the failure label with a message. */
-    private void showFailureLabel(String message) {
-        boolean isDark = UIManager.getBoolean("laf.dark");
-        failureReasonLabel.setForeground(ThemeColors.getColor(isDark, "badge_foreground"));
-        failureReasonLabel.setText(message);
-        failureReasonLabel.setVisible(true);
-        // tableScrollPane was made local to initializeReferenceFileTable, find it via parent of referenceFileTable
-        var scrollPane = SwingUtilities.getAncestorOfClass(JScrollPane.class, referenceFileTable);
-        if (scrollPane != null) {
-            scrollPane.setVisible(false); // Ensure table scrollpane is hidden
-        }
-        referenceFileTable.setValueAt(List.of(), 0, 0); // Clear table data
-        suggestionCardLayout.show(suggestionContentPanel, "LABEL"); // Show label
-    }
 
     /** Helper to show the suggestions table with file references. */
-    private void showSuggestionsTable(List<FileReferenceData> fileRefs) {
-        referenceFileTable.setValueAt(fileRefs, 0, 0);
-        failureReasonLabel.setVisible(false);
-        var scrollPane = SwingUtilities.getAncestorOfClass(JScrollPane.class, referenceFileTable);
-        if (scrollPane != null) {
-            scrollPane.setVisible(true); // Ensure table scrollpane is visible
-        }
-        suggestionCardLayout.show(suggestionContentPanel, "TABLE"); // Show table
-    }
 
     /**
      * Executes the core logic for the "Ask" command. This runs inside the Runnable passed to
@@ -2151,9 +1765,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     @Override
     public void contextChanged(Context newCtx) {
-        // Otherwise, proceed with the normal suggestion logic by submitting a task
-        logger.debug("Context changed externally, triggering suggestion check.");
-        triggerContextSuggestion(null); // Use null ActionEvent to indicate non-timer trigger
+        // No-op; WorkspaceItemsChipPanel observes context changes directly.
     }
 
     void enableButtons() {
@@ -2296,34 +1908,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.addSelectionListener(listener);
     }
 
-    /** Returns cosine similarity of two equal-length vectors. */
-    private static float cosine(float[] a, float[] b) {
-        if (a.length != b.length) {
-            throw new IllegalArgumentException("Vectors differ in length");
-        }
-        if (a.length == 0) {
-            throw new IllegalArgumentException("Vectors must have at least one element");
-        }
-
-        double dot = 0.0;
-        double magA = 0.0;
-        double magB = 0.0;
-
-        for (int i = 0; i < a.length; i++) {
-            double x = a[i];
-            double y = b[i];
-            dot += x * y;
-            magA += x * x;
-            magB += y * y;
-        }
-
-        double denominator = Math.sqrt(magA) * Math.sqrt(magB);
-        if (denominator == 0.0) {
-            throw new IllegalArgumentException("One of the vectors is zero-length");
-        }
-
-        return (float) (dot / denominator);
-    }
 
     private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
         private static final long serialVersionUID = 1L;
