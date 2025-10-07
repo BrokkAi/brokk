@@ -1132,7 +1132,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var dependenciesPanel = new DependenciesDrawerPanel(Chrome.this, new JSplitPane());
+                var dependenciesPanel = new DependenciesDrawerPanel(Chrome.this);
                 showPreviewFrame(getContextManager(), "Manage Dependencies", dependenciesPanel);
                 dependenciesPanel.openPanel();
             }

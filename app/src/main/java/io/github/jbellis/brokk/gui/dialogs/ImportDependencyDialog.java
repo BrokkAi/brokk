@@ -18,6 +18,9 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Window;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
@@ -124,7 +127,7 @@ public class ImportDependencyDialog {
                     lp.addSelectionListener(pkg -> updateImportButtonState());
                     lp.addDoubleClickListener(() -> {
                         if (importButton.isEnabled() && tabbedPane.getSelectedComponent() == lp) {
-                            if (lp.initiateImport()) dialog.dispose();
+                            lp.initiateImport();
                         }
                     });
 
@@ -153,7 +156,10 @@ public class ImportDependencyDialog {
                 var comp = tabbedPane.getSelectedComponent();
                 if (comp instanceof ImportLanguagePanel lp) {
                     if (lp.initiateImport()) {
+                        // Close the import dialog right away for language-based imports
                         dialog.dispose();
+                        // Ensure the dependencies dialog stays visible and on top
+                        SwingUtilities.invokeLater(this::bringDependenciesDialogToFront);
                     } else {
                         importButton.setEnabled(true);
                     }
@@ -357,6 +363,39 @@ public class ImportDependencyDialog {
             importButton.setEnabled(enabled);
         }
 
+        // Try to bring the dependencies dialog (modeless) to the front after closing this modal import dialog.
+        // We detect it by searching for an open JDialog that contains a DependenciesPanel.
+        private void bringDependenciesDialogToFront() {
+            try {
+                for (Window w : Window.getWindows()) {
+                    if (w instanceof JDialog jd && jd.isShowing()) {
+                        if (containsDependenciesPanel(jd)) {
+                            // Nudge it to the front and ensure focus
+                            jd.toFront();
+                            jd.requestFocus();
+                            // Briefly toggle always-on-top to guarantee raise over the owner
+                            boolean wasAot = jd.isAlwaysOnTop();
+                            jd.setAlwaysOnTop(true);
+                            jd.setAlwaysOnTop(wasAot);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignore) {
+                // best-effort
+            }
+        }
+
+        private boolean containsDependenciesPanel(Component c) {
+            if (c instanceof DependenciesPanel) return true;
+            if (c instanceof Container cont) {
+                for (Component child : cont.getComponents()) {
+                    if (containsDependenciesPanel(child)) return true;
+                }
+            }
+            return false;
+        }
+
         private void validateRepository() {
             String url = requireNonNull(gitUrlField).getText().trim();
             if (url.isEmpty()) {
@@ -433,7 +472,6 @@ public class ImportDependencyDialog {
             if (listener != null) {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(depName));
             }
-            dialog.dispose();
 
             var project = chrome.getProject();
             if (project.getAnalyzerLanguages().stream().anyMatch(lang -> lang.isAnalyzed(project, sourcePath))) {
@@ -478,10 +516,12 @@ public class ImportDependencyDialog {
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
                     SwingUtilities.invokeLater(() -> {
+                        dialog.dispose();
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
                                 "Directory copied to " + targetPath + ". Reopen project to incorporate the new files.");
                         if (listener != null) listener.dependencyImportFinished(depName);
+                        bringDependenciesDialogToFront();
                     });
                 } catch (IOException ex) {
                     logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
@@ -535,7 +575,6 @@ public class ImportDependencyDialog {
             if (listener != null) {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(repoName));
             }
-            dialog.dispose();
 
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
                 try {
@@ -563,10 +602,12 @@ public class ImportDependencyDialog {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
 
                         SwingUtilities.invokeLater(() -> {
+                            dialog.dispose();
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO,
                                     "Repository " + repoName + " imported successfully.");
                             if (listener != null) listener.dependencyImportFinished(repoName);
+                            bringDependenciesDialogToFront();
                         });
                     } catch (Exception postCloneException) {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
