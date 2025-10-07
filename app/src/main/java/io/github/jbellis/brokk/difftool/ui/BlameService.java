@@ -19,18 +19,15 @@ import org.eclipse.jgit.treewalk.TreeWalk;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Small async blame fetcher using JGit. Results are cached per-path. Failures return an empty map.
- *
- * <p>Note: this is intentionally minimal and conservative — it runs JGit blame off the EDT and returns a
- * CompletableFuture that completes on the thread that finishes the work; callers must SwingUtilities.invokeLater when
- * updating UI.
+ * Async blame fetcher using JGit with per-path caching. Runs off-EDT; callers must use SwingUtilities.invokeLater for
+ * UI updates. Failures return empty maps.
  */
 public final class BlameService {
     private static final Logger logger = LogManager.getLogger(BlameService.class);
 
     public static final String NOT_COMMITTED_YET = "Not Committed Yet";
 
-    public static final record BlameInfo(String author, String shortSha, Long authorTime) {}
+    public static final record BlameInfo(String author, String shortSha, long authorTime) {}
 
     private final Git git;
     private final Path repositoryRoot;
@@ -41,29 +38,17 @@ public final class BlameService {
     // Track last error message per cache key for user feedback
     private final ConcurrentMap<String, String> lastErrors = new ConcurrentHashMap<>();
 
-    /**
-     * Creates a new BlameService using the provided Git instance.
-     *
-     * @param git The JGit Git instance to use for blame operations (non-null)
-     */
+    /** Creates a BlameService using the provided Git instance. */
     public BlameService(Git git) {
         this.git = git;
         this.repositoryRoot = git.getRepository().getWorkTree().toPath();
     }
 
     /**
-     * Request blame for the given file path (working tree version).
-     *
-     * <p>This method asynchronously runs {@code git blame} on the file and caches the results. Subsequent requests for
-     * the same file path will return the cached result.
-     *
-     * <p><b>Error Handling:</b> The returned future never completes exceptionally. On any error (file not found, git
-     * command failure, etc.), it completes with an empty map. Use {@link #getLastError(Path)} to retrieve error
+     * Async blame for working tree file. Results are cached. Returns empty map on error; use getLastError() for
      * details.
      *
-     * @param filePath The file path to blame (will be converted to absolute path for caching)
-     * @return A future that completes with a map of line number (1-based) to {@link BlameInfo}, or an empty map on
-     *     error. Never {@code null}.
+     * @return Future with map of 1-based line number to BlameInfo
      */
     public CompletableFuture<Map<Integer, BlameInfo>> requestBlame(Path filePath) {
         logger.debug("Requesting blame for: {}", filePath);
@@ -73,22 +58,11 @@ public final class BlameService {
     }
 
     /**
-     * Request blame for a specific git revision of a file.
+     * Async blame for file at specific revision. Cached per file+revision. Returns empty map on error; use
+     * getLastErrorForRevision() for details.
      *
-     * <p>This method asynchronously runs {@code git blame <revision>} on the file and caches the results. The cache key
-     * includes both the file path and revision, so different revisions of the same file are cached separately.
-     *
-     * <p><b>Note:</b> The file need not exist in the working tree for revision-based blame to work, as long as it
-     * exists in the specified revision.
-     *
-     * <p><b>Error Handling:</b> The returned future never completes exceptionally. On any error (revision not found,
-     * file not in revision, git command failure, etc.), it completes with an empty map. Use
-     * {@link #getLastErrorForRevision(Path, String)} to retrieve error details.
-     *
-     * @param filePath The file path (will be converted to absolute path for caching)
-     * @param revision The git revision (e.g., "HEAD", "HEAD~1", "abc123", "main")
-     * @return A future that completes with a map of line number (1-based) to {@link BlameInfo}, or an empty map on
-     *     error. Never {@code null}.
+     * @param revision Git revision (e.g., "HEAD", "HEAD~1", commit sha)
+     * @return Future with map of 1-based line number to BlameInfo
      */
     public CompletableFuture<Map<Integer, BlameInfo>> requestBlameForRevision(Path filePath, String revision) {
         logger.debug("Requesting blame for revision {} of: {}", revision, filePath);
@@ -97,20 +71,7 @@ public final class BlameService {
         return cache.computeIfAbsent(cacheKey, k -> startBlameTaskForRevision(filePath, revision));
     }
 
-    /**
-     * Checks if a file exists in the specified git revision.
-     *
-     * <p>This method uses JGit's TreeWalk to efficiently check for file existence without reading the file content. It
-     * handles path conversion, revision resolution, and returns false for any errors (missing revision, invalid path,
-     * etc.).
-     *
-     * <p><b>Use case:</b> Before requesting blame for a specific revision, check if the file existed in that revision
-     * to avoid unnecessary blame operations and error logging for newly added files.
-     *
-     * @param filePath The file path to check (will be converted to repository-relative path)
-     * @param revision The git revision (e.g., "HEAD", "HEAD~1", "abc123", "main")
-     * @return {@code true} if the file exists in that revision, {@code false} otherwise (including errors)
-     */
+    /** Checks if file exists in the specified revision using TreeWalk. Returns false on any error. */
     public boolean fileExistsInRevision(Path filePath, String revision) {
         try {
             String relativePath = getRepositoryRelativePath(
@@ -136,17 +97,7 @@ public final class BlameService {
         }
     }
 
-    /**
-     * Safely converts an absolute file path to a repository-relative path.
-     *
-     * <p>This method validates that the file is under the repository root and handles path relativization errors
-     * gracefully. If the file is outside the repository or on a different filesystem, it returns {@code null} and
-     * records an error message.
-     *
-     * @param filePath The file path to convert (will be converted to absolute and normalized)
-     * @param cacheKey The cache key for error tracking
-     * @return The repository-relative path as a string, or {@code null} if the path cannot be relativized
-     */
+    /** Converts file path to repository-relative path. Returns null and records error if path is outside repository. */
     private @Nullable String getRepositoryRelativePath(Path filePath, String cacheKey) {
         try {
             Path absolutePath = filePath.toAbsolutePath().normalize();
@@ -175,8 +126,11 @@ public final class BlameService {
                     return Map.<Integer, BlameInfo>of();
                 }
 
-                // Run JGit blame command
-                BlameResult blameResult = git.blame().setFilePath(relativePath).call();
+                // Run JGit blame command with rename detection
+                BlameResult blameResult = git.blame()
+                        .setFilePath(relativePath)
+                        .setFollowFileRenames(true)
+                        .call();
 
                 if (blameResult == null) {
                     logger.warn("Blame returned null for file: {}", filePath);
@@ -239,10 +193,11 @@ public final class BlameService {
                     return Map.<Integer, BlameInfo>of();
                 }
 
-                // Run JGit blame command for the specified revision
+                // Run JGit blame command for the specified revision with rename detection
                 BlameResult blameResult = git.blame()
                         .setFilePath(relativePath)
                         .setStartCommit(revisionId)
+                        .setFollowFileRenames(true)
                         .call();
 
                 if (blameResult == null) {
@@ -291,55 +246,22 @@ public final class BlameService {
         });
     }
 
-    /**
-     * Clear the cached blame data for a specific file path (working tree version only).
-     *
-     * <p>This removes only the working tree blame cache entry. To clear revision-specific blame, use
-     * {@link #clearAllCache()} as there is no method to clear individual revisions.
-     *
-     * <p><b>Use case:</b> Call this when a file has been modified on disk and you want to force a fresh blame request
-     * on the next call to {@link #requestBlame(Path)}.
-     *
-     * @param filePath The file path to clear from cache
-     */
+    /** Clears cached blame for working tree file. Call after file modification to force refresh. */
     public void clearCacheFor(Path filePath) {
         cache.remove(filePath.toAbsolutePath().toString());
     }
 
-    /**
-     * Clear all cached blame data (both working tree and all revisions).
-     *
-     * <p><b>Warning:</b> This clears the entire cache. Subsequent blame requests will need to re-run git blame
-     * commands. Use sparingly, typically only when the repository state has changed significantly (e.g., after a rebase
-     * or branch switch).
-     */
+    /** Clears all cached blame data. Use sparingly (e.g., after rebase or branch switch). */
     public void clearAllCache() {
         cache.clear();
     }
 
-    /**
-     * Get the last error message for a working tree blame request, if any.
-     *
-     * <p>This returns the error message from the most recent {@link #requestBlame(Path)} call for the given file. If
-     * the most recent request succeeded, this returns {@code null}.
-     *
-     * @param filePath The file path to check for errors
-     * @return The error message string, or {@code null} if no error occurred or blame succeeded
-     */
+    /** Returns error message from last working tree blame request, or null if successful. */
     public @Nullable String getLastError(Path filePath) {
         return lastErrors.get(filePath.toAbsolutePath().toString());
     }
 
-    /**
-     * Get the last error message for a revision-specific blame request, if any.
-     *
-     * <p>This returns the error message from the most recent {@link #requestBlameForRevision(Path, String)} call for
-     * the given file and revision. If the most recent request succeeded, this returns {@code null}.
-     *
-     * @param filePath The file path to check for errors
-     * @param revision The git revision (must match the revision used in the blame request)
-     * @return The error message string, or {@code null} if no error occurred or blame succeeded
-     */
+    /** Returns error message from last revision blame request, or null if successful. */
     public @Nullable String getLastErrorForRevision(Path filePath, String revision) {
         var cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;
         return lastErrors.get(cacheKey);

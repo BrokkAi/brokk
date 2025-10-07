@@ -7,6 +7,7 @@ import com.github.difflib.patch.Patch;
 import com.jgoodies.forms.layout.CellConstraints;
 import com.jgoodies.forms.layout.FormLayout;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
 import io.github.jbellis.brokk.difftool.node.BufferNode;
@@ -1209,7 +1210,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var leftBufferNode = diffNode.getBufferNodeLeft();
         if (leftBufferNode != null) {
             var leftDoc = leftBufferNode.getDocument();
-            if (leftDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
+            if (leftDoc instanceof AbstractBufferDocument abd) {
                 abd.recheckChangedState();
             }
         }
@@ -1217,7 +1218,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rightBufferNode = diffNode.getBufferNodeRight();
         if (rightBufferNode != null) {
             var rightDoc = rightBufferNode.getDocument();
-            if (rightDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
+            if (rightDoc instanceof AbstractBufferDocument abd) {
                 abd.recheckChangedState();
             }
         }

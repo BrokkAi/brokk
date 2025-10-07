@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui;
 
+import io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffColorResolver;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import java.awt.Color;
@@ -17,11 +18,6 @@ import java.util.List;
 import java.util.Map;
 import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
-import java.awt.FontMetrics;
-import java.awt.Graphics;
-import java.awt.Point;
-import java.util.List;
-import javax.swing.JComponent;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -127,13 +123,12 @@ public class DiffGutterComponent extends JComponent {
     private volatile boolean blameStale = false;
     // Map: 1-based line number -> BlameInfo (for right/new file)
     // Using volatile + immutable maps ensures atomic visibility for paint operations
-    private volatile Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> rightBlameLines =
-            Map.of();
+    private volatile Map<Integer, BlameInfo> rightBlameLines = Map.of();
     // Map: 1-based line number -> BlameInfo (for left/old file, used for deletions)
     // Using volatile + immutable maps ensures atomic visibility for paint operations
-    private volatile Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> leftBlameLines = Map.of();
+    private volatile Map<Integer, BlameInfo> leftBlameLines = Map.of();
     // Font used for blame display (small, derived)
-    private @org.jetbrains.annotations.Nullable Font blameFont = null;
+    private @Nullable Font blameFont = null;
 
     /**
      * Create a gutter component for unified diff display (dual column mode).
@@ -291,7 +286,7 @@ public class DiffGutterComponent extends JComponent {
      *
      * @param lines The blame data to set (non-null, may be empty)
      */
-    public void setBlameLines(Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> lines) {
+    public void setBlameLines(Map<Integer, BlameInfo> lines) {
         assert SwingUtilities.isEventDispatchThread() : "setBlameLines must be called on EDT";
         // Atomic replacement with immutable map ensures paint thread sees coherent state
         rightBlameLines = lines.isEmpty() ? Map.of() : Map.copyOf(lines);
@@ -311,7 +306,7 @@ public class DiffGutterComponent extends JComponent {
      *
      * @param lines The blame data to set (non-null, may be empty)
      */
-    public void setLeftBlameLines(Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> lines) {
+    public void setLeftBlameLines(Map<Integer, BlameInfo> lines) {
         assert SwingUtilities.isEventDispatchThread() : "setLeftBlameLines must be called on EDT";
         // Atomic replacement with immutable map ensures paint thread sees coherent state
         leftBlameLines = lines.isEmpty() ? Map.of() : Map.copyOf(lines);
@@ -328,7 +323,7 @@ public class DiffGutterComponent extends JComponent {
      *
      * @return Immutable map of line numbers to blame info (never null, may be empty)
      */
-    public Map<Integer, io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo> getRightBlameLines() {
+    public Map<Integer, BlameInfo> getRightBlameLines() {
         return rightBlameLines;
     }
 
@@ -802,7 +797,7 @@ public class DiffGutterComponent extends JComponent {
     }
 
     /** Format timestamp as relative (≤7 days) or absolute date (>7 days). Uses 0L as sentinel for missing timestamp. */
-    private String formatDate(Long timestampSeconds) {
+    private String formatDate(long timestampSeconds) {
         if (timestampSeconds == 0L) {
             return "";
         }
