@@ -1783,15 +1783,18 @@ public class HistoryOutputPanel extends JPanel {
             chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        var parsedOutput = selected.getParsedOutput();
-        if (parsedOutput == null) {
+
+        var history = selected.getTaskHistory();
+        if (history.isEmpty()) {
             chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        var captureText = parsedOutput.text();
-        if (captureText.isBlank()) {
-            chrome.systemNotify(
-                    "Nothing to capture from the selected output", "Capture failed", JOptionPane.WARNING_MESSAGE);
+
+        var last = history.getLast();
+        String captureText = (last.log() != null) ? last.log().text() : last.summary();
+
+        if (captureText == null || captureText.isBlank()) {
+            chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
             return;
         }
 

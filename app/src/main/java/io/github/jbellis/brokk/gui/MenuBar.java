@@ -343,15 +343,6 @@ public class MenuBar {
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
 
-        var scanProjectItem = new JMenuItem("Scan Project");
-        scanProjectItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            // Delegate to InstructionsPanel's scan flow which handles model selection, validation,
-            // and submission to ContextManager.
-            chrome.getInstructionsPanel().runScanProjectCommand();
-        }));
-        scanProjectItem.setEnabled(true);
-        toolsMenu.add(scanProjectItem);
-
         var upgradeAgentItem = new JMenuItem("BlitzForge...");
         upgradeAgentItem.addActionListener(e -> {
             SwingUtilities.invokeLater(() -> {
@@ -364,7 +355,7 @@ public class MenuBar {
 
         // Let Chrome manage this item’s enabled state during long-running actions
         chrome.setBlitzForgeMenuItem(upgradeAgentItem);
-        if (toolsMenu.getItemCount() > 0) {
+        if (toolsMenu.getItemCount() > 0) { // Should always be true since BlitzForge is present.
             menuBar.add(toolsMenu);
         }
 

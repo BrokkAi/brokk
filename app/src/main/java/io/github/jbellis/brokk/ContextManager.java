@@ -1111,16 +1111,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Captures text from the LLM output area and adds it to the context. Called from Chrome's capture button. */
     public void captureTextFromContextAsync() {
         submitContextTask(() -> {
-            // Capture from the selected *frozen* context in history view
+            // Capture from the selected frozen context in history view
             var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
 
-            var parsedOutput = selectedFrozenCtx.getParsedOutput();
-            if (parsedOutput == null) {
+            var history = selectedFrozenCtx.getTaskHistory();
+            if (history.isEmpty()) {
                 io.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
-            addVirtualFragment(parsedOutput);
+            var last = history.getLast();
+            var log = last.log();
+            if (log != null) {
+                addVirtualFragment(log);
+                return;
+            }
+            io.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
         });
     }
 

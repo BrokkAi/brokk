@@ -1,10 +1,14 @@
 package io.github.jbellis.brokk.git;
 
 import com.google.common.base.Splitter;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import io.github.jbellis.brokk.ContextManager;
+import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Service;
@@ -37,6 +41,13 @@ public final class GitWorkflow {
 
     private final IContextManager contextManager;
     private final GitRepo repo;
+
+    // Fields for tool calling results
+    @Nullable
+    private String prTitle;
+
+    @Nullable
+    private String prDescription;
 
     public GitWorkflow(IContextManager contextManager) {
         this.contextManager = contextManager;
@@ -176,56 +187,65 @@ public final class GitWorkflow {
         return new BranchDiff(commits, files, merge);
     }
 
-    private static void throwIfInterrupted() throws InterruptedException {
-        if (Thread.currentThread().isInterrupted()) {
-            throw new InterruptedException("Operation cancelled by interrupt");
-        }
+    @Tool("Suggest pull request title and description based on the changes")
+    public void suggestPrDetails(
+            @P("Brief PR title (12 words or fewer)") String title,
+            @P("PR description in markdown (75-150 words, focus on intent and key changes)") String description) {
+        this.prTitle = title;
+        this.prDescription = description;
     }
 
     /**
-     * Suggests pull request title and description. Blocks; caller should off-load to a background thread (SwingWorker,
-     * etc.). This method is designed to be responsive to thread interruption.
+     * Suggests pull request title and description with streaming output using tool calling. Blocks; caller should
+     * off-load to a background thread (SwingWorker, etc.). Interruption is detected during LLM request and propagates
+     * as InterruptedException.
      *
-     * @throws InterruptedException if the calling thread is interrupted during processing.
+     * @param source The source branch name
+     * @param target The target branch name
+     * @param streamingOutput IConsoleIO for streaming output
+     * @throws GitAPIException if git operations fail
+     * @throws InterruptedException if the calling thread is interrupted during LLM request
      */
-    public PrSuggestion suggestPullRequestDetails(String source, String target) throws Exception {
-        throwIfInterrupted(); // Check at the beginning
-
-        // 1. Compute merge base & diff text
+    public PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO streamingOutput)
+            throws GitAPIException, InterruptedException {
         var mergeBase = repo.getMergeBase(source, target);
-        throwIfInterrupted(); // Check after potential Git operation
         String diff = (mergeBase != null) ? repo.showDiff(source, mergeBase) : "";
-        throwIfInterrupted(); // Check after potential Git operation
 
-        // 2. Decide “too big?” heuristic
         var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI);
         var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
 
-        // 3. Build messages
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
             var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
-            throwIfInterrupted();
-            messages = SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMessagesContent);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
-            messages = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
         }
-        throwIfInterrupted(); // Check before LLM call, after messages are prepared
 
-        // 4. Call LLM
-        // modelToUse is guaranteed non-null from the logic above
-        var llm = contextManager.getLlm(modelToUse, "PR-description");
-        var response = llm.sendRequest(messages);
-        throwIfInterrupted(); // Check after LLM call
-        String description = response.text().trim();
+        var toolSpecs = contextManager.getToolRegistry().getTools(this, List.of("suggestPrDetails"));
+        var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
 
-        // 5. Title summarisation (12-word budget)
-        throwIfInterrupted(); // Check before starting/blocking on title summarization
-        ContextManager.SummarizeWorker titleWorker =
-                new ContextManager.SummarizeWorker(this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
-        titleWorker.execute(); // Schedule the worker
-        String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
+        var llm = contextManager.getLlm(modelToUse, "PR-description", true);
+        llm.setOutput(streamingOutput);
+        var result = llm.sendRequest(messages, toolContext, true);
+
+        if (result.error() != null) {
+            throw new RuntimeException("LLM error while generating PR details", result.error());
+        }
+
+        if (result.toolRequests().isEmpty()) {
+            throw new RuntimeException("LLM did not call the suggestPrDetails tool");
+        }
+
+        contextManager.getToolRegistry().executeTool(this, result.toolRequests().get(0));
+
+        String title = prTitle;
+        String description = prDescription;
+
+        if (title == null || title.isEmpty() || description == null || description.isEmpty()) {
+            throw new RuntimeException("LLM provided empty title or description");
+        }
 
         return new PrSuggestion(title, description, diff.length() / 3.0 > service.getMaxInputTokens(modelToUse) * 0.9);
     }

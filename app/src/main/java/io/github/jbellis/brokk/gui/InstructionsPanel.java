@@ -28,7 +28,6 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -450,7 +449,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setEnabled(false); // Start disabled
         area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
-        ((AbstractDocument) area.getDocument()).setDocumentFilter(new AtTriggerFilter());
 
         // Submit shortcut is handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
@@ -2400,121 +2398,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         public void applyTheme(GuiTheme guiTheme) {
             // Delegate to the two-argument variant with a sensible default for wordWrap.
             applyTheme(guiTheme, false);
-        }
-    }
-
-    private final class AtTriggerFilter extends DocumentFilter {
-        private boolean isPopupOpen = false; // Guard against re-entrant calls
-
-        @Override
-        public void insertString(FilterBypass fb, int offs, String str, AttributeSet a) throws BadLocationException {
-            super.insertString(fb, offs, str, a);
-            if (!isPopupOpen) {
-                maybeHandleAt(fb, offs + str.length());
-            }
-        }
-
-        @Override
-        public void replace(FilterBypass fb, int offs, int len, String str, AttributeSet a)
-                throws BadLocationException {
-            super.replace(fb, offs, len, str, a);
-            if (!isPopupOpen) {
-                maybeHandleAt(fb, offs + str.length());
-            }
-        }
-
-        private void maybeHandleAt(DocumentFilter.FilterBypass fb, int caretPos) {
-            try {
-                if (fb.getDocument().getLength() >= caretPos
-                        && caretPos > 0
-                        && fb.getDocument().getText(caretPos - 1, 1).equals("@")) {
-                    // Schedule popup display on EDT
-                    SwingUtilities.invokeLater(() -> showAddPopup(caretPos - 1));
-                }
-            } catch (BadLocationException ignored) {
-                // Ignore, means text was changing rapidly
-            }
-        }
-
-        private void showAddPopup(int atOffset) {
-            if (isPopupOpen) {
-                return; // Already showing one
-            }
-
-            isPopupOpen = true;
-            try {
-                Rectangle r = instructionsArea.modelToView2D(atOffset).getBounds();
-                // Point p = SwingUtilities.convertPoint(instructionsArea, r.x, r.y + r.height, chrome.getFrame()); //
-                // Unused variable p
-
-                JPopupMenu popup = AddMenuFactory.buildAddPopup(chrome.getContextPanel());
-
-                // Add action listeners to set the flag when an item is clicked
-                for (Component comp : popup.getComponents()) {
-                    if (comp instanceof JMenuItem item) {
-                        // Get original listeners
-                        java.awt.event.ActionListener[] originalListeners = item.getActionListeners();
-                        // Remove them to re-wrap
-                        for (java.awt.event.ActionListener al : originalListeners) {
-                            item.removeActionListener(al);
-                        }
-                        // Add new listener that removes "@" then calls originals
-                        item.addActionListener(actionEvent -> {
-                            SwingUtilities.invokeLater(
-                                    () -> { // Ensure document modification is on EDT
-                                        try {
-                                            instructionsArea.getDocument().remove(atOffset, 1);
-                                        } catch (BadLocationException ble) {
-                                            logger.warn(
-                                                    "Could not remove @ symbol after selection in ActionListener", ble);
-                                        }
-                                    });
-                            for (java.awt.event.ActionListener al : originalListeners) {
-                                al.actionPerformed(actionEvent);
-                            }
-                        });
-                    }
-                }
-
-                popup.addPopupMenuListener(new PopupMenuListener() {
-                    @Override
-                    public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
-                        // Unregister listener to avoid memory leaks
-                        popup.removePopupMenuListener(this);
-                        isPopupOpen = false; // Allow new popups
-                        // Removal of "@" is now handled by the JMenuItem's ActionListener
-                    }
-
-                    @Override
-                    public void popupMenuWillBecomeVisible(PopupMenuEvent e) {}
-
-                    @Override
-                    public void popupMenuCanceled(PopupMenuEvent e) {
-                        // Unregister listener
-                        popup.removePopupMenuListener(this);
-                        isPopupOpen = false; // Allow new popups
-                        // Do not remove "@" on cancel
-                    }
-                });
-
-                chrome.themeManager.registerPopupMenu(popup);
-                popup.show(instructionsArea, r.x, r.y + r.height);
-
-                // Preselect the first item in the popup
-                if (popup.getComponentCount() > 0) {
-                    Component firstComponent = popup.getComponent(0);
-                    if (firstComponent instanceof JMenuItem) { // Or more generally, MenuElement
-                        MenuElement[] path = {popup, (MenuElement) firstComponent};
-                        MenuSelectionManager.defaultManager().setSelectedPath(path);
-                    }
-                }
-            } catch (BadLocationException ble) {
-                isPopupOpen = false; // Reset guard on error
-                logger.warn("Could not show @ popup", ble);
-            } catch (Exception ex) {
-                isPopupOpen = false; // Reset guard on any other error
-                logger.error("Error showing @ popup", ex);
-            }
         }
     }
 

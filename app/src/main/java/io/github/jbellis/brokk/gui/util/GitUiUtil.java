@@ -144,7 +144,7 @@ public final class GitUiUtil {
     public static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitExclusiveAction(() -> {
+        cm.submitBackgroundTask("View file at revision", () -> {
             var file = new ProjectFile(cm.getRoot(), filePath);
             try {
                 final String content = repo.getFileContent(commitId, file);
@@ -576,7 +576,7 @@ public final class GitUiUtil {
     }
 
     public static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
-        contextManager.submitExclusiveAction(() -> {
+        contextManager.submitBackgroundTask("Comparing commit to local", () -> {
             try {
                 var changedFiles = commitInfo.changedFiles();
                 if (changedFiles.isEmpty()) {
@@ -826,7 +826,7 @@ public final class GitUiUtil {
             ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
         String targetFilePath = extractFilePathFromDisplay(targetFileName);
 
-        contextManager.submitExclusiveAction(() -> {
+        contextManager.submitBackgroundTask("Opening PR diff", () -> {
             try {
                 var repo = (GitRepo) contextManager.getProject().getRepo();
 
