@@ -3,12 +3,15 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
@@ -121,6 +124,24 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         chip.add(close);
 
         styleChip(chip, label, chrome.getTheme().isDarkTheme());
+
+        chip.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
+            private void maybeShowPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    ContextMenuUtils.showContextFragmentMenu(chip, e.getX(), e.getY(), fragment, chrome);
+                }
+            }
+        });
 
         return chip;
     }
