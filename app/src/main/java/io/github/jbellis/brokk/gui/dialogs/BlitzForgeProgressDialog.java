@@ -54,14 +54,21 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     private final Runnable cancelCallback;
     private final AtomicBoolean done = new AtomicBoolean(false);
 
-    // UI components: three tables
-    private final JTable queuedTable;
+    // UI components: two tables (In Progress and Completed)
     private final JTable inProgressTable;
     private final JTable completedTable;
 
-    private final QueuedTableModel queuedModel = new QueuedTableModel();
     private final InProgressTableModel inProgressModel = new InProgressTableModel();
     private final CompletedTableModel completedModel = new CompletedTableModel();
+
+    // Dynamic titled borders and panels for updating counts
+    private final TitledBorder inProgressBorder;
+    private final TitledBorder completedBorder;
+    private final JPanel inProgressPanel;
+    private final JPanel completedPanel;
+
+    // Totals
+    private int totalFiles = 0;
 
     // Per-file console instances and original content to compute diffs
     private final Map<ProjectFile, DialogConsoleIO> consolesByFile = new ConcurrentHashMap<>();
@@ -82,10 +89,6 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
         setLayout(new BorderLayout(10, 10));
         setPreferredSize(new Dimension(900, 600));
-
-        // Queued table
-        queuedTable = new JTable(queuedModel);
-        queuedTable.setFillsViewportHeight(true);
 
         // In-progress table with progress bar renderer
         inProgressTable = new JTable(inProgressModel);
@@ -108,15 +111,35 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
             }
         });
 
-        // Panels with titled borders
+        // Panels with dynamic titled borders
         var centerPanel = new JPanel();
         centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
 
-        centerPanel.add(buildTitledPanel("Queued", new JScrollPane(queuedTable)));
+        inProgressPanel = new JPanel(new BorderLayout());
+        inProgressBorder = BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "In Progress (0/0)",
+                TitledBorder.LEFT,
+                TitledBorder.TOP
+        );
+        inProgressPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(10, 10, 0, 10), inProgressBorder));
+        inProgressPanel.add(new JScrollPane(inProgressTable), BorderLayout.CENTER);
+
+        completedPanel = new JPanel(new BorderLayout());
+        completedBorder = BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Completed (0/0)",
+                TitledBorder.LEFT,
+                TitledBorder.TOP
+        );
+        completedPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(10, 10, 0, 10), completedBorder));
+        completedPanel.add(new JScrollPane(completedTable), BorderLayout.CENTER);
+
+        centerPanel.add(inProgressPanel);
         centerPanel.add(Box.createVerticalStrut(8));
-        centerPanel.add(buildTitledPanel("In Progress", new JScrollPane(inProgressTable)));
-        centerPanel.add(Box.createVerticalStrut(8));
-        centerPanel.add(buildTitledPanel("Completed", new JScrollPane(completedTable)));
+        centerPanel.add(completedPanel);
 
         add(centerPanel, BorderLayout.CENTER);
 
@@ -167,13 +190,6 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         setLocationRelativeTo(chrome.getFrame());
     }
 
-    private static JPanel buildTitledPanel(String title, JComponent content) {
-        var panel = new JPanel(new BorderLayout());
-        var border = BorderFactory.createTitledBorder(BorderFactory.createEtchedBorder(), title, TitledBorder.LEFT, TitledBorder.TOP);
-        panel.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10), border));
-        panel.add(content, BorderLayout.CENTER);
-        return panel;
-    }
 
     private static int countLines(String text) {
         if (text.isEmpty()) return 0;
@@ -188,24 +204,27 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
     @Override
     public void onStart(int total) {
-        // No top-level progress bar anymore; nothing to update here immediately.
+        SwingUtilities.invokeLater(() -> {
+            totalFiles = total;
+            updateTitles();
+        });
     }
 
     @Override
     public void onQueued(List<ProjectFile> queued) {
-        SwingUtilities.invokeLater(() -> queuedModel.setAll(queued));
+        // No queued table; nothing to render here.
     }
 
     @Override
     public void onFileStart(ProjectFile file) {
-        // Move from queued to in-progress and initialize per-file totals
+        // Initialize per-file totals and add to in-progress
         var original = file.read().orElse("");
         int totalLoc = Math.max(1, countLines(original)); // avoid division by zero
         originalContentByFile.put(file, original);
 
         SwingUtilities.invokeLater(() -> {
-            queuedModel.remove(file);
             inProgressModel.add(file, totalLoc);
+            updateTitles();
         });
     }
 
@@ -248,6 +267,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         SwingUtilities.invokeLater(() -> {
             inProgressModel.remove(file);
             completedModel.add(file, addedFinal, deletedFinal);
+            updateTitles();
         });
 
         if (errorMessage != null && !errorMessage.isBlank()) {
@@ -265,7 +285,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         SwingUtilities.invokeLater(() -> {
             try {
                 done.set(true);
-                // Nothing else to do; tables already reflect final state.
+                updateTitles();
             } finally {
                 chrome.enableActionButtons();
             }
@@ -308,6 +328,21 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         }
     }
 
+    private void updateTitles() {
+        assert SwingUtilities.isEventDispatchThread();
+        int completedCount = completedModel.size();
+        int inProgressCount = inProgressModel.size();
+        int notComplete = Math.max(0, totalFiles - completedCount);
+
+        inProgressBorder.setTitle("In Progress (" + inProgressCount + "/" + notComplete + ")");
+        completedBorder.setTitle("Completed (" + completedCount + "/" + totalFiles + ")");
+
+        inProgressPanel.revalidate();
+        inProgressPanel.repaint();
+        completedPanel.revalidate();
+        completedPanel.repaint();
+    }
+
     // Console used by the processing engine to stream LLM output per file
     public class DialogConsoleIO extends MemoryConsole {
         private final ProjectFile file;
@@ -346,43 +381,6 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
     // Models and renderers
 
-    private static final class QueuedTableModel extends AbstractTableModel {
-        private final List<ProjectFile> rows = new ArrayList<>();
-
-        @Override
-        public int getRowCount() {
-            return rows.size();
-        }
-
-        @Override
-        public int getColumnCount() {
-            return 1;
-        }
-
-        @Override
-        public String getColumnName(int column) {
-            return "File";
-        }
-
-        @Override
-        public Object getValueAt(int rowIndex, int columnIndex) {
-            return rows.get(rowIndex).toString();
-        }
-
-        public void setAll(List<ProjectFile> files) {
-            rows.clear();
-            rows.addAll(files);
-            fireTableDataChanged();
-        }
-
-        public void remove(ProjectFile file) {
-            int idx = rows.indexOf(file);
-            if (idx >= 0) {
-                rows.remove(idx);
-                fireTableRowsDeleted(idx, idx);
-            }
-        }
-    }
 
     private static final class InProgressRow {
         final ProjectFile file;
@@ -451,6 +449,10 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
             }
         }
 
+        int size() {
+            return rows.size();
+        }
+
         void remove(ProjectFile file) {
             for (int i = 0; i < rows.size(); i++) {
                 if (rows.get(i).file.equals(file)) {
@@ -465,7 +467,8 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     private static final class ProgressBarRenderer extends JProgressBar implements TableCellRenderer {
         ProgressBarRenderer() {
             super(0, 100);
-            setStringPainted(true);
+            setStringPainted(false);
+            setBorderPainted(true);
         }
 
         @Override
@@ -478,12 +481,10 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
                 setMinimum(0);
                 setMaximum(100);
                 setValue(percent);
-                setString(received + " / " + total);
             } else {
                 setMinimum(0);
                 setMaximum(100);
                 setValue(0);
-                setString("0 / 0");
             }
             if (isSelected) {
                 setBackground(table.getSelectionBackground());
@@ -547,6 +548,10 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
             int idx = rows.size();
             rows.add(row);
             fireTableRowsInserted(idx, idx);
+        }
+
+        int size() {
+            return rows.size();
         }
     }
 }
