@@ -1145,7 +1145,7 @@ public class WorkspacePanel extends JPanel {
         if (popupMenuMode == PopupMenuMode.FULL) {
             // Add button to show Add popup (same menu as table's Add)
             var addButton = new MaterialButton();
-            addButton.setIcon(Icons.ATTACH_FILE);
+            SwingUtilities.invokeLater(() -> addButton.setIcon(Icons.ATTACH_FILE));
             addButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
             addButton.setFocusable(false);
             addButton.setOpaque(false);
@@ -1160,7 +1160,7 @@ public class WorkspacePanel extends JPanel {
                     () -> SwingUtilities.invokeLater(this::attachContextViaDialog));
 
             // Create a trash button to drop selected fragment(s)
-            dropSelectedButton.setIcon(Icons.TRASH);
+            SwingUtilities.invokeLater(() -> dropSelectedButton.setIcon(Icons.TRASH));
             dropSelectedButton.setToolTipText("Drop selected item(s) from workspace");
             dropSelectedButton.setFocusable(false);
             dropSelectedButton.setOpaque(false);

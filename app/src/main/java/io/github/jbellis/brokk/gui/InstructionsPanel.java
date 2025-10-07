@@ -991,6 +991,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
+        // Attach button
+        var attachButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
+        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
+        attachButton.setFocusable(false);
+        attachButton.setOpaque(false);
+        attachButton.addActionListener(e -> {
+            chrome.getContextPanel().attachContextViaDialog();
+        });
+        attachButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(attachButton);
+        bottomPanel.add(Box.createHorizontalStrut(4));
+
         // Wand button (Magic Ask) on the right
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Size set after fixedHeight is computed below
@@ -1020,11 +1033,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Size the wand button to match height of action button
-        var wandSize = new Dimension(fixedHeight, fixedHeight);
-        wandButton.setPreferredSize(wandSize);
-        wandButton.setMinimumSize(wandSize);
-        wandButton.setMaximumSize(wandSize);
+        // Size the attach and wand buttons to match height of action button
+        var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
+        attachButton.setPreferredSize(iconButtonSize);
+        attachButton.setMinimumSize(iconButtonSize);
+        attachButton.setMaximumSize(iconButtonSize);
+        wandButton.setPreferredSize(iconButtonSize);
+        wandButton.setMinimumSize(iconButtonSize);
+        wandButton.setMaximumSize(iconButtonSize);
 
         bottomPanel.add(actionButton);
 
@@ -1687,28 +1703,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Methods to disable and enable buttons.
     void disableButtons() {
-        // Disable ancillary controls only; leave the action button alone so it can become "Stop"
-        modeSwitch.setEnabled(false);
-        codeCheckBox.setEnabled(false);
-        searchProjectCheckBox.setEnabled(false);
+        SwingUtilities.invokeLater(() -> {
+            // Disable ancillary controls only; leave the action button alone so it can become "Stop"
+            modeSwitch.setEnabled(false);
+            codeCheckBox.setEnabled(false);
+            searchProjectCheckBox.setEnabled(false);
 
-        // Keep the action button usable for "Stop" while a task is running.
-        if (isActionRunning()) {
-            actionButton.setIcon(Icons.STOP);
-            actionButton.setText(null);
-            actionButton.setEnabled(true);
-            actionButton.setToolTipText("Cancel the current operation");
-            // always use the off red of the light theme
-            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
-            actionButton.setBackground(badgeBackgroundColor);
-        } else {
-            // If there is no running action, keep the action button enabled so the user can start an action.
-            actionButton.setEnabled(true);
-            actionButton.setBackground(defaultActionButtonBg);
-        }
+            // Keep the action button usable for "Stop" while a task is running.
+            if (isActionRunning()) {
+                actionButton.setIcon(Icons.STOP);
+                actionButton.setText(null);
+                actionButton.setEnabled(true);
+                actionButton.setToolTipText("Cancel the current operation");
+                // always use the off red of the light theme
+                Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
+                actionButton.setBackground(badgeBackgroundColor);
+            } else {
+                // If there is no running action, keep the action button enabled so the user can start an action.
+                actionButton.setEnabled(true);
+                actionButton.setBackground(defaultActionButtonBg);
+            }
 
-        // Wand is disabled while any action is running
-        wandButton.setEnabled(!isActionRunning());
+            // Wand is disabled while any action is running
+            wandButton.setEnabled(!isActionRunning());
+        });
     }
 
     /**
@@ -1716,66 +1734,68 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called when actions complete.
      */
     private void updateButtonStates() {
-        boolean gitAvailable = chrome.getProject().hasGit();
+        SwingUtilities.invokeLater(() -> {
+            boolean gitAvailable = chrome.getProject().hasGit();
 
-        // Toggle
-        modeSwitch.setEnabled(true);
+            // Toggle
+            modeSwitch.setEnabled(true);
 
-        // Checkbox visibility and enablement
-        if (!modeSwitch.isSelected()) {
-            // Show the CODE card
-            if (optionsPanel != null) {
-                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+            // Checkbox visibility and enablement
+            if (!modeSwitch.isSelected()) {
+                // Show the CODE card
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+                }
+                codeCheckBox.setEnabled(gitAvailable);
+            } else {
+                // Show the ASK card
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+                }
+                searchProjectCheckBox.setEnabled(true);
             }
-            codeCheckBox.setEnabled(gitAvailable);
-        } else {
-            // Show the ASK card
-            if (optionsPanel != null) {
-                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+
+            // Action button reflects current running state
+            KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                    "instructions.submit",
+                    KeyStroke.getKeyStroke(
+                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+            if (isActionRunning()) {
+                actionButton.setIcon(Icons.STOP);
+                actionButton.setText(null);
+                actionButton.setToolTipText("Cancel the current operation");
+                actionButton.setBackground(secondaryActionButtonBg);
+            } else {
+                actionButton.setIcon(Icons.ARROW_WARM_UP);
+                actionButton.setText(null);
+                actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+                actionButton.setBackground(defaultActionButtonBg);
             }
-            searchProjectCheckBox.setEnabled(true);
-        }
+            actionButton.setEnabled(true);
 
-        // Action button reflects current running state
-        KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "instructions.submit",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        if (isActionRunning()) {
-            actionButton.setIcon(Icons.STOP);
-            actionButton.setText(null);
-            actionButton.setToolTipText("Cancel the current operation");
-            actionButton.setBackground(secondaryActionButtonBg);
-        } else {
-            actionButton.setIcon(Icons.ARROW_WARM_UP);
-            actionButton.setText(null);
-            actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
-            actionButton.setBackground(defaultActionButtonBg);
-        }
-        actionButton.setEnabled(true);
+            // Enable/disable wand depending on running state
+            wandButton.setEnabled(!isActionRunning());
 
-        // Enable/disable wand depending on running state
-        wandButton.setEnabled(!isActionRunning());
+            // Ensure the action button is the root pane's default button so Enter triggers it by default.
+            // This mirrors the intended "default" behavior for the Go action.
+            // Intentionally avoid setting a root default button to keep Enter key
+            // behavior local to the focused component.
 
-        // Ensure the action button is the root pane's default button so Enter triggers it by default.
-        // This mirrors the intended "default" behavior for the Go action.
-        // Intentionally avoid setting a root default button to keep Enter key
-        // behavior local to the focused component.
+            // Ensure storedAction is consistent with current UI
+            if (!modeSwitch.isSelected()) {
+                // Inverted semantics: checked = Architect (Plan First)
+                storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
+            } else {
+                // Ask-mode: checked => Search, unchecked => Ask/Answer
+                storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
+            }
 
-        // Ensure storedAction is consistent with current UI
-        if (!modeSwitch.isSelected()) {
-            // Inverted semantics: checked = Architect (Plan First)
-            storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
-        } else {
-            // Ask-mode: checked => Search, unchecked => Ask/Answer
-            storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
-        }
+            // Keep label emphasis in sync with selected mode
+            updateModeLabels();
+            refreshModeIndicator();
 
-        // Keep label emphasis in sync with selected mode
-        updateModeLabels();
-        refreshModeIndicator();
-
-        chrome.enableHistoryPanel();
+            chrome.enableHistoryPanel();
+        });
     }
 
     @Override
