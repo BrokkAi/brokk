@@ -697,7 +697,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JScrollPane commandScrollPane = new JScrollPane(instructionsArea);
         commandScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         commandScrollPane.setPreferredSize(new Dimension(600, 80)); // Use preferred size for layout
-        commandScrollPane.setMinimumSize(new Dimension(100, 80));
+        // Make the scroll area the flexible piece so chips + toolbar remain visible under tight space
+        commandScrollPane.setMinimumSize(new Dimension(100, 0));
 
         // Create layered pane with overlay
         this.inputLayeredPane = commandInputOverlay.createLayeredPane(commandScrollPane);
@@ -740,11 +741,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
         container.add(workspaceItemsChipPanel, BorderLayout.CENTER);
 
-        // Let chips wrap naturally; provide reasonable min/height
-        container.setMinimumSize(new Dimension(100, 28));
-        // Set suggestion bar height to allow for two rows of chips
-        container.setPreferredSize(new Dimension(100, 64));
-        container.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        // Fixed height to always show exactly two rows of chips and never move.
+        // Compute a DPI/theme-aware height: approx chip row height = font height + padding.
+        int fmH = instructionsArea.getFontMetrics(instructionsArea.getFont()).getHeight();
+        int rowH = Math.max(24, fmH + 8); // ensure enough room for chip borders/padding
+        int fixedChipAreaHeight = (rowH * 2) + 4; // two rows + FlowLayout vgap (4)
+        container.setMinimumSize(new Dimension(100, fixedChipAreaHeight));
+        container.setPreferredSize(new Dimension(100, fixedChipAreaHeight));
+        container.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedChipAreaHeight));
 
         // Insert beneath the command-input area (index 2)
         centerPanel.add(container, 2);
@@ -1170,6 +1174,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         wandButton.setMaximumSize(iconButtonSize);
 
         bottomPanel.add(actionButton);
+
+        // Lock bottom toolbar height so BorderLayout keeps it visible
+        Dimension bottomPref = bottomPanel.getPreferredSize();
+        bottomPanel.setMinimumSize(new Dimension(0, bottomPref.height));
 
         return bottomPanel;
     }

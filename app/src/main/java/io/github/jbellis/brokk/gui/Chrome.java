@@ -162,6 +162,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Saved divider location for Workspace|Instructions split (topSplitPane)
     private int savedWorkspaceDividerLocation = -1;
 
+    // Guard to prevent recursion when clamping the Output↔Bottom divider
+    private boolean adjustingMainDivider = false;
+
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
@@ -422,7 +425,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Create terminal drawer panel
         instructionsDrawerSplit = new DrawerSplitPanel();
         // Ensure bottom area doesn't get squeezed to near-zero height on first layout after swaps
-        instructionsDrawerSplit.setMinimumSize(new Dimension(200, 150));
+        // This is the minimum height for the Instructions+Drawer when the workspace is hidden.
+        instructionsDrawerSplit.setMinimumSize(new Dimension(200, 325));
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
         // Attach instructions (left) and drawer (right)
@@ -433,6 +437,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
         workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
+        // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
+        workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
 
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
@@ -2096,13 +2102,40 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (mainVerticalSplitPane.isShowing()) {
-                var newPos = mainVerticalSplitPane.getDividerLocation();
-                if (newPos > 0) {
-                    // Keep backward-compat but persist globally as the source of truth
-                    project.saveRightVerticalSplitPosition(newPos);
-                    GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+            if (!mainVerticalSplitPane.isShowing()) {
+                return;
+            }
+
+            int newPos = mainVerticalSplitPane.getDividerLocation();
+
+            // Clamp so the bottom (Instructions area) never shrinks below its minimum height.
+            int total = mainVerticalSplitPane.getHeight();
+            if (total > 0) {
+                int dividerSize = mainVerticalSplitPane.getDividerSize();
+                Component bottom = mainVerticalSplitPane.getBottomComponent();
+                int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
+                int maxLocation = Math.max(0, total - dividerSize - minBottom);
+
+                if (newPos > maxLocation) {
+                    if (!adjustingMainDivider) {
+                        adjustingMainDivider = true;
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                mainVerticalSplitPane.setDividerLocation(maxLocation);
+                            } finally {
+                                adjustingMainDivider = false;
+                            }
+                        });
+                    }
+                    // Do not persist out-of-bounds positions
+                    return;
                 }
+            }
+
+            if (newPos > 0) {
+                // Keep backward-compat but persist globally as the source of truth
+                project.saveRightVerticalSplitPosition(newPos);
+                GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
             }
         });
 
