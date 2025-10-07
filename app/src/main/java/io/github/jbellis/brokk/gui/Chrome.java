@@ -72,6 +72,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
+    private @Nullable Rectangle dependenciesDialogBounds = null;
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -170,15 +171,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
 
-    // Workspace | Dependencies (right drawer)
-    @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JSplitPane workspaceDependenciesSplit;
-
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel workspaceTopContainer;
-
-    @SuppressWarnings("NullAway.Init")
-    private io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel dependenciesDrawerPanel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -415,16 +409,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // 1) Nested split for Workspace (top) / Instructions (bottom)
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
-        // Create a right-hand Dependencies drawer beside the Workspace
-        workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        this.dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
-        workspaceDependenciesSplit.setResizeWeight(0.67); // Give more space to workspace by default
-        workspaceDependenciesSplit.setLeftComponent(workspacePanel);
-        workspaceDependenciesSplit.setRightComponent(this.dependenciesDrawerPanel);
-        // Drawer state will be restored from GlobalUiSettings after layout
-
         workspaceTopContainer = new JPanel(new BorderLayout());
-        workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
+        workspaceTopContainer.add(workspacePanel, BorderLayout.CENTER);
 
         // Create terminal drawer panel
         instructionsDrawerSplit = new DrawerSplitPanel();
@@ -1146,7 +1132,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                dependenciesDrawerPanel.openPanel();
+                var dependenciesPanel = new DependenciesDrawerPanel(Chrome.this, new JSplitPane());
+                showPreviewFrame(getContextManager(), "Manage Dependencies", dependenciesPanel);
+                dependenciesPanel.openPanel();
             }
         });
 
@@ -1447,15 +1435,31 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
 
             var project = contextManager.getProject();
-            var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
-            if (storedBounds.width > 0 && storedBounds.height > 0) {
-                previewFrame.setBounds(storedBounds);
-                if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                    previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+            boolean isDependencies = contentComponent instanceof DependenciesDrawerPanel;
+
+            if (isDependencies) {
+                if (dependenciesDialogBounds != null
+                        && dependenciesDialogBounds.width > 0
+                        && dependenciesDialogBounds.height > 0) {
+                    previewFrame.setBounds(dependenciesDialogBounds);
+                    if (!isPositionOnScreen(dependenciesDialogBounds.x, dependenciesDialogBounds.y)) {
+                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                    }
+                } else {
+                    previewFrame.setSize(800, 500);
+                    previewFrame.setLocationRelativeTo(frame);
                 }
             } else {
-                previewFrame.setSize(800, 600); // Default size if no bounds saved
-                previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+                var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
+                if (storedBounds.width > 0 && storedBounds.height > 0) {
+                    previewFrame.setBounds(storedBounds);
+                    if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                    }
+                } else {
+                    previewFrame.setSize(800, 600); // Default size if no bounds saved
+                    previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+                }
             }
 
             // Set a minimum width for preview windows to ensure search controls work properly
@@ -1466,12 +1470,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
                 @Override
                 public void componentMoved(java.awt.event.ComponentEvent e) {
-                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    if (isDependencies) {
+                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
+                    } else {
+                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    }
                 }
 
                 @Override
                 public void componentResized(java.awt.event.ComponentEvent e) {
-                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    if (isDependencies) {
+                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
+                    } else {
+                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    }
                 }
             });
         } else {
@@ -1996,20 +2008,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * handled by TerminalDrawerPanel itself to respect per-project settings.
      */
     private void restoreDrawersFromGlobalSettings() {
-        // Dependencies drawer (global)
-        boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();
-        double depProp = GlobalUiSettings.getDependenciesDrawerProportion();
-        if (depOpen) {
-            // Ensure drawer is open synchronously before first layout to avoid startup motion
-            dependenciesDrawerPanel.openInitially();
-            if (depProp > 0.0 && depProp < 1.0) {
-                workspaceDependenciesSplit.setDividerLocation(depProp);
-            }
-        } else {
-            // Ensure it is collapsed
-            dependenciesDrawerPanel.collapseIfEmpty();
-        }
-
         // Do not restore Terminal drawer here.
         // TerminalDrawerPanel.restoreInitialState() handles per-project-first, then global fallback.
     }
@@ -2051,23 +2049,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     }
                 }
             }
-        });
-
-        // Persist Dependencies drawer open/proportion globally
-        workspaceDependenciesSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (workspaceDependenciesSplit.isShowing()) {
-                int total = workspaceDependenciesSplit.getWidth();
-                if (total > 0) {
-                    double prop = Math.max(
-                            0.05,
-                            Math.min(0.95, (double) workspaceDependenciesSplit.getDividerLocation() / (double) total));
-                    GlobalUiSettings.saveDependenciesDrawerProportion(prop);
-                    GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
-                }
-            }
-        });
-        workspaceDependenciesSplit.addPropertyChangeListener("dividerSize", e -> {
-            GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
         });
 
         // Persist Terminal drawer open/proportion globally
