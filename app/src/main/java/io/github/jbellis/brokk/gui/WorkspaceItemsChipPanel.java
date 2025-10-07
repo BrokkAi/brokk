@@ -90,6 +90,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements IContextManager.C
         chip.setBorder(new CompoundBorder(outer, inner));
 
         var label = new JLabel(fragment.shortDescription());
+        // Improve discoverability and accessibility
+        try {
+            label.setToolTipText(fragment.description());
+            label.getAccessibleContext().setAccessibleDescription(fragment.description());
+        } catch (Exception ignored) {
+            // Defensive: avoid issues if any accessor fails
+        }
 
         var close = new JButton(Icons.CLOSE);
         close.setFocusable(false);
@@ -100,6 +107,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements IContextManager.C
         close.setMargin(new Insets(0, 0, 0, 0));
         close.setPreferredSize(new Dimension(16, 16));
         close.setToolTipText("Remove from Workspace");
+        try {
+            close.getAccessibleContext().setAccessibleName("Remove " + fragment.shortDescription());
+        } catch (Exception ignored) {
+            // best-effort accessibility improvements
+        }
         close.addActionListener(e -> {
             if (onRemoveFragment != null) {
                 onRemoveFragment.accept(fragment);
