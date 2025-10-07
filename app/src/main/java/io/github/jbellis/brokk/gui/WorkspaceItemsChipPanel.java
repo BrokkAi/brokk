@@ -13,6 +13,8 @@ import java.awt.FlowLayout;
 import java.awt.Insets;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
+import org.jetbrains.annotations.Nullable;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -29,6 +31,7 @@ import javax.swing.border.MatteBorder;
 public class WorkspaceItemsChipPanel extends JPanel implements IContextManager.ContextListener {
 
     private final ContextManager contextManager;
+    private @Nullable Consumer<ContextFragment> onRemoveFragment;
 
     public WorkspaceItemsChipPanel(ContextManager contextManager) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -39,6 +42,22 @@ public class WorkspaceItemsChipPanel extends JPanel implements IContextManager.C
         // Initialize with the current context
         var fragments = contextManager.topContext().getAllFragmentsInDisplayOrder();
         SwingUtilities.invokeLater(() -> updateChips(fragments));
+    }
+
+    /**
+     * Programmatically set the fragments to display as chips.
+     * Safe to call from any thread; updates are marshaled to the EDT.
+     */
+    public void setFragments(List<ContextFragment> fragments) {
+        SwingUtilities.invokeLater(() -> updateChips(fragments));
+    }
+
+    /**
+     * Sets a listener invoked when a chip's remove button is clicked.
+     * If not set, the panel will default to removing from the ContextManager.
+     */
+    public void setOnRemoveFragment(Consumer<ContextFragment> listener) {
+        this.onRemoveFragment = listener;
     }
 
     @Override
@@ -81,7 +100,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements IContextManager.C
         close.setMargin(new Insets(0, 0, 0, 0));
         close.setPreferredSize(new Dimension(16, 16));
         close.setToolTipText("Remove from Workspace");
-        close.addActionListener(e -> contextManager.drop(Collections.singletonList(fragment)));
+        close.addActionListener(e -> {
+            if (onRemoveFragment != null) {
+                onRemoveFragment.accept(fragment);
+            } else {
+                contextManager.drop(Collections.singletonList(fragment));
+            }
+        });
 
         chip.add(label);
         chip.add(close);
