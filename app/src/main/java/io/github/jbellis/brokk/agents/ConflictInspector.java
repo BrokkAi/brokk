@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -242,14 +243,14 @@ public final class ConflictInspector {
         }
     }
 
-    public static @Nullable MergeAgent.MergeConflict inspectFromProject(IProject project) {
-        try {
-            return inspectFromProjectInternal(project);
-        } catch (GitAPIException e) {
-            // fatal
-            throw new RuntimeException(e);
-        }
+    public static Optional<MergeAgent.MergeConflict> inspectFromProject(IProject project) {
+    try {
+        return Optional.ofNullable(inspectFromProjectInternal(project));
+    } catch (GitAPIException e) {
+        // fatal
+        throw new RuntimeException(e);
     }
+}
 
     /**
      * Inspect the repository state and build a Conflict snapshot consisting of the effective merge mode, the commit ids
@@ -289,8 +290,7 @@ public final class ConflictInspector {
             }
         }
         if (state == null) {
-            throw new IllegalStateException(
-                    "Repository is not in a merge/rebase/cherry-pick/revert conflict state (no *_HEAD found)");
+            return null;
         }
 
         String originalOtherCommitId;

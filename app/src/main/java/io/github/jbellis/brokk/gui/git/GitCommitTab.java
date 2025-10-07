@@ -362,8 +362,8 @@ public class GitCommitTab extends JPanel {
                 updateAfterStatusChange(uncommittedFilesList.size());
 
                 // Offer AI-assisted merge once per conflict state
-                if (detectedConflict != null) {
-                    maybeOfferAiMerge(detectedConflict);
+                if (detectedConflict.isPresent()) {
+                    maybeOfferAiMerge(detectedConflict.get());
                 } else {
                     // Reset guard when conflicts are gone
                     mergeOfferShown = false;

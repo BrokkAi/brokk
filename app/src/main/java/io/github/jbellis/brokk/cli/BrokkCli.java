@@ -389,11 +389,12 @@ public final class BrokkCli implements Callable<Integer> {
                 } else if (merge) {
                     var planningModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
                     var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                    var conflict = ConflictInspector.inspectFromProject(cm.getProject());
-                    if (conflict == null) {
+                    var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
+                    if (conflictOpt.isEmpty()) {
                         System.out.println("Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
                         return 1;
                     }
+                    var conflict = conflictOpt.get();
                     System.out.println(conflict);
                     MergeAgent mergeAgent = new MergeAgent(cm, planningModel, codeModel, conflict, scope);
                     try {

@@ -116,28 +116,31 @@ public class MergeAgent {
             resolveNonTextConflicts(this.conflict, repo);
 
             // IMPORTANT: re-inspect repo state; non-text ops may change the set of conflicts
-            var refreshed = ConflictInspector.inspectFromProject(cm.getProject());
-            if (refreshed == null) {
-                logger.warn("ConflictInspector.inspectFromProject returned null after non-text resolution; continuing with previous conflict snapshot.");
-            } else if (refreshed.files().isEmpty()) {
-                // nothing left to resolve; still run verification as usual
-                logger.info("All non-text conflicts resolved; no content conflicts remain.");
-                var buildFailureText = runVerificationIfConfigured();
-                if (buildFailureText.isBlank()) {
-                    return new TaskResult(
-                            cm,
-                            "Merge",
-                            List.of(new AiMessage("Non-text conflicts resolved; verification passed.")),
-                            Set.of(),
-                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-                }
-                // fall through to ArchitectAgent handoff path already present below
+            var refreshedOpt = ConflictInspector.inspectFromProject(cm.getProject());
+            if (refreshedOpt.isEmpty()) {
+                logger.warn("ConflictInspector.inspectFromProject returned empty Optional after non-text resolution; continuing with previous conflict snapshot.");
             } else {
-                // Swap our conflict snapshot to the refreshed one
-                this.conflict = refreshed;
-                this.baseCommitId = this.conflict.baseCommitId();
-                this.otherCommitId = this.conflict.otherCommitId();
-                this.conflicts = this.conflict.files();
+                var refreshed = refreshedOpt.get();
+                if (refreshed.files().isEmpty()) {
+                    // nothing left to resolve; still run verification as usual
+                    logger.info("All non-text conflicts resolved; no content conflicts remain.");
+                    var buildFailureText = runVerificationIfConfigured();
+                    if (buildFailureText.isBlank()) {
+                        return new TaskResult(
+                                cm,
+                                "Merge",
+                                List.of(new AiMessage("Non-text conflicts resolved; verification passed.")),
+                                Set.of(),
+                                new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+                    }
+                    // fall through to ArchitectAgent handoff path already present below
+                } else {
+                    // Swap our conflict snapshot to the refreshed one
+                    this.conflict = refreshed;
+                    this.baseCommitId = this.conflict.baseCommitId();
+                    this.otherCommitId = this.conflict.otherCommitId();
+                    this.conflicts = this.conflict.files();
+                }
             }
         }
 

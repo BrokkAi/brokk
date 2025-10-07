@@ -148,6 +148,7 @@ public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
         llmLineCountTimer.start();
     }
 
+    @SuppressWarnings("UnusedMethod")
     private static BlitzForge.ParallelOutputMode mapOutputMode(ParallelOutputMode m) {
         return switch (m) {
             case ALL -> BlitzForge.ParallelOutputMode.ALL;
@@ -156,6 +157,7 @@ public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
         };
     }
 
+    @SuppressWarnings("UnusedMethod")
     private static BlitzForge.Action mapAction(@Nullable String a) {
         if (a == null) return BlitzForge.Action.CODE;
         var upper = a.trim().toUpperCase(java.util.Locale.ROOT);

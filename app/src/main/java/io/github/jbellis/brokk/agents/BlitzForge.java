@@ -120,7 +120,7 @@ public final class BlitzForge {
         }
 
         // Sort by on-disk size ascending (smallest first)
-        var sortedFiles = files.stream().sorted(Comparator.comparingLong(BlitzForge::fileSize)).toList();
+        var sortedFiles = files.stream().sorted(Comparator.comparingLong(f -> fileSize(f))).toList();
 
         // Prepare executor
         final ExecutorService executor;
@@ -139,7 +139,7 @@ public final class BlitzForge {
             // Warm-up: if includeWorkspace, process the first (smallest) file synchronously to "prime" any server caches
             int startIdx = 0;
             if (config.includeWorkspace()) {
-                var first = sortedFiles.getFirst();
+                var first = sortedFiles.get(0);
                 listener.onFileStart(first);
                 if (Thread.currentThread().isInterrupted()) {
                     return interruptedResult(processedCount, files);
@@ -153,7 +153,7 @@ public final class BlitzForge {
 
             // Submit the rest using a completion service
             CompletionService<FileResult> completionService = new ExecutorCompletionService<>(executor);
-            HashMap<Future<FileResult>, ProjectFile> futureFiles = new HashMap<>();
+            java.util.IdentityHashMap<Future<FileResult>, ProjectFile> futureFiles = new java.util.IdentityHashMap<>();
             for (var file : sortedFiles.subList(startIdx, sortedFiles.size())) {
                 listener.onFileStart(file);
 
@@ -213,7 +213,7 @@ public final class BlitzForge {
                 } catch (ExecutionException e) {
                     var cause = e.getCause() == null ? e : e.getCause();
                     logger.error("Error during file processing", cause);
-                    var source = futureFiles.get(fut);
+                    var source = requireNonNull(futureFiles.get(fut));
                     var failure = new FileResult(source, false, "Execution error: " + cause.getMessage(), "");
                     results.add(failure);
                     ++processedCount;
@@ -226,7 +226,7 @@ public final class BlitzForge {
 
         // Aggregate results
         var changedFiles =
-                results.stream().filter(FileResult::edited).map(FileResult::file).collect(Collectors.toSet());
+                results.stream().filter(FileResult::edited).map(r -> r.file()).collect(Collectors.toSet());
 
         // Build output according to the configured ParallelOutputMode
         var outputStream = results.stream()
