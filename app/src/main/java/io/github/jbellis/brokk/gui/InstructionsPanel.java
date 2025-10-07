@@ -99,7 +99,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
-    private final JLabel tokenCostLabel;
+    private final MaterialButton tokenCostLabel;
     private String storedAction;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
@@ -316,19 +316,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.getComponent().setFocusable(true);
 
         // Initialize compact token/cost indicator (left of Attach button)
-        tokenCostLabel = new JLabel(" ");
+        tokenCostLabel = new MaterialButton(" ");
+        tokenCostLabel.setFocusable(false);
         tokenCostLabel.setVisible(false);
         tokenCostLabel.setOpaque(false);
         tokenCostLabel.setBorder(new EmptyBorder(0, 4, 0, 8));
         tokenCostLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Make it clickable to toggle Workspace collapse/expand
-        tokenCostLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        tokenCostLabel.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                chrome.toggleWorkspaceCollapsed();
-            }
-        });
+        tokenCostLabel.addActionListener(e -> chrome.toggleWorkspaceCollapsed());
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
