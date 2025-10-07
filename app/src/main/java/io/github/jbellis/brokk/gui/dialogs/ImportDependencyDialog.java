@@ -14,12 +14,12 @@ import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.FileUtil;
 import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.awt.Component;
-import java.awt.Container;
 import java.awt.Window;
 import java.io.File;
 import java.io.IOException;
@@ -106,8 +106,7 @@ public class ImportDependencyDialog {
         @Nullable
         private GitRepo.RemoteInfo remoteInfo;
 
-        DialogHelper(
-                Chrome chrome, Window owner, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
+        DialogHelper(Chrome chrome, Window owner, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
             this.chrome = chrome;
             this.owner = owner;
             this.dependenciesRoot = chrome.getProject()

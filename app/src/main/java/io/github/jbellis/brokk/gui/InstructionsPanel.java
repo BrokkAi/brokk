@@ -47,10 +47,6 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import javax.swing.border.TitledBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.event.PopupMenuEvent;
-import javax.swing.event.PopupMenuListener;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -730,8 +726,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var cm = chrome.getContextManager();
             if (cm.isLlmTaskInProgress()) {
                 chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "An action is running; cannot modify Workspace now.");
+                        IConsoleIO.NotificationRole.INFO, "An action is running; cannot modify Workspace now.");
                 return;
             }
             cm.drop(List.of(fragment));
@@ -906,7 +901,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /** Recomputes the compact token/cost indicator to mirror the Workspace panel summary. Safe to call from any thread. */
+    /**
+     * Recomputes the compact token/cost indicator to mirror the Workspace panel summary. Safe to call from any thread.
+     */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         if (ctx == null || ctx.isEmpty()) {
@@ -935,7 +932,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Compute tokens off-EDT
         chrome.getContextManager()
-                .submitBackgroundTask("Compute token estimate (Instructions)", () -> Messages.getApproximateTokens(fullText.toString()))
+                .submitBackgroundTask(
+                        "Compute token estimate (Instructions)",
+                        () -> Messages.getApproximateTokens(fullText.toString()))
                 .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
                     try {
                         var service = chrome.getContextManager().getService();
@@ -1407,7 +1406,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param myGen The generation number of this specific task.
      * @param snapshot The input text captured when this task was initiated.
      */
-
 
     /**
      * Checks if the new text/embeddings are semantically different from the last processed state
@@ -2083,7 +2081,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void addModelSelectionListener(Consumer<Service.ModelConfig> listener) {
         modelSelector.addSelectionListener(listener);
     }
-
 
     private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
         private static final long serialVersionUID = 1L;

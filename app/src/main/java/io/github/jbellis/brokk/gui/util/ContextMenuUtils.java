@@ -276,8 +276,7 @@ public final class ContextMenuUtils {
      * @param fragment The context fragment for which to show the menu
      * @param chrome The Chrome instance for UI integration
      */
-    public static void showContextFragmentMenu(
-            Component owner, int x, int y, ContextFragment fragment, Chrome chrome) {
+    public static void showContextFragmentMenu(Component owner, int x, int y, ContextFragment fragment, Chrome chrome) {
         var cm = chrome.getContextManager();
         var menu = new JPopupMenu();
 

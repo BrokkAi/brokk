@@ -22,7 +22,6 @@ import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.Transferable;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
@@ -33,7 +32,6 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.ImageIcon;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -47,8 +45,8 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Displays current workspace items as "chips" with a close button to remove them from the workspace.
- * Listens to context changes and updates itself accordingly.
+ * Displays current workspace items as "chips" with a close button to remove them from the workspace. Listens to context
+ * changes and updates itself accordingly.
  */
 public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
@@ -66,21 +64,20 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Programmatically set the fragments to display as chips. Safe to call from any thread; updates are
-     * marshaled to the EDT.
+     * Programmatically set the fragments to display as chips. Safe to call from any thread; updates are marshaled to
+     * the EDT.
      */
     public void setFragments(List<ContextFragment> fragments) {
         SwingUtilities.invokeLater(() -> updateChips(fragments));
     }
 
     /**
-     * Sets a listener invoked when a chip's remove button is clicked. If not set, the panel will
-     * default to removing from the ContextManager.
+     * Sets a listener invoked when a chip's remove button is clicked. If not set, the panel will default to removing
+     * from the ContextManager.
      */
     public void setOnRemoveFragment(Consumer<ContextFragment> listener) {
         this.onRemoveFragment = listener;
     }
-
 
     private void updateChips(List<ContextFragment> fragments) {
         removeAll();
@@ -93,7 +90,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    private enum ChipKind { EDIT, SUMMARY, OTHER }
+    private enum ChipKind {
+        EDIT,
+        SUMMARY,
+        OTHER
+    }
 
     // Rounded chip container that paints a rounded background and border
     private static final class RoundedChipPanel extends JPanel {
@@ -113,7 +114,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
-                g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(
+                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
                 Color bg = getBackground();
                 if (bg == null) {
                     bg = getParent() != null ? getParent().getBackground() : Color.LIGHT_GRAY;
@@ -132,7 +134,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         protected void paintBorder(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
-                g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(
+                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
                 int w = getWidth();
                 int h = getHeight();
                 g2.setColor(borderColor);
@@ -204,18 +207,15 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         return raw;
     }
 
-
     private static String buildSummaryLabel(ContextFragment fragment) {
-        int n = (int) fragment.files().stream()
-                .map(f -> f.toString())
-                .distinct()
-                .count();
+        int n = (int)
+                fragment.files().stream().map(f -> f.toString()).distinct().count();
         return "Summary" + (n > 0 ? " (" + n + ")" : "");
     }
 
     /**
-     * Builds an HTML snippet showing approximate size metrics (LOC and tokens) for the fragment.
-     * Returns an empty string if metrics are not applicable (e.g., non-text/image fragments).
+     * Builds an HTML snippet showing approximate size metrics (LOC and tokens) for the fragment. Returns an empty
+     * string if metrics are not applicable (e.g., non-text/image fragments).
      */
     private static String buildMetricsHtml(ContextFragment fragment) {
         try {
@@ -224,8 +224,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
                 String text = fragment.text();
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
-                return "<div><b>Size:</b> " + String.format("%,d", loc)
-                        + " LOC \u2022 ~" + String.format("%,d", tokens) + " tokens</div><br/>";
+                return "<div><b>Size:</b> " + String.format("%,d", loc) + " LOC \u2022 ~" + String.format("%,d", tokens)
+                        + " tokens</div><br/>";
             }
         } catch (Exception ignored) {
             // Best effort; if anything goes wrong, just return no metrics
@@ -281,7 +281,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         if (d == null) d = "";
 
         // Preserve existing newlines as line breaks for readability
-        String descriptionHtml = htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
+        String descriptionHtml =
+                htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
 
         StringBuilder body = new StringBuilder();
 
@@ -365,9 +366,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
 
         // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
         ChipKind kindForLabel = classify(fragment);
-        String labelText = (kindForLabel == ChipKind.SUMMARY)
-                ? buildSummaryLabel(fragment)
-                : fragment.shortDescription();
+        String labelText =
+                (kindForLabel == ChipKind.SUMMARY) ? buildSummaryLabel(fragment) : fragment.shortDescription();
         var label = new JLabel(labelText);
 
         // Improve discoverability and accessibility with wrapped HTML tooltips
@@ -551,7 +551,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
                 }
 
                 if (contextManager.isLlmTaskInProgress()) {
-                    chrome.systemNotify("Cannot add to workspace while an action is running.", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    chrome.systemNotify(
+                            "Cannot add to workspace while an action is running.",
+                            "Workspace",
+                            JOptionPane.INFORMATION_MESSAGE);
                     return false;
                 }
 

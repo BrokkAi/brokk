@@ -24,7 +24,6 @@ import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
-import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -2402,5 +2401,4 @@ public class WorkspacePanel extends JPanel {
         // Update drop-selected button
         updateDropSelectedButtonEnabled();
     }
-
 }

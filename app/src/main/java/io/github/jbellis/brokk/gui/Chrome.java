@@ -74,6 +74,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
     private @Nullable Rectangle dependenciesDialogBounds = null;
+
     @Nullable
     private JDialog dependenciesDialog = null;
 
@@ -2994,8 +2995,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Toggle collapsing the Workspace (top of Workspace|Instructions split) and hide/show
-     * the divider between Output and the bottom stack.
+     * Toggle collapsing the Workspace (top of Workspace|Instructions split) and hide/show the divider between Output
+     * and the bottom stack.
      */
     public void toggleWorkspaceCollapsed() {
         setWorkspaceCollapsed(!workspaceCollapsed);
@@ -3004,18 +3005,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Collapse/expand the Workspace area.
      *
-     * New behavior:
-     * - When collapsed, completely remove the Workspace+Instructions split from the bottom stack and
-     *   show only the Instructions/Drawer as the bottom component. The Output↔Bottom divider remains visible.
-     * - When expanded, restore the original Workspace+Instructions split as the bottom component and
-     *   restore the previous divider location for the top split (Workspace↔Instructions).
+     * <p>New behavior: - When collapsed, completely remove the Workspace+Instructions split from the bottom stack and
+     * show only the Instructions/Drawer as the bottom component. The Output↔Bottom divider remains visible. - When
+     * expanded, restore the original Workspace+Instructions split as the bottom component and restore the previous
+     * divider location for the top split (Workspace↔Instructions).
      */
     public void setWorkspaceCollapsed(boolean collapsed) {
         Runnable r = () -> {
             if (this.workspaceCollapsed == collapsed) {
                 return;
             }
-
 
             if (collapsed) {
                 // Also save as a proportion for robust restore after resizes
@@ -3045,8 +3044,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         int maxFromTop = Math.max(0, tsTotal - tsDivider);
                         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
                         instructionsHeightPx = Math.min(
-                                Math.max(minBottom, instructionsDrawerSplit.getMinimumSize().height),
-                                maxFromTop);
+                                Math.max(minBottom, instructionsDrawerSplit.getMinimumSize().height), maxFromTop);
                     }
                 } catch (Exception ignored) {
                     // Defensive; we'll clamp during restore regardless
@@ -3059,9 +3057,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 // Revalidate layout, then set the main divider so bottom == pinned Instructions height
                 mainVerticalSplitPane.revalidate();
-                SwingUtilities.invokeLater(() ->
-                        applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx))
-                );
+                SwingUtilities.invokeLater(
+                        () -> applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx)));
 
                 this.workspaceCollapsed = true;
             } else {
@@ -3084,7 +3081,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     p = Math.max(0.05, Math.min(0.95, p));
 
                     // Compute the target bottom height so that Instructions stays at pinnedInstructionsHeightPx
-                    // For a vertical JSplitPane: bottomHeight = (1 - p) * T - dividerSize  =>  T = (pinned + dividerSize) / (1 - p)
+                    // For a vertical JSplitPane: bottomHeight = (1 - p) * T - dividerSize  =>  T = (pinned +
+                    // dividerSize) / (1 - p)
                     int dividerSizeTS = topSplitPane.getDividerSize();
                     int pinned = Math.max(0, pinnedInstructionsHeightPx);
                     int desiredBottom = (int) Math.round((pinned + dividerSizeTS) / Math.max(0.05, (1.0 - p)));
@@ -3122,11 +3120,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-
     /**
-     * Set the Output↔Bottom divider so that the bottom height equals the exact desired pixel height,
-     * clamped to the bottom component's minimum size. This is used when collapsing Workspace to
-     * guarantee the Instructions area does not resize at all.
+     * Set the Output↔Bottom divider so that the bottom height equals the exact desired pixel height, clamped to the
+     * bottom component's minimum size. This is used when collapsing Workspace to guarantee the Instructions area does
+     * not resize at all.
      */
     private void applyMainDividerForExactBottomHeight(int desiredBottomPx) {
         int total = mainVerticalSplitPane.getHeight();
