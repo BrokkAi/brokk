@@ -231,7 +231,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     @Override
     public DialogConsoleIO getConsoleIO(ProjectFile file) {
         // Provide a per-file console that increments per-file progress on newline tokens
-        return consolesByFile.computeIfAbsent(file, f -> new DialogConsoleIO(f));
+        return consolesByFile.computeIfAbsent(file, DialogConsoleIO::new);
     }
 
     @Override
