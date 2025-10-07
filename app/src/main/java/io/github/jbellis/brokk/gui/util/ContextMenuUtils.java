@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.util;
 
 import io.github.jbellis.brokk.AnalyzerWrapper;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
@@ -290,7 +291,7 @@ public final class ContextMenuUtils {
         if (fragment instanceof ContextFragment.PathFragment pathFragment
                 && pathFragment.file() instanceof ProjectFile projectFile) {
             var showInTreeItem = new JMenuItem("Show in Project Tree");
-            showInTreeItem.addActionListener(e -> chrome.getProjectTree().selectFile(projectFile));
+            showInTreeItem.addActionListener(e -> chrome.getProjectFilesPanel().showFileInTree(projectFile));
             menu.add(showInTreeItem);
             menu.addSeparator();
 
