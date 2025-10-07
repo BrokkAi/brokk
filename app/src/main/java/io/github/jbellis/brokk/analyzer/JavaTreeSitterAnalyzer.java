@@ -254,7 +254,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
         if (s.contains("$anon$")) {
             // Replace subclass delimiters with '.' except within the literal "$anon$" segments.
             StringBuilder out = new StringBuilder(s.length());
-            for (int i = 0; i < s.length();) {
+            for (int i = 0; i < s.length(); ) {
                 if (s.startsWith("$anon$", i)) {
                     out.append("$anon$");
                     i += 6; // length of "$anon$"
