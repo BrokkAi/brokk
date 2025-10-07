@@ -124,11 +124,10 @@ public class MergeAgent {
 
         // Notify start of annotation
         cm.getIo()
-                .systemNotify(
-                        "Preparing %d conflicted files for AI merge..."
-                                .formatted(conflicts.size()),
-                        "Auto Merge",
-                        JOptionPane.INFORMATION_MESSAGE);
+                .showNotification(IConsoleIO.NotificationRole.INFO,
+                                  "Preparing %d conflicted files for AI merge..."
+                                .formatted(conflicts.size())
+                                  );
 
         // NEW: Heuristic non-text resolution phase (rename/delete/mode/dir collisions, etc.)
         if (scope.nonTextMode() != NonTextResolutionMode.OFF) {
@@ -229,8 +228,6 @@ public class MergeAgent {
                 () -> "",               // sharedContext
                 "",                     // contextFilter
                 BlitzForge.ParallelOutputMode.CHANGED
-                // buildFirst
-                // postProcessingInstructions
         );
 
         var bfListener = cm.getIo().getBlitzForgeListener(() -> {});

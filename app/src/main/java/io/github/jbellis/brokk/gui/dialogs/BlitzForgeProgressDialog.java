@@ -172,7 +172,6 @@ public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
         return new DialogConsoleIO("[" + file + "] ");
     }
 
-
     @Override
     public void onFileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {
         // Update progress here (since onProgress was removed)

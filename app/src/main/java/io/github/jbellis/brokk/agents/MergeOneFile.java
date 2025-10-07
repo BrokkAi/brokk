@@ -32,7 +32,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,7 +59,7 @@ public final class MergeOneFile {
     private final @Nullable String baseCommitId;
     private final String otherCommitId;
     private final ConflictAnnotator.ConflictFileCommits conflict;
-    private final IConsoleIO console;
+    private final IConsoleIO io;
 
     private transient @Nullable List<ChatMessage> currentSessionMessages = null;
     private final ToolRegistry tr;
@@ -80,7 +79,7 @@ public final class MergeOneFile {
             @Nullable String baseCommitId,
             String otherCommitId,
             ConflictAnnotator.ConflictFileCommits conflict,
-            IConsoleIO console) {
+            IConsoleIO io) {
         this.cm = cm;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -88,7 +87,7 @@ public final class MergeOneFile {
         this.baseCommitId = baseCommitId;
         this.otherCommitId = otherCommitId;
         this.conflict = conflict;
-        this.console = console;
+        this.io = io;
         this.tr = cm.getToolRegistry();
     }
 
@@ -97,7 +96,7 @@ public final class MergeOneFile {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
         var llm = cm.getLlm(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file));
-        llm.setOutput(console);
+        llm.setOutput(io);
 
         // Reset per-file state
         this.lastCodeAgentResult = null;
@@ -151,7 +150,6 @@ public final class MergeOneFile {
         toolSpecs.addAll(tr.getRegisteredTools(allowed));
         toolSpecs.addAll(
                 tr.getTools(this, List.of("explainCommit", "callCodeAgent", "getContentsAtRevision", "abortMerge")));
-        var io = cm.getIo();
 
         // Bounded loop; stop once conflicts are gone or we hit max steps
         final int MAX_STEPS = 10;
@@ -482,7 +480,7 @@ public final class MergeOneFile {
         instructions +=
                 "\n\nRemember to use the BRK_CONFLICT_BEGIN_[n]..BRK_CONFLICT_END_[n] markers to simplify your SEARCH/REPLACE blocks!"
                         + "\nYou can also make non-conflict edits if necessary to fix related issues caused by the merge.";
-        var agent = new CodeAgent(cm, codeModel, cm.getIo());
+        var agent = new CodeAgent(cm, codeModel, io);
         var result = agent.runSingleFileEdit(
                 file,
                 instructions,
