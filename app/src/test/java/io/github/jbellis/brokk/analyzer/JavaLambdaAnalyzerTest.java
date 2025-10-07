@@ -84,7 +84,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(srcOpt.isPresent(), "Should be able to fetch source for lambda");
         final var src = srcOpt.get();
 
-        assertTrue(src.contains("->"), "Lambda source should contain '->'");
+        assertTrue(src.equals("root -> { }"), "Lambda source is incorrect");
     }
 
     @Test
@@ -106,8 +106,7 @@ public class JavaLambdaAnalyzerTest {
         assertTrue(srcOpt.isPresent(), "Should be able to fetch source for lambda");
         final var src = srcOpt.get();
 
-        assertTrue(src.contains("->"), "Lambda source should contain '->'");
-        assertTrue(src.contains("map.put"), "Lambda source should contain body content (map.put)");
+        assertTrue(src.equals("s -> map.put(\"foo\", \"test\")"), "Lambda source is incorrect");
     }
 
     @Test
