@@ -9,13 +9,17 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Graphics2D;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
-import javax.swing.JButton;
+import javax.swing.ImageIcon;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -98,14 +102,40 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             // Defensive: avoid issues if any accessor fails
         }
 
-        var close = new JButton(Icons.CLOSE);
+        var originalIcon = Icons.CLOSE;
+
+        Image image;
+        if (originalIcon instanceof ImageIcon ii) {
+            // If it's already an ImageIcon, scale its image directly
+            image = ii.getImage().getScaledInstance(10, 10, Image.SCALE_SMOOTH);
+        } else {
+            // Otherwise paint the Icon into a BufferedImage and scale that.
+            int w = originalIcon.getIconWidth();
+            int h = originalIcon.getIconHeight();
+            if (w <= 0) w = 16;
+            if (h <= 0) h = 16;
+            BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = buf.createGraphics();
+            try {
+                originalIcon.paintIcon(null, g2, 0, 0);
+            } finally {
+                g2.dispose();
+            }
+            image = buf.getScaledInstance(10, 10, Image.SCALE_SMOOTH);
+        }
+
+        // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
+        // Construct with an empty label and set the icon explicitly.
+        var close = new MaterialButton("");
+        close.setIcon(new ImageIcon(image));
         close.setFocusable(false);
+        // keep the icon-only styling but keep hit area reasonable
         close.setOpaque(false);
         close.setContentAreaFilled(false);
         close.setBorderPainted(false);
         close.setFocusPainted(false);
         close.setMargin(new Insets(0, 0, 0, 0));
-        close.setPreferredSize(new Dimension(16, 16));
+        close.setPreferredSize(new Dimension(14, 14));
         close.setToolTipText("Remove from Workspace");
         try {
             close.getAccessibleContext().setAccessibleName("Remove " + fragment.shortDescription());
@@ -113,11 +143,20 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             // best-effort accessibility improvements
         }
         close.addActionListener(e -> {
-            if (onRemoveFragment != null) {
-                onRemoveFragment.accept(fragment);
-            } else {
-                contextManager.drop(Collections.singletonList(fragment));
+            // Guard against interfering with an ongoing LLM task
+            if (contextManager.isLlmTaskInProgress()) {
+                return;
             }
+
+            // Perform the removal via the ContextManager task queue to avoid
+            // listener reentrancy and ensure proper processing of the drop.
+            chrome.getContextManager().submitContextTask(() -> {
+                if (onRemoveFragment != null) {
+                    onRemoveFragment.accept(fragment);
+                } else {
+                    contextManager.drop(Collections.singletonList(fragment));
+                }
+            });
         });
 
         chip.add(label);
