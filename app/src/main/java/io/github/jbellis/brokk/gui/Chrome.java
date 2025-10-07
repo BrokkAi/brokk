@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.prefs.Preferences;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
@@ -2081,6 +2082,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Restore drawer states from global settings
         restoreDrawersFromGlobalSettings();
+
+        // Restore Workspace collapsed/expanded state: prefer per-project, fallback to global default
+        try {
+            Boolean projCollapsed = readProjectWorkspaceCollapsed();
+            boolean collapsed = (projCollapsed != null) ? projCollapsed : readGlobalWorkspaceCollapsed();
+            // Only apply if different from current to avoid redundant relayout
+            if (collapsed != this.workspaceCollapsed) {
+                setWorkspaceCollapsed(collapsed);
+            }
+        } catch (Exception ignored) {
+            // Defensive: do not let preference errors interrupt UI construction
+        }
     }
 
     /**
@@ -2090,6 +2103,68 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void restoreDrawersFromGlobalSettings() {
         // Do not restore Terminal drawer here.
         // TerminalDrawerPanel.restoreInitialState() handles per-project-first, then global fallback.
+    }
+
+    // --- Workspace collapsed persistence (per-project with global fallback) ---
+
+    private static final String PREFS_ROOT = "io.github.jbellis.brokk";
+    private static final String PREFS_PROJECTS = "projects";
+    private static final String PREF_KEY_WORKSPACE_COLLAPSED = "workspaceCollapsed";
+    private static final String PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL = "workspaceCollapsedGlobal";
+
+    private static Preferences prefsRoot() {
+        return Preferences.userRoot().node(PREFS_ROOT);
+    }
+
+    private static String sanitizeNodeName(String s) {
+        // Preferences node names may not contain '/'.
+        return s.replace('/', '_').replace('\\', '_').replace(':', '_');
+    }
+
+    private Preferences projectPrefsNode() {
+        String projKey = sanitizeNodeName(getProject().getRoot().toString());
+        return prefsRoot().node(PREFS_PROJECTS).node(projKey);
+    }
+
+    /** Save the current workspace collapsed state both per-project and as a global default. */
+    private void saveWorkspaceCollapsedSetting(boolean collapsed) {
+        try {
+            // Per-project
+            var p = projectPrefsNode();
+            p.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED, collapsed);
+            p.flush();
+        } catch (Exception ignored) {
+            // Non-fatal persistence failure
+        }
+        try {
+            // Global default
+            var g = prefsRoot();
+            g.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, collapsed);
+            g.flush();
+        } catch (Exception ignored) {
+            // Non-fatal persistence failure
+        }
+    }
+
+    /** Returns the per-project collapsed setting if present; otherwise returns null. */
+    private @Nullable Boolean readProjectWorkspaceCollapsed() {
+        try {
+            var p = projectPrefsNode();
+            String raw = p.get(PREF_KEY_WORKSPACE_COLLAPSED, null);
+            return (raw == null) ? null : Boolean.valueOf(raw);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /** Returns the global default collapsed setting, defaulting to false if unset. */
+    private boolean readGlobalWorkspaceCollapsed() {
+        try {
+            var g = prefsRoot();
+            return g.getBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, false);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     /** Adds property change listeners to split panes for saving positions (global-first). */
@@ -3031,6 +3106,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // Refresh layout/paint
             mainVerticalSplitPane.revalidate();
             mainVerticalSplitPane.repaint();
+
+            // Persist collapsed/expanded state (per-project + global)
+            try {
+                saveWorkspaceCollapsedSetting(this.workspaceCollapsed);
+            } catch (Exception ignored) {
+                // Non-fatal persistence failure
+            }
         };
 
         if (SwingUtilities.isEventDispatchThread()) {
