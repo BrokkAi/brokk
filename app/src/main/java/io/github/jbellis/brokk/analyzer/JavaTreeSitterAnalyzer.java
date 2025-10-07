@@ -13,7 +13,6 @@ import org.treesitter.TreeSitterJava;
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
-    private static final Pattern LOCATION_SUFFIX = Pattern.compile(":[0-9]+(?::[0-9]+)?$");
     private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaTreeSitterAnalyzer(IProject project) {
@@ -249,20 +248,31 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String normalizeFullName(String fqName) {
-        // Normalize: strip generics, anonymous/lambda fragments, and trailing location suffixes
-        var s = stripGenericTypeArguments(fqName);
+        // Normalize generics and method/lambda/location suffixes while preserving "$anon$" verbatim.
+        String s = stripGenericTypeArguments(fqName);
 
-        // Strip anonymous/lambda suffixes like $anon... or $<digits>...
-        var matcher = LAMBDA_REGEX.matcher(s);
-        if (matcher.find()) {
-            s = s.substring(0, matcher.start());
+        if (s.contains("$anon$")) {
+            // Replace subclass delimiters with '.' except within the literal "$anon$" segments.
+            StringBuilder out = new StringBuilder(s.length());
+            for (int i = 0; i < s.length();) {
+                if (s.startsWith("$anon$", i)) {
+                    out.append("$anon$");
+                    i += 6; // length of "$anon$"
+                } else {
+                    char c = s.charAt(i++);
+                    out.append(c == '$' ? '.' : c);
+                }
+            }
+            return out.toString();
         }
 
-        // Strip trailing source-location suffixes like :16 or :123:45
-        s = LOCATION_SUFFIX.matcher(s).replaceFirst("");
-        // Replace subclass delimiters with dots
-        s = s.replaceAll("\\$", ".");
-
+        // No lambda marker; perform standard normalization:
+        // 1) Strip trailing numeric anonymous suffixes like $1 or $2 (optionally followed by :line(:col))
+        s = s.replaceFirst("\\$\\d+(?::\\d+(?::\\d+)?)?$", "");
+        // 2) Strip trailing location suffix like :line or :line:col (e.g., ":16" or ":328:16")
+        s = s.replaceFirst(":[0-9]+(?::[0-9]+)?$", "");
+        // 3) Replace subclass delimiters with dots
+        s = s.replace('$', '.');
         return s;
     }
 
