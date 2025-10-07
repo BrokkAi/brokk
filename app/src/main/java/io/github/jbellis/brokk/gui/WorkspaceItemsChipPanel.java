@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
@@ -73,18 +74,76 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    private void styleChip(JPanel chip, JLabel label, boolean isDark) {
-        Color background = ThemeColors.getColor(isDark, "git_badge_background");
-        Color foreground = ThemeColors.getColor(isDark, "badge_foreground");
+    private enum ChipKind { EDIT, SUMMARY, OTHER }
 
-        chip.setBackground(background);
-        label.setForeground(foreground);
-
-        Color borderColor = javax.swing.UIManager.getColor("Component.borderColor");
-        if (borderColor == null) {
-            borderColor = Color.GRAY;
+    private ChipKind classify(ContextFragment fragment) {
+        Context ctx = contextManager.selectedContext();
+        // EDIT: fragments that are in the editable file stream of the currently selected context
+        if (ctx != null) {
+            boolean isEdit = ctx.fileFragments().anyMatch(f -> f == fragment);
+            if (isEdit) {
+                return ChipKind.EDIT;
+            }
         }
-        var outer = new MatteBorder(1, 1, 1, 1, borderColor);
+        // SUMMARY: fragments produced by summarize action are Skeletons
+        if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
+            return ChipKind.SUMMARY;
+        }
+        // OTHER: everything else
+        return ChipKind.OTHER;
+    }
+
+    private static boolean isDarkColor(Color c) {
+        // Relative luminance per ITU-R BT.709
+        double r = c.getRed() / 255.0;
+        double g = c.getGreen() / 255.0;
+        double b = c.getBlue() / 255.0;
+        double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        return lum < 0.5;
+    }
+
+    private static Color contrastingText(Color bg) {
+        return isDarkColor(bg) ? Color.WHITE : Color.BLACK;
+    }
+
+    private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
+        ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
+
+        Color bg;
+        Color fg;
+        Color border;
+
+        switch (kind) {
+            case EDIT -> {
+                // Use linkColor as requested
+                bg = javax.swing.UIManager.getColor("Component.linkColor");
+                if (bg == null) {
+                    // Robust fallback if theme key is missing
+                    bg = ThemeColors.getColor(isDark, "git_badge_background");
+                }
+                fg = contrastingText(bg);
+                border = javax.swing.UIManager.getColor("Component.borderColor");
+                if (border == null) {
+                    border = Color.GRAY;
+                }
+            }
+            case SUMMARY -> {
+                bg = ThemeColors.getColor(isDark, "notif_cost_bg");
+                fg = ThemeColors.getColor(isDark, "notif_cost_fg");
+                border = ThemeColors.getColor(isDark, "notif_cost_border");
+            }
+            default -> {
+                // Info/Warning colors for everything else
+                bg = ThemeColors.getColor(isDark, "notif_info_bg");
+                fg = ThemeColors.getColor(isDark, "notif_info_fg");
+                border = ThemeColors.getColor(isDark, "notif_info_border");
+            }
+        }
+
+        chip.setBackground(bg);
+        label.setForeground(fg);
+
+        var outer = new MatteBorder(1, 1, 1, 1, border);
         var inner = new EmptyBorder(2, 8, 2, 6);
         chip.setBorder(new CompoundBorder(outer, inner));
     }
@@ -162,7 +221,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         chip.add(label);
         chip.add(close);
 
-        styleChip(chip, label, chrome.getTheme().isDarkTheme());
+        // Keep a handle to the fragment so theme changes can restyle accurately
+        chip.putClientProperty("brokk.fragment", fragment);
+        styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
@@ -204,7 +265,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
                         }
                     }
                     if (label != null) {
-                        styleChip(chip, label, isDark);
+                        var fragObj = chip.getClientProperty("brokk.fragment");
+                        ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
+                        styleChip(chip, label, isDark, fragment);
                     }
                 }
             }
