@@ -93,7 +93,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         // In-progress table with progress bar renderer
         inProgressTable = new JTable(inProgressModel);
         inProgressTable.setFillsViewportHeight(true);
-        inProgressTable.setRowHeight(22);
+        inProgressTable.setRowHeight(11);
         inProgressTable.getColumnModel()
                 .getColumn(1)
                 .setCellRenderer(new ProgressBarRenderer());
