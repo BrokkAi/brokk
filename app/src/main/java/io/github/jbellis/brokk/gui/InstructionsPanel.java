@@ -731,8 +731,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         container.setPreferredSize(new Dimension(100, fixedChipAreaHeight));
         container.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedChipAreaHeight));
 
+        // Wrap the chip panel with a titled border labeled "Context"
+        var contextTitledBorder = BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Context",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12));
+        var titledContainer = new JPanel(new BorderLayout());
+        titledContainer.setOpaque(false);
+        // Add some internal padding inside the title border while keeping the chip container's own padding
+        titledContainer.setBorder(BorderFactory.createCompoundBorder(
+                contextTitledBorder,
+                BorderFactory.createEmptyBorder(0, 0, 0, 0)));
+        titledContainer.add(container, BorderLayout.CENTER);
+
         // Insert beneath the command-input area (index 2)
-        centerPanel.add(container, 2);
+        centerPanel.add(titledContainer, 2);
     }
 
     // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
