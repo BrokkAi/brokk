@@ -1362,7 +1362,7 @@ public interface ContextFragment {
                     .anyMatch(e -> {
                         long stored = e.getValue();
                         var file = e.getKey().source();
-                        if (file.exists()) {
+                        if (!file.exists()) {
                             logger.debug("{} has been removed and will re-compute usages.", file.getRelPath());
                             return true;
                         } else {
