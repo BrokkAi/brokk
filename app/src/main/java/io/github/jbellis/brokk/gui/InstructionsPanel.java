@@ -1117,17 +1117,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(attachButton);
         bottomPanel.add(Box.createHorizontalStrut(4));
 
-        // Dependencies button
-        var dependenciesButton = new MaterialButton();
-        SwingUtilities.invokeLater(() -> dependenciesButton.setIcon(Icons.MANAGE_DEPENDENCIES));
-        dependenciesButton.setToolTipText("Manage project dependencies");
-        dependenciesButton.setFocusable(false);
-        dependenciesButton.setOpaque(false);
-        dependenciesButton.addActionListener(e -> chrome.showDependenciesTab());
-        dependenciesButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(dependenciesButton);
-        bottomPanel.add(Box.createHorizontalStrut(4));
-
         // Wand button (Magic Ask) on the right
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Size set after fixedHeight is computed below
@@ -1162,9 +1151,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         attachButton.setPreferredSize(iconButtonSize);
         attachButton.setMinimumSize(iconButtonSize);
         attachButton.setMaximumSize(iconButtonSize);
-        dependenciesButton.setPreferredSize(iconButtonSize);
-        dependenciesButton.setMinimumSize(iconButtonSize);
-        dependenciesButton.setMaximumSize(iconButtonSize);
         wandButton.setPreferredSize(iconButtonSize);
         wandButton.setMinimumSize(iconButtonSize);
         wandButton.setMaximumSize(iconButtonSize);
