@@ -746,6 +746,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 BorderFactory.createEmptyBorder(0, 0, 0, 0)));
         titledContainer.add(container, BorderLayout.CENTER);
 
+        // Add Attach button on the right side of the Context row ("third line")
+        var contextRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        contextRightPanel.setOpaque(false);
+        var attachButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
+        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
+        attachButton.setFocusable(false);
+        attachButton.setOpaque(false);
+        attachButton.addActionListener(e -> {
+            chrome.getContextPanel().attachContextViaDialog();
+        });
+        contextRightPanel.add(attachButton);
+        container.add(contextRightPanel, BorderLayout.EAST);
+
         // Insert beneath the command-input area (index 2)
         centerPanel.add(titledContainer, 2);
     }
@@ -1128,21 +1142,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Token usage indicator (to the left/"west" of the Attach Files button)
+        // Token usage indicator
         bottomPanel.add(tokenUsageBar);
-        bottomPanel.add(Box.createHorizontalStrut(4));
-
-        // Attach button
-        var attachButton = new MaterialButton();
-        SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
-        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
-        attachButton.setFocusable(false);
-        attachButton.setOpaque(false);
-        attachButton.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog();
-        });
-        attachButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(attachButton);
         bottomPanel.add(Box.createHorizontalStrut(4));
 
         // Wand button (Magic Ask) on the right
@@ -1182,11 +1183,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setPreferredSize(tokenPrefSize);
         tokenUsageBar.setMaximumSize(tokenMaxSize);
 
-        // Size the attach and wand buttons to match height of action button
+        // Size the wand button to match height of action button
         var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
-        attachButton.setPreferredSize(iconButtonSize);
-        attachButton.setMinimumSize(iconButtonSize);
-        attachButton.setMaximumSize(iconButtonSize);
         wandButton.setPreferredSize(iconButtonSize);
         wandButton.setMinimumSize(iconButtonSize);
         wandButton.setMaximumSize(iconButtonSize);
