@@ -944,7 +944,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             return;
                         }
                         int maxInputTokens = service.getMaxInputTokens(model);
-
+                        if (maxInputTokens <= 0) {
+                        // Fallback to a generous default when service does not provide a limit
+                        maxInputTokens = 128_000;
+                        }
+                        
                         // Update bar and tooltip
                         tokenUsageBar.setTokens(approxTokens, maxInputTokens);
 
