@@ -13,6 +13,9 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.NoninvertibleTransformException;
+import java.awt.geom.Point2D;
+import javax.swing.ToolTipManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -111,6 +114,9 @@ public class CoChangeGraphPanel extends JPanel {
         setOpaque(true);
         setBackground(Color.WHITE);
         installInteractions();
+        // Enable Swing tooltips for mouse-over hints
+        ToolTipManager.sharedInstance().registerComponent(this);
+        setToolTipText("");
         logger.debug("CoChangeGraphPanel initialized");
     }
 
@@ -310,6 +316,47 @@ public class CoChangeGraphPanel extends JPanel {
             return null;
         }
         return new double[] { sumX / n, sumY / n };
+    }
+
+    @Override
+    public @Nullable String getToolTipText(MouseEvent e) {
+        var g = this.graph;
+        if (g.nodes.isEmpty()) {
+            return null;
+        }
+
+        // Convert mouse position (screen space) to world space for hit testing
+        Point2D pScreen = new Point2D.Double(e.getX(), e.getY());
+        Point2D pWorld;
+        try {
+            var inv = viewTx.createInverse();
+            pWorld = inv.transform(pScreen, null);
+        } catch (NoninvertibleTransformException ex) {
+            return null;
+        }
+
+        double wx = pWorld.getX();
+        double wy = pWorld.getY();
+
+        Node best = null;
+        double bestDist2 = Double.POSITIVE_INFINITY;
+
+        // Linear scan for now; fast enough for typical node counts
+        for (var nd : g.nodes.values()) {
+            double r = nodeRadius(nd);
+            double dx = wx - nd.x;
+            double dy = wy - nd.y;
+            double d2 = dx * dx + dy * dy;
+            if (d2 <= r * r && d2 < bestDist2) {
+                best = nd;
+                bestDist2 = d2;
+            }
+        }
+
+        if (best == null) return null;
+
+        // Show the file path; prefer absolute path string for clarity
+        return best.file.absPath().toString();
     }
 
     private void installInteractions() {

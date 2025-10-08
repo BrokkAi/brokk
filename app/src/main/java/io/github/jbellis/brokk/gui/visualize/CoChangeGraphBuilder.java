@@ -178,7 +178,7 @@ public class CoChangeGraphBuilder {
             var weights = new ArrayList<Integer>(weightMap.values());
             weights.sort(Integer::compareTo); // ascending
             // Use upper median for even counts so that we keep at most half if distribution is uniform
-            medianThreshold = weights.get(9 * weights.size() / 10);
+            medianThreshold = weights.get((int) (0.99 * weights.size()));
         }
 
         for (var e : weightMap.entrySet()) {
