@@ -47,6 +47,7 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
+import io.github.jbellis.brokk.gui.visualize.CoChangeGraphDialog;
 import org.jetbrains.annotations.Nullable;
 
 public class MenuBar {
@@ -553,6 +554,19 @@ public class MenuBar {
 
         // Let Chrome manage BlitzForge item’s enabled state during long-running actions
         chrome.setBlitzForgeMenuItem(upgradeAgentItem);
+
+        // Visualize co-change graph dialog
+        toolsMenu.addSeparator();
+        var visualizeItem = new JMenuItem("Visualize...");
+        visualizeItem.addActionListener(e -> {
+            SwingUtilities.invokeLater(() -> {
+                var dialog = new CoChangeGraphDialog(chrome.getFrame(), chrome);
+                dialog.setVisible(true);
+            });
+        });
+        visualizeItem.setEnabled(true);
+        toolsMenu.add(visualizeItem);
+
         if (toolsMenu.getItemCount() > 0) { // Should always be true since BlitzForge is present.
             menuBar.add(toolsMenu);
         }
