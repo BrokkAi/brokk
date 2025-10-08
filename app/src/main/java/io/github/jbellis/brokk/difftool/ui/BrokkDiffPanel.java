@@ -384,6 +384,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnDecreaseFont = new MaterialButton("-");
     private final MaterialButton btnIncreaseFont = new MaterialButton("+");
 
+    // Editor font size state (lazily initialized from the first visible editor; 0 = uninitialized)
+    private static final float DEFAULT_FALLBACK_FONT_SIZE = 13f;
+    private static final float MIN_FONT_SIZE = 8f;
+    private static final float MAX_FONT_SIZE = 24f;
+    private static final double FONT_SCALE_FACTOR = 1.1; // multiplicative step
+    private volatile float editorFontSize = 0f;
+
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
@@ -810,12 +817,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnDecreaseFont.setBorderPainted(false);
         btnDecreaseFont.setContentAreaFilled(false);
         btnDecreaseFont.setFocusPainted(false);
+        btnDecreaseFont.addActionListener(e -> decreaseEditorFont());
 
         btnIncreaseFont.setToolTipText("Increase editor font size");
         btnIncreaseFont.setText("+");
         btnIncreaseFont.setBorderPainted(false);
         btnIncreaseFont.setContentAreaFilled(false);
         btnIncreaseFont.setFocusPainted(false);
+        btnIncreaseFont.addActionListener(e -> increaseEditorFont());
 
         toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(btnDecreaseFont);
@@ -1304,6 +1313,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
+        // Ensure editorFontSize is initialized (lazily) from the visible editor before applying it.
+        // This probes the panel's editor for a realistic starting font size (fallback handled internally).
+        ensureEditorFontSizeInitialized(cachedPanel);
+        // Apply current editor font size to the panel so theme application doesn't override it
+        applyEditorFontSizeToPanel(cachedPanel);
 
         // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
         // Theme application can trigger document events that incorrectly mark documents as dirty
@@ -1662,6 +1676,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
+        // Ensure newly-created panel respects the current editor font size (if we've initialized it)
+        applyEditorFontSizeToPanel(panel);
 
         // Ensure creation context is set for debugging (only for BufferDiffPanel)
         if (panel instanceof BufferDiffPanel bufferPanel) {
@@ -1803,6 +1819,142 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Suggest garbage collection
         System.gc();
+    }
+
+    // -------------------------
+    // Editor font size helpers
+    // -------------------------
+
+    /**
+     * Lazily initialize the editorFontSize from a panel or component if not initialized yet.
+     * Accepts either an IDiffPanel (preferred) or any Component (e.g., AbstractContentPanel is a Component).
+     * If no editor can be found, fall back to DEFAULT_FALLBACK_FONT_SIZE.
+     */
+    private void ensureEditorFontSizeInitialized(@Nullable Object panelOrComponent) {
+        if (editorFontSize > 0f) return;
+        float size = DEFAULT_FALLBACK_FONT_SIZE;
+
+        Component comp = null;
+        try {
+            if (panelOrComponent instanceof IDiffPanel idp) {
+                comp = idp.getComponent();
+            } else if (panelOrComponent instanceof Component c) {
+                comp = c;
+            }
+            if (comp != null) {
+                var editorOpt = findEditorInComponent(comp);
+                if (editorOpt.isPresent()) {
+                    try {
+                        size = editorOpt.get().getFont().getSize2D();
+                    } catch (Exception ignored) {
+                        // ignore and use fallback
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            // Defensive: don't let any unexpected runtime errors prevent initialization
+            logger.debug("Failed to derive editor font size from component: {}", t.getMessage());
+        }
+
+        // Clamp and set
+        editorFontSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, size));
+    }
+
+    /**
+     * Apply the current editorFontSize to editors and gutters found inside the given panel (best-effort).
+     */
+    private void applyEditorFontSizeToPanel(@Nullable IDiffPanel panel) {
+        if (panel == null) return;
+        // Ensure we have an initialized size
+        ensureEditorFontSizeInitialized(panel);
+        float size = editorFontSize;
+        Component root = panel.getComponent();
+
+        // Apply to any RSyntaxTextArea children
+        findEditorInComponent(root).ifPresent(editor -> {
+            try {
+                editor.setFont(editor.getFont().deriveFont(size));
+                editor.revalidate();
+                editor.repaint();
+            } catch (Exception ex) {
+                logger.debug("Could not apply font to editor: {}", ex.getMessage());
+            }
+        });
+
+        // Apply to any DiffGutterComponent children
+        findGutterInComponent(root).ifPresent(gutter -> {
+            try {
+                gutter.setFont(gutter.getFont().deriveFont(size));
+                gutter.revalidate();
+                gutter.repaint();
+            } catch (Exception ex) {
+                logger.debug("Could not apply font to gutter: {}", ex.getMessage());
+            }
+        });
+    }
+
+    /** Apply the current editor font size to all cached panels and the visible panel. */
+    private void applyEditorFontSizeToAllCachedPanels() {
+        for (var p : panelCache.nonNullValues()) {
+            applyEditorFontSizeToPanel(p);
+        }
+        if (currentDiffPanel != null) {
+            applyEditorFontSizeToPanel(currentDiffPanel);
+        }
+    }
+
+    /** Increase font size (multiplicative), clamp to maximum and apply to cached/current panels. */
+    private void increaseEditorFont() {
+        var panel = getCurrentContentPanel();
+        ensureEditorFontSizeInitialized(panel);
+        float newSize = (float) Math.min(MAX_FONT_SIZE, editorFontSize * FONT_SCALE_FACTOR);
+        if (Math.abs(newSize - editorFontSize) < 0.001f) return;
+        editorFontSize = newSize;
+        applyEditorFontSizeToAllCachedPanels();
+    }
+
+    /** Decrease font size (multiplicative), clamp to minimum and apply to cached/current panels. */
+    private void decreaseEditorFont() {
+        var panel = getCurrentContentPanel();
+        ensureEditorFontSizeInitialized(panel);
+        float newSize = (float) Math.max(MIN_FONT_SIZE, editorFontSize / FONT_SCALE_FACTOR);
+        if (Math.abs(newSize - editorFontSize) < 0.001f) return;
+        editorFontSize = newSize;
+        applyEditorFontSizeToAllCachedPanels();
+    }
+
+    /**
+     * Recursively search the component tree for the first RSyntaxTextArea instance and return it.
+     */
+    private java.util.Optional<org.fife.ui.rsyntaxtextarea.RSyntaxTextArea> findEditorInComponent(Component c) {
+        if (c == null) return java.util.Optional.empty();
+        if (c instanceof org.fife.ui.rsyntaxtextarea.RSyntaxTextArea rte) {
+            return java.util.Optional.of(rte);
+        }
+        if (c instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                var res = findEditorInComponent(child);
+                if (res.isPresent()) return res;
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * Recursively search the component tree for the first DiffGutterComponent instance and return it.
+     */
+    private java.util.Optional<DiffGutterComponent> findGutterInComponent(Component c) {
+        if (c == null) return java.util.Optional.empty();
+        if (c instanceof DiffGutterComponent dg) {
+            return java.util.Optional.of(dg);
+        }
+        if (c instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                var res = findGutterInComponent(child);
+                if (res.isPresent()) return res;
+            }
+        }
+        return java.util.Optional.empty();
     }
 
     /**
