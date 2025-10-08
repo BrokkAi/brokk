@@ -1155,13 +1155,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Cmd/Ctrl+Shift+D => toggle dependencies tab
-        KeyStroke toggleDependenciesDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke toggleDependenciesTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "drawer.toggleDependencies",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_D,
                         Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        bindKey(rootPane, toggleDependenciesDrawerKeyStroke, "toggleDependenciesDrawer");
-        rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
+        bindKey(rootPane, toggleDependenciesTabKeyStroke, "toggleDependenciesTab");
+        rootPane.getActionMap().put("toggleDependenciesTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 showDependenciesTab();
