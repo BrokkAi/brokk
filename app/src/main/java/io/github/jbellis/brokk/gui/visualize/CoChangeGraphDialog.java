@@ -22,16 +22,17 @@ import org.apache.logging.log4j.Logger;
 public class CoChangeGraphDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CoChangeGraphDialog.class);
 
+    private final CoChangeGraphPanel graphPanel;
+
     public CoChangeGraphDialog(Frame owner, Chrome chrome) {
         super(owner, "Visualize File Co-Changes", true);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        // Content area (placeholder for now)
+        // Content area
         var contentPanel = new JPanel(new BorderLayout());
-        var placeholder = new JLabel("Co-change graph visualization will appear here.", SwingConstants.CENTER);
-        placeholder.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-        contentPanel.add(placeholder, BorderLayout.CENTER);
+        this.graphPanel = new CoChangeGraphPanel();
+        contentPanel.add(graphPanel, BorderLayout.CENTER);
         add(contentPanel, BorderLayout.CENTER);
 
         // Buttons panel (primary Done + Cancel as per style guide)
