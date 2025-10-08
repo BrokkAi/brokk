@@ -1,12 +1,14 @@
 package io.github.jbellis.brokk.util;
 
 import com.google.common.base.Splitter;
+import com.sun.management.UnixOperatingSystemMXBean;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -539,6 +541,61 @@ public class Environment {
             }
         }
         return false;
+    }
+
+    /**
+     * Computes an adaptive concurrency cap for I/O virtual-thread pools based on system file descriptor limits. Falls
+     * back to a conservative CPU-bounded value when limits are unavailable. You can override the computed value via the
+     * system property: -Dbrokk.io.maxConcurrency=<N>
+     */
+    public static int computeAdaptiveIoConcurrencyCap() {
+        // Baseline by CPU; we clamp with FD-derived capacity.
+        int cpuBound = Math.max(8, Runtime.getRuntime().availableProcessors() * 2);
+
+        // Allow a user/system override if provided
+        String prop = System.getProperty("brokk.io.maxConcurrency");
+        if (prop != null) {
+            try {
+                int overridden = Integer.parseInt(prop);
+                int cap = Math.max(1, overridden);
+                logger.info("Using overridden IO virtual-thread cap from system property: {}", cap);
+                return cap;
+            } catch (NumberFormatException nfe) {
+                logger.warn("Invalid brokk.io.maxConcurrency value '{}'; ignoring override", prop);
+            }
+        }
+
+        try {
+            var osMxBean = ManagementFactory.getOperatingSystemMXBean();
+            if (osMxBean instanceof UnixOperatingSystemMXBean unix) {
+                long max = unix.getMaxFileDescriptorCount();
+                long open = unix.getOpenFileDescriptorCount();
+                if (max > 0L) {
+                    long free = Math.max(0L, max - open);
+                    long safety = Math.max(32L, (long) Math.ceil(max * 0.15)); // keep 15% of max + 32 FDs free
+                    long usable = Math.max(0L, free - safety);
+
+                    // Assume ~1 FD per concurrent read; be conservative: use only half of the usable budget.
+                    int byFd = (int) Math.max(8L, Math.min(usable / 2L, 256L));
+                    int cap = Math.min(byFd, cpuBound);
+
+                    logger.info(
+                            "Adaptive IO cap from FD limits: maxFD={}, openFD={}, freeFD={}, cap={}",
+                            max,
+                            open,
+                            free,
+                            cap);
+                    return cap;
+                }
+            }
+        } catch (Throwable t) {
+            logger.debug("Could not compute Unix FD limits: {}", t.getMessage());
+        }
+
+        // Fallback for non-Unix JDKs or if FD data unavailable
+        int fallback = Math.min(cpuBound, 64);
+        logger.info("Using fallback IO virtual-thread cap: {}", fallback);
+        return fallback;
     }
 
     /**

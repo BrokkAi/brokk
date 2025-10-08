@@ -2,12 +2,14 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorServiceUtil;
 import io.github.jbellis.brokk.util.TextCanonicalizer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -30,6 +32,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,6 +60,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
+    // Adaptive concurrency for I/O: derived from OS file-descriptor limits with conservative headroom.
+    private static final int IO_VT_CAP = Environment.computeAdaptiveIoConcurrencyCap();
+    // Semaphore further gates simultaneous file openings to avoid EMFILE even under short bursts.
+    private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
+    private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE
+
     // Common separators across languages to denote hierarchy or member access.
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
@@ -66,7 +76,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected static final int PRIORITY_LOW = 1;
 
     // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(this::definitionOverridePriority)
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
+                    (CodeUnit cu) -> definitionOverridePriority(cu))
             .thenComparingInt(this::firstStartByteForSelection)
             .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
@@ -247,7 +258,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var timing = ConstructionTiming.create();
         List<CompletableFuture<?>> futures = new ArrayList<>();
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
-        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", 1000);
+        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
                 var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-parse-");
                 var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
@@ -2348,17 +2359,80 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /* ---------- async stage helpers ---------- */
 
-    private byte[] readFileBytes(ProjectFile pf, ConstructionTiming timing) {
+    private byte[] readFileBytes(ProjectFile pf, @Nullable ConstructionTiming timing) {
         long __readStart = System.nanoTime();
         try {
-            return Files.readAllBytes(pf.absPath());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+            int attempt = 0;
+            while (true) {
+                attempt++;
+                try {
+                    IO_FD_SEMAPHORE.acquire();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while acquiring IO permit", ie);
+                }
+                try {
+                    return Files.readAllBytes(pf.absPath());
+                } catch (IOException ioe) {
+                    // Retry if we hit an EMFILE/too-many-open-files situation, otherwise rethrow
+                    if (isTooManyOpenFiles(ioe) && attempt < MAX_IO_READ_RETRIES) {
+                        long backoffMs = computeBackoffMillis(attempt);
+                        log.debug(
+                                "Too many open files while reading {} (attempt {}/{}). Backing off {} ms and retrying.",
+                                pf,
+                                attempt,
+                                MAX_IO_READ_RETRIES,
+                                backoffMs);
+                        sleepQuietly(backoffMs);
+                        continue;
+                    }
+                    throw new UncheckedIOException(ioe);
+                } finally {
+                    IO_FD_SEMAPHORE.release();
+                }
+            }
         } finally {
             long __readEnd = System.nanoTime();
-            timing.readStageFirstStartNanos().accumulateAndGet(__readStart, Math::min);
-            timing.readStageLastEndNanos().accumulateAndGet(__readEnd, Math::max);
-            timing.readStageNanos().addAndGet(__readEnd - __readStart);
+            if (timing != null) {
+                timing.readStageFirstStartNanos().accumulateAndGet(__readStart, Math::min);
+                timing.readStageLastEndNanos().accumulateAndGet(__readEnd, Math::max);
+                timing.readStageNanos().addAndGet(__readEnd - __readStart);
+            }
+        }
+    }
+
+    private static boolean isTooManyOpenFiles(IOException e) {
+        // Check common paths: FileSystemException.getReason(), messages in cause chain, and EMFILE hints.
+        if (e instanceof FileSystemException fse) {
+            var reason = fse.getReason();
+            if (reason != null) {
+                String r = reason.toLowerCase(Locale.ROOT);
+                if (r.contains("too many open files") || r.contains("emfile")) return true;
+            }
+        }
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null) {
+                String m = msg.toLowerCase(Locale.ROOT);
+                if (m.contains("too many open files") || m.contains("emfile")) return true;
+            }
+        }
+        return false;
+    }
+
+    private static long computeBackoffMillis(int attempt) {
+        // Exponential backoff with jitter: 25, 50, 100, 200, 400, 800 ms (capped), plus up to 25ms jitter
+        long base = 25L;
+        long delay = Math.min(1000L, base << Math.max(0, attempt - 1));
+        long jitter = ThreadLocalRandom.current().nextLong(0L, base + 1);
+        return delay + jitter;
+    }
+
+    private static void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -2488,7 +2562,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 long reanStart = System.nanoTime();
                                 try {
                                     var parser = getTSParser();
-                                    byte[] bytes = Files.readAllBytes(file.absPath());
+                                    byte[] bytes = readFileBytes(file, null);
                                     var analysisResult = analyzeFileContent(file, bytes, parser, null);
 
                                     var writeLock2 = stateRwLock.writeLock();
@@ -2501,7 +2575,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         writeLock2.unlock();
                                     }
                                     reanalyzedCount.incrementAndGet();
-                                } catch (IOException e) {
+                                } catch (UncheckedIOException e) {
                                     log.warn("IO error re-analysing {}: {}", file, e.getMessage());
                                 } catch (RuntimeException e) {
                                     log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
