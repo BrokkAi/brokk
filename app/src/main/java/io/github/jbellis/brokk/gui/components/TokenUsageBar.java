@@ -126,7 +126,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private Color getForegroundColor() {
-        var color = UIManager.getColor("ProgressBar.foreground");
+        var color = UIManager.getColor("Label.foreground");
         return color == null ? Color.BLACK : color;
     }
 
