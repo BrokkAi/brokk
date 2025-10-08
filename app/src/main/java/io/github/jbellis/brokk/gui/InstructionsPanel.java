@@ -751,7 +751,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 int contentWidth = Math.max(0, width - (in == null ? 0 : in.left + in.right));
 
                 int rows = computeRowsForWidth(contentWidth);
-                int fmH = instructionsArea.getFontMetrics(instructionsArea.getFont()).getHeight();
+                int fmH = instructionsArea
+                        .getFontMetrics(instructionsArea.getFont())
+                        .getHeight();
                 int rowH = Math.max(24, fmH + 8);
                 int vgap = 4;
                 if (workspaceItemsChipPanel.getLayout() instanceof FlowLayout fl) {
@@ -814,9 +816,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         };
         titledContainer.setOpaque(false);
-        titledContainer.setBorder(BorderFactory.createCompoundBorder(
-                contextTitledBorder,
-                BorderFactory.createEmptyBorder(0, 0, 0, 0)));
+        titledContainer.setBorder(
+                BorderFactory.createCompoundBorder(contextTitledBorder, BorderFactory.createEmptyBorder(0, 0, 0, 0)));
         titledContainer.add(container, BorderLayout.CENTER);
 
         // Insert beneath the command-input area (index 2)
@@ -1229,7 +1230,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.repaint();
             }
         });
-
 
         // Size the wand button to match height of action button
         var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
