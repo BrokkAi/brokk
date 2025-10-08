@@ -7,6 +7,8 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.util.ExecutorServiceUtil;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.HashMap;
@@ -79,8 +81,15 @@ public class CoChangeGraphBuilder {
                         }
 
                         var commits = gitRepo.listCommitsDetailed(branchName);
-                        int max = commits.size();
-                        var initialMsg = "Scanning commits on " + branchName
+
+                        // Limit to past month (last 30 days)
+                        var cutoff = Instant.now().minus(30, ChronoUnit.DAYS);
+                        var recent = commits.stream()
+                                .filter(c -> !c.date().isBefore(cutoff))
+                                .toList();
+
+                        int max = recent.size();
+                        var initialMsg = "Scanning last 30 days on " + branchName
                                 + ((compareToBranch != null && !compareToBranch.isBlank()) ? " vs " + compareToBranch : "");
                         progressConsumer.accept(new Progress(initialMsg, 0, max));
 
@@ -88,13 +97,14 @@ public class CoChangeGraphBuilder {
                         Set<ProjectFile> tracked = new HashSet<>(repo.getTrackedFiles());
                         if (logger.isDebugEnabled()) {
                             logger.debug(
-                                    "Co-change scan inputs: commits={}, trackedFiles={}",
+                                    "Co-change scan inputs: totalCommits={}, recentCommits(30d)={}, trackedFiles={}",
                                     commits.size(),
+                                    recent.size(),
                                     tracked.size());
                         }
 
                         // Build the graph from the collected commits
-                        return buildGraphFromCommits(commits, tracked, progressConsumer, isCancelled);
+                        return buildGraphFromCommits(recent, tracked, progressConsumer, isCancelled);
                     } catch (GitAPIException e) {
                         logger.error("Failed to build co-change graph: {}", e.getMessage(), e);
                         throw new CompletionException(e);

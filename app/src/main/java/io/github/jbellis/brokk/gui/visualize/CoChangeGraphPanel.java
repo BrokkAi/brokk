@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -91,6 +92,21 @@ public class CoChangeGraphPanel extends JPanel {
     private List<ProjectFile> nodesByTotalWeight = List.of();
     private Map<ProjectFile, Integer> nodeRankIndex = Map.of();
 
+    // Fast-mode flags and debounce timer for high-quality repaint after drag ends
+    private volatile boolean fastMode = false;
+    private @Nullable Timer slowRepaintTimer = null;
+    private static final int FAST_REPAINT_DELAY_MS = 150; // ms
+    private static final double FAST_MODE_MAX_PCT = 0.30; // clamp LOD to 30% while dragging
+
+    // Stroke caches to avoid per-edge BasicStroke allocations
+    private static final BasicStroke[] STROKES_FINE = new BasicStroke[] {
+            makeStroke(1.0f), makeStroke(2.0f), makeStroke(3.0f),
+            makeStroke(4.0f), makeStroke(5.0f), makeStroke(6.0f)
+    };
+    private static final BasicStroke[] STROKES_COARSE = new BasicStroke[] {
+            makeStroke(1.0f), makeStroke(3.0f), makeStroke(6.0f)
+    };
+
     public CoChangeGraphPanel() {
         setOpaque(true);
         setBackground(Color.WHITE);
@@ -129,10 +145,16 @@ public class CoChangeGraphPanel extends JPanel {
         super.paintComponent(gRaw);
         var g2 = (Graphics2D) gRaw;
 
-        // Quality hints
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-        g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        // Quality hints (fast mode prioritizes speed during drag)
+        if (fastMode) {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
+            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_DEFAULT);
+        } else {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        }
 
         // Apply pan/zoom transform
         var oldTx = g2.getTransform();
@@ -143,6 +165,10 @@ public class CoChangeGraphPanel extends JPanel {
         // Determine current LOD based on zoom
         double scale = getScale();
         double topPct = determinePctForScale(scale);
+        // In fast mode, clamp to a stricter LOD to reduce drawn content
+        if (fastMode) {
+            topPct = Math.min(topPct, FAST_MODE_MAX_PCT);
+        }
         if (topPct < 1.0) {
             ensureAdjacencyCache(localGraph);
             ensureNodeWeightRanking(localGraph);
@@ -191,9 +217,9 @@ public class CoChangeGraphPanel extends JPanel {
             if (na == null || nb == null) {
                 continue;
             }
-            float width = edgeStrokeWidth(e.weight());
+            var stroke = strokeForWeight(e.weight(), fastMode);
             var old = g2.getStroke();
-            g2.setStroke(new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setStroke(stroke);
             g2.drawLine((int) Math.round(na.x), (int) Math.round(na.y), (int) Math.round(nb.x), (int) Math.round(nb.y));
             g2.setStroke(old);
         }
@@ -208,8 +234,10 @@ public class CoChangeGraphPanel extends JPanel {
             var circle = new Ellipse2D.Double(x, y, d, d);
             g2.setColor(NODE_FILL);
             g2.fill(circle);
-            g2.setColor(NODE_OUTLINE);
-            g2.draw(circle);
+            if (!fastMode) {
+                g2.setColor(NODE_OUTLINE);
+                g2.draw(circle);
+            }
         }
 
         // Reset transform to draw UI overlays in screen space
@@ -289,16 +317,19 @@ public class CoChangeGraphPanel extends JPanel {
             @Override
             public void mousePressed(MouseEvent e) {
                 lastDragPoint = e.getPoint();
+                enterFastMode();
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
                 lastDragPoint = null;
+                scheduleExitFastMode();
             }
 
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (lastDragPoint != null) {
+                    enterFastMode();
                     int dx = e.getX() - lastDragPoint.x;
                     int dy = e.getY() - lastDragPoint.y;
                     pan(dx, dy);
@@ -486,5 +517,51 @@ public class CoChangeGraphPanel extends JPanel {
             if (e.equals(list.get(i))) return true;
         }
         return false;
+    }
+
+    private static BasicStroke makeStroke(float w) {
+        return new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    }
+
+    private BasicStroke strokeForWeight(int weight, boolean fast) {
+        float width = edgeStrokeWidth(weight);
+        if (fast) {
+            if (width <= 2.0f) return STROKES_COARSE[0];
+            if (width <= 4.0f) return STROKES_COARSE[1];
+            return STROKES_COARSE[2];
+        } else {
+            int idx = Math.max(1, Math.min(6, Math.round(width))) - 1; // 0..5
+            return STROKES_FINE[idx];
+        }
+    }
+
+    private void enterFastMode() {
+        if (!fastMode) {
+            fastMode = true;
+            if (logger.isDebugEnabled()) {
+                logger.debug("Fast mode enabled");
+            }
+            repaint();
+        }
+        if (slowRepaintTimer != null && slowRepaintTimer.isRunning()) {
+            slowRepaintTimer.stop();
+        }
+    }
+
+    private void scheduleExitFastMode() {
+        if (slowRepaintTimer == null) {
+            slowRepaintTimer = new Timer(FAST_REPAINT_DELAY_MS, e -> {
+                fastMode = false;
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Fast mode disabled; repainting high quality");
+                }
+                repaint();
+            });
+            slowRepaintTimer.setRepeats(false);
+        }
+        if (slowRepaintTimer.isRunning()) {
+            slowRepaintTimer.stop();
+        }
+        slowRepaintTimer.start();
     }
 }
