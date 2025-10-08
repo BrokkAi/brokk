@@ -582,8 +582,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Clean up any orphaned clone operations from previous sessions
         if (getProject() instanceof MainProject) {
-            Path dependenciesRoot =
-                    getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+            Path dependenciesRoot = getProject()
+                    .getMasterRootPathForConfig()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR);
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
 

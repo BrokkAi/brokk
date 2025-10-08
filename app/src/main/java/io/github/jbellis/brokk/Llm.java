@@ -97,7 +97,7 @@ public class Llm {
         this.io = contextManager.getIo();
         this.allowPartialResponses = allowPartialResponses;
         this.tagRetain = tagRetain;
-        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
+        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getMasterRootPathForConfig());
 
         // Create task directory name for this specific LLM interaction
         var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault())

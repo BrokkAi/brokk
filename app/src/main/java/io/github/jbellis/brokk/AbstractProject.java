@@ -47,16 +47,28 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         this.root = root.toAbsolutePath().normalize();
         this.repo = GitRepo.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
-        this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+        // For git repos (worktrees or subdirectories), use git root for shared config
+        // For non-git repos, use project root
+        if (this.repo instanceof GitRepo gitRepoInstance) {
+            Path gitTop = gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+            Path projectRoot = this.root.toAbsolutePath().normalize();
+
+            // If opening a subdirectory or worktree (not at git root), use git root for config
+            if (!projectRoot.equals(gitTop)) {
+                this.masterRootPathForConfig = gitTop;
+            } else {
+                // Opening the git root itself, use project root
+                this.masterRootPathForConfig = this.root;
+            }
         } else {
-            this.masterRootPathForConfig = this.root; // Already absolute and normalized by super
+            // Non-git repo, use project root
+            this.masterRootPathForConfig = this.root;
         }
+
+        this.workspacePropertiesFile = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
         if (Files.exists(workspacePropertiesFile)) {
