@@ -442,9 +442,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
 
+        // Create a tabbed pane for Output and other right-hand views
+        var outputTabs = new JTabbedPane();
+        outputTabs.addTab("Output & Sessions", null, historyOutputPanel, "LLM Output and Session Management");
+
         // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
         JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        outputStackSplit.setTopComponent(historyOutputPanel);
+        outputStackSplit.setTopComponent(outputTabs);
         outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
         outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
 
