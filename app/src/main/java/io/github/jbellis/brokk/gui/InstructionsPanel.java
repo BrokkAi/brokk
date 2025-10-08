@@ -1157,6 +1157,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
+        // Size the token usage bar to match the toolbar height and give it a reasonable width
+        var tokenMinSize = new Dimension(140, fixedHeight);
+        var tokenPrefSize = new Dimension(180, fixedHeight);
+        var tokenMaxSize = new Dimension(260, fixedHeight);
+        tokenUsageBar.setMinimumSize(tokenMinSize);
+        tokenUsageBar.setPreferredSize(tokenPrefSize);
+        tokenUsageBar.setMaximumSize(tokenMaxSize);
+
         // Size the attach and wand buttons to match height of action button
         var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
         attachButton.setPreferredSize(iconButtonSize);
