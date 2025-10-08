@@ -86,6 +86,11 @@ public class CoChangeGraphPanel extends JPanel {
     private volatile @Nullable Graph adjacencyCacheGraphRef = null;
     private Map<ProjectFile, List<Edge>> adjacencySorted = Map.of();
 
+    // Node importance cache: nodes ranked by total incident edge weight (rebuilt when graph changes)
+    private volatile @Nullable Graph nodeRankCacheGraphRef = null;
+    private List<ProjectFile> nodesByTotalWeight = List.of();
+    private Map<ProjectFile, Integer> nodeRankIndex = Map.of();
+
     public CoChangeGraphPanel() {
         setOpaque(true);
         setBackground(Color.WHITE);
@@ -99,6 +104,10 @@ public class CoChangeGraphPanel extends JPanel {
         // Invalidate adjacency cache on graph change
         this.adjacencyCacheGraphRef = null;
         this.adjacencySorted = Map.of();
+        // Invalidate node-importance cache
+        this.nodeRankCacheGraphRef = null;
+        this.nodesByTotalWeight = List.of();
+        this.nodeRankIndex = Map.of();
 
         if (logger.isDebugEnabled()) {
             logger.debug("setGraph: nodes={}, edges={}", g.nodes.size(), g.edges.size());
@@ -136,6 +145,7 @@ public class CoChangeGraphPanel extends JPanel {
         double topPct = determinePctForScale(scale);
         if (topPct < 1.0) {
             ensureAdjacencyCache(localGraph);
+            ensureNodeWeightRanking(localGraph);
         }
 
         // One-time paint-time debug: stats about positions
@@ -166,8 +176,15 @@ public class CoChangeGraphPanel extends JPanel {
         // Draw edges first (progressive LOD)
         g2.setColor(EDGE_COLOR);
         for (var e : localGraph.edges.values()) {
-            if (topPct < 1.0 && !isEdgeInTopPct(e, topPct)) {
-                continue;
+            if (topPct < 1.0) {
+                // Node-importance filter: only show edges touching the top N% most "important" nodes by total incident weight
+                if (!isNodeInTopPct(e.a(), topPct) && !isNodeInTopPct(e.b(), topPct)) {
+                    continue;
+                }
+                // Per-node adjacency filter: only keep edges in the top N% by weight for at least one endpoint
+                if (!isEdgeInTopPct(e, topPct)) {
+                    continue;
+                }
             }
             var na = localGraph.nodes.get(e.a());
             var nb = localGraph.nodes.get(e.b());
@@ -414,6 +431,43 @@ public class CoChangeGraphPanel extends JPanel {
         if (logger.isDebugEnabled()) {
             logger.debug("Adjacency cache built: nodes={}, edges={}", g.nodes.size(), g.edges.size());
         }
+    }
+
+    private void ensureNodeWeightRanking(Graph g) {
+        if (nodeRankCacheGraphRef == g && !nodesByTotalWeight.isEmpty() && !nodeRankIndex.isEmpty()) {
+            return;
+        }
+        var totals = new HashMap<ProjectFile, Integer>(g.nodes.size());
+        for (var e : g.edges.values()) {
+            totals.merge(e.a(), e.weight(), Integer::sum);
+            totals.merge(e.b(), e.weight(), Integer::sum);
+        }
+        var ranked = new ArrayList<ProjectFile>(g.nodes.keySet());
+        ranked.sort((p1, p2) -> Integer.compare(
+                totals.getOrDefault(p2, 0),
+                totals.getOrDefault(p1, 0)));
+        var rankIdx = new HashMap<ProjectFile, Integer>(ranked.size());
+        for (int i = 0; i < ranked.size(); i++) {
+            rankIdx.put(ranked.get(i), i);
+        }
+        nodesByTotalWeight = ranked;
+        nodeRankIndex = rankIdx;
+        nodeRankCacheGraphRef = g;
+
+        if (logger.isDebugEnabled()) {
+            int n = ranked.size();
+            int top1 = n > 0 ? totals.getOrDefault(ranked.get(0), 0) : 0;
+            logger.debug("Node importance ranking built: nodes={}, topWeight={}", n, top1);
+        }
+    }
+
+    private boolean isNodeInTopPct(ProjectFile pf, double pct) {
+        if (pct >= 1.0) return true;
+        if (nodeRankIndex.isEmpty()) return false;
+        int n = nodesByTotalWeight.size();
+        int k = Math.max(1, (int) Math.ceil(n * pct));
+        Integer r = nodeRankIndex.get(pf);
+        return r != null && r < k;
     }
 
     private boolean isEdgeInTopPct(Edge e, double pct) {
