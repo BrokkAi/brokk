@@ -280,7 +280,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
         // Special handling for Java lambdas: synthesize a bytecode-style anonymous name
         if (LAMBDA_EXPRESSION.equals(decl.getType())) {
-            var enclosingMethod = findEnclosingJavaMethodName(decl, src).orElse("lambda");
+            var enclosingMethod = findEnclosingJavaMethodOrClassName(decl, src).orElse("lambda");
             int line = decl.getStartPoint().getRow();
             int col = 0;
             try {
@@ -295,7 +295,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
         return super.extractSimpleName(decl, src);
     }
 
-    private Optional<String> findEnclosingJavaMethodName(TSNode node, String src) {
+    private Optional<String> findEnclosingJavaMethodOrClassName(TSNode node, String src) {
         // Walk up to nearest method or constructor
         TSNode current = node.getParent();
         while (current != null && !current.isNull()) {
@@ -316,7 +316,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
         // Fallback: if inside an initializer, try nearest class-like to use its name
         current = node.getParent();
         while (current != null && !current.isNull()) {
-            if (JAVA_SYNTAX_PROFILE.classLikeNodeTypes().contains(current.getType())) {
+            if (isClassLike(current)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
                     String cls = textSlice(nameNode, src).strip();
