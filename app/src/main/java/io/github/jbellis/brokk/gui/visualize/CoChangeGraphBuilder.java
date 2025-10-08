@@ -167,11 +167,26 @@ public class CoChangeGraphBuilder {
             progressConsumer.accept(new Progress("Processed " + idx + " / " + max + " commits", idx, max));
         }
 
-        // Materialize edges
+        // Materialize edges, keeping only those with weight >= median
         Map<Graph.Pair, Edge> edges = new HashMap<>();
+
+        int rawEdgeCount = weightMap.size();
+        int medianThreshold;
+        if (rawEdgeCount == 0) {
+            medianThreshold = Integer.MAX_VALUE; // no edges to keep
+        } else {
+            var weights = new ArrayList<Integer>(weightMap.values());
+            weights.sort(Integer::compareTo); // ascending
+            // Use upper median for even counts so that we keep at most half if distribution is uniform
+            medianThreshold = weights.get(9 * weights.size() / 10);
+        }
+
         for (var e : weightMap.entrySet()) {
-            var pair = e.getKey();
-            edges.put(pair, new Edge(pair.a(), pair.b(), e.getValue()));
+            int w = e.getValue();
+            if (w >= medianThreshold) {
+                var pair = e.getKey();
+                edges.put(pair, new Edge(pair.a(), pair.b(), w));
+            }
         }
 
         // Initialize node positions to a non-degenerate layout (golden-angle spiral)
