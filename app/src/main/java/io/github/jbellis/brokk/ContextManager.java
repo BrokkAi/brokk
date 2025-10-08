@@ -319,45 +319,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var migrationFuture = migrateToSessionsV3IfNeeded();
         if (!project.getRepo().isWorktree() && !MainProject.getBrokkKey().isBlank()) {
-            migrationFuture.whenComplete((v, t) -> uploadAndSyncSessions(sessionManager));
+            migrationFuture.whenComplete((v, t) -> startPeriodicSessionSync(sessionManager));
         }
     }
 
-    private void uploadAndSyncSessions(SessionManager sessionManager) {
-        var uploadSessionsPendingSynchronization = submitBackgroundTask("Upload sessions pending sync", () -> {
-            try {
-                sessionManager.uploadDirtySessionsToRemote();
-            } catch (Exception e) {
-                logger.warn("Failed to upload dirty sessions to remote: {}", e.getMessage());
-            }
-        });
-
-        uploadSessionsPendingSynchronization.whenComplete((v, t) -> {
-            var syncRemoteSessions = submitBackgroundTask("Sync remote sessions", () -> {
-                try {
-                    var sessionsChanged = project.getSessionManager().synchronizeRemoteSessions();
-                    if (sessionsChanged) {
-                        project.getMainProject().sessionsListChanged();
-                    }
-                } catch (Exception e) {
-                    logger.warn("Remote session sync failed: {}", e.getMessage());
-                }
-            });
-            syncRemoteSessions.whenComplete((v2, t2) -> startPeriodicSessionUpload(sessionManager));
-        });
-    }
-
-    private void startPeriodicSessionUpload(SessionManager sessionManager) {
-        logger.debug("Starting periodic session upload every 30 seconds.");
-        periodicTasks.scheduleAtFixedRate(
+    private void startPeriodicSessionSync(SessionManager sessionManager) {
+        logger.debug("Starting periodic session sync every 30 seconds.");
+        periodicTasks.scheduleWithFixedDelay(
                 () -> {
                     try {
-                        sessionManager.uploadDirtySessionsToRemote();
+                        sessionManager.synchronizeRemoteSessions();
+                        project.getMainProject().sessionsListChanged();
                     } catch (Exception e) {
-                        logger.warn("Periodic session upload failed: {}", e.getMessage());
+                        logger.warn("Session sync failed: {}", e.getMessage());
                     }
                 },
-                30,
+                0,
                 30,
                 TimeUnit.SECONDS);
     }
@@ -1547,6 +1524,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
         }
+    }
+
+    public void reloadCurrentSessionAsync() {
+        switchSessionAsync(getCurrentSessionId());
     }
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();

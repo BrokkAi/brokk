@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -1137,7 +1139,7 @@ public class Service {
         }
     }
 
-    // Metadata for remote sessions (lenient; unknown fields ignored)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record RemoteSessionMeta(
             String id,
             @JsonProperty("user_id") String userId,
@@ -1147,36 +1149,22 @@ public class Service {
             String sharing,
             @JsonProperty("created_at") String createdAt,
             @JsonProperty("updated_at") String updatedAt,
-            @JsonProperty("deleted_at") @Nullable String deletedAt) {}
+            @JsonProperty("modified_at") String modifiedAt,
+            @JsonProperty("deleted_at") @Nullable String deletedAt) {
+
+        public long modifiedAtMillis() {
+            return Instant.parse(modifiedAt).toEpochMilli();
+        }
+    }
 
     // Separate mapper configured to ignore unknown properties
     private static final ObjectMapper SESSION_OBJECT_MAPPER = new ObjectMapper()
             .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    // Cache for remote sessions
-    @Nullable
-    private static volatile List<RemoteSessionMeta> lastRemoteSessions = null;
-
     private static @Nullable String sessionAuthHeader() {
         String key = MainProject.getBrokkKey();
         if (key.isBlank()) return null;
         return "Bearer " + key;
-    }
-
-    public static List<RemoteSessionMeta> getLastRemoteSessions(String remote) throws IOException {
-        var sessions = lastRemoteSessions;
-        if (sessions == null) {
-            try {
-                return listRemoteSessions(remote); // this updates the cache
-            } catch (Exception e) {
-                log.warn("Failed to list remote sessions", e);
-                sessions = List.of();
-                // To prevent further attempts to list sessions for functionalities that
-                // don't strictly require the current state on the server
-                lastRemoteSessions = sessions;
-            }
-        }
-        return sessions;
     }
 
     public static List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
@@ -1186,7 +1174,8 @@ public class Service {
             throw new IOException("listRemoteSessions failed: missing auth or remote");
         }
         String url = MainProject.getServiceUrl() + "/api/sessions?remote="
-                + URLEncoder.encode(remote, StandardCharsets.UTF_8);
+                + URLEncoder.encode(remote, StandardCharsets.UTF_8)
+                + "&include_deleted=true";
         Request request = builder.url(url).get().build();
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
@@ -1195,9 +1184,7 @@ public class Service {
             }
             String body = response.body() != null ? response.body().string() : "[]";
             RemoteSessionMeta[] arr = SESSION_OBJECT_MAPPER.readValue(body, RemoteSessionMeta[].class);
-            var result = Arrays.asList(arr);
-            lastRemoteSessions = result;
-            return result;
+            return Arrays.asList(arr);
         }
     }
 
@@ -1217,8 +1204,8 @@ public class Service {
         }
     }
 
-    public static RemoteSessionMeta writeRemoteSession(UUID id, String remote, String name, byte[] contentZip)
-            throws IOException {
+    public static RemoteSessionMeta writeRemoteSession(
+            UUID id, String remote, String name, long modifiedAt, byte[] contentZip) throws IOException {
         var builder = BrokkHttp.sessionServiceRequest();
         if (builder == null || remote.isBlank()) {
             throw new IOException("Missing auth or remote for writeRemoteSession");
@@ -1228,7 +1215,8 @@ public class Service {
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("id", id.toString())
                 .addFormDataPart("remote", remote)
-                .addFormDataPart("name", name);
+                .addFormDataPart("name", name)
+                .addFormDataPart("modified_at", String.valueOf(modifiedAt));
         bodyBuilder.addFormDataPart(
                 "content", "session.zip", RequestBody.create(contentZip, MediaType.parse("application/zip")));
         Request request = builder.url(url).post(bodyBuilder.build()).build();
