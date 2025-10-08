@@ -351,6 +351,71 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
+     * Critical test: Verify git operations in subdirectory only affect subdirectory files.
+     * When opening a subdirectory, git add/commit should be scoped to that subdirectory,
+     * not the entire repository.
+     */
+    @Test
+    void testSubdirectoryProject_GitOperationsScoped() throws Exception {
+        Path subdirPath = repoRoot.resolve("subproject");
+        subdirProject = AbstractProject.createProject(subdirPath, null);
+        var gitRepo = (GitRepo) subdirProject.getRepo();
+
+        // Create new files: one in subdirectory, one outside
+        Path fileInSubdir = subdirPath.resolve("new-file-in-subdir.txt");
+        Path fileOutsideSubdir = repoRoot.resolve("new-file-at-root.txt");
+        Files.writeString(fileInSubdir, "content in subdir");
+        Files.writeString(fileOutsideSubdir, "content at root");
+
+        System.out.println("=== testSubdirectoryProject_GitOperationsScoped ===");
+
+        // Try to add both files
+        try {
+            gitRepo.add(fileInSubdir);
+            System.out.println("✓ Can add file inside subdirectory");
+        } catch (Exception e) {
+            System.out.println("✗ Cannot add file inside subdirectory: " + e.getMessage());
+        }
+
+        try {
+            gitRepo.add(fileOutsideSubdir);
+            System.out.println("✓ Can add file outside subdirectory");
+        } catch (Exception e) {
+            System.out.println("✗ Cannot add file outside subdirectory: " + e.getMessage());
+        }
+
+        // Check what files are tracked after add
+        var trackedFiles = gitRepo.getTrackedFiles();
+        var trackedNames = trackedFiles.stream()
+                .map(f -> f.absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+
+        System.out.println("Tracked files after add: " + trackedNames);
+        System.out.println("Contains new-file-in-subdir.txt: " + trackedNames.contains("new-file-in-subdir.txt"));
+        System.out.println("Contains new-file-at-root.txt: " + trackedNames.contains("new-file-at-root.txt"));
+
+        // Document the behavior
+        boolean subdirFileVisible = trackedNames.contains("new-file-in-subdir.txt");
+        boolean rootFileVisible = trackedNames.contains("new-file-at-root.txt");
+
+        if (subdirFileVisible && !rootFileVisible) {
+            System.out.println("BEHAVIOR: Git operations are scoped to subdirectory ✓");
+        } else if (subdirFileVisible && rootFileVisible) {
+            System.out.println("BEHAVIOR: Git operations affect entire repo (may need scoping)");
+        }
+
+        // Assert the expected behavior: when opening a subdirectory,
+        // only files within that subdirectory should be visible/trackable
+        assertTrue(
+                subdirFileVisible,
+                "File added in subdirectory should be visible in getTrackedFiles()");
+        assertFalse(
+                rootFileVisible,
+                "File added outside subdirectory should NOT be visible in getTrackedFiles() - "
+                        + "git operations should be scoped to the opened subdirectory");
+    }
+
+    /**
      * Tests that worktrees correctly use the main repository's config location.
      * This is existing functionality that should continue to work.
      */
