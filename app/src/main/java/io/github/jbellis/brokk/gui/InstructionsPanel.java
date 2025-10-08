@@ -1124,9 +1124,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dependenciesButton.setToolTipText("Manage project dependencies");
         dependenciesButton.setFocusable(false);
         dependenciesButton.setOpaque(false);
-        dependenciesButton.addActionListener(e -> {
-            chrome.showDependenciesTab();
-        });
+        dependenciesButton.addActionListener(e -> chrome.showDependenciesTab());
         dependenciesButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         bottomPanel.add(dependenciesButton);
         bottomPanel.add(Box.createHorizontalStrut(4));
