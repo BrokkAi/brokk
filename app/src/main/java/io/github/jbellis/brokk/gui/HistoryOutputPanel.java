@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
@@ -1512,6 +1513,15 @@ public class HistoryOutputPanel extends JPanel {
                 leftPanel.add(msgLabel);
                 card.add(leftPanel, BorderLayout.CENTER);
 
+                // Clicking on the message area opens a detail view
+                leftPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                leftPanel.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseClicked(MouseEvent e) {
+                        showFullNotificationMessage(n);
+                    }
+                });
+
                 // Right: close button (half size)
                 var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
                 actions.setOpaque(false);
@@ -1559,6 +1569,37 @@ public class HistoryOutputPanel extends JPanel {
         }
         listPanel.revalidate();
         listPanel.repaint();
+    }
+
+    private void showFullNotificationMessage(NotificationEntry notification) {
+        var dialog = new JDialog(notificationsDialog, "Notification Details", true);
+        dialog.setLayout(new BorderLayout());
+
+        var textArea = new JTextArea(notification.message);
+        textArea.setWrapStyleWord(true);
+        textArea.setLineWrap(true);
+        textArea.setEditable(false);
+        textArea.setOpaque(false);
+        textArea.setBorder(new EmptyBorder(10, 10, 10, 10));
+        textArea.setFont(UIManager.getFont("Label.font"));
+
+        var scrollPane = new JScrollPane(textArea);
+        scrollPane.setBorder(null);
+        scrollPane.setPreferredSize(new Dimension(500, 300));
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var okButton = new MaterialButton("OK");
+        okButton.addActionListener(e -> dialog.dispose());
+        SwingUtil.applyPrimaryButtonStyle(okButton);
+        buttonPanel.add(okButton);
+        buttonPanel.setBorder(new EmptyBorder(5, 10, 5, 10));
+
+        dialog.add(scrollPane, BorderLayout.CENTER);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(notificationsDialog);
+        dialog.setVisible(true);
     }
 
     // Simple container for notifications
