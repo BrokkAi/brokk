@@ -34,9 +34,9 @@ public final class CoChangePhysicsLayout {
 
     // Simulation constants
     private static final int NUM_STEPS = 20;
-    private static final double NATURAL_LENGTH = 80.0; // pixels
+    private static final double NATURAL_LENGTH = 500.0; // pixels
     private static final double SPRING_K = 0.05; // base spring constant (scaled by sqrt(weight))
-    private static final double REPULSION_K = 500.0; // inverse-distance repulsion constant
+    private static final double REPULSION_K = 1000.0; // inverse-distance repulsion constant
     private static final double DAMPING = 0.85; // velocity damping per step
     private static final int MAX_NEIGHBORS_AXIS = 20; // nearest-by-x and nearest-by-y
     private static final double EPS = 1e-6; // numerical stability

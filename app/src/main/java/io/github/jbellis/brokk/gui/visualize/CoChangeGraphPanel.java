@@ -15,6 +15,9 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.JPanel;
@@ -39,6 +42,23 @@ public class CoChangeGraphPanel extends JPanel {
     private static final float EDGE_MIN_WIDTH = 1.0f;
     private static final float EDGE_MAX_WIDTH = 6.0f;
 
+    // Progressive LOD thresholds and zoom presets (5 levels: 10%, 20%, 30%, 50%, 100%)
+    public static final double MIN_SCALE = 0.2;
+    public static final double MAX_SCALE = 6.0;
+
+    // Preset zoom levels: each 1.5x the previous, starting at 0.4
+    public static final double TARGET_SCALE_10 = 0.4;
+    public static final double TARGET_SCALE_20 = 0.6;       // 1.5x
+    public static final double TARGET_SCALE_30 = 0.9;       // 1.5x
+    public static final double TARGET_SCALE_50 = 1.35;      // 1.5x
+    public static final double TARGET_SCALE_ALL = 2.025;    // 1.5x
+
+    // Boundaries between levels (midpoints)
+    private static final double BOUND_10_20 = (TARGET_SCALE_10 + TARGET_SCALE_20) / 2.0;   // 0.5
+    private static final double BOUND_20_30 = (TARGET_SCALE_20 + TARGET_SCALE_30) / 2.0;   // 0.75
+    private static final double BOUND_30_50 = (TARGET_SCALE_30 + TARGET_SCALE_50) / 2.0;   // 1.125
+    private static final double BOUND_50_ALL = (TARGET_SCALE_50 + TARGET_SCALE_ALL) / 2.0; // 1.6875
+
     // File-size → radius mapping:
     // Target: 100 KiB -> diameter ~ 50 px -> radius ~ 25 px, with area proportional to bytes.
     private static final double REFERENCE_BYTES = 102400.0; // 100 KiB
@@ -62,6 +82,10 @@ public class CoChangeGraphPanel extends JPanel {
     // One-time paint stats logging to avoid log spam
     private volatile boolean firstPaintLogged = false;
 
+    // Adjacency cache for Top-K edge filtering (rebuilt when graph changes)
+    private volatile @Nullable Graph adjacencyCacheGraphRef = null;
+    private Map<ProjectFile, List<Edge>> adjacencySorted = Map.of();
+
     public CoChangeGraphPanel() {
         setOpaque(true);
         setBackground(Color.WHITE);
@@ -72,6 +96,10 @@ public class CoChangeGraphPanel extends JPanel {
     public void setGraph(Graph g) {
         assert SwingUtilities.isEventDispatchThread() : "setGraph must be called on EDT";
         this.graph = g;
+        // Invalidate adjacency cache on graph change
+        this.adjacencyCacheGraphRef = null;
+        this.adjacencySorted = Map.of();
+
         if (logger.isDebugEnabled()) {
             logger.debug("setGraph: nodes={}, edges={}", g.nodes.size(), g.edges.size());
         }
@@ -103,6 +131,13 @@ public class CoChangeGraphPanel extends JPanel {
 
         var localGraph = this.graph;
 
+        // Determine current LOD based on zoom
+        double scale = getScale();
+        double topPct = determinePctForScale(scale);
+        if (topPct < 1.0) {
+            ensureAdjacencyCache(localGraph);
+        }
+
         // One-time paint-time debug: stats about positions
         if (!firstPaintLogged && logger.isDebugEnabled()) {
             int n = localGraph.nodes.size();
@@ -128,9 +163,12 @@ public class CoChangeGraphPanel extends JPanel {
             firstPaintLogged = true;
         }
 
-        // Draw edges first
+        // Draw edges first (progressive LOD)
         g2.setColor(EDGE_COLOR);
         for (var e : localGraph.edges.values()) {
+            if (topPct < 1.0 && !isEdgeInTopPct(e, topPct)) {
+                continue;
+            }
             var na = localGraph.nodes.get(e.a());
             var nb = localGraph.nodes.get(e.b());
             if (na == null || nb == null) {
@@ -209,6 +247,26 @@ public class CoChangeGraphPanel extends JPanel {
         return Math.max(lo, Math.min(hi, v));
     }
 
+    // Returns {cx, cy} of current graph nodes or null if empty
+    private @Nullable double[] computeCentroid() {
+        var g = this.graph;
+        if (g.nodes.isEmpty()) {
+            return null;
+        }
+        double sumX = 0.0;
+        double sumY = 0.0;
+        int n = 0;
+        for (var nd : g.nodes.values()) {
+            sumX += nd.x;
+            sumY += nd.y;
+            n++;
+        }
+        if (n == 0) {
+            return null;
+        }
+        return new double[] { sumX / n, sumY / n };
+    }
+
     private void installInteractions() {
         var mouse = new MouseAdapter() {
             @Override
@@ -256,15 +314,19 @@ public class CoChangeGraphPanel extends JPanel {
 
     private void zoomAt(Point anchorScreen, double scale) {
         // Keep the point under the cursor fixed during zoom
+        double current = getScale();
+        double target = clamp(current * scale, MIN_SCALE, MAX_SCALE);
+        double factor = target / (current == 0.0 ? 1.0 : current);
+
         viewTx.translate(anchorScreen.x, anchorScreen.y);
-        viewTx.scale(scale, scale);
+        viewTx.scale(factor, factor);
         viewTx.translate(-anchorScreen.x, -anchorScreen.y);
         if (logger.isDebugEnabled()) {
             logger.debug(
                     "zoomAt: anchor=({},{}), factor={}, scale=({},{}), translate=({}, {})",
                     anchorScreen.x,
                     anchorScreen.y,
-                    scale,
+                    factor,
                     viewTx.getScaleX(),
                     viewTx.getScaleY(),
                     viewTx.getTranslateX(),
@@ -284,8 +346,91 @@ public class CoChangeGraphPanel extends JPanel {
             w = pref.width;
             h = pref.height;
         }
+        var centroid = computeCentroid();
+        // First move origin to screen center
         viewTx.translate(w / 2.0, h / 2.0);
-        logger.debug("resetView: centered origin at ({}, {})", (w / 2.0), (h / 2.0));
+        // Then offset by negative centroid so centroid maps to center
+        if (centroid != null) {
+            viewTx.translate(-centroid[0], -centroid[1]);
+            logger.debug(
+                    "resetView: centered centroid at screen center; centroid=({}, {}), panel=({}, {})",
+                    String.format("%.2f", centroid[0]),
+                    String.format("%.2f", centroid[1]),
+                    w,
+                    h);
+        } else {
+            logger.debug("resetView: centered origin at ({}, {})", (w / 2.0), (h / 2.0));
+        }
         repaint();
+    }
+
+    public double getScale() {
+        return viewTx.getScaleX();
+    }
+
+    public void zoomByCenter(double factor) {
+        var center = new Point(getWidth() / 2, getHeight() / 2);
+        zoomAt(center, factor);
+    }
+
+    public void zoomToScale(double targetScale) {
+        double clamped = clamp(targetScale, MIN_SCALE, MAX_SCALE);
+        double current = getScale();
+        if (Math.abs(clamped - current) < 1e-6) {
+            return;
+        }
+        double factor = clamped / (current == 0.0 ? 1.0 : current);
+        zoomByCenter(factor);
+    }
+
+    private double determinePctForScale(double scale) {
+        if (scale < BOUND_10_20) return 0.10;
+        if (scale < BOUND_20_30) return 0.20;
+        if (scale < BOUND_30_50) return 0.30;
+        if (scale < BOUND_50_ALL) return 0.50;
+        return 1.0; // all
+    }
+
+    private void ensureAdjacencyCache(Graph g) {
+        if (adjacencyCacheGraphRef == g && !adjacencySorted.isEmpty()) {
+            return;
+        }
+        var map = new HashMap<ProjectFile, List<Edge>>(g.nodes.size());
+        // Initialize lists
+        for (var pf : g.nodes.keySet()) {
+            map.put(pf, new ArrayList<>());
+        }
+        // Populate adjacency with existing Edge instances
+        for (var e : g.edges.values()) {
+            map.computeIfAbsent(e.a(), k -> new ArrayList<>()).add(e);
+            map.computeIfAbsent(e.b(), k -> new ArrayList<>()).add(e);
+        }
+        // Sort by descending weight
+        for (var entry : map.entrySet()) {
+            entry.getValue().sort((e1, e2) -> Integer.compare(e2.weight(), e1.weight()));
+        }
+        adjacencySorted = map;
+        adjacencyCacheGraphRef = g;
+        if (logger.isDebugEnabled()) {
+            logger.debug("Adjacency cache built: nodes={}, edges={}", g.nodes.size(), g.edges.size());
+        }
+    }
+
+    private boolean isEdgeInTopPct(Edge e, double pct) {
+        if (pct >= 1.0) return true;
+        var la = adjacencySorted.get(e.a());
+        var lb = adjacencySorted.get(e.b());
+        if (la == null && lb == null) return false;
+        return inFirstPct(la, e, pct) || inFirstPct(lb, e, pct);
+    }
+
+    private static boolean inFirstPct(@Nullable List<Edge> list, Edge e, double pct) {
+        if (list == null || list.isEmpty()) return false;
+        int k = Math.max(1, (int) Math.ceil(list.size() * pct));
+        int limit = Math.min(k, list.size());
+        for (int i = 0; i < limit; i++) {
+            if (e.equals(list.get(i))) return true;
+        }
+        return false;
     }
 }

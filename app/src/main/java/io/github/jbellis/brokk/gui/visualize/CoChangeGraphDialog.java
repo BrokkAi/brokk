@@ -48,6 +48,16 @@ public class CoChangeGraphDialog extends JDialog {
     private final MaterialButton doneButton = new MaterialButton("Done");
     private final MaterialButton cancelButton = new MaterialButton("Cancel");
 
+    // Zoom / LOD controls
+    private final JPanel controlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+    private final MaterialButton zoomOutBtn = new MaterialButton("-");
+    private final MaterialButton p10Btn = new MaterialButton("10%");
+    private final MaterialButton p20Btn = new MaterialButton("20%");
+    private final MaterialButton p30Btn = new MaterialButton("30%");
+    private final MaterialButton p50Btn = new MaterialButton("50%");
+    private final MaterialButton allBtn = new MaterialButton("All");
+    private final MaterialButton zoomInBtn = new MaterialButton("+");
+
     // Async orchestration
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private volatile CompletableFuture<Graph> pipelineFuture = new CompletableFuture<>();
@@ -62,10 +72,14 @@ public class CoChangeGraphDialog extends JDialog {
         // Initialize progress UI
         initProgressPanel();
 
+        // Controls toolbar (zoom + LOD presets)
+        initControlsPanel();
+
         // Center content starts with progress view
         centerPanel.add(progressPanel, "progress");
         centerPanel.add(graphPanel, "graph");
         add(centerPanel, BorderLayout.CENTER);
+        add(controlsPanel, BorderLayout.NORTH);
         cardLayout.show(centerPanel, "progress");
 
         // Buttons panel (primary Done + Cancel as per style guide)
@@ -124,6 +138,34 @@ public class CoChangeGraphDialog extends JDialog {
 
         progressPanel.add(north, BorderLayout.NORTH);
         progressPanel.add(center, BorderLayout.CENTER);
+    }
+
+    private void initControlsPanel() {
+        controlsPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 0, 8));
+
+        zoomOutBtn.setToolTipText("Zoom out");
+        p10Btn.setToolTipText("Zoom to Top 10% edges");
+        p20Btn.setToolTipText("Zoom to Top 20% edges");
+        p30Btn.setToolTipText("Zoom to Top 30% edges");
+        p50Btn.setToolTipText("Zoom to Top 50% edges");
+        allBtn.setToolTipText("Zoom to show all edges");
+        zoomInBtn.setToolTipText("Zoom in");
+
+        zoomOutBtn.addActionListener(e -> graphPanel.zoomByCenter(1.0 / 1.2));
+        p10Btn.addActionListener(e -> graphPanel.zoomToScale(CoChangeGraphPanel.TARGET_SCALE_10));
+        p20Btn.addActionListener(e -> graphPanel.zoomToScale(CoChangeGraphPanel.TARGET_SCALE_20));
+        p30Btn.addActionListener(e -> graphPanel.zoomToScale(CoChangeGraphPanel.TARGET_SCALE_30));
+        p50Btn.addActionListener(e -> graphPanel.zoomToScale(CoChangeGraphPanel.TARGET_SCALE_50));
+        allBtn.addActionListener(e -> graphPanel.zoomToScale(CoChangeGraphPanel.TARGET_SCALE_ALL));
+        zoomInBtn.addActionListener(e -> graphPanel.zoomByCenter(1.2));
+
+        controlsPanel.add(zoomOutBtn);
+        controlsPanel.add(p10Btn);
+        controlsPanel.add(p20Btn);
+        controlsPanel.add(p30Btn);
+        controlsPanel.add(p50Btn);
+        controlsPanel.add(allBtn);
+        controlsPanel.add(zoomInBtn);
     }
 
     private void startAsyncWork() {
@@ -194,6 +236,8 @@ public class CoChangeGraphDialog extends JDialog {
         graphPanel.setGraph(graph);
         cardLayout.show(centerPanel, "graph");
         graphPanel.resetView();
+        // Start maximally zoomed out on first show
+        graphPanel.zoomToScale(CoChangeGraphPanel.TARGET_SCALE_10);
         doneButton.setEnabled(true);
         cancelButton.setText("Close");
     }
