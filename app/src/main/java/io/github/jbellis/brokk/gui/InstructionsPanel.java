@@ -22,7 +22,6 @@ import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
 import io.github.jbellis.brokk.gui.components.TokenUsageBar;
-import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
@@ -1125,20 +1124,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(attachButton);
         bottomPanel.add(Box.createHorizontalStrut(4));
 
-        // Dependencies button
-        var dependenciesButton = new MaterialButton();
-        SwingUtilities.invokeLater(() -> dependenciesButton.setIcon(Icons.MANAGE_DEPENDENCIES));
-        dependenciesButton.setToolTipText("Manage project dependencies");
-        dependenciesButton.setFocusable(false);
-        dependenciesButton.setOpaque(false);
-        dependenciesButton.addActionListener(e -> {
-            var panel = new DependenciesDrawerPanel(chrome);
-            chrome.showPreviewFrame(contextManager, "Manage Dependencies", panel);
-            panel.openPanel();
-        });
-        dependenciesButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(dependenciesButton);
-        bottomPanel.add(Box.createHorizontalStrut(4));
         // Wand button (Magic Ask) on the right
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Size set after fixedHeight is computed below
@@ -1181,9 +1166,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         attachButton.setPreferredSize(iconButtonSize);
         attachButton.setMinimumSize(iconButtonSize);
         attachButton.setMaximumSize(iconButtonSize);
-        dependenciesButton.setPreferredSize(iconButtonSize);
-        dependenciesButton.setMinimumSize(iconButtonSize);
-        dependenciesButton.setMaximumSize(iconButtonSize);
         wandButton.setPreferredSize(iconButtonSize);
         wandButton.setMinimumSize(iconButtonSize);
         wandButton.setMaximumSize(iconButtonSize);
