@@ -98,21 +98,6 @@ public class MonorepoSubdirectoryTest {
         Path masterConfigPath = subdirProject.getMasterRootPathForConfig();
         Path projectRoot = subdirProject.getRoot();
 
-        System.out.println("=== testSubdirectoryProject_WhereIsConfig ===");
-        System.out.println("Git repo root: " + repoRoot);
-        System.out.println("Project root: " + projectRoot);
-        System.out.println("Master config path: " + masterConfigPath);
-        System.out.println("Expected config path: " + repoRoot);
-        System.out.println("projectRoot equals masterConfigPath: " + projectRoot.equals(masterConfigPath));
-        System.out.println("repoRoot equals masterConfigPath: " + repoRoot.equals(masterConfigPath));
-
-        // Document current behavior
-        if (projectRoot.equals(masterConfigPath)) {
-            System.out.println("CURRENT BEHAVIOR: Config stored in subdirectory (likely wrong)");
-        } else if (repoRoot.equals(masterConfigPath)) {
-            System.out.println("CURRENT BEHAVIOR: Config stored at git root (correct)");
-        }
-
         // Expected behavior: config should be at git root for subdirectory projects
         assertEquals(
                 repoRoot.toAbsolutePath().normalize(),
@@ -135,12 +120,6 @@ public class MonorepoSubdirectoryTest {
 
         Path expectedBrokkDir = repoRoot.resolve(".brokk");
         Path wrongBrokkDir = subdirPath.resolve(".brokk");
-
-        System.out.println("=== testSubdirectoryProject_PhysicalConfigLocation ===");
-        System.out.println("Expected .brokk at: " + expectedBrokkDir);
-        System.out.println("Wrong .brokk at: " + wrongBrokkDir);
-        System.out.println("Exists at root: " + Files.exists(expectedBrokkDir));
-        System.out.println("Exists at subdirectory: " + Files.exists(wrongBrokkDir));
 
         // Config files should be created at git root
         assertTrue(Files.exists(expectedBrokkDir), ".brokk should exist at git root");
@@ -167,11 +146,6 @@ public class MonorepoSubdirectoryTest {
 
         Path expectedHistoryDir = repoRoot.resolve(".brokk").resolve("llm-history");
         Path wrongHistoryDir = subdirPath.resolve(".brokk").resolve("llm-history");
-
-        System.out.println("=== testSubdirectoryProject_LlmHistoryLocation ===");
-        System.out.println("Expected llm-history at: " + expectedHistoryDir);
-        System.out.println("Wrong llm-history at: " + wrongHistoryDir);
-        System.out.println("Actual historyDir: " + historyDir);
 
         // LLM history should be at git root
         assertEquals(expectedHistoryDir, historyDir, "llm-history should be at git repository root");
@@ -203,9 +177,6 @@ public class MonorepoSubdirectoryTest {
         Files.writeString(gitignoreFile, ".brokk/\n");
         Files.writeString(brokkFile, "test");
 
-        System.out.println("=== testSubdirectoryProject_GitAddFilesAtRoot ===");
-        System.out.println("Testing add operations with files at git root...");
-
         // The key test: These add operations should succeed
         // Previously would fail or create incorrect paths due to using repository.getWorkTree()
         // instead of gitTopLevel for path relativization
@@ -214,8 +185,6 @@ public class MonorepoSubdirectoryTest {
         assertDoesNotThrow(
                 () -> gitRepo.add(List.of(new ProjectFile(repoRoot, ".brokk/test.txt"))),
                 "Should be able to add .brokk/test.txt from git root using ProjectFile");
-
-        System.out.println("Successfully added files from git root without path errors");
     }
 
     /**
@@ -230,9 +199,6 @@ public class MonorepoSubdirectoryTest {
         Set<ProjectFile> trackedFiles = subdirProject.getRepo().getTrackedFiles();
         Set<String> fileNames =
                 trackedFiles.stream().map(ProjectFile::getFileName).collect(Collectors.toSet());
-
-        System.out.println("=== testSubdirectoryProject_TrackedFilesFiltering ===");
-        System.out.println("Tracked files: " + fileNames);
 
         // Should only see files in subproject, not root-file.txt or files in another-subproject
         assertTrue(fileNames.contains("sub-file1.txt"), "Should contain sub-file1.txt");
@@ -262,12 +228,6 @@ public class MonorepoSubdirectoryTest {
             Path config1 = project1.getMasterRootPathForConfig();
             Path config2 = project2.getMasterRootPathForConfig();
 
-            System.out.println("=== testSubdirectoryProject_ConfigSharing ===");
-            System.out.println("Subdir1 config path: " + config1);
-            System.out.println("Subdir2 config path: " + config2);
-            System.out.println("Git repo root: " + repoRoot);
-            System.out.println("Configs are equal: " + config1.equals(config2));
-
             // Both should share the same config location (git root)
             assertEquals(config1, config2, "Both subdirectories should share the same config location");
             assertEquals(
@@ -291,10 +251,6 @@ public class MonorepoSubdirectoryTest {
         Path masterConfigPath = rootProject.getMasterRootPathForConfig();
         Path projectRoot = rootProject.getRoot();
 
-        System.out.println("=== testRegularProject_AtGitRoot ===");
-        System.out.println("Project root: " + projectRoot);
-        System.out.println("Master config path: " + masterConfigPath);
-
         // For a regular project at git root, both should be the same
         assertEquals(
                 projectRoot.toAbsolutePath().normalize(),
@@ -317,9 +273,6 @@ public class MonorepoSubdirectoryTest {
         Set<String> fileNames =
                 trackedFiles.stream().map(ProjectFile::getFileName).collect(Collectors.toSet());
 
-        System.out.println("=== testRegularProject_AllFilesVisible ===");
-        System.out.println("Tracked files: " + fileNames);
-
         // Should see ALL files when opening at root
         assertTrue(fileNames.contains("root-file.txt"), "Should contain root-file.txt");
         assertTrue(fileNames.contains("sub-file1.txt"), "Should contain sub-file1.txt");
@@ -341,13 +294,8 @@ public class MonorepoSubdirectoryTest {
         Path testFile = repoRoot.resolve("test-file.txt");
         Files.writeString(testFile, "test content");
 
-        System.out.println("=== testRegularProject_GitOperations ===");
-        System.out.println("Testing git add at root...");
-
         // Git operations should work normally
         assertDoesNotThrow(() -> gitRepo.add(testFile), "Should be able to add file at git root");
-
-        System.out.println("Successfully added file at git root");
     }
 
     /**
@@ -367,22 +315,9 @@ public class MonorepoSubdirectoryTest {
         Files.writeString(fileInSubdir, "content in subdir");
         Files.writeString(fileOutsideSubdir, "content at root");
 
-        System.out.println("=== testSubdirectoryProject_GitOperationsScoped ===");
-
         // Try to add both files
-        try {
-            gitRepo.add(fileInSubdir);
-            System.out.println("✓ Can add file inside subdirectory");
-        } catch (Exception e) {
-            System.out.println("✗ Cannot add file inside subdirectory: " + e.getMessage());
-        }
-
-        try {
-            gitRepo.add(fileOutsideSubdir);
-            System.out.println("✓ Can add file outside subdirectory");
-        } catch (Exception e) {
-            System.out.println("✗ Cannot add file outside subdirectory: " + e.getMessage());
-        }
+        gitRepo.add(fileInSubdir);
+        gitRepo.add(fileOutsideSubdir);
 
         // Check what files are tracked after add
         var trackedFiles = gitRepo.getTrackedFiles();
@@ -390,19 +325,8 @@ public class MonorepoSubdirectoryTest {
                 .map(f -> f.absPath().getFileName().toString())
                 .collect(Collectors.toSet());
 
-        System.out.println("Tracked files after add: " + trackedNames);
-        System.out.println("Contains new-file-in-subdir.txt: " + trackedNames.contains("new-file-in-subdir.txt"));
-        System.out.println("Contains new-file-at-root.txt: " + trackedNames.contains("new-file-at-root.txt"));
-
-        // Document the behavior
         boolean subdirFileVisible = trackedNames.contains("new-file-in-subdir.txt");
         boolean rootFileVisible = trackedNames.contains("new-file-at-root.txt");
-
-        if (subdirFileVisible && !rootFileVisible) {
-            System.out.println("BEHAVIOR: Git operations are scoped to subdirectory ✓");
-        } else if (subdirFileVisible && rootFileVisible) {
-            System.out.println("BEHAVIOR: Git operations affect entire repo (may need scoping)");
-        }
 
         // Assert the expected behavior: when opening a subdirectory,
         // only files within that subdirectory should be visible/trackable
@@ -413,6 +337,41 @@ public class MonorepoSubdirectoryTest {
                 rootFileVisible,
                 "File added outside subdirectory should NOT be visible in getTrackedFiles() - "
                         + "git operations should be scoped to the opened subdirectory");
+    }
+
+    /**
+     * Verify that build commands execute in the subdirectory, not at git root.
+     * This is correct for monorepos where each package has its own build config.
+     */
+    @Test
+    void testSubdirectoryProject_BuildDirectoryIsSubdir() throws Exception {
+        Path subdirPath = repoRoot.resolve("subproject");
+        subdirProject = AbstractProject.createProject(subdirPath, null);
+
+        // The project root should be the subdirectory
+        Path projectRoot = subdirProject.getRoot();
+
+        // When opening a subdirectory, getRoot() should return the subdirectory
+        // This is where build commands will execute
+        assertEquals(subdirPath, projectRoot, "Project root should be the subdirectory, not git root");
+        assertNotEquals(
+                repoRoot,
+                projectRoot,
+                "Build directory (project root) should be subdirectory, not git root - "
+                        + "this allows each package in a monorepo to have its own build config");
+    }
+
+    /**
+     * Verify that for regular projects, build directory IS the git root.
+     */
+    @Test
+    void testRegularProject_BuildDirectoryIsGitRoot() throws Exception {
+        rootProject = AbstractProject.createProject(repoRoot, null);
+
+        Path projectRoot = rootProject.getRoot();
+
+        // For regular projects, getRoot() should equal git root
+        assertEquals(repoRoot, projectRoot, "For regular projects, build directory should be git root");
     }
 
     /**
@@ -433,11 +392,6 @@ public class MonorepoSubdirectoryTest {
             worktreeProject = AbstractProject.createProject(worktreePath, null);
 
             Path masterConfigPath = worktreeProject.getMasterRootPathForConfig();
-
-            System.out.println("=== testWorktreeProject_ConfigLocation ===");
-            System.out.println("Git repo root: " + repoRoot);
-            System.out.println("Worktree path: " + worktreePath);
-            System.out.println("Worktree master config path: " + masterConfigPath);
 
             // Worktree should use main repo's config location
             // Normalize both paths to handle macOS /private/var vs /var symlinks
@@ -475,12 +429,6 @@ public class MonorepoSubdirectoryTest {
             Path subdirConfig = subdirProj.getMasterRootPathForConfig();
             Path worktreeConfig = worktreeProj.getMasterRootPathForConfig();
 
-            System.out.println("=== testSubdirectoryVsWorktree_Comparison ===");
-            System.out.println("Git repo root: " + repoRoot);
-            System.out.println("Subdirectory config: " + subdirConfig);
-            System.out.println("Worktree config: " + worktreeConfig);
-            System.out.println("Both use git root: " + subdirConfig.equals(worktreeConfig));
-
             // Both subdirectory and worktree should use git root for config
             // Normalize paths to handle macOS /private/var vs /var symlinks
             assertEquals(
@@ -496,5 +444,63 @@ public class MonorepoSubdirectoryTest {
             worktreeProj.close();
             gitRepo.removeWorktree(worktreePath, true);
         }
+    }
+
+    /**
+     * Verify that BuildAgent only detects build configurations in the subdirectory, not at git root.
+     * This ensures each package in a monorepo uses its own build configuration.
+     * BuildAgent uses project.getAllFiles() which filters to the projectRoot (subdirectory).
+     */
+    @Test
+    void testSubdirectoryProject_BuildDetectionScope() throws Exception {
+        // Create a build config at git root
+        Path rootPackageJson = repoRoot.resolve("package.json");
+        Files.writeString(rootPackageJson, "{\"name\": \"root-package\"}");
+
+        // Create a build config in the subdirectory
+        Path subdirPath = repoRoot.resolve("subproject");
+        Path subdirPackageJson = subdirPath.resolve("package.json");
+        Files.writeString(subdirPackageJson, "{\"name\": \"subproject-package\"}");
+
+        // Commit both files
+        try (Git git = Git.open(repoRoot.toFile())) {
+            git.add().addFilepattern("package.json").call();
+            git.add().addFilepattern("subproject/package.json").call();
+            git.commit().setMessage("Add build configs at root and subdir").call();
+        }
+
+        // Open the subdirectory as a project
+        subdirProject = AbstractProject.createProject(subdirPath, null);
+
+        // Get all files that BuildAgent would see
+        var allFiles = subdirProject.getAllFiles();
+        var fileNames = allFiles.stream()
+                .map(f -> f.absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+
+        // BuildAgent should only see files in the subdirectory
+        assertTrue(
+                fileNames.contains("sub-file1.txt"),
+                "BuildAgent should see files in subdirectory");
+        assertFalse(
+                fileNames.contains("root-file.txt"),
+                "BuildAgent should NOT see files at git root - only subdirectory files are visible");
+
+        // Verify the build config in subdirectory is visible
+        var subdirPackageJsonFile = allFiles.stream()
+                .filter(f -> f.absPath().equals(subdirPackageJson))
+                .findFirst();
+        assertTrue(
+                subdirPackageJsonFile.isPresent(),
+                "BuildAgent should find build config in subdirectory");
+
+        // Verify the root build config is NOT visible
+        var rootPackageJsonFile = allFiles.stream()
+                .filter(f -> f.absPath().equals(rootPackageJson))
+                .findFirst();
+        assertTrue(
+                rootPackageJsonFile.isEmpty(),
+                "BuildAgent should NOT see build config at git root - "
+                        + "each package in monorepo uses its own build configuration");
     }
 }
