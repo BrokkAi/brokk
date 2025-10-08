@@ -1169,9 +1169,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Size the token usage bar to match the toolbar height and give it a reasonable width
-        var tokenMinSize = new Dimension(140, fixedHeight);
-        var tokenPrefSize = new Dimension(180, fixedHeight);
-        var tokenMaxSize = new Dimension(260, fixedHeight);
+        var tokenMinSize = new Dimension(70, fixedHeight);
+        var tokenPrefSize = new Dimension(90, fixedHeight);
+        var tokenMaxSize = new Dimension(130, fixedHeight);
         tokenUsageBar.setMinimumSize(tokenMinSize);
         tokenUsageBar.setPreferredSize(tokenPrefSize);
         tokenUsageBar.setMaximumSize(tokenMaxSize);

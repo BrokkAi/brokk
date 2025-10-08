@@ -25,9 +25,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     public TokenUsageBar() {
         setOpaque(false);
-        setMinimumSize(new Dimension(100, 24));
-        setPreferredSize(new Dimension(150, 24));
-        setMaximumSize(new Dimension(250, 24));
+        setMinimumSize(new Dimension(50, 24));
+        setPreferredSize(new Dimension(75, 24));
+        setMaximumSize(new Dimension(125, 24));
         setToolTipText("Shows Workspace token usage.");
         addMouseListener(new MouseAdapter() {
             @Override
