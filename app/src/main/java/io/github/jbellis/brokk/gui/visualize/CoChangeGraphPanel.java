@@ -59,15 +59,22 @@ public class CoChangeGraphPanel extends JPanel {
     // File size cache (avoid repeated IO during painting)
     private final Map<ProjectFile, Long> fileSizeCache = new ConcurrentHashMap<>();
 
+    // One-time paint stats logging to avoid log spam
+    private volatile boolean firstPaintLogged = false;
+
     public CoChangeGraphPanel() {
         setOpaque(true);
         setBackground(Color.WHITE);
         installInteractions();
+        logger.debug("CoChangeGraphPanel initialized");
     }
 
     public void setGraph(Graph g) {
         assert SwingUtilities.isEventDispatchThread() : "setGraph must be called on EDT";
         this.graph = g;
+        if (logger.isDebugEnabled()) {
+            logger.debug("setGraph: nodes={}, edges={}", g.nodes.size(), g.edges.size());
+        }
         repaint();
     }
 
@@ -95,6 +102,31 @@ public class CoChangeGraphPanel extends JPanel {
         g2.transform(viewTx);
 
         var localGraph = this.graph;
+
+        // One-time paint-time debug: stats about positions
+        if (!firstPaintLogged && logger.isDebugEnabled()) {
+            int n = localGraph.nodes.size();
+            double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
+            double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+            int atOrigin = 0;
+            for (var nd : localGraph.nodes.values()) {
+                double xi = nd.x, yi = nd.y;
+                if (xi < minX) minX = xi;
+                if (xi > maxX) maxX = xi;
+                if (yi < minY) minY = yi;
+                if (yi > maxY) maxY = yi;
+                if (xi == 0.0 && yi == 0.0) atOrigin++;
+            }
+            logger.debug(
+                    "GraphPanel paint stats: nodes={}, bbox=[{}..{}]x[{}..{}], atOrigin={}",
+                    n,
+                    (minX == Double.POSITIVE_INFINITY ? 0.0 : minX),
+                    (maxX == Double.NEGATIVE_INFINITY ? 0.0 : maxX),
+                    (minY == Double.POSITIVE_INFINITY ? 0.0 : minY),
+                    (maxY == Double.NEGATIVE_INFINITY ? 0.0 : maxY),
+                    atOrigin);
+            firstPaintLogged = true;
+        }
 
         // Draw edges first
         g2.setColor(EDGE_COLOR);
@@ -227,6 +259,17 @@ public class CoChangeGraphPanel extends JPanel {
         viewTx.translate(anchorScreen.x, anchorScreen.y);
         viewTx.scale(scale, scale);
         viewTx.translate(-anchorScreen.x, -anchorScreen.y);
+        if (logger.isDebugEnabled()) {
+            logger.debug(
+                    "zoomAt: anchor=({},{}), factor={}, scale=({},{}), translate=({}, {})",
+                    anchorScreen.x,
+                    anchorScreen.y,
+                    scale,
+                    viewTx.getScaleX(),
+                    viewTx.getScaleY(),
+                    viewTx.getTranslateX(),
+                    viewTx.getTranslateY());
+        }
         repaint();
     }
 
@@ -234,6 +277,15 @@ public class CoChangeGraphPanel extends JPanel {
     public void resetView() {
         assert SwingUtilities.isEventDispatchThread() : "resetView must be called on EDT";
         viewTx.setToIdentity();
+        int w = getWidth();
+        int h = getHeight();
+        if (w <= 0 || h <= 0) {
+            var pref = getPreferredSize();
+            w = pref.width;
+            h = pref.height;
+        }
+        viewTx.translate(w / 2.0, h / 2.0);
+        logger.debug("resetView: centered origin at ({}, {})", (w / 2.0), (h / 2.0));
         repaint();
     }
 }

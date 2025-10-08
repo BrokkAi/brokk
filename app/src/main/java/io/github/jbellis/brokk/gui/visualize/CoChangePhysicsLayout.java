@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
@@ -21,6 +22,10 @@ import org.apache.logging.log4j.Logger;
  * - Springs on edges, natural length 80px, strength proportional to sqrt(weight)
  * - Inverse-distance repulsion using the nearest-by-X 20 and nearest-by-Y 20 neighbors (union)
  * - 20 simulation steps with simple Euler integration and damping
+ *
+ * Initialization and constraints:
+ * - Node positions are initialized randomly within a circle of radius equal to the visualization window height.
+ * - Per-step node movement (delta) is clamped to at most one-tenth of that radius.
  *
  * Mutates Node positions/velocities in-place (in Graph.nodes.values()).
  */
@@ -39,13 +44,26 @@ public final class CoChangePhysicsLayout {
     /** Progress payload for async reporting. */
     public record Progress(String message, int value, int max) {}
 
+    /**
+     * Backward-compatible entrypoint that defaults the view height to 600 px.
+     */
     public CompletableFuture<Graph> runAsync(Graph graph, Consumer<Progress> progressConsumer) {
+        return runAsync(graph, progressConsumer, 600.0);
+    }
+
+    /**
+     * Run the layout with a visualization height that defines:
+     * - initialization radius (equal to viewHeight)
+     * - per-step movement clamp (1/10 of viewHeight)
+     */
+    public CompletableFuture<Graph> runAsync(Graph graph, Consumer<Progress> progressConsumer, double viewHeight) {
         var maxConcurrency = Math.max(1, Runtime.getRuntime().availableProcessors());
-        ExecutorService executor = ExecutorServiceUtil.newVirtualThreadExecutor("cochange-layout-vt-", maxConcurrency);
+        ExecutorService executor =
+                ExecutorServiceUtil.newVirtualThreadExecutor("cochange-layout-vt-", maxConcurrency);
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                run(graph, progressConsumer, executor);
+                run(graph, progressConsumer, executor, Math.max(1.0, viewHeight));
                 return graph;
             } finally {
                 executor.shutdown();
@@ -53,7 +71,11 @@ public final class CoChangePhysicsLayout {
         }, executor);
     }
 
-    private void run(Graph graph, Consumer<Progress> progressConsumer, ExecutorService executor) {
+    private void run(
+            Graph graph,
+            Consumer<Progress> progressConsumer,
+            ExecutorService executor,
+            double viewHeight) {
         if (graph.nodes.isEmpty()) {
             progressConsumer.accept(new Progress("No nodes to layout", NUM_STEPS, NUM_STEPS));
             return;
@@ -81,18 +103,39 @@ public final class CoChangePhysicsLayout {
             adj[ib].add(new Adj(ia, e.weight()));
         }
 
-        // Initial state from nodes
+        // Simulation config derived from view height
+        final double initRadius = viewHeight; // origin-centered
+        final double maxDelta = initRadius / 10.0;
+
+        // Initialize state: random points uniformly within a circle of radius = viewHeight
         var x = new double[n];
         var y = new double[n];
         var vx = new double[n];
         var vy = new double[n];
-
+        var rnd = ThreadLocalRandom.current();
         for (int i = 0; i < n; i++) {
-            var nd = nodeList.get(i);
-            x[i] = nd.x;
-            y[i] = nd.y;
-            vx[i] = nd.vx;
-            vy[i] = nd.vy;
+            double theta = rnd.nextDouble(0.0, Math.PI * 2.0);
+            // r distribution: sqrt for uniform disk
+            double r = Math.sqrt(rnd.nextDouble()) * initRadius;
+            x[i] = r * Math.cos(theta);
+            y[i] = r * Math.sin(theta);
+            vx[i] = 0.0;
+            vy[i] = 0.0;
+        }
+
+        if (logger.isDebugEnabled()) {
+            var stats = computeStats(x, y, vx, vy, graph, indexByFile);
+            logger.debug(
+                    "Layout start: nodes={}, edges={}, initRadius={}, bbox=[{}..{}]x[{}..{}], meanSpeed={}, meanEdgeLen={}",
+                    n,
+                    graph.edges.size(),
+                    initRadius,
+                    stats.minX(),
+                    stats.maxX(),
+                    stats.minY(),
+                    stats.maxY(),
+                    stats.meanSpeed(),
+                    stats.meanEdgeLen());
         }
 
         for (int step = 0; step < NUM_STEPS; step++) {
@@ -168,6 +211,15 @@ public final class CoChangePhysicsLayout {
                     // Integrate with damping
                     double nvx = (vxIn[idx] + fx) * DAMPING;
                     double nvy = (vyIn[idx] + fy) * DAMPING;
+
+                    // Clamp per-step delta to maxDelta relative to current position
+                    double stepDist = Math.hypot(nvx, nvy);
+                    if (stepDist > maxDelta) {
+                        double scale = maxDelta / (stepDist + EPS);
+                        nvx *= scale;
+                        nvy *= scale;
+                    }
+
                     double nx = xIn[idx] + nvx;
                     double ny = yIn[idx] + nvy;
 
@@ -196,6 +248,19 @@ public final class CoChangePhysicsLayout {
             vx = outVx;
             vy = outVy;
 
+            if (logger.isDebugEnabled() && ((step + 1) % 5 == 0 || step == 0)) {
+                var statsStep = computeStats(x, y, vx, vy, graph, indexByFile);
+                logger.debug(
+                        "Layout step {}: bbox=[{}..{}]x[{}..{}], meanSpeed={}, meanEdgeLen={}",
+                        (step + 1),
+                        statsStep.minX(),
+                        statsStep.maxX(),
+                        statsStep.minY(),
+                        statsStep.maxY(),
+                        statsStep.meanSpeed(),
+                        statsStep.meanEdgeLen());
+            }
+
             progressConsumer.accept(new Progress("Layout step " + (step + 1) + "/" + NUM_STEPS, step + 1, NUM_STEPS));
         }
 
@@ -206,6 +271,19 @@ public final class CoChangePhysicsLayout {
             nd.y = y[i];
             nd.vx = vx[i];
             nd.vy = vy[i];
+        }
+
+        if (logger.isDebugEnabled()) {
+            var stats = computeStats(x, y, vx, vy, graph, indexByFile);
+            logger.debug(
+                    "Layout done: steps={}, bbox=[{}..{}]x[{}..{}], meanSpeed={}, meanEdgeLen={}",
+                    NUM_STEPS,
+                    stats.minX(),
+                    stats.maxX(),
+                    stats.minY(),
+                    stats.maxY(),
+                    stats.meanSpeed(),
+                    stats.meanEdgeLen());
         }
     }
 
@@ -222,7 +300,50 @@ public final class CoChangePhysicsLayout {
 
     private record Adj(int j, int weight) {}
 
-    // Minimal local Node/Edge reference to satisfy compiler with package-private access
-    // (Node/Graph are defined in the same package).
-    // Node fields are mutable as required by the physics integration.
+    private record DebugStats(double minX, double maxX, double minY, double maxY, double meanSpeed, double meanEdgeLen) {}
+
+    private static DebugStats computeStats(
+            double[] x,
+            double[] y,
+            double[] vx,
+            double[] vy,
+            Graph graph,
+            Map<ProjectFile, Integer> indexByFile) {
+        double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+        double sumSpeed = 0.0;
+        int n = x.length;
+
+        for (int i = 0; i < n; i++) {
+            double xi = x[i], yi = y[i];
+            if (xi < minX) minX = xi;
+            if (xi > maxX) maxX = xi;
+            if (yi < minY) minY = yi;
+            if (yi > maxY) maxY = yi;
+            double speed = Math.hypot(vx[i], vy[i]);
+            sumSpeed += speed;
+        }
+        double meanSpeed = n > 0 ? (sumSpeed / n) : 0.0;
+
+        double sumLen = 0.0;
+        int edgeCount = 0;
+        for (var e : graph.edges.values()) {
+            Integer ia = indexByFile.get(e.a());
+            Integer ib = indexByFile.get(e.b());
+            if (ia == null || ib == null) continue;
+            double dx = x[ia] - x[ib];
+            double dy = y[ia] - y[ib];
+            sumLen += Math.hypot(dx, dy);
+            edgeCount++;
+        }
+        double meanEdgeLen = edgeCount > 0 ? (sumLen / edgeCount) : 0.0;
+
+        return new DebugStats(
+                minX == Double.POSITIVE_INFINITY ? 0.0 : minX,
+                maxX == Double.NEGATIVE_INFINITY ? 0.0 : maxX,
+                minY == Double.POSITIVE_INFINITY ? 0.0 : minY,
+                maxY == Double.NEGATIVE_INFINITY ? 0.0 : maxY,
+                meanSpeed,
+                meanEdgeLen);
+    }
 }

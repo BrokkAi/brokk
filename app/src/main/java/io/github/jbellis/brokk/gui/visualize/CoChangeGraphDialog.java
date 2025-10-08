@@ -144,7 +144,12 @@ public class CoChangeGraphDialog extends JDialog {
                     SwingUtil.runOnEdt(() -> layoutBar.setIndeterminate(false));
                     Consumer<CoChangePhysicsLayout.Progress> layoutConsumer = p ->
                             SwingUtil.runOnEdt(() -> updateLayoutProgress(p));
-                    return layout.runAsync(graph, layoutConsumer);
+                    int h = graphPanel.getHeight();
+                    if (h <= 0) {
+                        h = graphPanel.getPreferredSize().height;
+                    }
+                    double viewHeight = Math.max(1, h);
+                    return layout.runAsync(graph, layoutConsumer, viewHeight);
                 });
 
         pipelineFuture.whenComplete((graph, ex) -> {
@@ -186,9 +191,9 @@ public class CoChangeGraphDialog extends JDialog {
     }
 
     private void onCompleted(Graph graph) {
-        graphPanel.resetView();
         graphPanel.setGraph(graph);
         cardLayout.show(centerPanel, "graph");
+        graphPanel.resetView();
         doneButton.setEnabled(true);
         cancelButton.setText("Close");
     }

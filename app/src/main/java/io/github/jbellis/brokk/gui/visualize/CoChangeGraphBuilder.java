@@ -86,6 +86,12 @@ public class CoChangeGraphBuilder {
 
                         // Get tracked files to filter out deleted/untracked
                         Set<ProjectFile> tracked = new HashSet<>(repo.getTrackedFiles());
+                        if (logger.isDebugEnabled()) {
+                            logger.debug(
+                                    "Co-change scan inputs: commits={}, trackedFiles={}",
+                                    commits.size(),
+                                    tracked.size());
+                        }
 
                         // Build the graph from the collected commits
                         return buildGraphFromCommits(commits, tracked, progressConsumer, isCancelled);
@@ -156,6 +162,63 @@ public class CoChangeGraphBuilder {
         for (var e : weightMap.entrySet()) {
             var pair = e.getKey();
             edges.put(pair, new Edge(pair.a(), pair.b(), e.getValue()));
+        }
+
+        // Initialize node positions to a non-degenerate layout (golden-angle spiral)
+        // This avoids zero-length direction vectors in the first physics step.
+        {
+            var i = 1;
+            final double golden = Math.PI * (3 - Math.sqrt(5));
+            final double spacing = 60.0; // pixels between successive rings
+            for (var nd : nodes.values()) {
+                double r = spacing * Math.sqrt(i);
+                double theta = i * golden;
+                nd.x = r * Math.cos(theta);
+                nd.y = r * Math.sin(theta);
+                nd.vx = 0.0;
+                nd.vy = 0.0;
+                i++;
+            }
+        }
+
+        if (logger.isDebugEnabled()) {
+            // Compute isolated nodes (no edges)
+            Map<ProjectFile, Integer> degree = new HashMap<>();
+            for (var ed : edges.values()) {
+                degree.merge(ed.a(), 1, Integer::sum);
+                degree.merge(ed.b(), 1, Integer::sum);
+            }
+            long isolated = nodes.keySet().stream().filter(f -> degree.getOrDefault(f, 0) == 0).count();
+            int maxWeight = edges.values().stream().mapToInt(Edge::weight).max().orElse(0);
+
+            // Bounding box and a small sample of positions
+            double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
+            double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+            int atOrigin = 0;
+            var sample = new ArrayList<String>(3);
+            for (var nd : nodes.values()) {
+                if (nd.x < minX) minX = nd.x;
+                if (nd.x > maxX) maxX = nd.x;
+                if (nd.y < minY) minY = nd.y;
+                if (nd.y > maxY) maxY = nd.y;
+                if (nd.x == 0.0 && nd.y == 0.0) atOrigin++;
+                if (sample.size() < 3) {
+                    sample.add(nd.file + "=(" + String.format("%.2f", nd.x) + "," + String.format("%.2f", nd.y) + ")");
+                }
+            }
+            logger.debug(
+                    "Co-change graph summary: nodes={}, edges={}, isolatedNodes={}, maxEdgeWeight={}, initBBox=[{}..{}]x[{}..{}], atOrigin={}," +
+                    " samples={}",
+                    nodes.size(),
+                    edges.size(),
+                    isolated,
+                    maxWeight,
+                    (minX == Double.POSITIVE_INFINITY ? 0.0 : minX),
+                    (maxX == Double.NEGATIVE_INFINITY ? 0.0 : maxX),
+                    (minY == Double.POSITIVE_INFINITY ? 0.0 : minY),
+                    (maxY == Double.NEGATIVE_INFINITY ? 0.0 : maxY),
+                    atOrigin,
+                    sample);
         }
 
         return new Graph(nodes, edges);
