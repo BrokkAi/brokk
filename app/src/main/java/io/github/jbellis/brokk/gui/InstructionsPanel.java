@@ -87,7 +87,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
     private final JCheckBox modeSwitch;
-    private final JCheckBox codeCheckBox;
     private final JCheckBox searchProjectCheckBox;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
@@ -185,16 +184,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setMargin(new Insets(0, 0, 0, 0));
         modeSwitch.setText("");
 
-        codeCheckBox = new JCheckBox("Plan First");
-        codeCheckBox.setFocusable(true);
         // Register a global platform-aware shortcut (Cmd/Ctrl+S) to toggle "Search".
         KeyStroke toggleSearchKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
 
-        codeCheckBox.setToolTipText("<html><b>Plan First:</b><br><ul>"
-                + "<li><b>checked:</b> Plan usage of multiple agents. Useful for large refactorings; will add files to the Workspace.</li>"
-                + "<li><b>unchecked:</b> Assumes necessary files are already in Workspace. Useful for small, well-defined code changes.</li>"
-                + "</ul>  (" + formatKeyStroke(toggleSearchKs) + ")</html>");
 
         searchProjectCheckBox = new JCheckBox("Search");
         searchProjectCheckBox.setFocusable(true);
@@ -210,11 +203,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 toggleSearchKs,
                 "ToggleSearchFirst",
                 () -> SwingUtilities.invokeLater(() -> {
-                    // Toggle "Search First" when in Answer mode; toggle "Plan First" when in Code mode.
+                    // Toggle "Search First" when in Answer mode; no-op in Code mode.
                     if (modeSwitch.isSelected()) {
                         searchProjectCheckBox.doClick();
                     } else {
-                        codeCheckBox.doClick();
+                        // No-op: Plan First option removed
                     }
                 }));
 
@@ -228,7 +221,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
         modeSwitch.setSelected(proj.getInstructionsAskMode());
-        codeCheckBox.setSelected(proj.getPlanFirst());
         searchProjectCheckBox.setSelected(proj.getSearch());
 
         // default stored action: Search (Ask + Search)
@@ -246,14 +238,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Checked => Search, Unchecked => Answer
                 storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
-                // Show the CODE card (plan/code checkbox)
+                // Show the CODE card
                 if (optionsPanel != null) {
                     ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
                 }
-                // Enable the Code checkbox only when the project has a Git repository available
-                codeCheckBox.setEnabled(chrome.getProject().hasGit());
-                // Inverted semantics: checked = Architect (Plan First)
-                storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
+                // Default to Code action in Code mode
+                storedAction = ACTION_CODE;
             }
             // Update label emphasis
             updateModeLabels();
@@ -265,13 +255,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        codeCheckBox.addActionListener(e -> {
-            if (!modeSwitch.isSelected()) {
-                // Inverted semantics: checked = Architect (Plan First)
-                storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
-            }
-            proj.setPlanFirst(codeCheckBox.isSelected());
-        });
 
         searchProjectCheckBox.addActionListener(e -> {
             if (modeSwitch.isSelected()) {
@@ -1059,12 +1042,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
         optionsPanel = new JPanel(new CardLayout());
 
-        // Create a CODE card that contains the Plan First checkbox.
+        // Create a CODE card (no additional options after removing Plan First).
         JPanel codeOptionsPanel = new JPanel();
         codeOptionsPanel.setOpaque(false);
         codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
         codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        codeOptionsPanel.add(codeCheckBox);
+        // (Plan First checkbox removed)
 
         optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
         optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
@@ -1178,7 +1161,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (optionsPanel != null) {
                         ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
                     }
-                    codeCheckBox.requestFocusInWindow();
+                    instructionsArea.requestFocusInWindow();
                 }
                 refreshModeIndicator();
             } catch (Exception ex) {
@@ -1822,7 +1805,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> {
             // Disable ancillary controls only; leave the action button alone so it can become "Stop"
             modeSwitch.setEnabled(false);
-            codeCheckBox.setEnabled(false);
             searchProjectCheckBox.setEnabled(false);
 
             // Keep the action button usable for "Stop" while a task is running.
@@ -1851,8 +1833,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
-            boolean gitAvailable = chrome.getProject().hasGit();
-
             // Toggle
             modeSwitch.setEnabled(true);
 
@@ -1862,7 +1842,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (optionsPanel != null) {
                     ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
                 }
-                codeCheckBox.setEnabled(gitAvailable);
             } else {
                 // Show the ASK card
                 if (optionsPanel != null) {
@@ -1899,8 +1878,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Ensure storedAction is consistent with current UI
             if (!modeSwitch.isSelected()) {
-                // Inverted semantics: checked = Architect (Plan First)
-                storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
+                storedAction = ACTION_CODE;
             } else {
                 // Ask-mode: checked => Search, unchecked => Ask/Answer
                 storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
@@ -2231,9 +2209,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } else if (aComponent == actionButton) {
                 return modeSwitch;
             } else if (aComponent == modeSwitch) {
-                // Return the appropriate checkbox based on current mode
-                return modeSwitch.isSelected() ? searchProjectCheckBox : codeCheckBox;
-            } else if (aComponent == codeCheckBox || aComponent == searchProjectCheckBox) {
+                // Return the appropriate control based on current mode
+                return modeSwitch.isSelected() ? searchProjectCheckBox : micButton;
+            } else if (aComponent == searchProjectCheckBox) {
                 return micButton;
             } else if (aComponent == micButton) {
                 return modelSelector.getComponent();
@@ -2256,10 +2234,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return instructionsArea;
             } else if (aComponent == modeSwitch) {
                 return actionButton;
-            } else if (aComponent == codeCheckBox || aComponent == searchProjectCheckBox) {
+            } else if (aComponent == searchProjectCheckBox) {
                 return modeSwitch;
             } else if (aComponent == micButton) {
-                return modeSwitch.isSelected() ? searchProjectCheckBox : codeCheckBox;
+                return modeSwitch.isSelected() ? searchProjectCheckBox : modeSwitch;
             } else if (aComponent == modelSelector.getComponent()) {
                 return micButton;
             } else if (aComponent == findHistoryDropdown()) {
