@@ -1057,11 +1057,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         int planFixedHeight = Math.max(
                 Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
 
-        // Constrain the card panel height to align with other toolbar controls.
-        var optPanelPref = optionsPanel.getPreferredSize();
-        optionsPanel.setPreferredSize(new Dimension(optPanelPref.width, planFixedHeight));
-        optionsPanel.setMaximumSize(new Dimension(optPanelPref.width, planFixedHeight));
-        optionsPanel.setMinimumSize(new Dimension(0, planFixedHeight));
+        // Ensure the card panel has enough width for its widest child (e.g., "Search") and allow horizontal growth.
+        int optWidth = Math.max(optionsPanel.getPreferredSize().width, searchProjectCheckBox.getPreferredSize().width);
+        if (optWidth <= 0) {
+            optWidth = searchProjectCheckBox.getPreferredSize().width + H_GAP;
+        }
+        optionsPanel.setPreferredSize(new Dimension(optWidth, planFixedHeight));
+        optionsPanel.setMinimumSize(new Dimension(optWidth, planFixedHeight));
+        optionsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, planFixedHeight));
         optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Add the composite card panel; the PLAN button lives inside the CODE card now.
