@@ -21,7 +21,6 @@ import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
-import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
