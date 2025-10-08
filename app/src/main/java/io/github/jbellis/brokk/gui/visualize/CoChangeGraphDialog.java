@@ -141,7 +141,7 @@ public class CoChangeGraphDialog extends JDialog {
                     }
                     // Phase 2: physics layout
                     var layout = new CoChangePhysicsLayout();
-                    layoutBar.setIndeterminate(false);
+                    SwingUtil.runOnEdt(() -> layoutBar.setIndeterminate(false));
                     Consumer<CoChangePhysicsLayout.Progress> layoutConsumer = p ->
                             SwingUtil.runOnEdt(() -> updateLayoutProgress(p));
                     return layout.runAsync(graph, layoutConsumer);
