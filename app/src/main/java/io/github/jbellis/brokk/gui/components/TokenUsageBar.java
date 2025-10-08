@@ -174,7 +174,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return dark ? new Color(0x2B2B2B) : new Color(0xC0C4C8);
     }
 
-
     private boolean isDarkTheme() {
         return UIManager.getBoolean("laf.dark");
     }
