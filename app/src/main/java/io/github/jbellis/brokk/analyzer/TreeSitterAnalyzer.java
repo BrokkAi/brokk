@@ -446,7 +446,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
     }
 
-    protected List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+    @Override
+    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
         return fileProperties(file).topLevelCodeUnits();
     }
 
@@ -459,6 +460,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /* ---------- IAnalyzer ---------- */
+    @Override
+    public Set<Language> languages() {
+        return Set.of(language);
+    }
+
     @Override
     public boolean isEmpty() {
         return withReadLock(codeUnitState::isEmpty);

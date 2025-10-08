@@ -292,7 +292,7 @@ public class ArchitectAgent {
             // Calculate current workspace token size
             var workspaceContentMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
-            int workspaceTokenSize = Messages.getApproximateTokens(workspaceContentMessages);
+            int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
             var messages = buildPrompt(workspaceTokenSize, minInputTokenLimit, workspaceContentMessages);

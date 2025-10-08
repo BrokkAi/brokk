@@ -227,6 +227,11 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         return getSkeleton(fqName);
     }
 
+    @Override
+    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+        return List.copyOf(declarationsByFile.getOrDefault(file, Collections.emptyList()));
+    }
+
     // Other IAnalyzer methods (CPG, advanced summarization, etc.)
     // will throw UnsupportedOperationException as per IAnalyzer default implementations.
 }

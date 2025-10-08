@@ -130,7 +130,7 @@ public class SearchAgent {
             var inputLimit = cm.getService().getMaxInputTokens(model);
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
-            var workspaceTokens = Messages.getApproximateTokens(workspaceMessages);
+            var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,

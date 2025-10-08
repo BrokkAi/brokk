@@ -38,9 +38,9 @@ class EditBlockInternalsTest {
     @Test
     void testCountLeadingSpaces() {
         // Simple checks
-        assertEquals("", EditBlock.getLeadingWhitespace("line1\n"));
-        assertEquals("    ", EditBlock.getLeadingWhitespace("    line2\n"));
-        assertEquals("  ", EditBlock.getLeadingWhitespace("  lineX \n"));
+        assertEquals("", EditBlock.getLeadingWhitespace("line1"));
+        assertEquals("    ", EditBlock.getLeadingWhitespace("    line2"));
+        assertEquals("  ", EditBlock.getLeadingWhitespace("  lineX "));
     }
 
     @Test
@@ -56,11 +56,11 @@ class EditBlockInternalsTest {
 
     @Test
     void testPerfectReplace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String[] whole = {"A\n", "B\n", "C\n"};
-        String[] part = {"B\n"};
-        String[] repl = {"B-REPLACED\n"};
+        String[] whole = {"A", "B", "C"};
+        String[] part = {"B"};
+        String[] repl = {"B-REPLACED"};
 
-        String result = EditBlock.perfectReplace(whole, part, repl);
+        String result = EditBlock.perfectReplace(whole, part, repl, true);
         assertNotNull(result);
 
         // Expect "A\n" + "B-REPLACED\n" + "C\n"
@@ -72,17 +72,17 @@ class EditBlockInternalsTest {
             throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
         // This is closer to the scenario that breaks in your test:
         // There's an extra blank line in 'search' that doesn't appear in the original.
-        String[] whole = {"line1\n", "    line2\n", "    line3\n"};
+        String[] whole = {"line1", "    line2", "    line3"};
         String[] part = {
-            "\n", // blank line
-            "  line2\n" // partial indentation
+            "", // blank line
+            "  line2" // partial indentation
         };
         String[] replace = {
-            "\n", // blank line
-            "  replaced_line2\n"
+            "", // blank line
+            "  replaced_line2"
         };
 
-        String attempt = EditBlock.replaceIgnoringWhitespace(whole, part, replace);
+        String attempt = EditBlock.replaceIgnoringWhitespace(whole, part, replace, true);
 
         // We'll see if it aligns or if we get an extra blank line in between
         // (which might be the bug).

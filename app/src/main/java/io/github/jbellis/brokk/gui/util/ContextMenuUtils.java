@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.util;
 
 import io.github.jbellis.brokk.AnalyzerWrapper;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
@@ -263,6 +264,77 @@ public final class ContextMenuUtils {
         menu.add(refreshSuggestionsItem);
 
         // Theme management will be handled by the caller
+        menu.show(owner, x, y);
+    }
+
+    /**
+     * Shows a context menu for a context fragment at the specified position.
+     *
+     * @param owner The component that owns the popup (where it will be displayed)
+     * @param x The x position for the menu relative to the owner
+     * @param y The y position for the menu relative to the owner
+     * @param fragment The context fragment for which to show the menu
+     * @param chrome The Chrome instance for UI integration
+     */
+    public static void showContextFragmentMenu(Component owner, int x, int y, ContextFragment fragment, Chrome chrome) {
+        var cm = chrome.getContextManager();
+        var menu = new JPopupMenu();
+
+        // "Show Contents" is applicable to almost all fragments
+        var showContentsItem = new JMenuItem("Show Contents");
+        showContentsItem.addActionListener(e -> chrome.openFragmentPreview(fragment));
+        menu.add(showContentsItem);
+        menu.addSeparator();
+
+        // File-specific actions
+        if (fragment instanceof ContextFragment.PathFragment pathFragment
+                && pathFragment.file() instanceof ProjectFile projectFile) {
+            var showInTreeItem = new JMenuItem("Show in Project Tree");
+            showInTreeItem.addActionListener(e -> chrome.getProjectFilesPanel().showFileInTree(projectFile));
+            menu.add(showInTreeItem);
+            menu.addSeparator();
+
+            // Edit option
+            var editItem = new JMenuItem("Edit " + projectFile);
+            editItem.addActionListener(e1 -> {
+                withTemporaryListenerDetachment(chrome, () -> {
+                    cm.addFiles(List.of(projectFile));
+                });
+            });
+            // Disable for dependency projects
+            if (!cm.getProject().hasGit()) {
+                editItem.setEnabled(false);
+                editItem.setToolTipText("Editing not available without Git");
+            }
+            menu.add(editItem);
+
+            // Summarize option
+            var summarizeItem = new JMenuItem("Summarize " + projectFile);
+            summarizeItem.addActionListener(e1 -> {
+                if (!cm.getAnalyzerWrapper().isReady()) {
+                    cm.getIo()
+                            .systemNotify(
+                                    AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                    AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                    JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                withTemporaryListenerDetachment(chrome, () -> {
+                    boolean success = cm.addSummaries(Set.of(projectFile), Set.of());
+                    if (!success) {
+                        chrome.toolError("No summarizable code found");
+                    }
+                });
+            });
+            menu.add(summarizeItem);
+            menu.addSeparator();
+        }
+
+        // "Remove" is always applicable
+        var removeItem = new JMenuItem("Remove");
+        removeItem.addActionListener(e -> cm.drop(List.of(fragment)));
+        menu.add(removeItem);
+
         menu.show(owner, x, y);
     }
 

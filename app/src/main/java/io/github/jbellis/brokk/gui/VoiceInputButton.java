@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.IConsoleIO.NotificationRole;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
@@ -271,15 +272,22 @@ public class VoiceInputButton extends JButton {
 
         // Convert the in-memory raw PCM data to a valid .wav file
         var audioBytes = micBuffer.toByteArray();
+        var format = new AudioFormat(16000.0f, 16, 1, true, true);
+
+        // Pre-flight check for audio duration to avoid unnecessary API calls for very short clips
+        if (audioBytes.length / (format.getFrameRate() * format.getFrameSize()) < 0.5f) {
+            contextManager
+                    .getIo()
+                    .showNotification(NotificationRole.ERROR, "Audio recording was too short. Please try again.");
+            targetTextArea.setEnabled(true);
+            return;
+        }
 
         // We do the STT in the background so as not to block the UI
         contextManager.submitBackgroundTask("Transcribing Audio", () -> {
             IConsoleIO iConsoleIO1 = contextManager.getIo();
-            iConsoleIO1.showNotification(IConsoleIO.NotificationRole.INFO, "Transcribing audio");
+            iConsoleIO1.showNotification(NotificationRole.INFO, "Transcribing audio");
             try {
-                // Our original AudioFormat from startMicCapture
-                AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
-
                 // Create an AudioInputStream wrapping the raw data + format
                 try (var bais = new java.io.ByteArrayInputStream(audioBytes);
                         var ais = new AudioInputStream(bais, format, audioBytes.length / format.getFrameSize())) {

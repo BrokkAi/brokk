@@ -381,7 +381,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                                                 CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
                                         readOnly.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
                                     }
-                                    tokens = Messages.getApproximateTokens(readOnly)
+                                    tokens = Messages.getApproximateMessageTokens(readOnly)
                                             + Messages.getApproximateTokens(
                                                     file.read().orElse(""));
                                     return tokens;

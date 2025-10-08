@@ -4,8 +4,6 @@ import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import com.github.tjake.jlama.model.AbstractModel;
-import com.github.tjake.jlama.model.functions.Generator;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
@@ -18,7 +16,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
@@ -28,14 +25,12 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.util.AddMenuFactory;
-import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.LoggingExecutorService;
+import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
@@ -45,18 +40,12 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import javax.swing.border.TitledBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.event.PopupMenuEvent;
-import javax.swing.event.PopupMenuListener;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -106,12 +95,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
+    private final MaterialButton tokenCostLabel;
     private String storedAction;
     private final ContextManager contextManager;
-    private JTable referenceFileTable;
-    private JLabel failureReasonLabel;
-    private JPanel suggestionContentPanel;
-    private CardLayout suggestionCardLayout;
+    private WorkspaceItemsChipPanel workspaceItemsChipPanel;
     private final JPanel centerPanel;
     private @Nullable JPanel modeIndicatorPanel;
     private @Nullable JLabel modeBadge;
@@ -124,28 +111,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JPanel optionsPanel;
     private static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
     private static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
-    private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
-    private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
-    private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
-    private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
-    // Worker for autocontext suggestion tasks. we don't use CM.backgroundTasks b/c we want this to be single threaded
-    private final ExecutorService suggestionWorker = new LoggingExecutorService(
-            Executors.newSingleThreadExecutor(r -> {
-                Thread t = Executors.defaultThreadFactory().newThread(r);
-                t.setName("Brokk-Suggestion-Worker");
-                t.setDaemon(true);
-                return t;
-            }),
-            e -> logger.error("Unexpected error", e));
-    // Generation counter to identify the latest suggestion request
-    private final AtomicLong suggestionGeneration = new AtomicLong(0);
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
-    private @Nullable String lastCheckedInputText = null;
-    private @Nullable float[][] lastCheckedEmbeddings = null;
-    private @Nullable List<FileReferenceData> pendingQuickContext = null;
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
@@ -249,6 +218,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
+        // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
+        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                chrome.getFrame().getRootPane(),
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
+                "attachContext",
+                () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
+
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
         modeSwitch.setSelected(proj.getInstructionsAskMode());
@@ -330,8 +306,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
         modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
+        // Also recompute token/cost indicator when model changes
+        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
+
+        // Initialize compact token/cost indicator (left of Attach button)
+        tokenCostLabel = new MaterialButton(" ");
+        tokenCostLabel.setFocusable(false);
+        tokenCostLabel.setVisible(false);
+        tokenCostLabel.setOpaque(false);
+        tokenCostLabel.setBorder(new EmptyBorder(0, 4, 0, 8));
+        tokenCostLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        // Make it clickable to toggle Workspace collapse/expand
+        tokenCostLabel.addActionListener(e -> chrome.toggleWorkspaceCollapsed());
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -348,69 +336,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         updateModeLabels();
         refreshModeIndicator();
 
-        // Initialize the reference file table and suggestion area
+        // Initialize the workspace chips area below the command input
         initializeReferenceFileTable();
-
-        // Initialize and configure the context suggestion timer
-        contextSuggestionTimer = new javax.swing.Timer(CONTEXT_SUGGESTION_DELAY, this::triggerContextSuggestion);
-        contextSuggestionTimer.setRepeats(false);
-        instructionsArea.getDocument().addDocumentListener(new DocumentListener() {
-            private void checkAndHandleSuggestions(DocumentEvent e) {
-                if (getInstructions().split("\\s+").length >= 2) {
-                    // Only restart timer if significant change (not just single character)
-                    if (e.getType() == DocumentEvent.EventType.INSERT && e.getLength() > 1) {
-                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
-                        contextSuggestionTimer.restart();
-                    } else if (e.getType() == DocumentEvent.EventType.INSERT) {
-                        // For single character inserts, use longer delay
-                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_TYPING_DELAY);
-                        contextSuggestionTimer.restart();
-                    } else if (e.getType() == DocumentEvent.EventType.REMOVE) {
-                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
-                        contextSuggestionTimer.restart();
-                    }
-                } else {
-                    // Input is blank or too short: stop timer, invalidate generation, reset state, schedule UI clear.
-                    contextSuggestionTimer.stop();
-                    long myGen = suggestionGeneration.incrementAndGet(); // Invalidate any running/pending task
-                    logger.trace(
-                            "Input cleared/shortened, stopping timer and invalidating suggestions (gen {})", myGen);
-
-                    // Reset internal state immediately
-                    InstructionsPanel.this.lastCheckedInputText = null;
-                    InstructionsPanel.this.lastCheckedEmbeddings = null;
-
-                    // Schedule UI update, guarded by generation check
-                    SwingUtilities.invokeLater(() -> {
-                        if (myGen == suggestionGeneration.get()) {
-                            logger.trace("Applying UI clear for gen {}", myGen);
-                            referenceFileTable.setValueAt(List.of(), 0, 0);
-                            failureReasonLabel.setVisible(false);
-                            suggestionCardLayout.show(suggestionContentPanel, "TABLE"); // Show empty table
-                        } else {
-                            logger.trace(
-                                    "Skipping UI clear for gen {} (current gen {})", myGen, suggestionGeneration.get());
-                        }
-                    });
-                }
-            }
-
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions(e);
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions(e);
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                // Not typically fired for plain text components, but handle just in case
-                checkAndHandleSuggestions(e);
-            }
-        });
 
         // Do not set a global default button on the root pane. This prevents plain Enter
         // from submitting when focus is in other UI components (e.g., history/branch lists).
@@ -428,6 +355,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
         disableButtons();
+
+        // Initial compute of the token/cost indicator
+        updateTokenCostIndicator();
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -449,7 +379,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setEnabled(false); // Start disabled
         area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
-        ((AbstractDocument) area.getDocument()).setDocumentFilter(new AtTriggerFilter());
 
         // Submit shortcut is handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
@@ -765,7 +694,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JScrollPane commandScrollPane = new JScrollPane(instructionsArea);
         commandScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         commandScrollPane.setPreferredSize(new Dimension(600, 80)); // Use preferred size for layout
-        commandScrollPane.setMinimumSize(new Dimension(100, 80));
+        // Make the scroll area the flexible piece so chips + toolbar remain visible under tight space
+        commandScrollPane.setMinimumSize(new Dimension(100, 0));
 
         // Create layered pane with overlay
         this.inputLayeredPane = commandInputOverlay.createLayeredPane(commandScrollPane);
@@ -787,90 +717,37 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * that targets the specific badge the mouse is over (mirrors ContextPanel behaviour).
      */
     private void initializeReferenceFileTable() {
-        // ----- create the table itself --------------------------------------------------------
-        referenceFileTable = new JTable(new javax.swing.table.DefaultTableModel(new Object[] {"File References"}, 1) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
+        // Replace former suggestion table with the workspace chips panel
+        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(this.chrome);
+
+        // Wire chip removal behavior: block while LLM running; otherwise drop and refocus input
+        workspaceItemsChipPanel.setOnRemoveFragment(fragment -> {
+            var cm = chrome.getContextManager();
+            if (cm.isLlmTaskInProgress()) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "An action is running; cannot modify Workspace now.");
+                return;
             }
-
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                return List.class;
-            }
-        });
-        referenceFileTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        // Dynamically set row height based on renderer's preferred size
-        referenceFileTable.setRowHeight(TableUtils.measuredBadgeRowHeight(referenceFileTable));
-
-        referenceFileTable.setTableHeader(null); // single-column ⇒ header not needed
-        referenceFileTable.setShowGrid(false);
-        referenceFileTable
-                .getColumnModel()
-                .getColumn(0)
-                .setCellRenderer(new TableUtils.FileReferencesTableCellRenderer());
-
-        // Clear initial content (it will be populated by context suggestions)
-        referenceFileTable.setValueAt(List.of(), 0, 0);
-
-        // ----- context-menu support -----------------------------------------------------------
-        referenceFileTable.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    ContextMenuUtils.handleFileReferenceClick(
-                            e, referenceFileTable, chrome, () -> triggerContextSuggestion(null));
-                }
-            }
-
-            @Override
-            public void mouseReleased(java.awt.event.MouseEvent e) {
-                ContextMenuUtils.handleFileReferenceClick(
-                        e, referenceFileTable, chrome, () -> triggerContextSuggestion(null));
-            }
+            cm.drop(List.of(fragment));
+            requestCommandInputFocus();
         });
 
-        // Clear selection when the table loses focus
-        referenceFileTable.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                referenceFileTable.clearSelection();
-            }
-        });
+        var container = new JPanel(new BorderLayout(H_GLUE, 0));
+        container.setOpaque(false);
+        container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
+        container.add(workspaceItemsChipPanel, BorderLayout.CENTER);
 
-        // ----- create failure reason label ----------------------------------------------------
-        this.failureReasonLabel = new JLabel();
-        this.suggestionCardLayout = new CardLayout();
-        this.suggestionContentPanel = new JPanel(this.suggestionCardLayout);
+        // Fixed height to always show exactly two rows of chips and never move.
+        // Compute a DPI/theme-aware height: approx chip row height = font height + padding.
+        int fmH = instructionsArea.getFontMetrics(instructionsArea.getFont()).getHeight();
+        int rowH = Math.max(24, fmH + 8); // ensure enough room for chip borders/padding
+        int fixedChipAreaHeight = (rowH * 2) + 4; // two rows + FlowLayout vgap (4)
+        container.setMinimumSize(new Dimension(100, fixedChipAreaHeight));
+        container.setPreferredSize(new Dimension(100, fixedChipAreaHeight));
+        container.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedChipAreaHeight));
 
-        // Configure failureReasonLabel
-        failureReasonLabel.setFont(referenceFileTable.getFont()); // Use same font as table/badges
-        failureReasonLabel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 0, H_PAD));
-        failureReasonLabel.setVisible(false); // Initially hidden
-
-        // Configure suggestionContentPanel
-        JScrollPane localTableScrollPane = new JScrollPane(referenceFileTable);
-        localTableScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        localTableScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
-        suggestionContentPanel.add(localTableScrollPane, "TABLE");
-        suggestionContentPanel.add(failureReasonLabel, "LABEL");
-
-        // ----- create container panel for content (table/label) -------------------------------
-        var suggestionAreaPanel = new JPanel(new BorderLayout(H_GLUE, 0));
-        suggestionAreaPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
-
-        // Only the card layout panel now (Deep Scan button removed)
-        suggestionAreaPanel.add(suggestionContentPanel, BorderLayout.CENTER);
-
-        // Apply height constraints to the container panel
-        int currentPanelRowHeight = referenceFileTable.getRowHeight();
-        int fixedHeight = currentPanelRowHeight + 2;
-        suggestionAreaPanel.setPreferredSize(new Dimension(600, fixedHeight));
-        suggestionAreaPanel.setMinimumSize(new Dimension(100, fixedHeight));
-        suggestionAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedHeight));
-
-        // Insert the container panel beneath the command-input area (index 2)
-        centerPanel.add(suggestionAreaPanel, 2);
+        // Insert beneath the command-input area (index 2)
+        centerPanel.add(container, 2);
     }
 
     // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
@@ -1024,6 +901,92 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Recomputes the compact token/cost indicator to mirror the Workspace panel summary. Safe to call from any thread.
+     */
+    private void updateTokenCostIndicator() {
+        var ctx = chrome.getContextManager().selectedContext();
+        if (ctx == null || ctx.isEmpty()) {
+            SwingUtilities.invokeLater(() -> {
+                tokenCostLabel.setText(" ");
+                tokenCostLabel.setVisible(false);
+            });
+            return;
+        }
+
+        // Build full text of current context, similar to WorkspacePanel
+        var allFragments = ctx.getAllFragmentsInDisplayOrder();
+        var fullText = new StringBuilder();
+        int totalLines = 0;
+        for (var frag : allFragments) {
+            if (frag.isText() || frag.getType().isOutput()) {
+                var text = frag.text();
+                fullText.append(text).append("\n");
+                int loc = text.split("\\r?\\n", -1).length;
+                totalLines += loc;
+            }
+        }
+
+        // Capture totals for lambda usage
+        final int totalLinesFinal = totalLines;
+
+        // Compute tokens off-EDT
+        chrome.getContextManager()
+                .submitBackgroundTask(
+                        "Compute token estimate (Instructions)",
+                        () -> Messages.getApproximateTokens(fullText.toString()))
+                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+                    try {
+                        var service = chrome.getContextManager().getService();
+                        var costEstimate = calculateCostEstimate(approxTokens, service);
+                        String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
+                        tokenCostLabel.setText("%,dK tokens \u2248 %s/req".formatted(approxTokens / 1000, costText));
+                        tokenCostLabel.setToolTipText(String.format(
+                                "<html>"
+                                        + "Shows full Workspace context size and estimated cost.<br/>"
+                                        + "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request.<br/>"
+                                        + "<i>Click to show/hide the Workspace panel.</i>"
+                                        + "</html>",
+                                totalLinesFinal, approxTokens, costText));
+                        tokenCostLabel.setVisible(true);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to update token cost indicator", ex);
+                        tokenCostLabel.setVisible(false);
+                    }
+                }));
+    }
+
+    /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
+    private String calculateCostEstimate(int inputTokens, Service service) {
+        Service.ModelConfig config = getSelectedModel();
+
+        if (config.name().isBlank()) {
+            return "";
+        }
+
+        var model = service.getModel(config);
+        if (model instanceof Service.UnavailableStreamingModel) {
+            return "";
+        }
+
+        var pricing = service.getModelPricing(config.name());
+        if (pricing.bands().isEmpty()) {
+            return "";
+        }
+
+        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+        if (service.isReasoning(config)) {
+            estimatedOutputTokens += 1000;
+        }
+        double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
+
+        if (service.isFreeTier(config.name())) {
+            return "$0.00 (Free Tier)";
+        } else {
+            return String.format("$%.2f", estimatedCost);
+        }
+    }
+
+    /**
      * Public hook to refresh branch UI (branch selector label and Project Files drawer title). Ensures EDT compliance
      * and no-ops if not a git project or selector not initialized.
      */
@@ -1137,6 +1100,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
+        // Token/cost indicator (to the left/"west" of the Attach Files button)
+        bottomPanel.add(tokenCostLabel);
+        bottomPanel.add(Box.createHorizontalStrut(4));
+
+        // Attach button
+        var attachButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
+        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
+        attachButton.setFocusable(false);
+        attachButton.setOpaque(false);
+        attachButton.addActionListener(e -> {
+            chrome.getContextPanel().attachContextViaDialog();
+        });
+        attachButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(attachButton);
+        bottomPanel.add(Box.createHorizontalStrut(4));
+
         // Wand button (Magic Ask) on the right
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Size set after fixedHeight is computed below
@@ -1166,13 +1146,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Size the wand button to match height of action button
-        var wandSize = new Dimension(fixedHeight, fixedHeight);
-        wandButton.setPreferredSize(wandSize);
-        wandButton.setMinimumSize(wandSize);
-        wandButton.setMaximumSize(wandSize);
+        // Size the attach and wand buttons to match height of action button
+        var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
+        attachButton.setPreferredSize(iconButtonSize);
+        attachButton.setMinimumSize(iconButtonSize);
+        attachButton.setMaximumSize(iconButtonSize);
+        wandButton.setPreferredSize(iconButtonSize);
+        wandButton.setMinimumSize(iconButtonSize);
+        wandButton.setMaximumSize(iconButtonSize);
 
         bottomPanel.add(actionButton);
+
+        // Lock bottom toolbar height so BorderLayout keeps it visible
+        Dimension bottomPref = bottomPanel.getPreferredSize();
+        bottomPanel.setMinimumSize(new Dimension(0, bottomPref.height));
 
         return bottomPanel;
     }
@@ -1392,25 +1379,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called by the contextSuggestionTimer or external events (like context changes) to initiate a context suggestion
      * task. It increments the generation counter and submits the task to the sequential worker executor.
      */
-    private void triggerContextSuggestion(@Nullable ActionEvent e) { // ActionEvent will be null for external triggers
-        var goal = getInstructions(); // Capture snapshot on EDT
-
-        // Basic checks before submitting to worker
-        if (goal.isBlank()) {
-            // The DocumentListener handles clearing
-            logger.trace("triggerContextSuggestion called with empty goal, not submitting task.");
-            return;
-        }
-
-        // Increment generation and submit the task
-        long myGen = suggestionGeneration.incrementAndGet();
-        if (e == null) { // If triggered externally (e.g., context change)
-            forceSuggestions.set(true);
-            logger.trace("Forcing suggestion at generation {} due to external trigger", myGen);
-        }
-        logger.trace("Submitting suggestion task generation {}", myGen);
-        suggestionWorker.submit(() -> processInputSuggestions(myGen, goal));
-    }
 
     /**
      * Performs the actual context suggestion logic off the EDT. This method includes checks against the current
@@ -1419,222 +1387,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param myGen The generation number of this specific task.
      * @param snapshot The input text captured when this task was initiated.
      */
-    private void processInputSuggestions(long myGen, String snapshot) {
-        logger.trace("Starting suggestion task generation {}", myGen);
-
-        // 0. Initial staleness check
-        if (myGen != suggestionGeneration.get()) {
-            logger.trace("Task {} is stale (current gen {}), aborting early.", myGen, suggestionGeneration.get());
-            showPendingContext(null);
-            return;
-        }
-
-        boolean currentForceState = forceSuggestions.get(); // Read the state for this task
-
-        // Conditionally skip checks if currentForceState is true
-        if (!currentForceState) {
-            // 1. Quick literal check
-            if (snapshot.equals(lastCheckedInputText)) {
-                logger.trace("Task {} input is literally unchanged (not forced), aborting.", myGen);
-                showPendingContext(null);
-                return;
-            }
-        } else {
-            logger.trace("Task {} is forced, skipping literal check.", myGen);
-        }
-
-        // 2. Embedding Model Check (This check MUST run even if forced, as we need the model)
-        if (!Brokk.embeddingModelFuture.isDone()) {
-            SwingUtilities.invokeLater(() -> showFailureLabel("Waiting for model download"));
-            logger.trace("Task {} waiting for model.", myGen);
-            return; // Don't proceed further until model is ready
-        }
-        AbstractModel embeddingModel;
-        try {
-            embeddingModel = Brokk.embeddingModelFuture.get();
-            assert embeddingModel != null;
-        } catch (ExecutionException | InterruptedException ex) {
-            logger.error("Task {} failed to get embedding model", myGen, ex);
-            SwingUtilities.invokeLater(() -> showFailureLabel("Error loading embedding model"));
-            return;
-        }
-
-        // 3. Staleness check before embedding
-        if (myGen != suggestionGeneration.get()) {
-            logger.trace("Task {} is stale before embedding, aborting.", myGen);
-            showPendingContext(null);
-            return;
-        }
-
-        // 4. Compute Embeddings
-        var chunks = Arrays.stream(snapshot.split("[.\\n]"))
-                .map(String::strip)
-                .filter(s -> !s.isEmpty())
-                .toList();
-        float[][] newEmbeddings = chunks.isEmpty()
-                ? new float[0][]
-                : chunks.stream()
-                        .map(chunk -> embeddingModel.embed(chunk, Generator.PoolingType.AVG))
-                        .toArray(float[][]::new);
-
-        // 5. Staleness check after embedding
-        if (myGen != suggestionGeneration.get()) {
-            logger.trace("Task {} is stale after embedding, aborting.", myGen);
-            showPendingContext(null);
-            return;
-        }
-
-        if (!currentForceState) {
-            // 6. Semantic Comparison
-            boolean isDifferent = isSemanticallyDifferent(snapshot, newEmbeddings);
-
-            if (!isDifferent) {
-                logger.trace("Task {} input is semantically similar (not forced), aborting ContextAgent.", myGen);
-                showPendingContext(null);
-                return;
-            }
-        } else {
-            logger.trace("Task {} is forced, skipping semantic similarity check.", myGen);
-        }
-
-        // 8. Run ContextAgent
-        logger.debug("Task {} fetching QUICK context recommendations for: '{}'", myGen, snapshot);
-        var model = contextManager.getService().quickestModel();
-        ContextAgent.RecommendationResult recommendations;
-        try {
-            ContextAgent agent = new ContextAgent(contextManager, model, snapshot, false);
-            recommendations = agent.getRecommendations(false);
-
-            // 10. Process results
-            if (!recommendations.success()) {
-                logger.debug("Task {} quick context suggestion failed: {}", myGen, recommendations.reasoning());
-                showPendingContext(recommendations.reasoning());
-                return;
-            }
-
-            // Set our snapshot as the new semantic baseline
-            this.lastCheckedInputText = snapshot;
-            this.lastCheckedEmbeddings = newEmbeddings;
-
-            // process the recommendations
-            var fileRefs = recommendations.fragments().stream()
-                    .flatMap(f -> f.files().stream()) // No analyzer
-                    .distinct()
-                    .map(pf -> new FileReferenceData(pf.getFileName(), pf.toString(), pf))
-                    .toList();
-            if (fileRefs.isEmpty()) {
-                logger.debug("Task {} found no relevant files.", myGen);
-                showPendingContext("No quick suggestions");
-                return;
-            }
-
-            // Update the UI with our new recommendations, or save them for the next task to use
-            logger.debug("Task {} updating quick reference table with {} suggestions", myGen, fileRefs.size());
-            if (myGen == suggestionGeneration.get()) {
-                SwingUtilities.invokeLater(() -> showSuggestionsTable(fileRefs));
-                pendingQuickContext = null;
-            } else {
-                pendingQuickContext = fileRefs;
-            }
-        } catch (InterruptedException ex) {
-            // shouldn't happen
-            throw new RuntimeException(ex);
-        } finally {
-            if (currentForceState) {
-                forceSuggestions.set(false);
-                logger.trace("Task {} cleared forceSuggestions.", myGen);
-            }
-        }
-    }
-
-    private void showPendingContext(@Nullable String failureExplanation) {
-        // do this on the serial task thread, before we move to the EDT
-        var contextToDisplay = pendingQuickContext;
-        pendingQuickContext = null;
-
-        SwingUtilities.invokeLater(() -> {
-            if (contextToDisplay != null) {
-                showSuggestionsTable(contextToDisplay);
-            } else if (failureExplanation != null) {
-                showFailureLabel(failureExplanation);
-            }
-        });
-    }
 
     /**
      * Checks if the new text/embeddings are semantically different from the last processed state
      * (`lastCheckedInputText`, `lastCheckedEmbeddings`).
      */
-    private boolean isSemanticallyDifferent(String currentText, float[][] newEmbeddings) {
-        if (lastCheckedInputText == null || lastCheckedEmbeddings == null) {
-            // First run or state was reset. Treat as different and store the new embeddings.
-            logger.debug("New embeddings input is trivially different from empty old");
-            return true;
-        }
-
-        // Compare lengths
-        if (newEmbeddings.length != lastCheckedEmbeddings.length) {
-            logger.debug("New embeddings length differs from last checked embeddings length.");
-            return true;
-        }
-
-        // Compare pairwise cosine similarity
-        final float SIMILARITY_THRESHOLD = 0.85f;
-        float minSimilarity = Float.MAX_VALUE;
-        for (int i = 0; i < newEmbeddings.length; i++) {
-            float similarity = cosine(newEmbeddings[i], lastCheckedEmbeddings[i]);
-            if (similarity < minSimilarity) {
-                minSimilarity = similarity;
-            }
-            if (similarity < SIMILARITY_THRESHOLD) {
-                var msg =
-                        """
-                          New embeddings similarity = %.3f, triggering recompute
-
-                          # Old text
-                          %s
-
-                          # New text
-                          %s
-                          """
-                                .formatted(similarity, lastCheckedInputText, currentText);
-                logger.debug(msg);
-                return true;
-            }
-        }
-
-        logger.debug("Minimum similarity was {}", minSimilarity);
-
-        // If lengths match and all similarities are above threshold, it's not different enough.
-        // Do NOT update lastCheckedEmbeddings here, keep the previous ones for the next comparison.
-        return false;
-    }
 
     /** Helper to show the failure label with a message. */
-    private void showFailureLabel(String message) {
-        boolean isDark = UIManager.getBoolean("laf.dark");
-        failureReasonLabel.setForeground(ThemeColors.getColor(isDark, "badge_foreground"));
-        failureReasonLabel.setText(message);
-        failureReasonLabel.setVisible(true);
-        // tableScrollPane was made local to initializeReferenceFileTable, find it via parent of referenceFileTable
-        var scrollPane = SwingUtilities.getAncestorOfClass(JScrollPane.class, referenceFileTable);
-        if (scrollPane != null) {
-            scrollPane.setVisible(false); // Ensure table scrollpane is hidden
-        }
-        referenceFileTable.setValueAt(List.of(), 0, 0); // Clear table data
-        suggestionCardLayout.show(suggestionContentPanel, "LABEL"); // Show label
-    }
 
     /** Helper to show the suggestions table with file references. */
-    private void showSuggestionsTable(List<FileReferenceData> fileRefs) {
-        referenceFileTable.setValueAt(fileRefs, 0, 0);
-        failureReasonLabel.setVisible(false);
-        var scrollPane = SwingUtilities.getAncestorOfClass(JScrollPane.class, referenceFileTable);
-        if (scrollPane != null) {
-            scrollPane.setVisible(true); // Ensure table scrollpane is visible
-        }
-        suggestionCardLayout.show(suggestionContentPanel, "TABLE"); // Show table
-    }
 
     /**
      * Executes the core logic for the "Ask" command. This runs inside the Runnable passed to
@@ -2058,28 +1819,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Methods to disable and enable buttons.
     void disableButtons() {
-        // Disable ancillary controls only; leave the action button alone so it can become "Stop"
-        modeSwitch.setEnabled(false);
-        codeCheckBox.setEnabled(false);
-        searchProjectCheckBox.setEnabled(false);
+        SwingUtilities.invokeLater(() -> {
+            // Disable ancillary controls only; leave the action button alone so it can become "Stop"
+            modeSwitch.setEnabled(false);
+            codeCheckBox.setEnabled(false);
+            searchProjectCheckBox.setEnabled(false);
 
-        // Keep the action button usable for "Stop" while a task is running.
-        if (isActionRunning()) {
-            actionButton.setIcon(Icons.STOP);
-            actionButton.setText(null);
-            actionButton.setEnabled(true);
-            actionButton.setToolTipText("Cancel the current operation");
-            // always use the off red of the light theme
-            Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
-            actionButton.setBackground(badgeBackgroundColor);
-        } else {
-            // If there is no running action, keep the action button enabled so the user can start an action.
-            actionButton.setEnabled(true);
-            actionButton.setBackground(defaultActionButtonBg);
-        }
+            // Keep the action button usable for "Stop" while a task is running.
+            if (isActionRunning()) {
+                actionButton.setIcon(Icons.STOP);
+                actionButton.setText(null);
+                actionButton.setEnabled(true);
+                actionButton.setToolTipText("Cancel the current operation");
+                // always use the off red of the light theme
+                Color badgeBackgroundColor = ThemeColors.getColor(false, "git_badge_background");
+                actionButton.setBackground(badgeBackgroundColor);
+            } else {
+                // If there is no running action, keep the action button enabled so the user can start an action.
+                actionButton.setEnabled(true);
+                actionButton.setBackground(defaultActionButtonBg);
+            }
 
-        // Wand is disabled while any action is running
-        wandButton.setEnabled(!isActionRunning());
+            // Wand is disabled while any action is running
+            wandButton.setEnabled(!isActionRunning());
+        });
     }
 
     /**
@@ -2087,73 +1850,77 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Called when actions complete.
      */
     private void updateButtonStates() {
-        boolean gitAvailable = chrome.getProject().hasGit();
+        SwingUtilities.invokeLater(() -> {
+            boolean gitAvailable = chrome.getProject().hasGit();
 
-        // Toggle
-        modeSwitch.setEnabled(true);
+            // Toggle
+            modeSwitch.setEnabled(true);
 
-        // Checkbox visibility and enablement
-        if (!modeSwitch.isSelected()) {
-            // Show the CODE card
-            if (optionsPanel != null) {
-                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+            // Checkbox visibility and enablement
+            if (!modeSwitch.isSelected()) {
+                // Show the CODE card
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_CODE);
+                }
+                codeCheckBox.setEnabled(gitAvailable);
+            } else {
+                // Show the ASK card
+                if (optionsPanel != null) {
+                    ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+                }
+                searchProjectCheckBox.setEnabled(true);
             }
-            codeCheckBox.setEnabled(gitAvailable);
-        } else {
-            // Show the ASK card
-            if (optionsPanel != null) {
-                ((CardLayout) optionsPanel.getLayout()).show(optionsPanel, OPTIONS_CARD_ASK);
+
+            // Action button reflects current running state
+            KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                    "instructions.submit",
+                    KeyStroke.getKeyStroke(
+                            KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+            if (isActionRunning()) {
+                actionButton.setIcon(Icons.STOP);
+                actionButton.setText(null);
+                actionButton.setToolTipText("Cancel the current operation");
+                actionButton.setBackground(secondaryActionButtonBg);
+            } else {
+                actionButton.setIcon(Icons.ARROW_WARM_UP);
+                actionButton.setText(null);
+                actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+                actionButton.setBackground(defaultActionButtonBg);
             }
-            searchProjectCheckBox.setEnabled(true);
-        }
+            actionButton.setEnabled(true);
 
-        // Action button reflects current running state
-        KeyStroke submitKs = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "instructions.submit",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        if (isActionRunning()) {
-            actionButton.setIcon(Icons.STOP);
-            actionButton.setText(null);
-            actionButton.setToolTipText("Cancel the current operation");
-            actionButton.setBackground(secondaryActionButtonBg);
-        } else {
-            actionButton.setIcon(Icons.ARROW_WARM_UP);
-            actionButton.setText(null);
-            actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
-            actionButton.setBackground(defaultActionButtonBg);
-        }
-        actionButton.setEnabled(true);
+            // Enable/disable wand depending on running state
+            wandButton.setEnabled(!isActionRunning());
 
-        // Enable/disable wand depending on running state
-        wandButton.setEnabled(!isActionRunning());
+            // Ensure the action button is the root pane's default button so Enter triggers it by default.
+            // This mirrors the intended "default" behavior for the Go action.
+            // Intentionally avoid setting a root default button to keep Enter key
+            // behavior local to the focused component.
 
-        // Ensure the action button is the root pane's default button so Enter triggers it by default.
-        // This mirrors the intended "default" behavior for the Go action.
-        // Intentionally avoid setting a root default button to keep Enter key
-        // behavior local to the focused component.
+            // Ensure storedAction is consistent with current UI
+            if (!modeSwitch.isSelected()) {
+                // Inverted semantics: checked = Architect (Plan First)
+                storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
+            } else {
+                // Ask-mode: checked => Search, unchecked => Ask/Answer
+                storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
+            }
 
-        // Ensure storedAction is consistent with current UI
-        if (!modeSwitch.isSelected()) {
-            // Inverted semantics: checked = Architect (Plan First)
-            storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
-        } else {
-            // Ask-mode: checked => Search, unchecked => Ask/Answer
-            storedAction = searchProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
-        }
+            // Keep label emphasis in sync with selected mode
+            updateModeLabels();
+            refreshModeIndicator();
 
-        // Keep label emphasis in sync with selected mode
-        updateModeLabels();
-        refreshModeIndicator();
-
-        chrome.enableHistoryPanel();
+            chrome.enableHistoryPanel();
+        });
     }
 
     @Override
     public void contextChanged(Context newCtx) {
-        // Otherwise, proceed with the normal suggestion logic by submitting a task
-        logger.debug("Context changed externally, triggering suggestion check.");
-        triggerContextSuggestion(null); // Use null ActionEvent to indicate non-timer trigger
+        var fragments = newCtx.getAllFragmentsInDisplayOrder();
+        logger.debug("Context updated: {} fragments", fragments.size());
+        workspaceItemsChipPanel.setFragments(fragments);
+        // Update compact token/cost indicator on context change
+        updateTokenCostIndicator();
     }
 
     void enableButtons() {
@@ -2296,35 +2063,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.addSelectionListener(listener);
     }
 
-    /** Returns cosine similarity of two equal-length vectors. */
-    private static float cosine(float[] a, float[] b) {
-        if (a.length != b.length) {
-            throw new IllegalArgumentException("Vectors differ in length");
-        }
-        if (a.length == 0) {
-            throw new IllegalArgumentException("Vectors must have at least one element");
-        }
-
-        double dot = 0.0;
-        double magA = 0.0;
-        double magB = 0.0;
-
-        for (int i = 0; i < a.length; i++) {
-            double x = a[i];
-            double y = b[i];
-            dot += x * y;
-            magA += x * x;
-            magB += y * y;
-        }
-
-        double denominator = Math.sqrt(magA) * Math.sqrt(magB);
-        if (denominator == 0.0) {
-            throw new IllegalArgumentException("One of the vectors is zero-length");
-        }
-
-        return (float) (dot / denominator);
-    }
-
     private static class ThemeAwareRoundedButton extends MaterialButton implements ThemeAware {
         private static final long serialVersionUID = 1L;
         private final Supplier<Boolean> isActionRunning;
@@ -2409,121 +2147,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         public void applyTheme(GuiTheme guiTheme) {
             // Delegate to the two-argument variant with a sensible default for wordWrap.
             applyTheme(guiTheme, false);
-        }
-    }
-
-    private final class AtTriggerFilter extends DocumentFilter {
-        private boolean isPopupOpen = false; // Guard against re-entrant calls
-
-        @Override
-        public void insertString(FilterBypass fb, int offs, String str, AttributeSet a) throws BadLocationException {
-            super.insertString(fb, offs, str, a);
-            if (!isPopupOpen) {
-                maybeHandleAt(fb, offs + str.length());
-            }
-        }
-
-        @Override
-        public void replace(FilterBypass fb, int offs, int len, String str, AttributeSet a)
-                throws BadLocationException {
-            super.replace(fb, offs, len, str, a);
-            if (!isPopupOpen) {
-                maybeHandleAt(fb, offs + str.length());
-            }
-        }
-
-        private void maybeHandleAt(DocumentFilter.FilterBypass fb, int caretPos) {
-            try {
-                if (fb.getDocument().getLength() >= caretPos
-                        && caretPos > 0
-                        && fb.getDocument().getText(caretPos - 1, 1).equals("@")) {
-                    // Schedule popup display on EDT
-                    SwingUtilities.invokeLater(() -> showAddPopup(caretPos - 1));
-                }
-            } catch (BadLocationException ignored) {
-                // Ignore, means text was changing rapidly
-            }
-        }
-
-        private void showAddPopup(int atOffset) {
-            if (isPopupOpen) {
-                return; // Already showing one
-            }
-
-            isPopupOpen = true;
-            try {
-                Rectangle r = instructionsArea.modelToView2D(atOffset).getBounds();
-                // Point p = SwingUtilities.convertPoint(instructionsArea, r.x, r.y + r.height, chrome.getFrame()); //
-                // Unused variable p
-
-                JPopupMenu popup = AddMenuFactory.buildAddPopup(chrome.getContextPanel());
-
-                // Add action listeners to set the flag when an item is clicked
-                for (Component comp : popup.getComponents()) {
-                    if (comp instanceof JMenuItem item) {
-                        // Get original listeners
-                        java.awt.event.ActionListener[] originalListeners = item.getActionListeners();
-                        // Remove them to re-wrap
-                        for (java.awt.event.ActionListener al : originalListeners) {
-                            item.removeActionListener(al);
-                        }
-                        // Add new listener that removes "@" then calls originals
-                        item.addActionListener(actionEvent -> {
-                            SwingUtilities.invokeLater(
-                                    () -> { // Ensure document modification is on EDT
-                                        try {
-                                            instructionsArea.getDocument().remove(atOffset, 1);
-                                        } catch (BadLocationException ble) {
-                                            logger.warn(
-                                                    "Could not remove @ symbol after selection in ActionListener", ble);
-                                        }
-                                    });
-                            for (java.awt.event.ActionListener al : originalListeners) {
-                                al.actionPerformed(actionEvent);
-                            }
-                        });
-                    }
-                }
-
-                popup.addPopupMenuListener(new PopupMenuListener() {
-                    @Override
-                    public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
-                        // Unregister listener to avoid memory leaks
-                        popup.removePopupMenuListener(this);
-                        isPopupOpen = false; // Allow new popups
-                        // Removal of "@" is now handled by the JMenuItem's ActionListener
-                    }
-
-                    @Override
-                    public void popupMenuWillBecomeVisible(PopupMenuEvent e) {}
-
-                    @Override
-                    public void popupMenuCanceled(PopupMenuEvent e) {
-                        // Unregister listener
-                        popup.removePopupMenuListener(this);
-                        isPopupOpen = false; // Allow new popups
-                        // Do not remove "@" on cancel
-                    }
-                });
-
-                chrome.themeManager.registerPopupMenu(popup);
-                popup.show(instructionsArea, r.x, r.y + r.height);
-
-                // Preselect the first item in the popup
-                if (popup.getComponentCount() > 0) {
-                    Component firstComponent = popup.getComponent(0);
-                    if (firstComponent instanceof JMenuItem) { // Or more generally, MenuElement
-                        MenuElement[] path = {popup, (MenuElement) firstComponent};
-                        MenuSelectionManager.defaultManager().setSelectedPath(path);
-                    }
-                }
-            } catch (BadLocationException ble) {
-                isPopupOpen = false; // Reset guard on error
-                logger.warn("Could not show @ popup", ble);
-            } catch (Exception ex) {
-                isPopupOpen = false; // Reset guard on any other error
-                logger.error("Error showing @ popup", ex);
-            }
         }
     }
 
