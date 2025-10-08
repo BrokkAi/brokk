@@ -1591,6 +1591,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    /**
+     * Shows the dependencies tab. If the tab is already visible, it collapses the sidebar.
+     */
     public void showDependenciesTab() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         int dependenciesTabIndex = leftTabbedPanel.indexOfComponent(dependenciesPanel);
