@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
+import io.github.jbellis.brokk.gui.components.TokenUsageBar;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
@@ -95,7 +96,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
-    private final MaterialButton tokenCostLabel;
+    private final TokenUsageBar tokenUsageBar;
     private String storedAction;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
@@ -311,15 +312,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
 
-        // Initialize compact token/cost indicator (left of Attach button)
-        tokenCostLabel = new MaterialButton(" ");
-        tokenCostLabel.setFocusable(false);
-        tokenCostLabel.setVisible(false);
-        tokenCostLabel.setOpaque(false);
-        tokenCostLabel.setBorder(new EmptyBorder(0, 4, 0, 8));
-        tokenCostLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // Make it clickable to toggle Workspace collapse/expand
-        tokenCostLabel.addActionListener(e -> chrome.toggleWorkspaceCollapsed());
+        // Initialize TokenUsageBar (left of Attach button)
+        tokenUsageBar = new TokenUsageBar();
+        tokenUsageBar.setVisible(false);
+        tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
+        tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
+        // Click toggles Workspace collapse/expand
+        tokenUsageBar.setOnClick(() -> chrome.toggleWorkspaceCollapsed());
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -901,14 +900,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Recomputes the compact token/cost indicator to mirror the Workspace panel summary. Safe to call from any thread.
+     * Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread.
      */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         if (ctx == null || ctx.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
-                tokenCostLabel.setText(" ");
-                tokenCostLabel.setVisible(false);
+                tokenUsageBar.setVisible(false);
             });
             return;
         }
@@ -937,20 +935,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
                     try {
                         var service = chrome.getContextManager().getService();
+
+                        // Resolve selected model and max input tokens
+                        Service.ModelConfig config = getSelectedModel();
+                        var model = service.getModel(config);
+                        if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                            tokenUsageBar.setVisible(false);
+                            return;
+                        }
+                        int maxInputTokens = service.getMaxInputTokens(model);
+
+                        // Update bar and tooltip
+                        tokenUsageBar.setTokens(approxTokens, maxInputTokens);
+
                         var costEstimate = calculateCostEstimate(approxTokens, service);
                         String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
-                        tokenCostLabel.setText("%,dK tokens \u2248 %s/req".formatted(approxTokens / 1000, costText));
-                        tokenCostLabel.setToolTipText(String.format(
+
+                        tokenUsageBar.setTooltip(String.format(
                                 "<html>"
-                                        + "Shows full Workspace context size and estimated cost.<br/>"
-                                        + "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request.<br/>"
+                                        + "Workspace size and estimated cost.<br/>"
+                                        + "Total: %,d LOC is ~%,d tokens; est. %s per request.<br/>"
                                         + "<i>Click to show/hide the Workspace panel.</i>"
                                         + "</html>",
                                 totalLinesFinal, approxTokens, costText));
-                        tokenCostLabel.setVisible(true);
+                        tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
-                        logger.debug("Failed to update token cost indicator", ex);
-                        tokenCostLabel.setVisible(false);
+                        logger.debug("Failed to update token usage bar", ex);
+                        tokenUsageBar.setVisible(false);
                     }
                 }));
     }
@@ -1100,8 +1111,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Token/cost indicator (to the left/"west" of the Attach Files button)
-        bottomPanel.add(tokenCostLabel);
+        // Token usage indicator (to the left/"west" of the Attach Files button)
+        bottomPanel.add(tokenUsageBar);
         bottomPanel.add(Box.createHorizontalStrut(4));
 
         // Attach button
