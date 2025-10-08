@@ -1367,7 +1367,7 @@ public interface ContextFragment {
                             return true;
                         } else {
                             var current = file.getLastModifiedTimeMillis();
-                            return current > stored;
+                            return stored == Long.MAX_VALUE || current == Long.MAX_VALUE || current > stored;
                         }
                     });
 
