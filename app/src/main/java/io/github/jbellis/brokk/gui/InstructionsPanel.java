@@ -972,9 +972,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         StringBuilder body = new StringBuilder();
         body.append("<div><b>Context</b></div>");
         body.append("<div>Model: ").append(htmlEscape(modelName)).append("</div>");
-        body.append("<div>Max input tokens: ").append(String.format("%,d", maxTokens)).append("</div>");
+        body.append("<div>Max input tokens: ")
+                .append(String.format("%,d", maxTokens))
+                .append("</div>");
         if (!costPerRequest.isBlank()) {
-            body.append("<div>Estimated cost/request: ").append(htmlEscape(costPerRequest)).append("</div>");
+            body.append("<div>Estimated cost/request: ")
+                    .append(htmlEscape(costPerRequest))
+                    .append("</div>");
         }
         return wrapTooltipHtml(body.toString(), 420);
     }
