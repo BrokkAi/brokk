@@ -12,16 +12,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.Status;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/**
- * Tests for monorepo subdirectory support - opening a subdirectory of a git repository
- * as a Brokk project.
- */
+/** Tests for monorepo subdirectory support - opening a subdirectory of a git repository as a Brokk project. */
 public class MonorepoSubdirectoryTest {
     @TempDir
     Path tempDir;
@@ -86,9 +82,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests where the config directory is placed when opening a subdirectory.
-     * Expected: Should be at git root (like worktrees), not in subdirectory.
-     * Current behavior: May be in subdirectory (bug).
+     * Tests where the config directory is placed when opening a subdirectory. Expected: Should be at git root (like
+     * worktrees), not in subdirectory. Current behavior: May be in subdirectory (bug).
      */
     @Test
     void testSubdirectoryProject_WhereIsConfig() throws Exception {
@@ -106,8 +101,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests that saving properties creates .brokk directory at git root, not subdirectory.
-     * This test ensures physical files are created in the correct location.
+     * Tests that saving properties creates .brokk directory at git root, not subdirectory. This test ensures physical
+     * files are created in the correct location.
      */
     @Test
     void testSubdirectoryProject_PhysicalConfigLocation() throws Exception {
@@ -132,8 +127,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Regression test for llm-history being created at git root, not subdirectory.
-     * This was a bug where Llm.java used getRoot() instead of getMasterRootPathForConfig().
+     * Regression test for llm-history being created at git root, not subdirectory. This was a bug where Llm.java used
+     * getRoot() instead of getMasterRootPathForConfig().
      */
     @Test
     void testSubdirectoryProject_LlmHistoryLocation() throws Exception {
@@ -158,10 +153,9 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Regression test for git staging bug when opening subdirectory.
-     * Previously, adding files from git root when projectRoot was a subdirectory
-     * would create incorrect relative paths (with ..) causing staging issues.
-     * This test verifies that add() operations succeed without exceptions.
+     * Regression test for git staging bug when opening subdirectory. Previously, adding files from git root when
+     * projectRoot was a subdirectory would create incorrect relative paths (with ..) causing staging issues. This test
+     * verifies that add() operations succeed without exceptions.
      */
     @Test
     void testSubdirectoryProject_GitAddFilesAtRoot() throws Exception {
@@ -188,8 +182,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests that getTrackedFiles() correctly filters to only show files under the subdirectory.
-     * This should already work based on the GitRepo implementation.
+     * Tests that getTrackedFiles() correctly filters to only show files under the subdirectory. This should already
+     * work based on the GitRepo implementation.
      */
     @Test
     void testSubdirectoryProject_TrackedFilesFiltering() throws Exception {
@@ -210,8 +204,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests that two subdirectories opened as separate projects share the same config location.
-     * Expected: Both should use git root for config.
+     * Tests that two subdirectories opened as separate projects share the same config location. Expected: Both should
+     * use git root for config.
      */
     @Test
     void testSubdirectoryProject_ConfigSharing() throws Exception {
@@ -230,10 +224,7 @@ public class MonorepoSubdirectoryTest {
 
             // Both should share the same config location (git root)
             assertEquals(config1, config2, "Both subdirectories should share the same config location");
-            assertEquals(
-                    repoRoot.toAbsolutePath().normalize(),
-                    config1,
-                    "Config should be at git repository root");
+            assertEquals(repoRoot.toAbsolutePath().normalize(), config1, "Config should be at git repository root");
         } finally {
             if (project1 != null) project1.close();
             if (project2 != null) project2.close();
@@ -241,8 +232,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Baseline test: opening a project at the git repository root.
-     * Config should be stored at the root (same as project root).
+     * Baseline test: opening a project at the git repository root. Config should be stored at the root (same as project
+     * root).
      */
     @Test
     void testRegularProject_AtGitRoot() throws Exception {
@@ -262,9 +253,7 @@ public class MonorepoSubdirectoryTest {
                 "Regular project at git root should have config at git root");
     }
 
-    /**
-     * Test that all files are visible when opening at git root (no filtering).
-     */
+    /** Test that all files are visible when opening at git root (no filtering). */
     @Test
     void testRegularProject_AllFilesVisible() throws Exception {
         rootProject = AbstractProject.createProject(repoRoot, null);
@@ -282,9 +271,7 @@ public class MonorepoSubdirectoryTest {
         assertEquals(4, fileNames.size(), "Should have all 4 files from entire repo");
     }
 
-    /**
-     * Test that git operations work correctly for regular (non-subdirectory) projects.
-     */
+    /** Test that git operations work correctly for regular (non-subdirectory) projects. */
     @Test
     void testRegularProject_GitOperations() throws Exception {
         rootProject = AbstractProject.createProject(repoRoot, null);
@@ -299,9 +286,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Critical test: Verify git operations in subdirectory only affect subdirectory files.
-     * When opening a subdirectory, git add/commit should be scoped to that subdirectory,
-     * not the entire repository.
+     * Critical test: Verify git operations in subdirectory only affect subdirectory files. When opening a subdirectory,
+     * git add/commit should be scoped to that subdirectory, not the entire repository.
      */
     @Test
     void testSubdirectoryProject_GitOperationsScoped() throws Exception {
@@ -330,9 +316,7 @@ public class MonorepoSubdirectoryTest {
 
         // Assert the expected behavior: when opening a subdirectory,
         // only files within that subdirectory should be visible/trackable
-        assertTrue(
-                subdirFileVisible,
-                "File added in subdirectory should be visible in getTrackedFiles()");
+        assertTrue(subdirFileVisible, "File added in subdirectory should be visible in getTrackedFiles()");
         assertFalse(
                 rootFileVisible,
                 "File added outside subdirectory should NOT be visible in getTrackedFiles() - "
@@ -340,8 +324,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Verify that build commands execute in the subdirectory, not at git root.
-     * This is correct for monorepos where each package has its own build config.
+     * Verify that build commands execute in the subdirectory, not at git root. This is correct for monorepos where each
+     * package has its own build config.
      */
     @Test
     void testSubdirectoryProject_BuildDirectoryIsSubdir() throws Exception {
@@ -361,9 +345,7 @@ public class MonorepoSubdirectoryTest {
                         + "this allows each package in a monorepo to have its own build config");
     }
 
-    /**
-     * Verify that for regular projects, build directory IS the git root.
-     */
+    /** Verify that for regular projects, build directory IS the git root. */
     @Test
     void testRegularProject_BuildDirectoryIsGitRoot() throws Exception {
         rootProject = AbstractProject.createProject(repoRoot, null);
@@ -375,8 +357,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests that worktrees correctly use the main repository's config location.
-     * This is existing functionality that should continue to work.
+     * Tests that worktrees correctly use the main repository's config location. This is existing functionality that
+     * should continue to work.
      */
     @Test
     void testWorktreeProject_ConfigLocation() throws Exception {
@@ -408,8 +390,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Compares the behavior of subdirectory projects vs worktree projects.
-     * Both should behave similarly for config storage (at git root).
+     * Compares the behavior of subdirectory projects vs worktree projects. Both should behave similarly for config
+     * storage (at git root).
      */
     @Test
     void testSubdirectoryVsWorktree_Comparison() throws Exception {
@@ -436,9 +418,7 @@ public class MonorepoSubdirectoryTest {
                     subdirConfig.toRealPath(),
                     "Subdirectory and worktree should use same config location (git root)");
             assertEquals(
-                    repoRoot.toRealPath(),
-                    subdirConfig.toRealPath(),
-                    "Both should use git repository root for config");
+                    repoRoot.toRealPath(), subdirConfig.toRealPath(), "Both should use git repository root for config");
         } finally {
             subdirProj.close();
             worktreeProj.close();
@@ -447,9 +427,9 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Verify that BuildAgent only detects build configurations in the subdirectory, not at git root.
-     * This ensures each package in a monorepo uses its own build configuration.
-     * BuildAgent uses project.getAllFiles() which filters to the projectRoot (subdirectory).
+     * Verify that BuildAgent only detects build configurations in the subdirectory, not at git root. This ensures each
+     * package in a monorepo uses its own build configuration. BuildAgent uses project.getAllFiles() which filters to
+     * the projectRoot (subdirectory).
      */
     @Test
     void testSubdirectoryProject_BuildDetectionScope() throws Exception {
@@ -474,14 +454,11 @@ public class MonorepoSubdirectoryTest {
 
         // Get all files that BuildAgent would see
         var allFiles = subdirProject.getAllFiles();
-        var fileNames = allFiles.stream()
-                .map(f -> f.absPath().getFileName().toString())
-                .collect(Collectors.toSet());
+        var fileNames =
+                allFiles.stream().map(f -> f.absPath().getFileName().toString()).collect(Collectors.toSet());
 
         // BuildAgent should only see files in the subdirectory
-        assertTrue(
-                fileNames.contains("sub-file1.txt"),
-                "BuildAgent should see files in subdirectory");
+        assertTrue(fileNames.contains("sub-file1.txt"), "BuildAgent should see files in subdirectory");
         assertFalse(
                 fileNames.contains("root-file.txt"),
                 "BuildAgent should NOT see files at git root - only subdirectory files are visible");
@@ -490,9 +467,7 @@ public class MonorepoSubdirectoryTest {
         var subdirPackageJsonFile = allFiles.stream()
                 .filter(f -> f.absPath().equals(subdirPackageJson))
                 .findFirst();
-        assertTrue(
-                subdirPackageJsonFile.isPresent(),
-                "BuildAgent should find build config in subdirectory");
+        assertTrue(subdirPackageJsonFile.isPresent(), "BuildAgent should find build config in subdirectory");
 
         // Verify the root build config is NOT visible
         var rootPackageJsonFile = allFiles.stream()

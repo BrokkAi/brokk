@@ -232,8 +232,8 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Converts a ProjectFile (which is relative to projectRoot) into a path string relative to the git repository
-     * root, suitable for JGit commands.
+     * Converts a ProjectFile (which is relative to projectRoot) into a path string relative to the git repository root,
+     * suitable for JGit commands.
      */
     private String toRepoRelativePath(ProjectFile file) {
         // ProjectFile.absPath() gives the absolute path on the filesystem.

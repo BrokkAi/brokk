@@ -68,7 +68,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             this.masterRootPathForConfig = this.root;
         }
 
-        this.workspacePropertiesFile = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
+        this.workspacePropertiesFile =
+                this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
         if (Files.exists(workspacePropertiesFile)) {
