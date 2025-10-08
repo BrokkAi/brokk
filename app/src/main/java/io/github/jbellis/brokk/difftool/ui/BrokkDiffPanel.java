@@ -379,6 +379,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnRedo = new MaterialButton();
     private final MaterialButton btnSaveAll = new MaterialButton();
     private final MaterialButton captureDiffButton = new MaterialButton();
+
+    // Font size adjustment buttons (added)
+    private final MaterialButton btnDecreaseFont = new MaterialButton("-");
+    private final MaterialButton btnIncreaseFont = new MaterialButton("+");
+
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
@@ -798,6 +803,24 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
         toolBar.add(captureDiffButton);
+
+        // Font size controls (right side)
+        btnDecreaseFont.setToolTipText("Decrease editor font size");
+        btnDecreaseFont.setText("-");
+        btnDecreaseFont.setBorderPainted(false);
+        btnDecreaseFont.setContentAreaFilled(false);
+        btnDecreaseFont.setFocusPainted(false);
+
+        btnIncreaseFont.setToolTipText("Increase editor font size");
+        btnIncreaseFont.setText("+");
+        btnIncreaseFont.setBorderPainted(false);
+        btnIncreaseFont.setContentAreaFilled(false);
+        btnIncreaseFont.setFocusPainted(false);
+
+        toolBar.add(Box.createHorizontalStrut(8));
+        toolBar.add(btnDecreaseFont);
+        toolBar.add(Box.createHorizontalStrut(4));
+        toolBar.add(btnIncreaseFont);
 
         return toolBar;
     }
