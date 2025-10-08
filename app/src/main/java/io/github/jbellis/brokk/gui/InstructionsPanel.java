@@ -714,7 +714,65 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var container = new JPanel(new BorderLayout(H_GLUE, 0));
         container.setOpaque(false);
         container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
-        container.add(workspaceItemsChipPanel, BorderLayout.CENTER);
+
+        // Sizer panel computes rows (1..5) based on current width and chip widths.
+        var chipsSizer = new JPanel(new BorderLayout()) {
+            private int computeRowsForWidth(int contentWidth) {
+                if (contentWidth <= 0) return 1;
+                int rows = 1;
+                int hgap = 6;
+                if (workspaceItemsChipPanel.getLayout() instanceof FlowLayout fl) {
+                    hgap = fl.getHgap();
+                }
+                int lineWidth = 0;
+                for (var comp : workspaceItemsChipPanel.getComponents()) {
+                    if (!comp.isVisible()) continue;
+                    int w = comp.getPreferredSize().width;
+                    int next = (lineWidth == 0 ? w : lineWidth + hgap + w);
+                    if (next <= contentWidth) {
+                        lineWidth = next;
+                    } else {
+                        rows++;
+                        lineWidth = w;
+                        if (rows >= 5) break; // cap at 5
+                    }
+                }
+                return Math.max(1, Math.min(5, rows));
+            }
+
+            @Override
+            public Dimension getPreferredSize() {
+                // Estimate height: rows * rowH + inter-row vgap
+                int width = getWidth();
+                if (width <= 0 && getParent() != null) {
+                    width = getParent().getWidth();
+                }
+                Insets in = getInsets();
+                int contentWidth = Math.max(0, width - (in == null ? 0 : in.left + in.right));
+
+                int rows = computeRowsForWidth(contentWidth);
+                int fmH = instructionsArea.getFontMetrics(instructionsArea.getFont()).getHeight();
+                int rowH = Math.max(24, fmH + 8);
+                int vgap = 4;
+                if (workspaceItemsChipPanel.getLayout() instanceof FlowLayout fl) {
+                    vgap = fl.getVgap();
+                }
+                int chipsHeight = (rows * rowH) + (rows > 1 ? (rows - 1) * vgap : 0);
+                Dimension pref = new Dimension(Math.max(100, super.getPreferredSize().width), chipsHeight);
+                return pref;
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                // Prevent vertical stretching; let width expand
+                Dimension pref = getPreferredSize();
+                return new Dimension(Integer.MAX_VALUE, pref.height);
+            }
+        };
+        chipsSizer.setOpaque(false);
+        chipsSizer.add(workspaceItemsChipPanel, BorderLayout.CENTER);
+
+        container.add(chipsSizer, BorderLayout.CENTER);
 
         // Bottom line: TokenUsageBar (fills) + Attach button on the right
         var attachButton = new MaterialButton();
@@ -726,7 +784,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);
-        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0)); // small gap above
+        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // minimal gap above
 
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -739,16 +797,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         container.add(bottomLinePanel, BorderLayout.SOUTH);
 
-        // Fixed height to always show exactly two rows of chips and never move.
-        // Compute a DPI/theme-aware height: approx chip row height = font height + padding.
-        int fmH = instructionsArea.getFontMetrics(instructionsArea.getFont()).getHeight();
-        int rowH = Math.max(24, fmH + 8); // ensure enough room for chip borders/padding
-        int bottomH = Math.max(28, bottomLinePanel.getPreferredSize().height);
-        int fixedChipAreaHeight = (rowH * 2) + 4 + bottomH; // two rows + FlowLayout vgap (4) + bottom line height
-        container.setMinimumSize(new Dimension(100, fixedChipAreaHeight));
-        container.setPreferredSize(new Dimension(100, fixedChipAreaHeight));
-        container.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedChipAreaHeight));
-
         // Wrap the chip panel with a titled border labeled "Context"
         var contextTitledBorder = BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -756,9 +804,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12));
-        var titledContainer = new JPanel(new BorderLayout());
+
+        // Constrain vertical growth to preferred height so it won't stretch on window resize.
+        var titledContainer = new JPanel(new BorderLayout()) {
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension pref = getPreferredSize();
+                return new Dimension(Integer.MAX_VALUE, pref.height);
+            }
+        };
         titledContainer.setOpaque(false);
-        // Add some internal padding inside the title border while keeping the chip container's own padding
         titledContainer.setBorder(BorderFactory.createCompoundBorder(
                 contextTitledBorder,
                 BorderFactory.createEmptyBorder(0, 0, 0, 0)));
