@@ -205,8 +205,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     // Toggle "Search First" when in Answer mode; no-op in Code mode.
                     if (modeSwitch.isSelected()) {
                         searchProjectCheckBox.doClick();
-                    } else {
-                        // No-op: Plan First option removed
                     }
                 }));
 
