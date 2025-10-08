@@ -101,44 +101,42 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 g2d.drawRoundRect(0, 0, width - 1, height - 1, arc, arc);
             }
 
-            // Draw text on top with adaptive contrast per region
+            // Draw text on top: current tokens in white, aligned to the fill's east edge
             g2d.setFont(getFont().deriveFont(Font.BOLD, 11f));
-            drawText(g2d, width, height, fillWidth, ratio);
+            drawText(g2d, width, height, fillWidth);
         } finally {
             g2d.dispose();
         }
     }
 
-    private void drawText(Graphics2D g2d, int width, int height, int fillWidth, float ratio) {
+    private void drawText(Graphics2D g2d, int width, int height, int fillWidth) {
         String currentText = formatTokens(currentTokens);
-        String maxText = formatTokens(maxTokens);
 
         FontMetrics fm = g2d.getFontMetrics();
         int textHeight = fm.getAscent();
         int textY = (height - textHeight) / 2 + fm.getAscent();
         int padding = 6;
+        int textWidth = fm.stringWidth(currentText);
 
-        // Background colors of each side
-        Color trackBg = getTrackColor();
-        Color fillBg = getFillColor(ratio);
+        int x;
+        // Check if the text with padding can fit inside the filled portion of the bar
+        if (fillWidth >= textWidth + 2 * padding) {
+            // Yes: position text inside the filled bar, right-aligned
+            x = fillWidth - textWidth - padding;
+        } else {
+            // No: try to position text outside the filled bar, to its right...
+            if (fillWidth + padding + textWidth <= width) {
+                // It fits without being clipped.
+                x = fillWidth + padding;
+            } else {
+                // It doesn't fit outside, so place it inside without padding to avoid splitting.
+                x = Math.max(0, fillWidth - textWidth);
+            }
+        }
 
-        // Left/current text region
-        int leftTextX = padding;
-        int leftTextWidth = fm.stringWidth(currentText);
-        int leftTextEnd = leftTextX + leftTextWidth;
-        boolean leftOverFill = fillWidth >= (leftTextEnd - 1); // mostly or fully over fill
-        Color leftBg = leftOverFill ? fillBg : trackBg;
-        g2d.setColor(getContrastingTextColor(leftBg));
-        g2d.drawString(currentText, leftTextX, textY);
-
-        // Right/max text region
-        int rightTextWidth = fm.stringWidth(maxText);
-        int rightTextX = width - rightTextWidth - padding;
-        int rightTextCenter = rightTextX + (rightTextWidth / 2);
-        boolean rightOverFill = fillWidth > rightTextCenter; // consider dominant background
-        Color rightBg = rightOverFill ? fillBg : trackBg;
-        g2d.setColor(getContrastingTextColor(rightBg));
-        g2d.drawString(maxText, rightTextX, textY);
+        // Always white text
+        g2d.setColor(Color.WHITE);
+        g2d.drawString(currentText, x, textY);
     }
 
     private String formatTokens(int tokens) {
@@ -157,9 +155,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return getDangerColor(dark);
         }
         if (ratio > WARN_THRESHOLD) {
-            return getWarningColor();
+            return getWarningColor(dark);
         }
-        return getOkColor();
+        return getOkColor(dark);
     }
 
     private Color getTrackColor() {
@@ -167,42 +165,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         Color panel = UIManager.getColor("Panel.background");
         boolean dark = isDarkTheme();
         if (panel != null) {
-            return dark ? lighten(panel, 0.08f) : darken(panel, 0.06f);
+            // Make the unfilled track darker on light theme to improve white text contrast at low fill levels
+            return dark ? lighten(panel, 0.08f) : darken(panel, 0.18f);
         }
         Color pb = UIManager.getColor("ProgressBar.background");
         if (pb != null) return pb;
-        return dark ? new Color(0x2B2B2B) : new Color(0xE6E8EA);
+        // Fallback colors if UI defaults are missing
+        return dark ? new Color(0x2B2B2B) : new Color(0xC0C4C8);
     }
 
-    // Choose black or white text to maximize contrast against the provided background
-    private Color getContrastingTextColor(Color background) {
-        double contrastWithBlack = contrastRatio(background, Color.BLACK);
-        double contrastWithWhite = contrastRatio(background, Color.WHITE);
-        // Prefer the higher contrast option. If equal, default to black for light backgrounds.
-        return (contrastWithWhite >= contrastWithBlack) ? Color.WHITE : Color.BLACK;
-    }
-
-    private static double contrastRatio(Color a, Color b) {
-        double la = luminance(a);
-        double lb = luminance(b);
-        double lighter = Math.max(la, lb);
-        double darker = Math.min(la, lb);
-        return (lighter + 0.05) / (darker + 0.05);
-    }
-
-    private static double luminance(Color c) {
-        double r = srgbToLinear(c.getRed() / 255.0);
-        double g = srgbToLinear(c.getGreen() / 255.0);
-        double b = srgbToLinear(c.getBlue() / 255.0);
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    }
-
-    private static double srgbToLinear(double channel) {
-        if (channel <= 0.04045) {
-            return channel / 12.92;
-        }
-        return Math.pow((channel + 0.055) / 1.055, 2.4);
-    }
 
     private boolean isDarkTheme() {
         return UIManager.getBoolean("laf.dark");
@@ -232,16 +203,17 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return new Color(r, g, b);
     }
 
-    private Color getOkColor() {
-        return new Color(0x2EA043); // green
+    private Color getOkColor(boolean dark) {
+        // Use slightly different shades for better contrast in each theme
+        return dark ? new Color(0x2EA043) : new Color(0x1F883D); // green
     }
 
-    private Color getWarningColor() {
-        return new Color(0xD29922); // amber
+    private Color getWarningColor(boolean dark) {
+        return dark ? new Color(0xD29922) : new Color(0x9A6700); // amber
     }
 
     private Color getDangerColor(boolean dark) {
-        return dark ? new Color(0xC93C37) : new Color(0xDA3633); // red
+        return dark ? new Color(0xC93C37) : new Color(0xCF222E); // red
     }
 
     @Override
