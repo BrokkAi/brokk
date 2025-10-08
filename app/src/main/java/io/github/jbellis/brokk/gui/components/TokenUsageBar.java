@@ -1,19 +1,19 @@
 package io.github.jbellis.brokk.gui.components;
 
-import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.GuiTheme;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
+import io.github.jbellis.brokk.gui.ThemeAware;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Locale;
+import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private int currentTokens = 0;
     private int maxTokens = 1; // Avoid division by zero
+
     @Nullable
     private Runnable onClick = null;
 

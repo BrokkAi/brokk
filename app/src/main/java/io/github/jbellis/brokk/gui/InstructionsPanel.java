@@ -899,9 +899,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /**
-     * Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread.
-     */
+    /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         if (ctx == null || ctx.isEmpty()) {
@@ -919,8 +917,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 fullText.append(frag.text()).append("\n");
             }
         }
-
-        
 
         // Compute tokens off-EDT
         chrome.getContextManager()
