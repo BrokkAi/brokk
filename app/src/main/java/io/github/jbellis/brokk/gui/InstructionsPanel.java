@@ -1125,9 +1125,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dependenciesButton.setFocusable(false);
         dependenciesButton.setOpaque(false);
         dependenciesButton.addActionListener(e -> {
-            var panel = new DependenciesDrawerPanel(chrome);
-            chrome.showPreviewFrame(contextManager, "Manage Dependencies", panel);
-            panel.openPanel();
+            chrome.showDependenciesTab();
         });
         dependenciesButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         bottomPanel.add(dependenciesButton);

@@ -14,7 +14,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -73,10 +73,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
-    private @Nullable Rectangle dependenciesDialogBounds = null;
-
-    @Nullable
-    private JDialog dependenciesDialog = null;
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -193,6 +189,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
+    private final DependenciesPanel dependenciesPanel;
 
     // Git
     @Nullable
@@ -309,6 +306,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+        dependenciesPanel = new DependenciesPanel(this);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
@@ -323,6 +321,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             @Override
             public void mousePressed(MouseEvent e) {
                 handleTabToggle(projectTabIdx);
+            }
+        });
+
+        // Add Dependencies tab
+        var dependenciesIcon = Icons.MANAGE_DEPENDENCIES;
+        leftTabbedPanel.addTab(null, dependenciesIcon, dependenciesPanel);
+        var dependenciesTabIdx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
+        var dependenciesTabLabel = createSquareTabLabel(dependenciesIcon, "Dependencies");
+        leftTabbedPanel.setTabComponentAt(dependenciesTabIdx, dependenciesTabLabel);
+        dependenciesTabLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleTabToggle(dependenciesTabIdx);
             }
         });
 
@@ -1143,7 +1154,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Cmd/Ctrl+Shift+D => toggle dependencies drawer
+        // Cmd/Ctrl+Shift+D => toggle dependencies tab
         KeyStroke toggleDependenciesDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
                 "drawer.toggleDependencies",
                 KeyStroke.getKeyStroke(
@@ -1153,7 +1164,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("toggleDependenciesDrawer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                showDependenciesModalDialog();
+                showDependenciesTab();
             }
         });
 
@@ -1454,31 +1465,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
 
             var project = contextManager.getProject();
-            boolean isDependencies = contentComponent instanceof DependenciesDrawerPanel;
-
-            if (isDependencies) {
-                if (dependenciesDialogBounds != null
-                        && dependenciesDialogBounds.width > 0
-                        && dependenciesDialogBounds.height > 0) {
-                    previewFrame.setBounds(dependenciesDialogBounds);
-                    if (!isPositionOnScreen(dependenciesDialogBounds.x, dependenciesDialogBounds.y)) {
-                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
-                    }
-                } else {
-                    previewFrame.setSize(800, 500);
-                    previewFrame.setLocationRelativeTo(frame);
+            var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
+            if (storedBounds.width > 0 && storedBounds.height > 0) {
+                previewFrame.setBounds(storedBounds);
+                if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                    previewFrame.setLocationRelativeTo(frame); // Center if off-screen
                 }
             } else {
-                var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
-                if (storedBounds.width > 0 && storedBounds.height > 0) {
-                    previewFrame.setBounds(storedBounds);
-                    if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
-                    }
-                } else {
-                    previewFrame.setSize(800, 600); // Default size if no bounds saved
-                    previewFrame.setLocationRelativeTo(frame); // Center relative to main window
-                }
+                previewFrame.setSize(800, 600); // Default size if no bounds saved
+                previewFrame.setLocationRelativeTo(frame); // Center relative to main window
             }
 
             // Set a minimum width for preview windows to ensure search controls work properly
@@ -1489,20 +1484,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
                 @Override
                 public void componentMoved(java.awt.event.ComponentEvent e) {
-                    if (isDependencies) {
-                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
-                    } else {
-                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
-                    }
+                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
                 }
 
                 @Override
                 public void componentResized(java.awt.event.ComponentEvent e) {
-                    if (isDependencies) {
-                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
-                    } else {
-                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
-                    }
+                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
                 }
             });
         } else {
@@ -1604,67 +1591,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    // Opens the Dependencies UI as an application-modal dialog
-    public void showDependenciesModalDialog() {
+    public void showDependenciesTab() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        if (dependenciesDialog != null && dependenciesDialog.isDisplayable()) {
-            dependenciesDialog.toFront();
-            dependenciesDialog.requestFocus();
-            return;
+        int dependenciesTabIndex = leftTabbedPanel.indexOfComponent(dependenciesPanel);
+        if (dependenciesTabIndex != -1) {
+            handleTabToggle(dependenciesTabIndex);
         }
-
-        var dependenciesPanel = new DependenciesDrawerPanel(this);
-        var dialog = new JDialog(frame, "Manage Dependencies", Dialog.ModalityType.APPLICATION_MODAL);
-        Chrome.applyIcon(dialog);
-        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        dialog.setLayout(new BorderLayout());
-        dialog.add(dependenciesPanel, BorderLayout.CENTER);
-
-        if (dependenciesDialogBounds != null
-                && dependenciesDialogBounds.width > 0
-                && dependenciesDialogBounds.height > 0) {
-            dialog.setBounds(dependenciesDialogBounds);
-            if (!isPositionOnScreen(dependenciesDialogBounds.x, dependenciesDialogBounds.y)) {
-                dialog.setLocationRelativeTo(frame);
-            }
-        } else {
-            dialog.setSize(800, 500);
-            dialog.setLocationRelativeTo(frame);
-        }
-
-        dialog.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override
-            public void componentMoved(java.awt.event.ComponentEvent e) {
-                dependenciesDialogBounds = dialog.getBounds();
-            }
-
-            @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
-                dependenciesDialogBounds = dialog.getBounds();
-            }
-        });
-
-        // Close on ESC
-        var rootPane = dialog.getRootPane();
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeWindow");
-        rootPane.getActionMap().put("closeWindow", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                dialog.dispatchEvent(new WindowEvent(dialog, WindowEvent.WINDOW_CLOSING));
-            }
-        });
-
-        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override
-            public void windowClosed(WindowEvent e) {
-                dependenciesDialog = null;
-            }
-        });
-
-        dependenciesDialog = dialog;
-        dependenciesPanel.openPanel();
-        dialog.setVisible(true); // Modal; blocks until closed
     }
 
     /** Closes all active preview windows and clears the tracking map. Useful for cleanup or when switching projects. */
