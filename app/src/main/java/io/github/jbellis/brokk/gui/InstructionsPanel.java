@@ -924,7 +924,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                         // Update bar and tooltip
                         tokenUsageBar.setTokens(approxTokens, maxTokens);
-                        tokenUsageBar.setTooltip(calculateCostEstimate(approxTokens, service));
+                        String modelName = config.name();
+                        String costStr = calculateCostEstimate(approxTokens, service);
+                        String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
+                        tokenUsageBar.setTooltip(tooltipHtml);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -962,6 +965,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             return String.format("$%.2f", estimatedCost);
         }
+    }
+
+    // Tooltip helpers for TokenUsageBar (HTML-wrapped, similar to chip tooltips)
+    private static String buildTokenUsageTooltip(String modelName, int maxTokens, String costPerRequest) {
+        StringBuilder body = new StringBuilder();
+        body.append("<div><b>Context</b></div>");
+        body.append("<div>Model: ").append(htmlEscape(modelName)).append("</div>");
+        body.append("<div>Max input tokens: ").append(String.format("%,d", maxTokens)).append("</div>");
+        if (!costPerRequest.isBlank()) {
+            body.append("<div>Estimated cost/request: ").append(htmlEscape(costPerRequest)).append("</div>");
+        }
+        return wrapTooltipHtml(body.toString(), 420);
+    }
+
+    private static String wrapTooltipHtml(String innerHtml, int maxWidthPx) {
+        return "<html><body style='width: " + maxWidthPx + "px'>" + innerHtml + "</body></html>";
+    }
+
+    private static String htmlEscape(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /**
