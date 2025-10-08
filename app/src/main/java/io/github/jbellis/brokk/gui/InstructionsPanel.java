@@ -716,11 +716,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
         container.add(workspaceItemsChipPanel, BorderLayout.CENTER);
 
+        // Placeholder below chips for additional information
+        var placeholderLabel = new JLabel("Additional information will be displayed here.");
+        placeholderLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        placeholderLabel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+        container.add(placeholderLabel, BorderLayout.SOUTH);
+
         // Fixed height to always show exactly two rows of chips and never move.
         // Compute a DPI/theme-aware height: approx chip row height = font height + padding.
         int fmH = instructionsArea.getFontMetrics(instructionsArea.getFont()).getHeight();
         int rowH = Math.max(24, fmH + 8); // ensure enough room for chip borders/padding
-        int fixedChipAreaHeight = (rowH * 2) + 4; // two rows + FlowLayout vgap (4)
+        int fixedChipAreaHeight = (rowH * 2) + 4 + placeholderLabel.getPreferredSize().height; // two rows + FlowLayout vgap (4) + label height
         container.setMinimumSize(new Dimension(100, fixedChipAreaHeight));
         container.setPreferredSize(new Dimension(100, fixedChipAreaHeight));
         container.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedChipAreaHeight));
