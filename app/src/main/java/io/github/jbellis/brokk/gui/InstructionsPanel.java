@@ -914,18 +914,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Build full text of current context, similar to WorkspacePanel
         var allFragments = ctx.getAllFragmentsInDisplayOrder();
         var fullText = new StringBuilder();
-        int totalLines = 0;
         for (var frag : allFragments) {
             if (frag.isText() || frag.getType().isOutput()) {
-                var text = frag.text();
-                fullText.append(text).append("\n");
-                int loc = text.split("\\r?\\n", -1).length;
-                totalLines += loc;
+                fullText.append(frag.text()).append("\n");
             }
         }
 
-        // Capture totals for lambda usage
-        final int totalLinesFinal = totalLines;
+        
 
         // Compute tokens off-EDT
         chrome.getContextManager()
@@ -943,25 +938,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             tokenUsageBar.setVisible(false);
                             return;
                         }
-                        int maxInputTokens = service.getMaxInputTokens(model);
-                        if (maxInputTokens <= 0) {
-                        // Fallback to a generous default when service does not provide a limit
-                        maxInputTokens = 128_000;
+
+                        int maxTokens = service.getMaxInputTokens(model);
+                        if (maxTokens <= 0) {
+                            // Fallback to a generous default when service does not provide a limit
+                            maxTokens = 128_000;
                         }
-                        
+
                         // Update bar and tooltip
-                        tokenUsageBar.setTokens(approxTokens, maxInputTokens);
-
-                        var costEstimate = calculateCostEstimate(approxTokens, service);
-                        String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
-
-                        tokenUsageBar.setTooltip(String.format(
-                                "<html>"
-                                        + "Workspace size and estimated cost.<br/>"
-                                        + "Total: %,d LOC is ~%,d tokens; est. %s per request.<br/>"
-                                        + "<i>Click to show/hide the Workspace panel.</i>"
-                                        + "</html>",
-                                totalLinesFinal, approxTokens, costText));
+                        tokenUsageBar.setTokens(approxTokens, maxTokens);
+                        tokenUsageBar.setTooltip(calculateCostEstimate(approxTokens, service));
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
