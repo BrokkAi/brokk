@@ -12,7 +12,6 @@ import io.github.jbellis.brokk.TaskListData;
 import io.github.jbellis.brokk.TaskListEntryDto;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
-import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflow;
@@ -38,13 +37,11 @@ import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -1012,47 +1009,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var cm = chrome.getContextManager();
 
-        var future = runArchitectOnTaskAsync(idx, cm, originalPrompt);
-
-        // When finished (on background thread), update UI state on EDT
-        future.whenComplete((res, ex) -> SwingUtilities.invokeLater(() -> {
-            if (ex != null) {
-                logger.error("Internal error running architect", ex);
-                finishQueueOnError();
-                return;
-            }
-            try {
-                if (res == null || res.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                    finishQueueOnError();
-                    return;
-                }
-
-                if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                    var it = model.get(idx);
-                    if (it != null) {
-                        model.set(idx, new TaskItem(it.text(), true));
-                        saveTasksForCurrentSession();
-                    }
-                }
-            } finally {
-                // Clear running, advance queue
-                runningIndex = null;
-                runningFadeTimer.stop();
-                list.repaint();
-                updateButtonStates();
-                startNextIfAny();
-            }
-        }));
+        runArchitectOnTaskAsync(idx, cm, originalPrompt);
     }
 
-    @NotNull
-    CompletableFuture<TaskResult> runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
+    void runArchitectOnTaskAsync(int idx, ContextManager cm, String originalPrompt) {
         // Submit an LLM action that will perform optional search + architect work off the EDT.
-        return cm.submitLlmAction("Execute Task " + (idx + 1), () -> {
+        cm.submitLlmAction(() -> {
             chrome.showOutputSpinner("Executing Task command...");
             TaskResult result;
             try (var scope = cm.beginTask(originalPrompt, false)) {
-                result = runArchitectOnTaskInternal(idx, cm, originalPrompt, scope);
+                result = runArchitectOnTaskInternal(cm, originalPrompt, scope);
+            } catch (Exception ex) {
+                logger.error("Internal error running architect", ex);
+                SwingUtilities.invokeLater(this::finishQueueOnError);
+                return;
             } finally {
                 chrome.hideOutputSpinner();
                 cm.checkBalanceAndNotify();
@@ -1067,38 +1037,40 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
 
-            return result;
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                        finishQueueOnError();
+                        return;
+                    }
+
+                    if (Objects.equals(runningIndex, idx) && idx < model.size()) {
+                        var it = model.get(idx);
+                        if (it != null) {
+                            model.set(idx, new TaskItem(it.text(), true));
+                            saveTasksForCurrentSession();
+                        }
+                    }
+                } finally {
+                    // Clear running, advance queue
+                    runningIndex = null;
+                    runningFadeTimer.stop();
+                    list.repaint();
+                    updateButtonStates();
+                    startNextIfAny();
+                }
+            });
         });
     }
 
     private @NotNull TaskResult runArchitectOnTaskInternal(
-            int idx, ContextManager cm, String originalPrompt, ContextManager.TaskScope scope) {
-        // Optionally run SearchAgent; we can skip search if this is the first task
-        // AND there are items in the context to edit (NOT context.isEmpty which includes task history)
-        boolean skipSearch =
-                idx == 0 && cm.liveContext().getEditableFragments().findAny().isPresent();
-        if (skipSearch) {
-            logger.debug("Skipping SearchAgent for first task since workspace has editable fragments");
-        } else {
-            var scanModel = cm.getService().getScanModel();
-            SearchAgent agent =
-                    new SearchAgent(originalPrompt, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
-            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            var searchResult = agent.execute();
-            scope.append(searchResult);
-            if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                return searchResult;
-            }
-        }
-
+            ContextManager cm, String originalPrompt, ContextManager.TaskScope scope) {
         var planningModel = requireNonNull(cm.getService().getModel(Service.GEMINI_2_5_PRO));
         var codeModel = requireNonNull(
                 cm.getService().getModel(chrome.getInstructionsPanel().getSelectedModel()));
 
         var architectAgent = new ArchitectAgent(cm, planningModel, codeModel, originalPrompt, scope);
-        var archResult = architectAgent.execute();
-        scope.append(archResult);
-        return archResult;
+        return architectAgent.executeWithSearch(scope);
     }
 
     private void startNextIfAny() {

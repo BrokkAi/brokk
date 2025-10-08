@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.formdev.flatlaf.util.SystemInfo;
@@ -8,13 +9,16 @@ import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -73,6 +77,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
+    private @Nullable Rectangle dependenciesDialogBounds = null;
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -1465,15 +1470,31 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
 
             var project = contextManager.getProject();
-            var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
-            if (storedBounds.width > 0 && storedBounds.height > 0) {
-                previewFrame.setBounds(storedBounds);
-                if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                    previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+            boolean isDependencies = contentComponent instanceof DependenciesDrawerPanel;
+
+            if (isDependencies) {
+                if (dependenciesDialogBounds != null
+                        && dependenciesDialogBounds.width > 0
+                        && dependenciesDialogBounds.height > 0) {
+                    previewFrame.setBounds(dependenciesDialogBounds);
+                    if (!isPositionOnScreen(dependenciesDialogBounds.x, dependenciesDialogBounds.y)) {
+                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                    }
+                } else {
+                    previewFrame.setSize(800, 500);
+                    previewFrame.setLocationRelativeTo(frame);
                 }
             } else {
-                previewFrame.setSize(800, 600); // Default size if no bounds saved
-                previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+                var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
+                if (storedBounds.width > 0 && storedBounds.height > 0) {
+                    previewFrame.setBounds(storedBounds);
+                    if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                    }
+                } else {
+                    previewFrame.setSize(800, 600); // Default size if no bounds saved
+                    previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+                }
             }
 
             // Set a minimum width for preview windows to ensure search controls work properly
@@ -1484,12 +1505,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
                 @Override
                 public void componentMoved(java.awt.event.ComponentEvent e) {
-                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    if (isDependencies) {
+                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
+                    } else {
+                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    }
                 }
 
                 @Override
                 public void componentResized(java.awt.event.ComponentEvent e) {
-                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    if (isDependencies) {
+                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
+                    } else {
+                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    }
                 }
             });
         } else {
@@ -3078,8 +3107,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Updates the terminal font size for all active terminals. */
     public void updateTerminalFontSize() {
-        SwingUtilities.invokeLater(() -> {
-            terminalDrawer.updateTerminalFontSize();
-        });
+        SwingUtilities.invokeLater(() -> terminalDrawer.updateTerminalFontSize());
+    }
+
+    @Override
+    public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
+        var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
+        SwingUtilities.invokeLater(() -> dialog.setVisible(true));
+        return dialog;
     }
 }

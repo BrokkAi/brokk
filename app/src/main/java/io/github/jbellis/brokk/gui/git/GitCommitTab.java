@@ -1,8 +1,13 @@
 package io.github.jbellis.brokk.gui.git;
 
+import static java.util.Objects.requireNonNull;
+
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.agents.ConflictInspector;
+import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
@@ -50,12 +55,16 @@ public class GitCommitTab extends JPanel {
     private MaterialButton commitButton;
     private MaterialButton stashButton;
     private JPanel buttonPanel;
+    private JTextArea customInstructionsArea;
 
     @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
 
     // Thread-safe cached count for badge updates
     private volatile int cachedModifiedFileCount = 0;
+
+    // Guard to avoid repeatedly offering AI merge while a conflict is active
+    private volatile boolean mergeOfferShown = false;
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
@@ -279,7 +288,27 @@ public class GitCommitTab extends JPanel {
         titledPanel.add(fileStatusPane, BorderLayout.CENTER);
         titledPanel.add(buttonPanel, BorderLayout.SOUTH);
 
+        // Custom Instructions panel
+        customInstructionsArea = new JTextArea(3, 20);
+        customInstructionsArea.setLineWrap(true);
+        customInstructionsArea.setWrapStyleWord(true);
+        customInstructionsArea.setText(
+                """
+                Resolve ALL conflicts with the minimal change that preserves the
+                semantics of the changes made in both "theirs" and "ours."
+                """
+                        .stripIndent()
+                        .trim());
+        var customScroll = new JScrollPane(customInstructionsArea);
+        customScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        customScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        var customPanel = new JPanel(new BorderLayout());
+        customPanel.setBorder(BorderFactory.createTitledBorder("Custom Instructions"));
+        customPanel.add(customScroll, BorderLayout.CENTER);
+
         add(titledPanel, BorderLayout.CENTER);
+        add(customPanel, BorderLayout.SOUTH);
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -317,52 +346,49 @@ public class GitCommitTab extends JPanel {
         }
 
         contextManager.submitBackgroundTask("Checking uncommitted files", () -> {
-            try {
-                var uncommittedFileStatuses = getRepo().getModifiedFiles();
-                logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
+            var uncommittedFileStatuses = getRepo().getModifiedFiles();
+            logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
 
-                SwingUtilities.invokeLater(() -> {
-                    // Convert Set to List to maintain an order for adding to table and restoring selection by index
-                    var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
+            // Detect active merge/rebase/cherry-pick/revert conflicts in background
+            var detectedConflict = ConflictInspector.inspectFromProject(contextManager.getProject());
 
-                    // Populate the table via the reusable FileStatusTable widget
-                    // This also populates the statusMap within FileStatusTable
-                    fileStatusPane.setFiles(uncommittedFilesList);
+            SwingUtilities.invokeLater(() -> {
+                // Convert Set to List to maintain an order for adding to table and restoring selection by index
+                var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
 
-                    // Restore selection
-                    List<Integer> rowsToSelect = new ArrayList<>();
-                    var model = (DefaultTableModel) uncommittedFilesTable.getModel();
-                    for (int i = 0; i < model.getRowCount(); i++) {
-                        if (previouslySelectedFiles.contains(model.getValueAt(i, 2))) {
-                            rowsToSelect.add(i);
-                        }
+                // Populate the table via the reusable FileStatusTable widget
+                // This also populates the statusMap within FileStatusTable
+                fileStatusPane.setFiles(uncommittedFilesList);
+
+                // Restore selection
+                List<Integer> rowsToSelect = new ArrayList<>();
+                var model = (DefaultTableModel) uncommittedFilesTable.getModel();
+                for (int i = 0; i < model.getRowCount(); i++) {
+                    if (previouslySelectedFiles.contains(model.getValueAt(i, 2))) {
+                        rowsToSelect.add(i);
                     }
+                }
 
-                    if (!rowsToSelect.isEmpty()) {
-                        for (int rowIndex : rowsToSelect) {
-                            uncommittedFilesTable.addRowSelectionInterval(rowIndex, rowIndex);
-                        }
+                if (!rowsToSelect.isEmpty()) {
+                    for (int rowIndex : rowsToSelect) {
+                        uncommittedFilesTable.addRowSelectionInterval(rowIndex, rowIndex);
                     }
+                }
 
-                    updateButtonEnablement(); // General button enablement based on table content
-                    updateCommitButtonText(); // Updates commit button label specifically
+                updateButtonEnablement(); // General button enablement based on table content
+                updateCommitButtonText(); // Updates commit button label specifically
 
-                    // Update cached count and badge after status change
-                    updateAfterStatusChange(uncommittedFilesList.size());
-                });
-            } catch (Exception e) {
-                logger.error("Error fetching uncommitted files:", e);
-                SwingUtilities.invokeLater(() -> {
-                    logger.debug("Disabling commit/stash buttons due to error");
-                    commitButton.setEnabled(false);
-                    stashButton.setEnabled(false);
-                    if (uncommittedFilesTable.getModel() instanceof DefaultTableModel dtm) {
-                        dtm.setRowCount(0); // Clear table on error
-                    }
-                    // Update cached count and badge after error
-                    updateAfterStatusChange(0);
-                });
-            }
+                // Update cached count and badge after status change
+                updateAfterStatusChange(uncommittedFilesList.size());
+
+                // Offer AI-assisted merge once per conflict state
+                if (detectedConflict.isPresent()) {
+                    maybeOfferAiMerge(detectedConflict.get());
+                } else {
+                    // Reset guard when conflicts are gone
+                    mergeOfferShown = false;
+                }
+            });
             return null;
         });
     }
@@ -774,5 +800,75 @@ public class GitCommitTab extends JPanel {
 
         // Update the git tab badge
         chrome.updateGitTabBadge(newCount);
+    }
+
+    /** Offer AI-assisted merge once per detected conflict. */
+    private void maybeOfferAiMerge(MergeAgent.MergeConflict conflict) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (mergeOfferShown) {
+            return;
+        }
+        mergeOfferShown = true;
+
+        var conflictCount = conflict.files().size();
+        var message =
+                """
+                Merge conflicts detected:
+                  - Mode: %s
+                  - Other: %s
+                  - Files with conflicts: %d
+
+                Would you like to resolve these conflicts with the Merge Agent?
+                """
+                        .stripIndent()
+                        .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
+
+        var options = new Object[] {"Resolve with Merge Agent", "Dismiss"};
+        var choice = JOptionPane.showOptionDialog(
+                chrome.getFrame(),
+                message,
+                "Merge Conflicts Detected",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE,
+                null,
+                options,
+                options[0]);
+
+        if (choice == JOptionPane.YES_OPTION) {
+            runAiMerge(conflict);
+        }
+    }
+
+    /** Run MergeAgent using the InstructionsPanel-selected planning model and GPT-5-mini as code model. */
+    private void runAiMerge(MergeAgent.MergeConflict conflict) {
+        assert SwingUtilities.isEventDispatchThread();
+        final String customInstructions = customInstructionsArea.getText();
+
+        contextManager.submitExclusiveAction(() -> {
+            var service = contextManager.getService();
+
+            // Resolve planning model from InstructionsPanel
+            var modelConfig = chrome.getInstructionsPanel().getSelectedModel();
+            var planningModel = requireNonNull(service.getModel(modelConfig));
+            // Code model is hardcoded
+            var codeModel = requireNonNull(service.getModel(Service.GPT_5_MINI));
+
+            try (var scope = contextManager.beginTask("AI Merge", false)) {
+                var agent =
+                        new MergeAgent(contextManager, planningModel, codeModel, conflict, scope, customInstructions);
+                var result = agent.execute();
+                scope.append(result);
+            } catch (Exception ex) {
+                logger.error("AI merge failed", ex);
+                SwingUtilities.invokeLater(
+                        () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
+            } finally {
+                SwingUtilities.invokeLater(() -> {
+                    updateCommitPanel();
+                    chrome.updateLogTab();
+                });
+            }
+        });
     }
 }

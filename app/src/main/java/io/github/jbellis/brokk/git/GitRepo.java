@@ -10,6 +10,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -1059,6 +1060,81 @@ public class GitRepo implements Closeable, IGitRepo {
             logger.warn("Unable to enumerate remote branches", e);
             return false;
         }
+    }
+
+    /**
+     * Checkout a conflicted path from a specific stage (ours/theirs) and stage it to resolve the conflict.
+     *
+     * @param path repository-relative path (use forward slashes)
+     * @param side either "ours" or "theirs"
+     */
+    public synchronized void checkoutPathWithStage(String path, String side) throws GitAPIException {
+        CheckoutCommand.Stage stage =
+                switch (side) {
+                    case "ours" -> CheckoutCommand.Stage.OURS;
+                    case "theirs" -> CheckoutCommand.Stage.THEIRS;
+                    default -> throw new IllegalArgumentException("side must be 'ours' or 'theirs': " + side);
+                };
+        git.checkout().addPath(path).setStage(stage).call();
+        // Ensure it's staged as resolved
+        git.add().addFilepattern(path).call();
+        invalidateCaches();
+    }
+
+    /**
+     * Perform a git mv operation.
+     *
+     * @param from repository-relative source path
+     * @param to repository-relative destination path
+     */
+    public synchronized void move(String from, String to) throws GitAPIException {
+        Path wt = repository.getWorkTree().toPath();
+        Path absFrom = wt.resolve(from);
+        Path absTo = wt.resolve(to);
+        try {
+            Files.createDirectories(absTo.getParent());
+            Files.move(absFrom, absTo, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+        // Stage as delete + add; Git will detect rename heuristically
+        git.rm().addFilepattern(from).call();
+        git.add().addFilepattern(to).call();
+        invalidateCaches();
+    }
+
+    /**
+     * Toggle executable bit for a working-tree file and stage the change.
+     *
+     * @param path repository-relative path
+     * @param executable true to set executable, false to unset
+     */
+    public synchronized void setExecutable(String path, boolean executable) throws GitAPIException {
+        Path abs = repository.getWorkTree().toPath().resolve(path);
+        try {
+            try {
+                // Try POSIX permissions first
+                var perms = Files.getPosixFilePermissions(abs);
+                if (executable) {
+                    perms.add(PosixFilePermission.OWNER_EXECUTE);
+                } else {
+                    perms.remove(PosixFilePermission.OWNER_EXECUTE);
+                }
+                Files.setPosixFilePermissions(abs, perms);
+            } catch (UnsupportedOperationException uoe) {
+                // Fallback for non-POSIX filesystems (e.g. Windows)
+                var file = abs.toFile();
+                // setExecutable(ownerOnly=true) is fine for our purposes
+                if (!file.setExecutable(executable, true)) {
+                    logger.debug("setExecutable returned false for {}", abs);
+                }
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+        // Stage the mode-bit change
+        git.add().addFilepattern(path).call();
+        invalidateCaches();
     }
 
     /** Checkout a specific branch */

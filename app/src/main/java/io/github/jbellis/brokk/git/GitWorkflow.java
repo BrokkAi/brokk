@@ -30,6 +30,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class GitWorkflow {
     private static final Logger logger = LogManager.getLogger(GitWorkflow.class);
+    private static final int EXPLAIN_COMMIT_FILE_LIMIT = 50;
 
     public record CommitResult(String commitId, String firstLine) {}
 
@@ -315,10 +316,11 @@ public final class GitWorkflow {
             throw new RuntimeException("Failed to produce diff for commit " + revision, e);
         }
 
-        var messages = MergePrompts.instance.collectMessages(diff, revision, revision);
-        if (messages.isEmpty()) {
+        var preprocessedDiff = CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT);
+        if (preprocessedDiff.isBlank()) {
             return "No changes detected for %s.".formatted(revision);
         }
+        var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
 
         try {
             var shortId = repo.shortHash(revision);

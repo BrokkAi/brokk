@@ -12,7 +12,6 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -1986,56 +1985,17 @@ public class WorkspacePanel extends JPanel {
 
         if (result == null) return;
 
-        var fragment = result.fragment();
+        Set<ProjectFile> files = result.fragments();
         boolean summarize = result.summarize();
 
         contextManager.submitContextTask(() -> {
-            if (summarize) {
-                switch (fragment.getType()) {
-                    case PROJECT_PATH -> {
-                        var files = fragment.files();
-                        contextManager.addSummaries(files, Collections.emptySet());
-                    }
-                    case CODE -> {
-                        var cf = (ContextFragment.CodeFragment) fragment;
-                        var cu = cf.getCodeUnit();
-                        if (cu.isClass()) {
-                            contextManager.addSummaries(Collections.emptySet(), java.util.Set.of(cu));
-                        } else {
-                            var analyzer = contextManager
-                                    .getAnalyzerUninterrupted()
-                                    .as(SkeletonProvider.class)
-                                    .orElseThrow();
-                            analyzer.getSkeleton(cu.fqName()).ifPresent(st -> {
-                                var summary = new ContextFragment.StringFragment(
-                                        contextManager,
-                                        st,
-                                        "Summary of " + cu.fqName(),
-                                        cu.source().getSyntaxStyle());
-                                contextManager.addVirtualFragment(summary);
-                            });
-                        }
-                    }
-                    case CALL_GRAPH, USAGE -> {
-                        // For Usages+Summarize we already returned a CallGraphFragment. Any CALL_GRAPH/USAGE just add.
-                        if (fragment instanceof ContextFragment.VirtualFragment vf) {
-                            contextManager.addVirtualFragment(vf);
-                        }
-                    }
-                    default -> {
-                        throw new AssertionError();
-                    }
-                }
+            if (files.isEmpty()) {
                 return;
             }
-
-            // Non-summarize path: attach fragments directly
-            if (fragment instanceof ContextFragment.ProjectPathFragment ppf) {
-                contextManager.addPathFragments(java.util.List.of(ppf));
-            } else if (fragment instanceof ContextFragment.VirtualFragment vf) {
-                contextManager.addVirtualFragment(vf);
+            if (summarize) {
+                contextManager.addSummaries(files, Collections.emptySet());
             } else {
-                throw new AssertionError(fragment);
+                contextManager.addFiles(files);
             }
         });
     }

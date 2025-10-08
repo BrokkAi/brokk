@@ -253,6 +253,30 @@ public class ArchitectAgent {
         }
     }
 
+    /**
+     * Execute Architect with a SearchAgent pass first.
+     *
+     * <p>ACHTUNG! Unlike bare execute(), executeWithSearch appends both results to the provided scope.
+     *
+     * <p>Returns the search result if it fails, otherwise returns the Architect result.
+     */
+    public TaskResult executeWithSearch(ContextManager.TaskScope scope) {
+        // Run Search first using the scan model (fast, token-friendly)
+        var scanModel = cm.getService().getScanModel();
+        var searchAgent = new SearchAgent(goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
+        io.llmOutput("Search Agent engaged: " + goal, ChatMessageType.CUSTOM);
+        var searchResult = searchAgent.execute();
+        scope.append(searchResult);
+        if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            return searchResult;
+        }
+
+        // Run Architect proper and append its result to scope
+        var archResult = this.execute();
+        scope.append(archResult);
+        return archResult;
+    }
+
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
         try {
