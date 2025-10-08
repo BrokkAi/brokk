@@ -188,7 +188,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         KeyStroke toggleSearchKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_SEMICOLON);
 
-
         searchProjectCheckBox = new JCheckBox("Search");
         searchProjectCheckBox.setFocusable(true);
 
@@ -254,7 +253,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 logger.warn("Unable to persist instructions mode", ex);
             }
         });
-
 
         searchProjectCheckBox.addActionListener(e -> {
             if (modeSwitch.isSelected()) {
