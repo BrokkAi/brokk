@@ -913,7 +913,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         runArchitectOnIndices(selected);
     }
 
-    private void runArchitectOnAll() {
+    public void runArchitectOnAll() {
         if (model.getSize() == 0) {
             return;
         }

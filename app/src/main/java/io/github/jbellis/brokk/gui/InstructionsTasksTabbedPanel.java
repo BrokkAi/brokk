@@ -81,6 +81,20 @@ public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
         }
     }
 
+    /**
+     * Routes the action button click to the appropriate panel based on the currently selected tab.
+     * Instructions tab (index 0) routes to InstructionsPanel.onActionButtonPressed().
+     * Tasks tab (index 1) routes to TaskListPanel.runArchitectOnAll().
+     */
+    public void onActionButtonPressed() {
+        int selectedTab = tabbedPane.getSelectedIndex();
+        if (selectedTab == 0) {
+            instructionsPanel.onActionButtonPressed();
+        } else if (selectedTab == 1) {
+            taskListPanel.runArchitectOnAll();
+        }
+    }
+
     public static JPanel buildSharedBottomPanel(
             JComponent actionButton,
             ModelSelector modelSelector,
