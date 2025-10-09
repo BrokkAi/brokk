@@ -74,19 +74,16 @@ public class SwingUtil {
     }
 
     /**
-     * Safely loads an icon from the UIManager theme with fallback support.
+     * Safely loads a theme-aware icon from UIManager, avoiding race conditions during startup.
      *
-     * <p>This method returns a theme-aware proxy icon that safely handles cases where an icon may not
-     * be immediately available during startup (due to theme initialization race conditions). The actual
-     * icon lookup is deferred until painting time, preventing fallback to an incorrect, permanent
-     * icon.
+     * <p>This method always returns a {@link ThemedIcon} proxy. By deferring the icon lookup until
+     * paint time, it avoids a race condition where an eager check could fail if UI components are
+     * initialized before the theme's icons are registered, leading to a permanent placeholder. The
+     * proxy handles its own fallback rendering, ensuring the correct icon is eventually displayed.
      *
      * @param iconKey The UIManager key for the desired icon (e.g., "FileView.directoryIcon")
      */
     public static Icon uiIcon(String iconKey) {
-        // Always return a theme-aware proxy so icons refresh automatically.
-        // The proxy handles its own fallback logic at paint time, which avoids
-        // race conditions during startup where icons might not yet be registered.
         return new ThemedIcon(iconKey);
     }
 
