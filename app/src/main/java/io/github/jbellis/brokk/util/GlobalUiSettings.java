@@ -44,7 +44,8 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
     private static final String KEY_SHOW_CONFIRM_NOTIFICATIONS = "notifications.confirm.enabled";
     private static final String KEY_SHOW_INFO_NOTIFICATIONS = "notifications.info.enabled";
-    private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS = "notifications.cost.geminiFlashLite.enabled";
+    private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
+            "notifications.cost.geminiFlashLite.enabled";
 
     private static volatile @Nullable Properties cachedProps;
 

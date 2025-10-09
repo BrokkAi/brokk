@@ -1313,7 +1313,9 @@ public class Llm {
                     boolean isFreeInternalLLM =
                             "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
                     if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
-                        logger.debug("Skipping cost notification for {} (user preference for Free Internal LLM logging)", modelName);
+                        logger.debug(
+                                "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
+                                modelName);
                         return;
                     }
                     // Respect user preference for cost notifications
