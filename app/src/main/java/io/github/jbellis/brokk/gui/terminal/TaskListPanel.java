@@ -86,16 +86,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final DefaultListModel<@Nullable TaskItem> model = new DefaultListModel<>();
     private final JList<TaskItem> list = new JList<>(model);
-    private final JTextField input = new JTextField();
-    private final MaterialButton removeBtn = new MaterialButton();
-    private final MaterialButton toggleDoneBtn = new MaterialButton();
-    private final MaterialButton playBtn = new MaterialButton();
-    private final MaterialButton playAllBtn = new MaterialButton();
-    private final MaterialButton combineBtn = new MaterialButton();
-    private final MaterialButton splitBtn = new MaterialButton();
-    private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
-    private final Timer llmStateTimer;
     private final Timer runningFadeTimer;
     private long runningAnimStartMs = 0L;
 
@@ -105,6 +96,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable List<Integer> currentRunOrder = null;
 
     public TaskListPanel(Chrome chrome) {
+        this(chrome, null);
+    }
+
+    public TaskListPanel(Chrome chrome, @Nullable JPanel sharedBottomToolbar) {
         super(new BorderLayout(4, 4));
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -177,18 +172,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Run Architect with Ctrl/Cmd+Enter
-        list.getInputMap()
-                .put(
-                        KeyStroke.getKeyStroke(
-                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                        "runArchitect");
-        list.getActionMap().put("runArchitect", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                runArchitectOnSelected();
-            }
-        });
 
         // Context menu (right-click)
         var popup = new JPopupMenu();
@@ -270,141 +253,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // South: controls
-        var controls = new JPanel(new GridBagLayout());
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 2, 2, 2);
-        gbc.gridy = 0;
-
-        gbc.gridx = 0;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        // Single-line input (no wrap). Shortcuts: Enter adds, Ctrl/Cmd+Enter adds, Ctrl/Cmd+Shift+Enter adds and keeps,
-        // Escape clears
-        input.setColumns(50);
-        input.putClientProperty("JTextField.placeholderText", "Add task here and press Enter");
-        input.setToolTipText("Add task here and press Enter");
-        // Enter adds
-        input.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "addTask");
-        // Ctrl/Cmd+Enter also adds
-        input.getInputMap()
-                .put(
-                        KeyStroke.getKeyStroke(
-                                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                        "addTask");
-        input.getActionMap().put("addTask", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                addTask();
-            }
-        });
-        input.getInputMap()
-                .put(
-                        KeyStroke.getKeyStroke(
-                                KeyEvent.VK_ENTER,
-                                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | KeyEvent.SHIFT_DOWN_MASK),
-                        "addTaskKeep");
-        input.getActionMap().put("addTaskKeep", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                var prev = input.getText();
-                addTask();
-                input.setText(prev);
-                input.requestFocusInWindow();
-            }
-        });
-        input.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "clearInput");
-        input.getActionMap().put("clearInput", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                input.setText("");
-            }
-        });
-
-        controls.add(input, gbc);
-
-        removeBtn.setIcon(Icons.REMOVE);
-        // Show a concise HTML tooltip and append the Delete shortcut (display only; no action registered).
-        removeBtn.setAppendShortcutToTooltip(true);
-        removeBtn.setShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), null, null, null);
-        removeBtn.setToolTipText(
-                "<html><body style='width:300px'>Remove the selected tasks from the list.<br>Tasks that are running or queued cannot be removed.</body></html>");
-        removeBtn.addActionListener(e -> removeSelected());
-
-        toggleDoneBtn.setIcon(Icons.CHECK);
-        // Show a concise HTML tooltip and append the Space shortcut (display only; no action registered).
-        toggleDoneBtn.setAppendShortcutToTooltip(true);
-        toggleDoneBtn.setShortcut(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), null, null, null);
-        toggleDoneBtn.setToolTipText(
-                "<html><body style='width:300px'>Mark the selected tasks as done or not done.<br>Running or queued tasks cannot be toggled.</body></html>");
-        toggleDoneBtn.addActionListener(e -> toggleSelectedDone());
-
-        playBtn.setIcon(Icons.PLAY);
-        // Show a helpful HTML tooltip and append the platform Enter shortcut (Ctrl/Cmd+Enter display only).
-        playBtn.setAppendShortcutToTooltip(true);
-        playBtn.setShortcut(
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()),
-                null,
-                null,
-                null);
-        playBtn.setToolTipText(
-                "<html><body style='width:300px'>Run Architect on the selected tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
-        playBtn.addActionListener(e -> runArchitectOnSelected());
-
-        playAllBtn.setIcon(Icons.FAST_FORWARD);
-        playAllBtn.setToolTipText(
-                "<html><body style='width:300px'>Run Architect on all tasks in order.<br>Tasks already marked done are skipped.<br>One task runs at a time: the current task is highlighted and the rest are queued.<br>Disabled while another AI task is running.</body></html>");
-        playAllBtn.addActionListener(e -> runArchitectOnAll());
-
-        combineBtn.setIcon(Icons.CELL_MERGE);
-        combineBtn.setToolTipText(
-                "<html><body style='width:300px'>Combine selected tasks into one new task.<br>The text from all tasks will be merged and the originals deleted.<br>Enabled when 2 or more tasks are selected.</body></html>");
-        combineBtn.addActionListener(e -> combineSelectedTasks());
-
-        splitBtn.setIcon(Icons.FORK_RIGHT);
-        splitBtn.setToolTipText(
-                "<html><body style='width:300px'>Split the selected task into multiple tasks.<br>Enter one task per line in the dialog.</body></html>");
-        splitBtn.addActionListener(e -> splitSelectedTask());
-
-        clearCompletedBtn.setIcon(Icons.CLEAR_ALL);
-        clearCompletedBtn.setToolTipText(
-                "<html><body style='width:300px'>Remove all completed tasks from this session.<br>You will be asked to confirm. This cannot be undone.</body></html>");
-        clearCompletedBtn.addActionListener(e -> clearCompletedTasks());
-
-        {
-            // Make the buttons visually tighter and grouped
-            removeBtn.setMargin(new Insets(0, 0, 0, 0));
-            toggleDoneBtn.setMargin(new Insets(0, 0, 0, 0));
-            playBtn.setMargin(new Insets(0, 0, 0, 0));
-            playAllBtn.setMargin(new Insets(0, 0, 0, 0));
-            combineBtn.setMargin(new Insets(0, 0, 0, 0));
-            splitBtn.setMargin(new Insets(0, 0, 0, 0));
-            clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
-
-            // Top toolbar (below title, above list): left group + separator + play all/clear completed
-            JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-            topToolbar.setOpaque(false);
-
-            // Left group: remaining buttons
-            topToolbar.add(removeBtn);
-            topToolbar.add(toggleDoneBtn);
-            topToolbar.add(playBtn);
-            topToolbar.add(combineBtn);
-            topToolbar.add(splitBtn);
-
-            // Vertical separator between groups
-            JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
-            sep.setPreferredSize(new java.awt.Dimension(8, 24));
-            topToolbar.add(sep);
-
-            // Right group: Play All and Clear Completed
-            topToolbar.add(playAllBtn);
-            topToolbar.add(clearCompletedBtn);
-
-            add(topToolbar, BorderLayout.NORTH);
-        }
 
         var scroll =
                 new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
@@ -433,7 +281,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        add(controls, BorderLayout.SOUTH);
+        if (sharedBottomToolbar != null) {
+            add(sharedBottomToolbar, BorderLayout.SOUTH);
+        }
 
         // Ensure correct initial layout with wrapped rows after the panel becomes visible
         addHierarchyListener(e -> {
@@ -462,11 +312,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
         });
-        updateButtonStates();
-        llmStateTimer = new Timer(300, e -> updateButtonStates());
-        llmStateTimer.setRepeats(true);
-        llmStateTimer.start();
-
         runningFadeTimer = new Timer(40, e -> {
             Integer ri = runningIndex;
             if (ri != null) {
@@ -547,25 +392,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
     }
 
-    private void addTask() {
-        var raw = input.getText();
-        if (raw == null) return;
-        var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
-        int added = 0;
-        for (var line : lines) {
-            var text = line.strip();
-            if (!text.isEmpty()) {
-                model.addElement(new TaskItem(text, false));
-                added++;
-            }
-        }
-        if (added > 0) {
-            input.setText("");
-            input.requestFocusInWindow();
-            clearExpansionOnStructureChange();
-            saveTasksForCurrentSession();
-        }
-    }
 
     private void removeSelected() {
         int[] indices = list.getSelectedIndices();
@@ -738,60 +564,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void updateButtonStates() {
-        boolean hasSelection = list.getSelectedIndex() >= 0;
-        boolean llmBusy = false;
-        try {
-            llmBusy = chrome.getContextManager().isLlmTaskInProgress();
-        } catch (Exception ex) {
-            logger.debug("Unable to query LLM busy state", ex);
-        }
-
-        boolean selectedIsDone = false;
-        boolean selectionIncludesRunning = false;
-        boolean selectionIncludesPending = false;
-        int[] selIndices = list.getSelectedIndices();
-        for (int si : selIndices) {
-            if (runningIndex != null && si == runningIndex.intValue()) {
-                selectionIncludesRunning = true;
-            }
-            if (pendingQueue.contains(si)) {
-                selectionIncludesPending = true;
-            }
-        }
-        int sel = list.getSelectedIndex();
-        if (sel >= 0 && sel < model.getSize()) {
-            TaskItem it = model.get(sel);
-            selectedIsDone = it != null && it.done();
-        }
-
-        // Remove/Toggle disabled if no selection OR selection includes running/pending
-        boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
-        removeBtn.setEnabled(hasSelection && !blockEdits);
-        toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
-
-        // Play enabled only if: selection exists, not busy, not done, no running/pending in selection, and no active
-        // queue
-        playBtn.setEnabled(hasSelection && !llmBusy && !selectedIsDone && !blockEdits && !queueActive);
-
-        // Play All enabled if: there are tasks, not busy, no active queue
-        boolean hasTasks = model.getSize() > 0;
-        playAllBtn.setEnabled(hasTasks && !llmBusy && !queueActive);
-
-        // Combine enabled only if 2 or more tasks selected and no running/pending in selection
-        combineBtn.setEnabled(selIndices.length >= 2 && !blockEdits);
-        // Split enabled only if exactly 1 task selected and no running/pending in selection and no active queue
-        splitBtn.setEnabled(selIndices.length == 1 && !blockEdits && !queueActive);
-
-        // Clear Completed enabled if any task is done
-        boolean anyCompleted = false;
-        for (int i = 0; i < model.getSize(); i++) {
-            TaskItem it2 = model.get(i);
-            if (it2 != null && it2.done()) {
-                anyCompleted = true;
-                break;
-            }
-        }
-        clearCompletedBtn.setEnabled(anyCompleted);
     }
 
     private UUID getCurrentSessionId() {
@@ -902,16 +674,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    private void runArchitectOnSelected() {
-        int[] selected = list.getSelectedIndices();
-        if (selected.length == 0) {
-            JOptionPane.showMessageDialog(
-                    this, "Select at least one task.", "No selection", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        runArchitectOnIndices(selected);
-    }
 
     public void runArchitectOnAll() {
         if (model.getSize() == 0) {
@@ -1115,12 +877,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     public void disablePlay() {
-        playBtn.setEnabled(false);
-        playAllBtn.setEnabled(false);
     }
 
     public void enablePlay() {
-        updateButtonStates();
     }
 
     /**
@@ -1271,82 +1030,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    private void combineSelectedTasks() {
-        int[] indices = list.getSelectedIndices();
-        if (indices.length < 2) {
-            JOptionPane.showMessageDialog(
-                    this, "Select at least two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        // Check if any task is running or pending
-        for (int idx : indices) {
-            if (runningIndex != null && idx == runningIndex) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Cannot combine tasks while one is currently running.",
-                        "Combine Disabled",
-                        JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            if (pendingQueue.contains(idx)) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Cannot combine tasks while one is queued for running.",
-                        "Combine Disabled",
-                        JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-        }
-
-        Arrays.sort(indices);
-        int firstIdx = indices[0];
-
-        if (firstIdx < 0 || firstIdx >= model.size()) {
-            return;
-        }
-
-        // Collect all task texts
-        var taskTexts = new ArrayList<String>(indices.length);
-        for (int idx : indices) {
-            if (idx < 0 || idx >= model.size()) {
-                continue;
-            }
-            TaskItem task = model.get(idx);
-            if (task == null) {
-                continue;
-            }
-            taskTexts.add(task.text());
-        }
-
-        if (taskTexts.isEmpty()) {
-            return;
-        }
-
-        // Combine the text with a separator
-        String combinedText = String.join(" | ", taskTexts);
-
-        // Create the new combined task (always marked as not done)
-        TaskItem combinedTask = new TaskItem(combinedText, false);
-
-        // Replace the first task with the combined task
-        model.set(firstIdx, combinedTask);
-
-        // Remove all other tasks (from highest index to lowest to keep indices valid)
-        for (int i = indices.length - 1; i > 0; i--) {
-            int idx = indices[i];
-            if (idx >= 0 && idx < model.size()) {
-                model.remove(idx);
-            }
-        }
-
-        // Select the combined task
-        list.setSelectedIndex(firstIdx);
-
-        clearExpansionOnStructureChange();
-        saveTasksForCurrentSession();
-        updateButtonStates();
-    }
 
     private void splitSelectedTask() {
         int[] indices = list.getSelectedIndices();
@@ -1503,60 +1186,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return new Insets(top, 0, bottom, 0);
     }
 
-    private void clearCompletedTasks() {
-        if (model.isEmpty()) {
-            return;
-        }
-
-        // Count how many completed tasks would be removed (exclude the running task for safety)
-        int completedCount = 0;
-        for (int i = 0; i < model.size(); i++) {
-            TaskItem it = model.get(i);
-            if (it != null && it.done()) {
-                if (runningIndex != null && i == runningIndex) {
-                    continue;
-                }
-                completedCount++;
-            }
-        }
-
-        if (completedCount == 0) {
-            // Nothing to clear
-            updateButtonStates();
-            return;
-        }
-
-        String plural = completedCount == 1 ? "task" : "tasks";
-        String message = "This will remove " + completedCount + " completed " + plural + " from this session.\n"
-                + "This action cannot be undone.";
-        int result = chrome.showConfirmDialog(
-                message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-
-        if (result != JOptionPane.YES_OPTION) {
-            updateButtonStates();
-            return;
-        }
-
-        boolean removedAny = false;
-        // Remove from bottom to top to keep indices valid
-        for (int i = model.size() - 1; i >= 0; i--) {
-            TaskItem it = model.get(i);
-            if (it != null && it.done()) {
-                // Do not remove the running task even if marked done (safety)
-                if (runningIndex != null && i == runningIndex) {
-                    continue;
-                }
-                model.remove(i);
-                removedAny = true;
-            }
-        }
-
-        if (removedAny) {
-            clearExpansionOnStructureChange();
-            saveTasksForCurrentSession();
-        }
-        updateButtonStates();
-    }
 
     private void copySelectedTasks() {
         int[] indices = list.getSelectedIndices();
@@ -1598,7 +1227,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             registeredContextManager = null;
         }
-        llmStateTimer.stop();
         runningFadeTimer.stop();
         super.removeNotify();
     }
