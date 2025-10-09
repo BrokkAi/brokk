@@ -13,18 +13,18 @@ class InstructionsTasksTabbedPanelTest {
         var wrapper = new Object() {
             boolean called = false;
         };
-        
+
         javax.swing.SwingUtilities.invokeAndWait(() -> {
             var chrome = new TestChrome();
             var spyInstructionsPanel = new SpyInstructionsPanel(chrome);
             var tabbedPanel = new InstructionsTasksTabbedPanel(chrome, spyInstructionsPanel);
-            
+
             tabbedPanel.selectInstructionsTab();
             tabbedPanel.onActionButtonPressed();
-            
+
             wrapper.called = spyInstructionsPanel.onActionButtonPressedCalled;
         });
-        
+
         assertTrue(wrapper.called, "InstructionsPanel.onActionButtonPressed should be called");
     }
 
@@ -32,11 +32,12 @@ class InstructionsTasksTabbedPanelTest {
     // @Test
     // void actionButton_whenTasksTabActive_callsTaskListPanelMethod() {
     //     var testPanel = new TestInstructionsTasksTabbedPanel();
-    //     
+    //
     //     testPanel.selectTasksTab();
     //     testPanel.onActionButtonPressed();
-    //     
-    //     assertFalse(testPanel.instructionsPanelCalled, "InstructionsPanel.onActionButtonPressed should not be called");
+    //
+    //     assertFalse(testPanel.instructionsPanelCalled, "InstructionsPanel.onActionButtonPressed should not be
+    // called");
     //     assertTrue(testPanel.taskListPanelCalled, "TaskListPanel.runArchitectOnAll should be called");
     // }
 
@@ -45,17 +46,17 @@ class InstructionsTasksTabbedPanelTest {
         var wrapper = new Object() {
             boolean called = false;
         };
-        
+
         javax.swing.SwingUtilities.invokeAndWait(() -> {
             var chrome = new TestChrome();
             var spyInstructionsPanel = new SpyInstructionsPanel(chrome);
             var tabbedPanel = new InstructionsTasksTabbedPanel(chrome, spyInstructionsPanel);
-            
+
             tabbedPanel.onActionButtonPressed();
-            
+
             wrapper.called = spyInstructionsPanel.onActionButtonPressedCalled;
         });
-        
+
         assertTrue(wrapper.called, "InstructionsPanel.onActionButtonPressed should be called by default");
     }
 

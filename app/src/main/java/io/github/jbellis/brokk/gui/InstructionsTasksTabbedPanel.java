@@ -1,16 +1,15 @@
 package io.github.jbellis.brokk.gui;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
-import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Insets;
-import java.awt.CardLayout;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -53,12 +52,7 @@ public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
 
         // Build the shared bottom toolbar
         JPanel sharedBottomToolbar = buildSharedBottomPanel(
-                actionButton,
-                modelSelector,
-                branchSplitButton,
-                modeSwitch,
-                optionsPanel,
-                searchProjectCheckBox);
+                actionButton, modelSelector, branchSplitButton, modeSwitch, optionsPanel, searchProjectCheckBox);
 
         // Create TaskListPanel without a toolbar (it will not add its own)
         this.tabbedPane = new JTabbedPane();
@@ -116,9 +110,9 @@ public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Routes the action button click to the appropriate panel based on the currently selected tab.
-     * Instructions tab (index 0) routes to InstructionsPanel.onActionButtonPressed().
-     * Tasks tab (index 1) routes to TaskListPanel.runArchitectOnAll().
+     * Routes the action button click to the appropriate panel based on the currently selected tab. Instructions tab
+     * (index 0) routes to InstructionsPanel.onActionButtonPressed(). Tasks tab (index 1) routes to
+     * TaskListPanel.runArchitectOnAll().
      */
     public void onActionButtonPressed() {
         int selectedTab = tabbedPane.getSelectedIndex();
@@ -165,7 +159,11 @@ public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
 
         // Ensure the initial visible card matches the current mode
         ((CardLayout) optionsPanel.getLayout())
-                .show(optionsPanel, modeSwitch.isSelected() ? InstructionsPanel.OPTIONS_CARD_ASK : InstructionsPanel.OPTIONS_CARD_CODE);
+                .show(
+                        optionsPanel,
+                        modeSwitch.isSelected()
+                                ? InstructionsPanel.OPTIONS_CARD_ASK
+                                : InstructionsPanel.OPTIONS_CARD_CODE);
 
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());

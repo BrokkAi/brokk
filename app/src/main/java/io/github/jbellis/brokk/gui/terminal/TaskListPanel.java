@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui.terminal;
 
 import static java.util.Objects.requireNonNull;
 
-import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
@@ -24,10 +23,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
@@ -43,7 +39,6 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executor;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -58,9 +53,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
-import javax.swing.JSeparator;
 import javax.swing.JTextArea;
-import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
@@ -172,7 +165,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-
         // Context menu (right-click)
         var popup = new JPopupMenu();
         var toggleItem = new JMenuItem("Toggle Done");
@@ -252,7 +244,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
         });
-
 
         var scroll =
                 new JScrollPane(list, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
@@ -391,7 +382,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return null;
         });
     }
-
 
     private void removeSelected() {
         int[] indices = list.getSelectedIndices();
@@ -563,8 +553,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         dialog.setVisible(true);
     }
 
-    private void updateButtonStates() {
-    }
+    private void updateButtonStates() {}
 
     private UUID getCurrentSessionId() {
         return chrome.getContextManager().getCurrentSessionId();
@@ -673,7 +662,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             updateButtonStates();
         }
     }
-
 
     public void runArchitectOnAll() {
         if (model.getSize() == 0) {
@@ -876,11 +864,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         repaint();
     }
 
-    public void disablePlay() {
-    }
+    public void disablePlay() {}
 
-    public void enablePlay() {
-    }
+    public void enablePlay() {}
 
     /**
      * TransferHandler for in-place reordering via drag-and-drop. Keeps data locally and performs MOVE operations within
@@ -1029,7 +1015,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             saveTasksForCurrentSession();
         }
     }
-
 
     private void splitSelectedTask() {
         int[] indices = list.getSelectedIndices();
@@ -1185,7 +1170,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int bottom = extra - top;
         return new Insets(top, 0, bottom, 0);
     }
-
 
     private void copySelectedTasks() {
         int[] indices = list.getSelectedIndices();
