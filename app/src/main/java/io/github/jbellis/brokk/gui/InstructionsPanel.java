@@ -1124,17 +1124,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(this.actionGroupPanel);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-        // Add model selector and branch button
-        var modelComp = modelSelector.getComponent();
-        modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(modelComp);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        var branchButton = requireNonNull(branchSplitButton);
-        branchButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(branchButton);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-
         // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
         optionsPanel = new JPanel(new CardLayout());
 
@@ -1181,6 +1170,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
+
+        // Add model selector and branch button
+        var modelComp = modelSelector.getComponent();
+        modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(modelComp);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        var branchButton = requireNonNull(branchSplitButton);
+        branchButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(branchButton);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Wand button (Magic Ask) on the right
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
