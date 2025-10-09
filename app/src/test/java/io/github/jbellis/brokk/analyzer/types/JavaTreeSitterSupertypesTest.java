@@ -113,4 +113,18 @@ public class JavaTreeSitterSupertypesTest {
         List<CodeUnit> ancestors = analyzer.getAncestors(method);
         assertTrue(ancestors.isEmpty(), "Non-class code units should return empty ancestors");
     }
+
+    @Test
+    void ancestors_transitiveClassExtends() {
+        var maybeDeep = analyzer.getDefinition("DeepExtendsX");
+        assertTrue(maybeDeep.isPresent(), "Definition for DeepExtendsX should be present");
+        CodeUnit deep = maybeDeep.get();
+
+        List<String> ancestorNames =
+                transitiveAncestors(analyzer, deep).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+        assertEquals(
+                List.of("XExtendsY", "BaseClass"),
+                ancestorNames,
+                "DeepExtendsX should have transitive ancestors in order");
+    }
 }
