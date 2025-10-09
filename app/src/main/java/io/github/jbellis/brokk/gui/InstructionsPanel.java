@@ -95,7 +95,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JLabel answerModeLabel = new JLabel("Ask");
     private final MaterialButton actionButton;
     private final WandButton wandButton;
-    private final ModelSelector modelSelector;
+    private ModelSelector modelSelector;
     private final TokenUsageBar tokenUsageBar;
     private String storedAction;
     private final ContextManager contextManager;
@@ -284,14 +284,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.addActionListener(e -> onActionButtonPressed());
         actionButton.setBackground(this.defaultActionButtonBg);
 
-        modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setCodeModelConfig(cfg));
-        // Also recompute token/cost indicator when model changes
-        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
-        // Ensure model selector component is focusable
-        modelSelector.getComponent().setFocusable(true);
-
         // Initialize TokenUsageBar (left of Attach button)
         tokenUsageBar = new TokenUsageBar();
         tokenUsageBar.setVisible(false);
@@ -299,6 +291,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
         // Click toggles Workspace collapse/expand
         tokenUsageBar.setOnClick(() -> chrome.toggleWorkspaceCollapsed());
+
+        // Initialize model selector and branch button (must be done before building bottom panel)
+        initializeModelAndBranchSelectors();
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -337,6 +332,176 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initial compute of the token/cost indicator
         updateTokenCostIndicator();
+    }
+
+    private void initializeModelAndBranchSelectors() {
+        var project = chrome.getProject();
+        var cm = chrome.getContextManager();
+
+        modelSelector = new ModelSelector(chrome);
+        modelSelector.selectConfig(project.getCodeModelConfig());
+        modelSelector.addSelectionListener(cfg -> project.setCodeModelConfig(cfg));
+        modelSelector.addSelectionListener(cfg -> SwingUtilities.invokeLater(this::updateTokenCostIndicator));
+        modelSelector.getComponent().setFocusable(true);
+
+        branchSplitButton = new SplitButton("No Git");
+        branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
+        branchSplitButton.setFocusable(true);
+
+        Supplier<JPopupMenu> branchMenuSupplier = () -> {
+            var menu = new JPopupMenu();
+            try {
+                if (project.hasGit()) {
+                    IGitRepo repo = project.getRepo();
+                    List<String> localBranches;
+                    if (repo instanceof GitRepo gitRepo) {
+                        localBranches = gitRepo.listLocalBranches();
+                    } else {
+                        localBranches = List.of();
+                    }
+                    String current = repo.getCurrentBranch();
+
+                    if (!current.isBlank()) {
+                        JMenuItem header = new JMenuItem("Current: " + current);
+                        header.setEnabled(false);
+                        menu.add(header);
+                        menu.add(new JSeparator());
+                    }
+
+                    for (var b : localBranches) {
+                        JMenuItem item = new JMenuItem(b);
+                        item.addActionListener(ev -> {
+                            cm.submitExclusiveAction(() -> {
+                                try {
+                                    IGitRepo r = project.getRepo();
+                                    r.checkout(b);
+                                    SwingUtilities.invokeLater(() -> {
+                                        try {
+                                            var currentBranch = r.getCurrentBranch();
+                                            var displayBranch = currentBranch.isBlank() ? b : currentBranch;
+                                            refreshBranchUi(displayBranch);
+                                        } catch (Exception ex) {
+                                            logger.debug("Error updating branch UI after checkout", ex);
+                                            refreshBranchUi(b);
+                                        }
+                                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
+                                    });
+                                } catch (Exception ex) {
+                                    logger.error("Error checking out branch {}", b, ex);
+                                    SwingUtilities.invokeLater(
+                                            () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
+                                }
+                            });
+                        });
+                        menu.add(item);
+                    }
+                } else {
+                    JMenuItem noRepo = new JMenuItem("No Git repository");
+                    noRepo.setEnabled(false);
+                    menu.add(noRepo);
+                }
+            } catch (Exception ex) {
+                logger.error("Error building branch menu", ex);
+                JMenuItem err = new JMenuItem("Error loading branches");
+                err.setEnabled(false);
+                menu.add(err);
+            }
+
+            if (project.hasGit()) {
+                menu.addSeparator();
+
+                JMenuItem create = new JMenuItem("Create New Branch...");
+                create.addActionListener(ev -> {
+                    SwingUtilities.invokeLater(() -> {
+                        String name = JOptionPane.showInputDialog(chrome.getFrame(), "New branch name:");
+                        if (name == null || name.isBlank()) return;
+                        final String proposed = name.strip();
+                        cm.submitExclusiveAction(() -> {
+                            try {
+                                IGitRepo r = project.getRepo();
+                                String sanitized = r.sanitizeBranchName(proposed);
+                                String source = r.getCurrentBranch();
+                                try {
+                                    if (r instanceof GitRepo gitRepo) {
+                                        try {
+                                            gitRepo.createAndCheckoutBranch(sanitized, source);
+                                        } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
+                                            gitRepo.createBranch(sanitized, source);
+                                            gitRepo.checkout(sanitized);
+                                        }
+                                    } else {
+                                        throw new UnsupportedOperationException(
+                                                "Repository implementation does not support branch creation");
+                                    }
+                                } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
+                                    throw nsme;
+                                }
+                                SwingUtilities.invokeLater(() -> {
+                                    try {
+                                        refreshBranchUi(sanitized);
+                                    } catch (Exception ex) {
+                                        logger.debug("Error updating branch UI after branch creation", ex);
+                                    }
+                                    chrome.showNotification(
+                                            IConsoleIO.NotificationRole.INFO, "Created and checked out: " + sanitized);
+                                });
+                            } catch (Exception ex) {
+                                logger.error("Error creating branch", ex);
+                                SwingUtilities.invokeLater(
+                                        () -> chrome.toolError("Error creating branch: " + ex.getMessage()));
+                            }
+                        });
+                    });
+                });
+                menu.add(create);
+
+                JMenuItem refresh = new JMenuItem("Refresh Branches");
+                refresh.addActionListener(ev -> {
+                    SwingUtilities.invokeLater(
+                            () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed"));
+                });
+                menu.add(refresh);
+            }
+
+            return menu;
+        };
+        branchSplitButton.setMenuSupplier(branchMenuSupplier);
+
+        branchSplitButton.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
+            try {
+                var menu = branchMenuSupplier.get();
+                try {
+                    chrome.themeManager.registerPopupMenu(menu);
+                } catch (Exception e) {
+                    logger.debug("Error registering popup menu", e);
+                }
+                var bsb = requireNonNull(branchSplitButton);
+                menu.show(bsb, 0, bsb.getHeight());
+            } catch (Exception ex) {
+                logger.error("Error showing branch dropdown", ex);
+            }
+        }));
+
+        try {
+            if (project.hasGit()) {
+                IGitRepo repo = project.getRepo();
+                String cur = repo.getCurrentBranch();
+                if (!cur.isBlank()) {
+                    branchSplitButton.setText("branch: " + cur);
+                    branchSplitButton.setEnabled(true);
+                } else {
+                    branchSplitButton.setText("branch: Unknown");
+                    branchSplitButton.setEnabled(true);
+                }
+            } else {
+                branchSplitButton.setText("No Git");
+                branchSplitButton.setEnabled(false);
+            }
+        } catch (Exception ex) {
+            logger.error("Error initializing branch button", ex);
+            branchSplitButton.setText("No Git");
+            branchSplitButton.setEnabled(false);
+        }
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -435,230 +600,28 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private JPanel buildTopBarPanel() {
-        // Restored History dropdown alongside branch split button.
-        // Replaced history dropdown with compact branch split button in top bar
         JPanel topBarPanel = new JPanel(new BorderLayout(H_GAP, 0));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        var modelComp = modelSelector.getComponent();
 
-        // Lock control heights to the larger of mic and model selector so one growing won't shrink the other
         var micPref = micButton.getPreferredSize();
-        var modelPref = modelComp.getPreferredSize();
-        int controlHeight = Math.max(micPref.height, modelPref.height);
+        int controlHeight = micPref.height;
 
         var micDim = new Dimension(controlHeight, controlHeight);
         micButton.setPreferredSize(micDim);
         micButton.setMinimumSize(micDim);
         micButton.setMaximumSize(micDim);
 
-        var modelDim = new Dimension(modelPref.width, controlHeight);
-        modelComp.setPreferredSize(modelDim);
-        modelComp.setMinimumSize(new Dimension(50, controlHeight));
-        modelComp.setMaximumSize(new Dimension(Integer.MAX_VALUE, controlHeight));
-
         leftPanel.add(micButton);
         leftPanel.add(Box.createHorizontalStrut(H_GAP));
-        leftPanel.add(modelComp);
-
-        // Place mic, model, branch dropdown, and history dropdown left-to-right in the top bar
-        // Insert small gap, branch split button, then history dropdown so ordering is: mic, model, branch, history.
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        var cm = chrome.getContextManager();
-        var project = chrome.getProject();
-        this.branchSplitButton = new SplitButton("No Git");
-        branchSplitButton.setToolTipText("Current Git branch — click to create/select branches");
-        branchSplitButton.setFocusable(true);
-
-        int branchWidth = 210;
-        var branchDim = new Dimension(branchWidth, controlHeight);
-        branchSplitButton.setPreferredSize(branchDim);
-        branchSplitButton.setMinimumSize(branchDim);
-        branchSplitButton.setMaximumSize(branchDim);
-        branchSplitButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Build a fresh popup menu on demand so the branch list is always up-to-date
-        Supplier<JPopupMenu> branchMenuSupplier = () -> {
-            var menu = new JPopupMenu();
-            try {
-                if (project.hasGit()) {
-                    IGitRepo repo = project.getRepo();
-                    List<String> localBranches;
-                    if (repo instanceof GitRepo gitRepo) {
-                        localBranches = gitRepo.listLocalBranches();
-                    } else {
-                        localBranches = List.of();
-                    }
-                    String current = repo.getCurrentBranch();
-
-                    if (!current.isBlank()) {
-                        JMenuItem header = new JMenuItem("Current: " + current);
-                        header.setEnabled(false);
-                        menu.add(header);
-                        menu.add(new JSeparator());
-                    }
-
-                    // Local branches
-                    for (var b : localBranches) {
-                        JMenuItem item = new JMenuItem(b);
-                        item.addActionListener(ev -> {
-                            // Checkout in background via ContextManager to get spinner/cancel behavior
-                            cm.submitExclusiveAction(() -> {
-                                try {
-                                    IGitRepo r = project.getRepo();
-                                    r.checkout(b);
-                                    SwingUtilities.invokeLater(() -> {
-                                        try {
-                                            var currentBranch = r.getCurrentBranch();
-                                            var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                                            refreshBranchUi(displayBranch);
-                                        } catch (Exception ex) {
-                                            logger.debug("Error updating branch UI after checkout", ex);
-                                            refreshBranchUi(b);
-                                        }
-                                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
-                                    });
-                                } catch (Exception ex) {
-                                    logger.error("Error checking out branch {}", b, ex);
-                                    SwingUtilities.invokeLater(
-                                            () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
-                                }
-                            });
-                        });
-                        menu.add(item);
-                    }
-
-                } else {
-                    JMenuItem noRepo = new JMenuItem("No Git repository");
-                    noRepo.setEnabled(false);
-                    menu.add(noRepo);
-                }
-            } catch (Exception ex) {
-                logger.error("Error building branch menu", ex);
-                JMenuItem err = new JMenuItem("Error loading branches");
-                err.setEnabled(false);
-                menu.add(err);
-            }
-
-            // If project has git, add actions
-            if (project.hasGit()) {
-                menu.addSeparator();
-
-                JMenuItem create = new JMenuItem("Create New Branch...");
-                create.addActionListener(ev -> {
-                    // Prompt on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        String name = JOptionPane.showInputDialog(chrome.getFrame(), "New branch name:");
-                        if (name == null || name.isBlank()) return;
-                        final String proposed = name.strip();
-                        cm.submitExclusiveAction(() -> {
-                            try {
-                                IGitRepo r = project.getRepo();
-                                String sanitized = r.sanitizeBranchName(proposed);
-                                String source = r.getCurrentBranch();
-                                try {
-                                    if (r instanceof GitRepo gitRepo) {
-                                        // Prefer atomic create+checkout if available on concrete GitRepo
-                                        try {
-                                            gitRepo.createAndCheckoutBranch(sanitized, source);
-                                        } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
-                                            // Fallback to create + checkout on GitRepo
-                                            gitRepo.createBranch(sanitized, source);
-                                            gitRepo.checkout(sanitized);
-                                        }
-                                    } else {
-                                        // Repo implementation doesn't support branch creation via IGitRepo
-                                        throw new UnsupportedOperationException(
-                                                "Repository implementation does not support branch creation");
-                                    }
-                                } catch (NoSuchMethodError | UnsupportedOperationException nsme) {
-                                    // Re-throw so outer catch displays the error to the user as before
-                                    throw nsme;
-                                }
-                                SwingUtilities.invokeLater(() -> {
-                                    try {
-                                        refreshBranchUi(sanitized);
-                                    } catch (Exception ex) {
-                                        logger.debug("Error updating branch UI after branch creation", ex);
-                                    }
-                                    chrome.showNotification(
-                                            IConsoleIO.NotificationRole.INFO, "Created and checked out: " + sanitized);
-                                });
-                            } catch (Exception ex) {
-                                logger.error("Error creating branch", ex);
-                                SwingUtilities.invokeLater(
-                                        () -> chrome.toolError("Error creating branch: " + ex.getMessage()));
-                            }
-                        });
-                    });
-                });
-                menu.add(create);
-
-                JMenuItem refresh = new JMenuItem("Refresh Branches");
-                refresh.addActionListener(ev -> {
-                    // Menu is rebuilt when shown; simply notify user
-                    SwingUtilities.invokeLater(
-                            () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed"));
-                });
-                menu.add(refresh);
-            }
-
-            return menu;
-        };
-        branchSplitButton.setMenuSupplier(branchMenuSupplier);
-
-        // Show the popup when the main button area is clicked (treat as a dropdown)
-        branchSplitButton.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
-            try {
-                var menu = branchMenuSupplier.get();
-                // Allow theme manager to style/popups as other popups do
-                try {
-                    chrome.themeManager.registerPopupMenu(menu);
-                } catch (Exception e) {
-                    logger.debug("Error registering popup menu", e);
-                }
-                var bsb = requireNonNull(branchSplitButton);
-                menu.show(bsb, 0, bsb.getHeight());
-            } catch (Exception ex) {
-                logger.error("Error showing branch dropdown", ex);
-            }
-        }));
-
-        // Initialize current branch label and enabled state
-        try {
-            if (project.hasGit()) {
-                IGitRepo repo = project.getRepo();
-                String cur = repo.getCurrentBranch();
-                if (!cur.isBlank()) {
-                    branchSplitButton.setText("branch: " + cur);
-                    branchSplitButton.setEnabled(true);
-                } else {
-                    branchSplitButton.setText("branch: Unknown");
-                    branchSplitButton.setEnabled(true);
-                }
-            } else {
-                branchSplitButton.setText("No Git");
-                branchSplitButton.setEnabled(false);
-            }
-        } catch (Exception ex) {
-            logger.error("Error initializing branch button", ex);
-            branchSplitButton.setText("No Git");
-            branchSplitButton.setEnabled(false);
-        }
 
         var historyDropdown = createHistoryDropdown();
-        // Make the control itself compact; popup will expand on open
         historyDropdown.setPreferredSize(new Dimension(120, controlHeight));
         historyDropdown.setMinimumSize(new Dimension(120, controlHeight));
         historyDropdown.setMaximumSize(new Dimension(400, controlHeight));
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
         leftPanel.add(historyDropdown);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        // Add branchSplitButton after the History dropdown
-        leftPanel.add(branchSplitButton);
 
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
@@ -1159,6 +1122,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         bottomPanel.add(this.actionGroupPanel);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Add model selector and branch button
+        var modelComp = modelSelector.getComponent();
+        modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(modelComp);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        var branchButton = requireNonNull(branchSplitButton);
+        branchButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(branchButton);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
