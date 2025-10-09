@@ -28,6 +28,24 @@ public class KeyboardShortcutUtil {
                 keyCode, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
     }
 
+    /** Creates an Alt (Windows/Linux) or Cmd (Mac) shortcut for panel navigation. */
+    public static KeyStroke createAltShortcut(int keyCode) {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? KeyEvent.META_DOWN_MASK
+                        : KeyEvent.ALT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(keyCode, modifier);
+    }
+
+    /** Creates an Alt+Shift (Windows/Linux) or Cmd+Shift (Mac) shortcut. */
+    public static KeyStroke createAltShiftShortcut(int keyCode) {
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? KeyEvent.META_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK
+                        : KeyEvent.ALT_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK;
+        return KeyStroke.getKeyStroke(keyCode, modifier);
+    }
+
     /** Creates a simple shortcut with no modifiers. */
     public static KeyStroke createSimpleShortcut(int keyCode) {
         return KeyStroke.getKeyStroke(keyCode, 0);
@@ -149,5 +167,19 @@ public class KeyboardShortcutUtil {
     /** Registers the escape key to close/cancel the current context. This is commonly used in panels and dialogs. */
     public static void registerCloseEscapeShortcut(JComponent component, Runnable closeAction) {
         registerGlobalShortcut(component, createEscape(), "close", closeAction);
+    }
+
+    /** Formats a KeyStroke into a human-readable string like "Alt+1" or "Cmd+2". */
+    public static String formatKeyStroke(KeyStroke ks) {
+        try {
+            int modifiers = ks.getModifiers();
+            int keyCode = ks.getKeyCode();
+            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String keyText = KeyEvent.getKeyText(keyCode);
+            if (modText == null || modText.isBlank()) return keyText;
+            return modText + "+" + keyText;
+        } catch (Exception e) {
+            return ks.toString();
+        }
     }
 }

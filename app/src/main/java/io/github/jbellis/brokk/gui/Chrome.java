@@ -30,6 +30,7 @@ import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
@@ -317,10 +318,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
+
         var projectIcon = Icons.FOLDER_CODE;
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
-        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
+        var projectShortcut =
+                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files (" + projectShortcut + ")");
         leftTabbedPanel.setTabComponentAt(projectTabIdx, projectTabLabel);
         projectTabLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -333,7 +337,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var dependenciesIcon = Icons.MANAGE_DEPENDENCIES;
         leftTabbedPanel.addTab(null, dependenciesIcon, dependenciesPanel);
         var dependenciesTabIdx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
-        var dependenciesTabLabel = createSquareTabLabel(dependenciesIcon, "Dependencies");
+        var dependenciesShortcut =
+                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+        var dependenciesTabLabel =
+                createSquareTabLabel(dependenciesIcon, "Dependencies (" + dependenciesShortcut + ")");
         leftTabbedPanel.setTabComponentAt(dependenciesTabIdx, dependenciesTabLabel);
         dependenciesTabLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -353,7 +360,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
             leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
             var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes");
+            var changesShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
             leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
             gitTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -366,7 +375,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var worktreeIcon = Icons.FLOWCHART;
             leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
             var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-            var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees");
+            var worktreesShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+            var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees (" + worktreesShortcut + ")");
             leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
             worktreeTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -379,7 +390,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var logIcon = Icons.FLOWSHEET;
             leftTabbedPanel.addTab(null, logIcon, gitLogTab);
             var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
-            var logTabLabel = createSquareTabLabel(logIcon, "Log");
+            var logShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+            var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
             leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
             logTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -403,7 +416,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var prIcon = Icons.PULL_REQUEST;
             leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
             var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-            var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
+            var prShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+            var prLabel = createSquareTabLabel(prIcon, "Pull Requests (" + prShortcut + ")");
             leftTabbedPanel.setTabComponentAt(prIdx, prLabel);
             prLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -419,7 +434,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var issIcon = Icons.ADJUST;
             leftTabbedPanel.addTab(null, issIcon, issuesPanel);
             var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
-            var issLabel = createSquareTabLabel(issIcon, "Issues");
+            var issuesShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+            var issLabel = createSquareTabLabel(issIcon, "Issues (" + issuesShortcut + ")");
             leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
             issLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -924,7 +941,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var icon = Icons.ASSIGNMENT;
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
-            var label = createSquareTabLabel(icon, "Issues");
+            var recreateShortcut =
+                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+            var label = createSquareTabLabel(icon, "Issues (" + recreateShortcut + ")");
             leftTabbedPanel.setTabComponentAt(tabIdx, label);
             label.addMouseListener(new MouseAdapter() {
                 @Override
@@ -981,8 +1000,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Cmd/Ctrl+L => toggle microphone
         KeyStroke toggleMicKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.toggleMicrophone",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L));
+                "global.toggleMicrophone", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L));
         bindKey(rootPane, toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
@@ -1011,8 +1029,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Cmd/Ctrl+M => toggle Code/Answer mode (configurable)
         KeyStroke toggleModeKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "instructions.toggleMode",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
         bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
         rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
             @Override
@@ -1030,8 +1047,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Open Settings (configurable; default Cmd/Ctrl+,)
         KeyStroke openSettingsKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.openSettings",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
+                "global.openSettings", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
         bindKey(rootPane, openSettingsKeyStroke, "openSettings");
         rootPane.getActionMap().put("openSettings", new AbstractAction() {
             @Override
@@ -1042,11 +1058,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
         KeyStroke closeWindowKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.closeWindow",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+                "global.closeWindow", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
         if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
-            closeWindowKeyStroke =
-                    io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+            closeWindowKeyStroke = KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
         }
         bindKey(rootPane, closeWindowKeyStroke, "closeMainWindow");
         rootPane.getActionMap().put("closeMainWindow", new AbstractAction() {
@@ -1057,15 +1071,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Register IntelliJ-style shortcuts for switching sidebar panels
-        // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
-        int modifier =
-                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                        ? KeyEvent.META_DOWN_MASK
-                        : KeyEvent.ALT_DOWN_MASK;
 
         // Alt/Cmd+1 for Project Files
         KeyStroke switchToProjectFiles = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "panel.switchToProjectFiles", KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
+                "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
         bindKey(rootPane, switchToProjectFiles, "switchToProjectFiles");
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
             @Override
@@ -1074,10 +1083,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Alt/Cmd+2 for Changes (GitCommitTab)
+        // Alt/Cmd+2 for Dependencies
+        KeyStroke switchToDependencies = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "panel.switchToDependencies", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+        bindKey(rootPane, switchToDependencies, "switchToDependencies");
+        rootPane.getActionMap().put("switchToDependencies", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                var idx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
+                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+            }
+        });
+
+        // Alt/Cmd+3 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
             KeyStroke switchToChanges = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                    "panel.switchToChanges", KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
+                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
             bindKey(rootPane, switchToChanges, "switchToChanges");
             rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
                 @Override
@@ -1088,10 +1109,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+3 for Worktrees
+        // Alt/Cmd+4 for Worktrees
         if (gitWorktreeTab != null) {
             KeyStroke switchToWorktrees = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
+                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
             bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
@@ -1102,10 +1123,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+4 for Log
+        // Alt/Cmd+5 for Log
         if (gitLogTab != null) {
             KeyStroke switchToLog = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                    "panel.switchToLog", KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
+                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
             bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
@@ -1116,10 +1137,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+5 for Pull Requests panel (if available)
+        // Alt/Cmd+6 for Pull Requests panel (if available)
         if (pullRequestsPanel != null) {
             KeyStroke switchToPR = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                    "panel.switchToPullRequests", KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier));
+                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
             bindKey(rootPane, switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
@@ -1130,10 +1151,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Alt/Cmd+6 for Issues panel (if available)
+        // Alt/Cmd+7 for Issues panel (if available)
         if (issuesPanel != null) {
             KeyStroke switchToIssues = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                    "panel.switchToIssues", KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier));
+                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
             bindKey(rootPane, switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
@@ -2312,6 +2333,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     public GitIssuesTab getIssuesPanel() {
         return issuesPanel;
+    }
+
+    public DependenciesPanel getDependenciesPanel() {
+        return dependenciesPanel;
     }
 
     // --- New helpers for Git tabs moved into Chrome ---
