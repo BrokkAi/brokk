@@ -76,7 +76,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected static final int PRIORITY_LOW = 1;
 
     // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(this::firstStartByteForSelection)
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt((CodeUnit cu) -> firstStartByteForSelection(cu))
             .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(cu -> cu.kind().name());
@@ -349,6 +349,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
+        // Populate supertypes/basetypes after initial parse+ingest
+        runTypeAnalysis();
+
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
                 language.name(),
@@ -450,6 +453,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     protected List<Range> rangesOf(CodeUnit codeUnit) {
         return codeUnitProperties(codeUnit).ranges();
+    }
+
+    protected List<CodeUnit> supertypesOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).supertypes();
     }
 
     private FileProperties fileProperties(ProjectFile file) {
@@ -1551,7 +1558,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
-            localStates.put(cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs)));
+            localStates.put(
+                    cu,
+                    new CodeUnitProperties(
+                            List.copyOf(kids),
+                            List.copyOf(sigs),
+                            List.copyOf(rngs),
+                            List.of()));
         }
 
         long __processEnd = System.nanoTime();
@@ -2393,6 +2406,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return childrenOf(cu);
     }
 
+    /**
+     * Returns the direct supertypes/basetypes of the given CodeUnit if it is a class-like entity.
+     * For non-class code units, returns an empty list.
+     */
+    public List<CodeUnit> getAncestors(CodeUnit cu) {
+        if (!cu.isClass()) {
+            return List.of();
+        }
+        return supertypesOf(cu);
+    }
+
     /* ---------- file filtering helpers ---------- */
 
     /**
@@ -2586,7 +2610,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     if (!filteredKids.equals(state.children())) {
                                         parentsTouchedCount.incrementAndGet();
                                         return new CodeUnitProperties(
-                                                List.copyOf(filteredKids), state.signatures(), state.ranges());
+                                                List.copyOf(filteredKids),
+                                                state.signatures(),
+                                                state.ranges(),
+                                                state.supertypes());
                                     }
                                     return state;
                                 });
@@ -2675,6 +2702,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 symbolsTouchedCount.get(),
                 parentsTouchedCount.get(),
                 TimeUnit.NANOSECONDS.toMillis(writeLockHoldNanos.get()));
+
+        // Recompute supertypes/basetypes after ingesting updates
+        runTypeAnalysis();
 
         return this;
     }
@@ -2815,7 +2845,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // combined state merge
             codeUnitState.compute(cu, (CodeUnit k, @Nullable CodeUnitProperties existing) -> {
                 if (existing == null) {
-                    return new CodeUnitProperties(newState.children(), newState.signatures(), newState.ranges());
+                    return new CodeUnitProperties(
+                            newState.children(),
+                            newState.signatures(),
+                            newState.ranges(),
+                            newState.supertypes());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -2856,7 +2890,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     mergedRanges = List.copyOf(tmp);
                 }
 
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges);
+                List<CodeUnit> mergedSupertypes = existing.supertypes();
+                var newSupers = newState.supertypes();
+                if (!newSupers.isEmpty()) {
+                    var tmp = new ArrayList<CodeUnit>(existing.supertypes().size() + newSupers.size());
+                    tmp.addAll(existing.supertypes());
+                    for (var s : newSupers) {
+                        if (!tmp.contains(s)) {
+                            tmp.add(s);
+                        }
+                    }
+                    mergedSupertypes = List.copyOf(tmp);
+                }
+
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedSupertypes);
             });
         });
 
@@ -2865,6 +2912,48 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 pf,
                 new FileProperties(
                         analysisResult.topLevelCUs(), parsedTreeCache.get(pf), analysisResult.importStatements()));
+    }
+
+    /* ---------- type analysis (supertypes/basetypes) ---------- */
+
+    /**
+     * Overridable hook to compute direct supertypes/basetypes for a given CodeUnit.
+     * Default implementation returns an empty list.
+     */
+    protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        return List.of();
+    }
+
+    /**
+     * Runs the type-analysis pass to populate supertypes into CodeUnitProperties for all class-like CodeUnits.
+     * This is invoked after initial parsing and after incremental updates.
+     */
+    protected void runTypeAnalysis() {
+        var wl = stateRwLock.writeLock();
+        wl.lock();
+        try {
+            for (var entry : codeUnitState.entrySet()) {
+                var cu = entry.getKey();
+                if (!cu.isClass()) continue;
+
+                List<CodeUnit> supers = List.copyOf(computeSupertypes(cu));
+                var props = entry.getValue();
+
+                // Only update if changed to minimize churn
+                if (!Objects.equals(props.supertypes(), supers)) {
+                    entry.setValue(
+                            new CodeUnitProperties(
+                                    props.children(),
+                                    props.signatures(),
+                                    props.ranges(),
+                                    supers));
+                }
+            }
+        } catch (Throwable t) {
+            log.warn("runTypeAnalysis encountered an error: {}", t.getMessage(), t);
+        } finally {
+            wl.unlock();
+        }
     }
 
     /* ---------- comment detection for source expansion ---------- */

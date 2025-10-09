@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.Optional;
@@ -335,5 +336,93 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     protected boolean isAnonymousStructure(String fqName) {
         var matcher = LAMBDA_REGEX.matcher(fqName);
         return matcher.find();
+    }
+
+    /**
+     * Java-specific implementation to compute direct supertypes by parsing the class header signature.
+     * Preserves Java's meaningful order: superclass (if any) first, then implemented interfaces in source order.
+     * Only returns supertypes that can be resolved to known CodeUnits in the project.
+     */
+    @Override
+    protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        if (!cu.isClass()) return List.of();
+
+        var sigs = signaturesOf(cu);
+        if (sigs.isEmpty()) return List.of();
+
+        // Use the first signature line (class header)
+        String header = sigs.getFirst();
+        if (header.isBlank()) return List.of();
+
+        // Work on the first line only; strip trailing class body opener if present
+        String line = header.lines().findFirst().orElse(header);
+        int brace = line.indexOf('{');
+        if (brace >= 0) {
+            line = line.substring(0, brace).trim();
+        }
+
+        String lower = line.toLowerCase(Locale.ROOT);
+        int extendsIdx = lower.indexOf(" extends ");
+        int implementsIdx = lower.indexOf(" implements ");
+
+        String extendsPart = null;
+        String implementsPart = null;
+
+        if (extendsIdx >= 0) {
+            int start = extendsIdx + " extends ".length();
+            int end = implementsIdx >= 0 ? implementsIdx : line.length();
+            extendsPart = line.substring(start, end).trim();
+        }
+        if (implementsIdx >= 0) {
+            int start = implementsIdx + " implements ".length();
+            implementsPart = line.substring(start).trim();
+        }
+
+        List<String> candidates = new ArrayList<>();
+        if (extendsPart != null && !extendsPart.isEmpty()) {
+            candidates.add(extendsPart);
+        }
+        if (implementsPart != null && !implementsPart.isEmpty()) {
+            for (String iface : Splitter.on(",").split(implementsPart)) {
+                String t = iface.trim();
+                if (!t.isEmpty()) candidates.add(t);
+            }
+        }
+
+        if (candidates.isEmpty()) return List.of();
+
+        List<CodeUnit> resolved = new ArrayList<>(candidates.size());
+        for (String raw : candidates) {
+            if (raw.isEmpty()) continue;
+
+            // Strip generic arguments, normalize nesting separators
+            String stripped = stripGenericTypeArguments(raw).trim();
+            String normalized = normalizeFullName(stripped).trim();
+
+            // Try fully qualified lookup first if it appears qualified, else try package+name then simple name
+            List<String> fqCandidates = new ArrayList<>(3);
+            if (normalized.contains(".")) {
+                fqCandidates.add(normalized);
+            } else {
+                if (!cu.packageName().isEmpty()) {
+                    fqCandidates.add(cu.packageName() + "." + normalized);
+                }
+                fqCandidates.add(normalized);
+            }
+
+            CodeUnit match = null;
+            for (String fq : fqCandidates) {
+                var def = getDefinition(fq);
+                if (def.isPresent() && def.get().isClass()) {
+                    match = def.get();
+                    break;
+                }
+            }
+            if (match != null) {
+                resolved.add(match);
+            }
+        }
+
+        return List.copyOf(resolved);
     }
 }
