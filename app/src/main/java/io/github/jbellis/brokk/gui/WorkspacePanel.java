@@ -1985,17 +1985,25 @@ public class WorkspacePanel extends JPanel {
 
         if (result == null) return;
 
-        Set<ProjectFile> files = result.fragments();
+        Set<ContextFragment> fragments = result.fragments();
         boolean summarize = result.summarize();
 
         contextManager.submitContextTask(() -> {
-            if (files.isEmpty()) {
+            if (fragments.isEmpty()) {
                 return;
             }
-            if (summarize) {
-                contextManager.addSummaries(files, Collections.emptySet());
-            } else {
-                contextManager.addFiles(files);
+
+            for (var fragment : fragments) {
+                if (fragment instanceof ContextFragment.PathFragment pathFrag) {
+                    if (summarize) {
+                        var files = pathFrag.files();
+                        contextManager.addSummaries(files, Collections.emptySet());
+                    } else {
+                        contextManager.addPathFragmentAsync(pathFrag);
+                    }
+                } else {
+                    contextManager.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
+                }
             }
         });
     }

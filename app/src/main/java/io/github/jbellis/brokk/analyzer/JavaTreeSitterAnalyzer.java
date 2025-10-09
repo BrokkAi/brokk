@@ -12,8 +12,8 @@ import org.treesitter.TreeSitterJava;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
-    private final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
-    private static final Pattern LOCATION_SUFFIX = Pattern.compile(":[0-9]+(?::[0-9]+)?$");
+    private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
+    private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaTreeSitterAnalyzer(IProject project) {
         super(project, Languages.JAVA, project.getExcludedDirectories());
@@ -57,7 +57,8 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
                     "annotation.definition", SkeletonType.CLASS_LIKE, // for @interface
                     "method.definition", SkeletonType.FUNCTION_LIKE,
                     "constructor.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE),
+                    "field.definition", SkeletonType.FIELD_LIKE,
+                    "lambda.definition", SkeletonType.FUNCTION_LIKE),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
@@ -143,6 +144,11 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
             String paramsText,
             String returnTypeText,
             String indent) {
+        // Hide anonymous/lambda "functions" from Java skeletons while still creating CodeUnits for discovery.
+        if (LAMBDA_REGEX.matcher(functionName).find()) {
+            return "";
+        }
+
         var typeParams = typeParamsText.isEmpty() ? "" : typeParamsText + " ";
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 
@@ -242,20 +248,92 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String normalizeFullName(String fqName) {
-        // Normalize: strip generics, anonymous/lambda fragments, and trailing location suffixes
-        var s = stripGenericTypeArguments(fqName);
+        // Normalize generics and method/lambda/location suffixes while preserving "$anon$" verbatim.
+        String s = stripGenericTypeArguments(fqName);
 
-        // Strip anonymous/lambda suffixes like $anon... or $<digits>...
-        var matcher = LAMBDA_REGEX.matcher(s);
-        if (matcher.find()) {
-            s = s.substring(0, matcher.start());
+        if (s.contains("$anon$")) {
+            // Replace subclass delimiters with '.' except within the literal "$anon$" segments.
+            StringBuilder out = new StringBuilder(s.length());
+            for (int i = 0; i < s.length(); ) {
+                if (s.startsWith("$anon$", i)) {
+                    out.append("$anon$");
+                    i += 6; // length of "$anon$"
+                } else {
+                    char c = s.charAt(i++);
+                    out.append(c == '$' ? '.' : c);
+                }
+            }
+            return out.toString();
         }
 
-        // Strip trailing source-location suffixes like :16 or :123:45
-        s = LOCATION_SUFFIX.matcher(s).replaceFirst("");
-        // Replace subclass delimiters with dots
-        s = s.replaceAll("\\$", ".");
-
+        // No lambda marker; perform standard normalization:
+        // 1) Strip trailing numeric anonymous suffixes like $1 or $2 (optionally followed by :line(:col))
+        s = s.replaceFirst("\\$\\d+(?::\\d+(?::\\d+)?)?$", "");
+        // 2) Strip trailing location suffix like :line or :line:col (e.g., ":16" or ":328:16")
+        s = s.replaceFirst(":[0-9]+(?::[0-9]+)?$", "");
+        // 3) Replace subclass delimiters with dots
+        s = s.replace('$', '.');
         return s;
+    }
+
+    @Override
+    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+        // Special handling for Java lambdas: synthesize a bytecode-style anonymous name
+        if (LAMBDA_EXPRESSION.equals(decl.getType())) {
+            var enclosingMethod = findEnclosingJavaMethodOrClassName(decl, src).orElse("lambda");
+            int line = decl.getStartPoint().getRow();
+            int col = 0;
+            try {
+                // Some bindings may not expose column; defensively handle absence
+                col = decl.getStartPoint().getColumn();
+            } catch (Throwable ignored) {
+                // default to 0
+            }
+            String synthesized = enclosingMethod + "$anon$" + line + ":" + col;
+            return Optional.of(synthesized);
+        }
+        return super.extractSimpleName(decl, src);
+    }
+
+    private Optional<String> findEnclosingJavaMethodOrClassName(TSNode node, String src) {
+        // Walk up to nearest method or constructor
+        TSNode current = node.getParent();
+        while (current != null && !current.isNull()) {
+            String type = current.getType();
+            if (METHOD_DECLARATION.equals(type) || CONSTRUCTOR_DECLARATION.equals(type)) {
+                TSNode nameNode = current.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = textSlice(nameNode, src).strip();
+                    if (!name.isEmpty()) {
+                        return Optional.of(name);
+                    }
+                }
+                break;
+            }
+            current = current.getParent();
+        }
+
+        // Fallback: if inside an initializer, try nearest class-like to use its name
+        current = node.getParent();
+        while (current != null && !current.isNull()) {
+            if (isClassLike(current)) {
+                TSNode nameNode = current.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String cls = textSlice(nameNode, src).strip();
+                    if (!cls.isEmpty()) {
+                        return Optional.of(cls);
+                    }
+                }
+                break;
+            }
+            current = current.getParent();
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    protected boolean isAnonymousStructure(String fqName) {
+        var matcher = LAMBDA_REGEX.matcher(fqName);
+        return matcher.find();
     }
 }

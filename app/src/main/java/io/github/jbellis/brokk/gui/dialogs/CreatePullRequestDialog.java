@@ -24,6 +24,7 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.TransportException;
 import org.jetbrains.annotations.Nullable;
 
 public class CreatePullRequestDialog extends JDialog {
@@ -48,7 +49,8 @@ public class CreatePullRequestDialog extends JDialog {
     @Nullable
     private String mergeBaseCommit = null;
 
-    private boolean sourceBranchNeedsPush = false;
+    private volatile boolean sourceBranchNeedsPush = false;
+    private volatile int unpushedCommitCount = 0;
 
     /**
      * Optional branch name that should be pre-selected as the source branch when the dialog opens. May be {@code null}.
@@ -272,20 +274,17 @@ public class CreatePullRequestDialog extends JDialog {
         var target = (String) targetBranchComboBox.getSelectedItem();
         var source = (String) sourceBranchComboBox.getSelectedItem();
         if (target != null && source != null) {
-            String baseText = target + " ← " + source;
-            String suffix = " (" + currentCommits.size() + " commits)";
-            if (sourceBranchNeedsPush) {
-                suffix += " ⚠ needs push";
-                branchFlowLabel.setForeground(Color.ORANGE);
-                branchFlowLabel.setToolTipText("Local branch is ahead of its remote – push first");
-            } else {
-                branchFlowLabel.setForeground(UIManager.getColor("Label.foreground"));
-                branchFlowLabel.setToolTipText(null);
+            String text = target + " ← " + source + " (" + currentCommits.size() + " commits)";
+            if (sourceBranchNeedsPush && unpushedCommitCount > 0) {
+                text += " • " + unpushedCommitCount + " unpushed";
             }
-            this.branchFlowLabel.setText(baseText + suffix);
+            this.branchFlowLabel.setText(text);
+            this.branchFlowLabel.setForeground(UIManager.getColor("Label.foreground"));
+            this.branchFlowLabel.setToolTipText(null);
         } else {
-            this.branchFlowLabel.setText(""); // Clear if branches not selected
+            this.branchFlowLabel.setText("");
         }
+        updateCreatePrButtonText();
     }
 
     private Runnable createFlowUpdater() {
@@ -296,6 +295,8 @@ public class CreatePullRequestDialog extends JDialog {
         ActionListener branchChangedListener = e -> {
             // Immediately update flow label for responsiveness before async refresh.
             this.currentCommits = Collections.emptyList();
+            this.sourceBranchNeedsPush = false;
+            this.unpushedCommitCount = 0;
             this.flowUpdater.run();
             // Full UI update, including button state, will be handled by refreshCommitList.
             refreshCommitList();
@@ -337,8 +338,11 @@ public class CreatePullRequestDialog extends JDialog {
                 var repo = contextManager.getProject().getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
                     String nonGitMessage = "Project is not a Git repository.";
-                    SwingUtilities.invokeLater(() ->
-                            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), nonGitMessage));
+                    SwingUtilities.invokeLater(() -> {
+                        this.sourceBranchNeedsPush = false;
+                        this.unpushedCommitCount = 0;
+                        updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), nonGitMessage);
+                    });
                     return Collections.emptyList();
                 }
 
@@ -352,7 +356,13 @@ public class CreatePullRequestDialog extends JDialog {
                         this.mergeBaseCommit);
 
                 // Check if source branch needs push (for UI indicator)
-                this.sourceBranchNeedsPush = gitRepo.branchNeedsPush(sourceBranch);
+                boolean needsPush = gitRepo.branchNeedsPush(sourceBranch);
+                final int unpushedCount;
+                if (needsPush) {
+                    unpushedCount = gitRepo.getUnpushedCommitIds(sourceBranch).size();
+                } else {
+                    unpushedCount = 0;
+                }
 
                 if (branchDiff.commits().isEmpty()) {
                     cancelGenerationWorkersAndClearFields();
@@ -360,12 +370,17 @@ public class CreatePullRequestDialog extends JDialog {
                     spawnSuggestPrDetailsWorker(sourceBranch, targetBranch);
                 }
 
-                SwingUtilities.invokeLater(
-                        () -> updateCommitRelatedUI(branchDiff.commits(), branchDiff.files(), contextName));
+                SwingUtilities.invokeLater(() -> {
+                    this.sourceBranchNeedsPush = needsPush;
+                    this.unpushedCommitCount = unpushedCount;
+                    updateCommitRelatedUI(branchDiff.commits(), branchDiff.files(), contextName);
+                });
                 return branchDiff.commits();
             } catch (Exception e) {
                 logger.error("Error fetching branch diff or suggesting PR details for " + contextName, e);
                 SwingUtilities.invokeLater(() -> {
+                    this.sourceBranchNeedsPush = false; // Reset on error
+                    this.unpushedCommitCount = 0;
                     updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)");
                     cancelGenerationWorkersAndClearFields(); // Also clear fields on error
                     descriptionArea.setText("(Could not generate PR details due to error)");
@@ -380,6 +395,19 @@ public class CreatePullRequestDialog extends JDialog {
         List<String> blockers = getCreatePrBlockers();
         createPrButton.setEnabled(blockers.isEmpty());
         createPrButton.setToolTipText(blockers.isEmpty() ? null : formatBlockersTooltip(blockers));
+    }
+
+    private void updateCreatePrButtonText() {
+        String buttonText = sourceBranchNeedsPush ? "Push and Create PR" : "Create PR";
+        String tooltip = sourceBranchNeedsPush
+                ? "This will push your local branch to origin and then create a pull request"
+                : null;
+        createPrButton.setText(buttonText);
+        if (!createPrButton.isEnabled()) {
+            // Don't override the blockers tooltip when button is disabled
+            return;
+        }
+        createPrButton.setToolTipText(tooltip);
     }
 
     private List<String> getCreatePrBlockers() {
@@ -406,9 +434,6 @@ public class CreatePullRequestDialog extends JDialog {
         if (descriptionArea.getText() == null
                 || descriptionArea.getText().trim().isEmpty()) {
             blockers.add("Description cannot be empty.");
-        }
-        if (sourceBranchNeedsPush) {
-            blockers.add("Local branch is ahead of its remote – push first.");
         }
         return List.copyOf(blockers);
     }
@@ -823,13 +848,33 @@ public class CreatePullRequestDialog extends JDialog {
                 }
                 SwingUtilities.invokeLater(this::dispose);
 
+            } catch (TransportException ex) {
+                logger.error("Pull Request creation failed due to transport/push error", ex);
+                SwingUtilities.invokeLater(() -> {
+                    String errorMessage;
+                    if (GitRepo.isGitHubPermissionDenied(ex)) {
+                        errorMessage =
+                                """
+                                Push to repository was denied. This usually means:
+
+                                1. Missing or invalid GitHub token
+                                   → Go to Settings → Global → GitHub and verify your token
+
+                                2. You don't have write access to this repository
+                                   → Verify you own or are a collaborator on this repository
+                                """;
+                    } else {
+                        errorMessage = "Push failed: " + ex.getMessage();
+                    }
+                    chrome.toolError(errorMessage, "Push Permission Denied");
+                    if (isDisplayable()) {
+                        createPrButton.setLoading(false, null);
+                    }
+                });
             } catch (Exception ex) {
                 logger.error("Pull Request creation failed", ex);
-                // The service method might throw GitRepo.GitPushRejectedException or other specific exceptions.
-                // For now, catch generic Exception and display its message.
                 SwingUtilities.invokeLater(() -> {
                     chrome.toolError("Unable to create Pull Request:\n" + ex.getMessage(), "PR Creation Error");
-                    // Reset button only if dialog is still displayable (it wasn't disposed on success)
                     if (isDisplayable()) {
                         createPrButton.setLoading(false, null);
                     }

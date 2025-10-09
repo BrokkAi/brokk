@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
 import io.github.jbellis.brokk.analyzer.UsagesProvider;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
@@ -63,7 +64,7 @@ public class AttachContextDialog extends JDialog {
         USAGES
     }
 
-    public record Result(Set<ProjectFile> fragments, boolean summarize) {}
+    public record Result(Set<ContextFragment> fragments, boolean summarize) {}
 
     private final ContextManager cm;
 
@@ -429,8 +430,8 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        var files = Set.of(chosen);
-        selection = new Result(files, summarizeCheck.isSelected());
+        var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
+        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }
 
@@ -464,7 +465,10 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        selection = new Result(selected, summarizeCheck.isSelected());
+        Set<ContextFragment> fragments = selected.stream()
+                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        selection = new Result(fragments, summarizeCheck.isSelected());
         dispose();
     }
 
@@ -490,9 +494,8 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-        // Map symbol to its source file
-        ProjectFile file = cu.source();
-        selection = new Result(Set.of(file), summarizeCheck.isSelected());
+        var frag = new ContextFragment.CodeFragment(cm, cu);
+        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }
 
@@ -518,8 +521,8 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-        ProjectFile file = cu.source();
-        selection = new Result(Set.of(file), summarizeCheck.isSelected());
+        var frag = new ContextFragment.CodeFragment(cm, cu);
+        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }
 
@@ -538,15 +541,17 @@ public class AttachContextDialog extends JDialog {
                 : analyzer.getDefinition(input)
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
-        if (any.isEmpty()) {
-            selection = null;
+        if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
+            var methodFqn = any.get().fqName();
+            var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
+            selection = new Result(Set.of(frag), true);
             dispose();
             return;
         }
 
-        // Attach the file containing the definition (usage discovery may be added later)
-        var file = any.get().source();
-        selection = new Result(Set.of(file), summarizeCheck.isSelected());
+        var target = any.map(CodeUnit::fqName).orElse(input);
+        var frag = new ContextFragment.UsageFragment(cm, target);
+        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }
 

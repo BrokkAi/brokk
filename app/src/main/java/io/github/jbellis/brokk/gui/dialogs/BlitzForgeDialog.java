@@ -1074,10 +1074,11 @@ public class BlitzForgeDialog extends JDialog {
         if (result == null) {
             return;
         }
-        // AttachContextDialog.Result now returns a Set<ProjectFile> named 'fragments'
-        Set<ProjectFile> files = result.fragments();
+        Set<ContextFragment> fragments = result.fragments();
         var cm = chrome.getContextManager();
-        cm.submitBackgroundTask("Attach files", () -> new ArrayList<>(files))
+        cm.submitBackgroundTask("Attach files", () -> fragments.stream()
+                        .flatMap(frag -> frag.files().stream())
+                        .collect(Collectors.toCollection(ArrayList::new)))
                 .thenAccept(flist -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(flist)));
     }
 

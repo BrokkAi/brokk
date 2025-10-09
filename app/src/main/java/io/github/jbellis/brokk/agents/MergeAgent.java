@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -180,7 +181,25 @@ public class MergeAgent {
             unionTheirCommits.addAll(annotated.theirCommits());
         });
 
-        // Compute changed files set for reporting
+        // Separate zero-conflict files from those needing AI processing
+        var partitioned =
+                annotatedConflicts.stream().collect(Collectors.partitioningBy(ac -> ac.conflictLineCount() == 0));
+        var noConflictLines = castNonNull(partitioned.get(true));
+        var hasConflictLines = castNonNull(partitioned.get(false));
+
+        // Stage files with no conflict markers immediately
+        if (!noConflictLines.isEmpty()) {
+            var filesToStage = noConflictLines.stream()
+                    .map(ConflictAnnotator.ConflictFileCommits::file)
+                    .toList();
+            try {
+                repo.add(filesToStage);
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        // Compute changed files set for reporting (all annotated files)
         var changedFiles = annotatedConflicts.stream()
                 .map(ConflictAnnotator.ConflictFileCommits::file)
                 .collect(Collectors.toSet());
@@ -208,67 +227,42 @@ public class MergeAgent {
         });
 
         // BlitzForge only works on ProjectFile inputs so map back to the ConflictFileCommits with this
-        var acByFile = annotatedConflicts.stream()
+        var acByFile = hasConflictLines.stream()
                 .collect(Collectors.toMap(ConflictAnnotator.ConflictFileCommits::file, ac -> ac));
 
-        // Prepare BlitzForge configuration and listener
-        var instructionsText =
-                "AI-assisted merge of conflicted files from %s (mode: %s)".formatted(otherCommitId, mode);
-        var bfConfig = new BlitzForge.RunConfig(
-                instructionsText,
-                codeModel, // model used only for token-aware scheduling
-                () -> "", // perFileContext
-                () -> "", // sharedContext
-                "", // contextFilter
-                BlitzForge.ParallelOutputMode.CHANGED);
+        // If only a single conflict remains, handle it in the foreground without BlitzForge.
+        if (hasConflictLines.size() == 1) {
+            var onlyFile = acByFile.keySet().iterator().next();
+            var ac = requireNonNull(acByFile.get(onlyFile));
+            executeMergeForFile(onlyFile, ac, repo, cm.getIo());
 
-        var bfListener = cm.getIo().getBlitzForgeListener(() -> {});
-
-        var blitz = new BlitzForge(cm, cm.getService(), bfConfig, bfListener);
-
-        var result = blitz.executeParallel(acByFile.keySet(), file -> {
-            var ac = requireNonNull(acByFile.get(file));
-
-            if (ac.conflictLineCount() == 0) {
-                try {
-                    repo.add(List.of(file));
-                } catch (GitAPIException e) {
-                    throw new RuntimeException(e);
-                }
-                return new BlitzForge.FileResult(file, true, null, "");
+            if (Thread.currentThread().isInterrupted()) {
+                return interruptedResult("Merge cancelled by user.");
             }
+        } else {
+            // Prepare BlitzForge configuration and listener
+            var instructionsText =
+                    "AI-assisted merge of conflicted files from %s (mode: %s)".formatted(otherCommitId, mode);
+            var bfConfig = new BlitzForge.RunConfig(
+                    instructionsText,
+                    codeModel, // model used only for token-aware scheduling
+                    () -> "", // perFileContext
+                    () -> "", // sharedContext
+                    "", // contextFilter
+                    BlitzForge.ParallelOutputMode.CHANGED);
 
-            IConsoleIO console = bfListener.getConsoleIO(file);
+            var bfListener = cm.getIo().getBlitzForgeListener(() -> {});
 
-            var planner =
-                    new MergeOneFile(cm, planningModel, codeModel, mode, baseCommitId, otherCommitId, ac, console);
+            var blitz = new BlitzForge(cm, cm.getService(), bfConfig, bfListener);
 
-            var outcome = planner.merge();
+            var result = blitz.executeParallel(acByFile.keySet(), file -> {
+                var ac = requireNonNull(acByFile.get(file));
+                return executeMergeForFile(file, ac, repo, bfListener.getConsoleIO(file));
+            });
 
-            boolean edited =
-                    file.read().map(current -> !current.equals(ac.contents())).orElse(false);
-
-            if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
-                var detail = (outcome.details() != null)
-                        ? outcome.details()
-                        : "<unknown code-agent failure for " + file + ">";
-                codeAgentFailures.put(file, detail);
-                return new BlitzForge.FileResult(file, edited, detail, "");
+            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                return interruptedResult("Merge cancelled by user.");
             }
-
-            if (outcome.status() == MergeOneFile.Status.RESOLVED) {
-                try {
-                    repo.add(List.of(file));
-                } catch (GitAPIException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-
-            return new BlitzForge.FileResult(file, edited, null, "");
-        });
-
-        if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-            return interruptedResult("Merge cancelled by user.");
         }
 
         // Publish commit explanations (if available)
@@ -301,8 +295,8 @@ public class MergeAgent {
         }
         if (buildFailureText.isBlank() && codeAgentFailures.isEmpty()) {
             logger.info("Verification passed and no CodeAgent failures; merge completed successfully.");
-            var msg = "Merge completed successfully. Annotated %d conflicted files. Verification passed."
-                    .formatted(annotatedConflicts.size());
+            var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
+                    .formatted(hasConflictLines.size());
             return new TaskResult(
                     cm,
                     "Merge",
@@ -570,6 +564,38 @@ public class MergeAgent {
 
     private static String nullToDash(@Nullable String s) {
         return s == null ? "-" : s;
+    }
+
+    /**
+     * Execute the merge flow for a single annotated conflicted file (foreground or BlitzForge worker). Encapsulates the
+     * planner invocation, repo add, and failure capture.
+     */
+    private BlitzForge.FileResult executeMergeForFile(
+            ProjectFile file, ConflictAnnotator.ConflictFileCommits ac, GitRepo repo, IConsoleIO console) {
+
+        var planner = new MergeOneFile(cm, planningModel, codeModel, mode, baseCommitId, otherCommitId, ac, console);
+
+        var outcome = planner.merge();
+
+        boolean edited =
+                file.read().map(current -> !current.equals(ac.contents())).orElse(false);
+
+        if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
+            var detail =
+                    (outcome.details() != null) ? outcome.details() : "<unknown code-agent failure for " + file + ">";
+            codeAgentFailures.put(file, detail);
+            return new BlitzForge.FileResult(file, edited, detail, "");
+        }
+
+        if (outcome.status() == MergeOneFile.Status.RESOLVED) {
+            try {
+                repo.add(List.of(file));
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        return new BlitzForge.FileResult(file, edited, null, "");
     }
 
     private Set<ProjectFile> allConflictFilesInWorkspace() {

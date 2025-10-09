@@ -458,17 +458,13 @@ public class JavaTreeSitterAnalyzerTest {
     }
 
     @Test
-    public void testNearestMethodName() {
+    public void testNormalizeFullName() {
         // regular method
         assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method"));
-        // method with lambda/anon class
-        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$anon$357:32"));
         // method with anon class (just digits)
         assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$1"));
         // method in nested class
         assertEquals("package.A.AInner.method", analyzer.normalizeFullName("package.A.AInner.method"));
-        // method with lambda in nested class
-        assertEquals("package.A.AInner.method", analyzer.normalizeFullName("package.A.AInner.method$anon$1"));
     }
 
     @Test
@@ -662,14 +658,6 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void testNormalizationHandlesAnonymousAndLocationSuffix() {
-        // Based on log example: createPopupMenu$anon$328:16
-        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$anon$328:16"));
-
-        // Ensure anonymous + location suffix normalizes for real method lookups
-        assertTrue(
-                analyzer.getMethodSource("A.method6$anon$1:42", false).isPresent(),
-                "Anonymous and location suffixes should normalize for method source lookup");
-
         // Location suffix without anon
         assertTrue(
                 analyzer.getMethodSource("A.method1:16", false).isPresent(),

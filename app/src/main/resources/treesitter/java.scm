@@ -56,5 +56,8 @@
   )
 )
 
+; Lambda expressions
+(lambda_expression) @lambda.definition
+
 ; Annotations to strip
 (annotation) @annotation

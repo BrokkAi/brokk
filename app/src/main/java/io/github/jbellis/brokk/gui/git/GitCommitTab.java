@@ -872,30 +872,43 @@ public class GitCommitTab extends JPanel {
     private void runAiMerge(MergeAgent.MergeConflict conflict, String customInstructions) {
         assert SwingUtilities.isEventDispatchThread();
 
-        contextManager.submitExclusiveAction(() -> {
-            var service = contextManager.getService();
-
-            // Resolve planning model from InstructionsPanel
-            var modelConfig = chrome.getInstructionsPanel().getSelectedModel();
-            var planningModel = requireNonNull(service.getModel(modelConfig));
-            // Code model is hardcoded
-            var codeModel = requireNonNull(service.getModel(Service.GPT_5_MINI));
-
-            try (var scope = contextManager.beginTask("AI Merge", false)) {
-                var agent =
-                        new MergeAgent(contextManager, planningModel, codeModel, conflict, scope, customInstructions);
-                var result = agent.execute();
-                scope.append(result);
-            } catch (Exception ex) {
-                logger.error("AI merge failed", ex);
-                SwingUtilities.invokeLater(
-                        () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
-            } finally {
-                SwingUtilities.invokeLater(() -> {
-                    updateCommitPanel();
-                    chrome.updateLogTab();
-                });
+        // Create a new session for this merge, mirroring PR Review behavior
+        String sessionName = "Merge " + conflict.ourCommitId() + " and " + conflict.otherCommitId();
+        contextManager.createSessionAsync(sessionName).whenComplete((ignored, err) -> {
+            if (err != null) {
+                logger.error("Failed to create merge session '{}'", sessionName, err);
+                SwingUtilities.invokeLater(() -> chrome.toolError(
+                        "Unable to create merge session: " + sessionName + ": " + err.getMessage(),
+                        "Merge Agent Error"));
+                return;
             }
+
+            // Now execute the merge in an exclusive action
+            contextManager.submitLlmAction(() -> {
+                var service = contextManager.getService();
+
+                // Resolve planning model from InstructionsPanel
+                var modelConfig = chrome.getInstructionsPanel().getSelectedModel();
+                var planningModel = requireNonNull(service.getModel(modelConfig));
+                // Code model is hardcoded
+                var codeModel = requireNonNull(service.getModel(Service.GPT_5_MINI));
+
+                try (var scope = contextManager.beginTask("AI Merge", false)) {
+                    var agent = new MergeAgent(
+                            contextManager, planningModel, codeModel, conflict, scope, customInstructions);
+                    var result = agent.execute();
+                    scope.append(result);
+                } catch (Exception ex) {
+                    logger.error("AI merge failed", ex);
+                    SwingUtilities.invokeLater(
+                            () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
+                } finally {
+                    SwingUtilities.invokeLater(() -> {
+                        updateCommitPanel();
+                        chrome.updateLogTab();
+                    });
+                }
+            });
         });
     }
 }
