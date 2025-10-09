@@ -330,4 +330,10 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
         }
         return Optional.empty();
     }
+
+    @Override
+    protected boolean isAnonymousStructure(String fqName) {
+        var matcher = LAMBDA_REGEX.matcher(fqName);
+        return matcher.find();
+    }
 }

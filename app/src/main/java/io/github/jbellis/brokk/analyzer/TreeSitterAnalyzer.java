@@ -529,20 +529,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (originalPattern.equals(".*")) {
             return uniqueCodeUnitList();
         }
+        var anonPredicate = new Predicate<CodeUnit>() {
+            @Override
+            public boolean test(CodeUnit codeUnit) {
+                return !isAnonymousStructure(codeUnit.fqName());
+            }
+        };
 
         if (fallbackPattern != null) {
             // Fallback to simple case-insensitive substring matching
             return uniqueCodeUnitList().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
+                    .filter(anonPredicate)
                     .toList();
         } else if (compiledPattern != null) {
             // Primary search using compiled regex pattern
             return uniqueCodeUnitList().stream()
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                    .filter(anonPredicate)
                     .toList();
         } else {
             return uniqueCodeUnitList().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
+                    .filter(anonPredicate)
                     .toList();
         }
     }
@@ -617,7 +626,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     .forEach(results::add);
         }
 
-        return new ArrayList<>(results);
+        return results.stream().filter(cu -> !isAnonymousStructure(cu.fqName())).toList();
     }
 
     /**
@@ -2980,5 +2989,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             log.warn("Error during comment/metadata expansion for node: {}", e.getMessage());
             return originalRange;
         }
+    }
+
+    /**
+     * @param fqName the full name of the code unit to run this check for.
+     * @return true if the fqName seems like it belongs to a lambda function or anonymous class, false if otherwise.
+     */
+    protected boolean isAnonymousStructure(String fqName) {
+        return fqName.endsWith("");
     }
 }
