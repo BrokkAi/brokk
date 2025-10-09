@@ -829,6 +829,19 @@ public class DiffGutterComponent extends JComponent {
         return formatter.format(commitTime);
     }
 
+    /**
+     * Allow external callers to set the font used to render blame snippets. The gutter keeps an internal derived font
+     * for blame rendering; exposing this setter makes it possible to sync the blame font with a requested editor font
+     * size.
+     */
+    public void setBlameFont(Font f) {
+        // Assign the blameFont used for rendering blame lines and refresh UI
+        this.blameFont = f;
+        // Ensure layout and painting update with the new font
+        revalidate();
+        repaint();
+    }
+
     /** Get the preferred width for the gutter component. */
     public int getPreferredWidth() {
         if (displayMode == DisplayMode.SIDE_BY_SIDE_SINGLE) {
