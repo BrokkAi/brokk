@@ -12,6 +12,9 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterAll;
@@ -43,6 +46,26 @@ public class JavaTreeSitterSupertypesTest {
         if (testProject != null) {
             testProject.close();
         }
+    }
+
+    private static List<CodeUnit> transitiveAncestors(JavaTreeSitterAnalyzer analyzer, CodeUnit start) {
+        var result = new ArrayList<CodeUnit>();
+        var visited = new HashSet<String>();
+        var queue = new ArrayDeque<CodeUnit>();
+        visited.add(start.fqName());
+        queue.add(start);
+
+        while (!queue.isEmpty()) {
+            var current = queue.remove();
+            List<CodeUnit> direct = analyzer.getAncestors(current);
+            for (var sup : direct) {
+                if (visited.add(sup.fqName())) {
+                    result.add(sup);
+                    queue.add(sup);
+                }
+            }
+        }
+        return result;
     }
 
     @Test
