@@ -280,10 +280,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     // Tooltip helpers
-    private static String htmlEscape(String s) {
-        // Normalize tabs for readability, then escape using Apache Commons Text
-        return StringEscapeUtils.escapeHtml4(s.replace("\t", "    "));
-    }
 
     private static String wrapTooltipHtml(String innerHtml, int maxWidthPx) {
         // Use Swing's HTML renderer with a width style to enable wrapping.
@@ -348,7 +344,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         for (String s : lines) {
             if (s.isBlank()) continue;
             if (!first) body.append("<br/>");
-            body.append(htmlEscape(s));
+            body.append(StringEscapeUtils.escapeHtml4(s));
             first = false;
         }
         if (first) { // no non-blank lines were appended
@@ -360,7 +356,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 d = fragment.shortDescription();
             }
             if (d == null) d = "";
-            body.append(htmlEscape(d));
+            body.append(StringEscapeUtils.escapeHtml4(d));
         }
 
         // Add preview hint
@@ -383,7 +379,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Preserve existing newlines as line breaks for readability
         String descriptionHtml =
-                htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
+                StringEscapeUtils.escapeHtml4(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
 
         StringBuilder body = new StringBuilder();
 
