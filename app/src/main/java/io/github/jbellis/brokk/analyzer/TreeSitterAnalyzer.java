@@ -76,7 +76,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected static final int PRIORITY_LOW = 1;
 
     // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt((CodeUnit cu) -> firstStartByteForSelection(cu))
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
+                    (CodeUnit cu) -> firstStartByteForSelection(cu))
             .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(cu -> cu.kind().name());
@@ -1559,12 +1560,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
             localStates.put(
-                    cu,
-                    new CodeUnitProperties(
-                            List.copyOf(kids),
-                            List.copyOf(sigs),
-                            List.copyOf(rngs),
-                            List.of()));
+                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), List.of()));
         }
 
         long __processEnd = System.nanoTime();
@@ -2407,8 +2403,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Returns the direct supertypes/basetypes of the given CodeUnit if it is a class-like entity.
-     * For non-class code units, returns an empty list.
+     * Returns the direct supertypes/basetypes of the given CodeUnit if it is a class-like entity. For non-class code
+     * units, returns an empty list.
      */
     public List<CodeUnit> getAncestors(CodeUnit cu) {
         if (!cu.isClass()) {
@@ -2846,10 +2842,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             codeUnitState.compute(cu, (CodeUnit k, @Nullable CodeUnitProperties existing) -> {
                 if (existing == null) {
                     return new CodeUnitProperties(
-                            newState.children(),
-                            newState.signatures(),
-                            newState.ranges(),
-                            newState.supertypes());
+                            newState.children(), newState.signatures(), newState.ranges(), newState.supertypes());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -2917,16 +2910,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /* ---------- type analysis (supertypes/basetypes) ---------- */
 
     /**
-     * Overridable hook to compute direct supertypes/basetypes for a given CodeUnit.
-     * Default implementation returns an empty list.
+     * Overridable hook to compute direct supertypes/basetypes for a given CodeUnit. Default implementation returns an
+     * empty list.
      */
     protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
         return List.of();
     }
 
     /**
-     * Runs the type-analysis pass to populate supertypes into CodeUnitProperties for all class-like CodeUnits.
-     * This is invoked after initial parsing and after incremental updates.
+     * Runs the type-analysis pass to populate supertypes into CodeUnitProperties for all class-like CodeUnits. This is
+     * invoked after initial parsing and after incremental updates.
      */
     protected void runTypeAnalysis() {
         var wl = stateRwLock.writeLock();
@@ -2942,11 +2935,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 // Only update if changed to minimize churn
                 if (!Objects.equals(props.supertypes(), supers)) {
                     entry.setValue(
-                            new CodeUnitProperties(
-                                    props.children(),
-                                    props.signatures(),
-                                    props.ranges(),
-                                    supers));
+                            new CodeUnitProperties(props.children(), props.signatures(), props.ranges(), supers));
                 }
             }
         } catch (Throwable t) {

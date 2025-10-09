@@ -19,9 +19,6 @@ public record CodeUnitProperties(
 
     public static CodeUnitProperties empty() {
         return new CodeUnitProperties(
-                Collections.emptyList(),
-                Collections.emptyList(),
-                Collections.emptyList(),
-                Collections.emptyList());
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
     }
 }

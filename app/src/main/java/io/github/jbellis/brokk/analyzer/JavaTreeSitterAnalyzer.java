@@ -339,9 +339,9 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Java-specific implementation to compute direct supertypes by parsing the class header signature.
-     * Preserves Java's meaningful order: superclass (if any) first, then implemented interfaces in source order.
-     * Only returns supertypes that can be resolved to known CodeUnits in the project.
+     * Java-specific implementation to compute direct supertypes by parsing the class header signature. Preserves Java's
+     * meaningful order: superclass (if any) first, then implemented interfaces in source order. Only returns supertypes
+     * that can be resolved to known CodeUnits in the project.
      */
     @Override
     protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
