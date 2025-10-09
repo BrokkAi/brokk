@@ -2897,11 +2897,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         gitTabBadgedIcon.setCount(modifiedCount, leftTabbedPanel);
 
-        // Update tooltip to show the count
+        // Update tooltip to show the count and keyboard shortcut
         if (gitTabLabel != null) {
-            String tooltip = modifiedCount > 0
-                    ? String.format("Commit (%d modified file%s)", modifiedCount, modifiedCount == 1 ? "" : "s")
-                    : "Commit";
+            var configuredShortcut = GlobalUiSettings.getKeybinding(
+                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+            var shortcut = KeyboardShortcutUtil.formatKeyStroke(configuredShortcut);
+            String tooltip;
+            if (modifiedCount > 0) {
+                tooltip = String.format(
+                        "Changes (%d modified file%s) (%s)", modifiedCount, modifiedCount == 1 ? "" : "s", shortcut);
+            } else {
+                tooltip = "Changes (" + shortcut + ")";
+            }
             gitTabLabel.setToolTipText(tooltip);
         }
 
