@@ -412,20 +412,26 @@ public interface LspClient extends AutoCloseable {
                     }
                 }
                 // We've reached the deepest containing symbol. Now build the context.
-                String className = null;
+                final List<String> classParts = new ArrayList<>();
                 String methodName = null;
-                for (final DocumentSymbol s : contextStack) {
-                    if (className == null && LspAnalyzerHelper.TYPE_KINDS.contains(s.getKind())) {
+
+                // Build fully-qualified container from all non-anonymous type symbols, outermost -> innermost
+                for (final Iterator<DocumentSymbol> it = contextStack.descendingIterator(); it.hasNext(); ) {
+                    final DocumentSymbol s = it.next();
+                    if (LspAnalyzerHelper.TYPE_KINDS.contains(s.getKind())) {
                         if (isAnonymousClass(s.getKind(), s.getName())) {
-                            methodName = null; // invalidate method name, keep traversing up
-                        } else {
-                            className = resolveMethodName(s.getName());
+                            // If an anonymous class is in the chain, invalidate current method selection
+                            methodName = null;
+                            continue;
                         }
+                        classParts.add(resolveMethodName(s.getName()));
                     }
                     if (methodName == null && LspAnalyzerHelper.METHOD_KINDS.contains(s.getKind())) {
                         methodName = resolveMethodName(s.getName());
                     }
                 }
+                final String className = classParts.isEmpty() ? null : String.join(".", classParts);
+
                 contextStack.pop();
                 return (className != null && methodName != null)
                         ? Optional.of(new SymbolContext(className, methodName))
