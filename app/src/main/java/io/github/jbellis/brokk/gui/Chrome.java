@@ -230,8 +230,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
     private JMenuItem blitzForgeMenuItem;
 
-    // Command input panel is now encapsulated in InstructionsPanel.
-    private final InstructionsPanel instructionsPanel;
+    // Combined Instructions + Tasks tabbed panel
+    private final InstructionsTasksTabbedPanel instructionsTasksTabbedPanel;
 
     // Right-hand drawer (tools) - split and content
     private DrawerSplitPanel instructionsDrawerSplit;
@@ -263,7 +263,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         gbc.insets = new Insets(2, 2, 2, 2);
 
         // Create instructions panel and history/output panel
-        instructionsPanel = new InstructionsPanel(this);
+        var instructionsPanel = new InstructionsPanel(this);
+        instructionsTasksTabbedPanel = new InstructionsTasksTabbedPanel(this, instructionsPanel);
         historyOutputPanel = new HistoryOutputPanel(this, this.contextManager);
 
         // Bottom Area: Context/Git + Status
@@ -452,7 +453,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
         // Attach instructions (left) and drawer (right)
-        instructionsDrawerSplit.setParentComponent(instructionsPanel);
+        instructionsDrawerSplit.setParentComponent(instructionsTasksTabbedPanel);
         instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
 
         // Attach the combined instructions+drawer split as the bottom component
@@ -522,7 +523,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (newFocusOwner != null) {
                 historyOutputPanel.getLlmStreamArea();
                 if (historyOutputPanel.getHistoryTable() != null) {
-                    if (newFocusOwner == instructionsPanel.getInstructionsArea()
+                    if (newFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
                             || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getHistoryTable())
                             || SwingUtilities.isDescendingFrom(
@@ -804,15 +805,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Retrieves the current text from the command input. */
     public String getInputText() {
-        return instructionsPanel.getInstructions();
+        return instructionsTasksTabbedPanel.getInstructionsPanel().getInstructions();
     }
 
     @Override
     public void disableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
-            instructionsPanel.disableButtons();
-            terminalDrawer.disablePlay();
+            instructionsTasksTabbedPanel.getInstructionsPanel().disableButtons();
+            instructionsTasksTabbedPanel.getTaskListPanel().disablePlay();
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
             }
@@ -824,8 +825,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
-            instructionsPanel.enableButtons();
-            terminalDrawer.enablePlay();
+            instructionsTasksTabbedPanel.getInstructionsPanel().enableButtons();
+            instructionsTasksTabbedPanel.getTaskListPanel().enablePlay();
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();
             }
@@ -878,7 +879,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                 "updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
                         return;
                     }
-                    instructionsPanel.refreshBranchUi(display);
+                    instructionsTasksTabbedPanel.getInstructionsPanel().refreshBranchUi(display);
                     lastDisplayedBranchLabel = display;
                 } catch (Exception ex) {
                     logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
@@ -992,16 +993,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         // Bind directly to instructions area instead of globally to avoid interfering with other components
-        instructionsPanel
+        instructionsTasksTabbedPanel
+                .getInstructionsPanel()
                 .getInstructionsArea()
                 .getInputMap(JComponent.WHEN_FOCUSED)
                 .put(submitKeyStroke, "submitAction");
-        instructionsPanel.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
+        instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        instructionsPanel.onActionButtonPressed();
+                        instructionsTasksTabbedPanel.getInstructionsPanel().onActionButtonPressed();
                     } catch (Exception ex) {
                         logger.error("Error executing submit action", ex);
                     }
@@ -1019,7 +1021,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        instructionsPanel.toggleCodeAnswerMode();
+                        instructionsTasksTabbedPanel.getInstructionsPanel().toggleCodeAnswerMode();
                         showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
                     } catch (Exception ex) {
                         logger.warn("Error toggling Code/Answer mode via shortcut", ex);
@@ -1195,7 +1197,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                terminalDrawer.openTaskList();
+                instructionsTasksTabbedPanel.selectTasksTab();
             }
         });
 
@@ -2280,7 +2282,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void focusInput() {
-        SwingUtilities.invokeLater(instructionsPanel::requestCommandInputFocus);
+        SwingUtilities.invokeLater(instructionsTasksTabbedPanel.getInstructionsPanel()::requestCommandInputFocus);
     }
 
     @Override
@@ -2451,7 +2453,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public InstructionsPanel getInstructionsPanel() {
-        return instructionsPanel;
+        return instructionsTasksTabbedPanel.getInstructionsPanel();
     }
 
     public WorkspacePanel getContextPanel() {
@@ -2469,8 +2471,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Append tasks to the Task List panel, if present. Tasks are appended to the current session's list. */
     public void appendTasksToTaskList(List<String> tasks) {
         SwingUtilities.invokeLater(() -> {
-            var taskPanel = terminalDrawer.openTaskList();
+            var taskPanel = instructionsTasksTabbedPanel.getTaskListPanel();
             taskPanel.appendTasks(tasks);
+            instructionsTasksTabbedPanel.selectTasksTab();
         });
     }
 
@@ -2511,9 +2514,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                if (instructionsPanel.getCommandInputUndoManager().canUndo()) {
-                    instructionsPanel.getCommandInputUndoManager().undo();
+            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                if (instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canUndo()) {
+                    instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().undo();
                 }
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 if (contextManager.getContextHistory().hasUndoStates()) {
@@ -2524,8 +2527,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         public void updateEnabledState() {
             boolean canUndoNow = false;
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                canUndoNow = instructionsPanel.getCommandInputUndoManager().canUndo();
+            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                canUndoNow = instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canUndo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canUndoNow = contextManager.getContextHistory().hasUndoStates();
             }
@@ -2540,9 +2543,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                if (instructionsPanel.getCommandInputUndoManager().canRedo()) {
-                    instructionsPanel.getCommandInputUndoManager().redo();
+            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                if (instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canRedo()) {
+                    instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().redo();
                 }
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 if (contextManager.getContextHistory().hasRedoStates()) {
@@ -2553,8 +2556,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         public void updateEnabledState() {
             boolean canRedoNow = false;
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                canRedoNow = instructionsPanel.getCommandInputUndoManager().canRedo();
+            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                canRedoNow = instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canRedo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canRedoNow = contextManager.getContextHistory().hasRedoStates();
             }
@@ -2573,8 +2576,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (lastRelevantFocusOwner == null) {
                 return;
             }
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                instructionsPanel.getInstructionsArea().copy();
+            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea().copy();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getLlmStreamArea())) {
                 historyOutputPanel.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)
@@ -2596,8 +2599,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             boolean canCopyNow = false;
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                var field = instructionsPanel.getInstructionsArea();
+            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                var field = instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea();
                 canCopyNow = (field.getSelectedText() != null
                                 && !field.getSelectedText().isEmpty())
                         || !field.getText().isEmpty();
@@ -2627,8 +2630,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return;
             }
 
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                instructionsPanel.getInstructionsArea().paste();
+            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea().paste();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
                 workspacePanel.performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
             }
@@ -2638,7 +2641,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             boolean canPasteNow = false;
             if (lastRelevantFocusOwner == null) {
                 // leave it false
-            } else if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            } else if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
                 canPasteNow = java.awt.Toolkit.getDefaultToolkit()
                         .getSystemClipboard()
                         .isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor);
@@ -2658,16 +2661,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+        InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsTasksTabbedPanel.getInstructionsPanel();
+        VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
             if (micButton.isEnabled()) {
                 micButton.doClick();
             }
         }
 
         public void updateEnabledState() {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+        InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsTasksTabbedPanel.getInstructionsPanel();
+        VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
             boolean canToggleMic = micButton.isEnabled();
             setEnabled(canToggleMic);
         }
