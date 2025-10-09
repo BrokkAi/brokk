@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
+import io.github.jbellis.brokk.gui.components.TokenUsageBar;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
@@ -95,7 +96,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
-    private final MaterialButton tokenCostLabel;
+    private final TokenUsageBar tokenUsageBar;
     private String storedAction;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
@@ -291,15 +292,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Ensure model selector component is focusable
         modelSelector.getComponent().setFocusable(true);
 
-        // Initialize compact token/cost indicator (left of Attach button)
-        tokenCostLabel = new MaterialButton(" ");
-        tokenCostLabel.setFocusable(false);
-        tokenCostLabel.setVisible(false);
-        tokenCostLabel.setOpaque(false);
-        tokenCostLabel.setBorder(new EmptyBorder(0, 4, 0, 8));
-        tokenCostLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // Make it clickable to toggle Workspace collapse/expand
-        tokenCostLabel.addActionListener(e -> chrome.toggleWorkspaceCollapsed());
+        // Initialize TokenUsageBar (left of Attach button)
+        tokenUsageBar = new TokenUsageBar();
+        tokenUsageBar.setVisible(false);
+        tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
+        tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
+        // Click toggles Workspace collapse/expand
+        tokenUsageBar.setOnClick(() -> chrome.toggleWorkspaceCollapsed());
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -715,19 +714,114 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var container = new JPanel(new BorderLayout(H_GLUE, 0));
         container.setOpaque(false);
         container.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
-        container.add(workspaceItemsChipPanel, BorderLayout.CENTER);
 
-        // Fixed height to always show exactly two rows of chips and never move.
-        // Compute a DPI/theme-aware height: approx chip row height = font height + padding.
-        int fmH = instructionsArea.getFontMetrics(instructionsArea.getFont()).getHeight();
-        int rowH = Math.max(24, fmH + 8); // ensure enough room for chip borders/padding
-        int fixedChipAreaHeight = (rowH * 2) + 4; // two rows + FlowLayout vgap (4)
-        container.setMinimumSize(new Dimension(100, fixedChipAreaHeight));
-        container.setPreferredSize(new Dimension(100, fixedChipAreaHeight));
-        container.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedChipAreaHeight));
+        // Sizer panel computes rows (1..5) based on current width and chip widths.
+        var chipsSizer = new JPanel(new BorderLayout()) {
+            private int computeRowsForWidth(int contentWidth) {
+                if (contentWidth <= 0) return 1;
+                int rows = 1;
+                int hgap = 6;
+                if (workspaceItemsChipPanel.getLayout() instanceof FlowLayout fl) {
+                    hgap = fl.getHgap();
+                }
+                int lineWidth = 0;
+                for (var comp : workspaceItemsChipPanel.getComponents()) {
+                    if (!comp.isVisible()) continue;
+                    int w = comp.getPreferredSize().width;
+                    int next = (lineWidth == 0 ? w : lineWidth + hgap + w);
+                    if (next <= contentWidth) {
+                        lineWidth = next;
+                    } else {
+                        rows++;
+                        lineWidth = w;
+                        if (rows >= 5) break; // cap at 5
+                    }
+                }
+                return Math.max(1, Math.min(5, rows));
+            }
+
+            @Override
+            public Dimension getPreferredSize() {
+                // Estimate height: rows * rowH + inter-row vgap
+                int width = getWidth();
+                if (width <= 0 && getParent() != null) {
+                    width = getParent().getWidth();
+                }
+                Insets in = getInsets();
+                int contentWidth = Math.max(0, width - (in == null ? 0 : in.left + in.right));
+
+                int rows = computeRowsForWidth(contentWidth);
+                int fmH = instructionsArea
+                        .getFontMetrics(instructionsArea.getFont())
+                        .getHeight();
+                int rowH = Math.max(24, fmH + 8);
+                int vgap = 4;
+                if (workspaceItemsChipPanel.getLayout() instanceof FlowLayout fl) {
+                    vgap = fl.getVgap();
+                }
+                int chipsHeight = (rows * rowH) + (rows > 1 ? (rows - 1) * vgap : 0);
+                Dimension pref = new Dimension(Math.max(100, super.getPreferredSize().width), chipsHeight);
+                return pref;
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                // Prevent vertical stretching; let width expand
+                Dimension pref = getPreferredSize();
+                return new Dimension(Integer.MAX_VALUE, pref.height);
+            }
+        };
+        chipsSizer.setOpaque(false);
+        chipsSizer.add(workspaceItemsChipPanel, BorderLayout.CENTER);
+
+        container.add(chipsSizer, BorderLayout.CENTER);
+
+        // Bottom line: TokenUsageBar (fills) + Attach button on the right
+        var attachButton = new MaterialButton();
+        SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
+        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
+        attachButton.setFocusable(false);
+        attachButton.setOpaque(false);
+        attachButton.addActionListener(e -> chrome.getContextPanel().attachContextViaDialog());
+
+        var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
+        bottomLinePanel.setOpaque(false);
+        bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // minimal gap above
+
+        // Ensure the token bar expands to fill available width
+        tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomLinePanel.add(tokenUsageBar, BorderLayout.CENTER);
+
+        var contextRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        contextRightPanel.setOpaque(false);
+        contextRightPanel.add(attachButton);
+        bottomLinePanel.add(contextRightPanel, BorderLayout.EAST);
+
+        container.add(bottomLinePanel, BorderLayout.SOUTH);
+
+        // Wrap the chip panel with a titled border labeled "Context"
+        var contextTitledBorder = BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Context",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12));
+
+        // Constrain vertical growth to preferred height so it won't stretch on window resize.
+        var titledContainer = new JPanel(new BorderLayout()) {
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension pref = getPreferredSize();
+                return new Dimension(Integer.MAX_VALUE, pref.height);
+            }
+        };
+        titledContainer.setOpaque(false);
+        titledContainer.setBorder(
+                BorderFactory.createCompoundBorder(contextTitledBorder, BorderFactory.createEmptyBorder(0, 0, 0, 0)));
+        titledContainer.add(container, BorderLayout.CENTER);
 
         // Insert beneath the command-input area (index 2)
-        centerPanel.add(container, 2);
+        centerPanel.add(titledContainer, 2);
     }
 
     // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
@@ -880,15 +974,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /**
-     * Recomputes the compact token/cost indicator to mirror the Workspace panel summary. Safe to call from any thread.
-     */
+    /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         if (ctx == null || ctx.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
-                tokenCostLabel.setText(" ");
-                tokenCostLabel.setVisible(false);
+                tokenUsageBar.setVisible(false);
             });
             return;
         }
@@ -896,18 +987,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Build full text of current context, similar to WorkspacePanel
         var allFragments = ctx.getAllFragmentsInDisplayOrder();
         var fullText = new StringBuilder();
-        int totalLines = 0;
         for (var frag : allFragments) {
             if (frag.isText() || frag.getType().isOutput()) {
-                var text = frag.text();
-                fullText.append(text).append("\n");
-                int loc = text.split("\\r?\\n", -1).length;
-                totalLines += loc;
+                fullText.append(frag.text()).append("\n");
             }
         }
-
-        // Capture totals for lambda usage
-        final int totalLinesFinal = totalLines;
 
         // Compute tokens off-EDT
         chrome.getContextManager()
@@ -917,20 +1001,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
                     try {
                         var service = chrome.getContextManager().getService();
-                        var costEstimate = calculateCostEstimate(approxTokens, service);
-                        String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
-                        tokenCostLabel.setText("%,dK tokens \u2248 %s/req".formatted(approxTokens / 1000, costText));
-                        tokenCostLabel.setToolTipText(String.format(
-                                "<html>"
-                                        + "Shows full Workspace context size and estimated cost.<br/>"
-                                        + "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request.<br/>"
-                                        + "<i>Click to show/hide the Workspace panel.</i>"
-                                        + "</html>",
-                                totalLinesFinal, approxTokens, costText));
-                        tokenCostLabel.setVisible(true);
+
+                        // Resolve selected model and max input tokens
+                        Service.ModelConfig config = getSelectedModel();
+                        var model = service.getModel(config);
+                        if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                            tokenUsageBar.setVisible(false);
+                            return;
+                        }
+
+                        int maxTokens = service.getMaxInputTokens(model);
+                        if (maxTokens <= 0) {
+                            // Fallback to a generous default when service does not provide a limit
+                            maxTokens = 128_000;
+                        }
+
+                        // Update bar and tooltip
+                        tokenUsageBar.setTokens(approxTokens, maxTokens);
+                        String modelName = config.name();
+                        String costStr = calculateCostEstimate(approxTokens, service);
+                        String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, costStr);
+                        tokenUsageBar.setTooltip(tooltipHtml);
+                        tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
-                        logger.debug("Failed to update token cost indicator", ex);
-                        tokenCostLabel.setVisible(false);
+                        logger.debug("Failed to update token usage bar", ex);
+                        tokenUsageBar.setVisible(false);
                     }
                 }));
     }
@@ -964,6 +1059,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             return String.format("$%.2f", estimatedCost);
         }
+    }
+
+    // Tooltip helpers for TokenUsageBar (HTML-wrapped, similar to chip tooltips)
+    private static String buildTokenUsageTooltip(String modelName, int maxTokens, String costPerRequest) {
+        StringBuilder body = new StringBuilder();
+        body.append("<div><b>Context</b></div>");
+        body.append("<div>Model: ").append(htmlEscape(modelName)).append("</div>");
+        body.append("<div>Max input tokens: ")
+                .append(String.format("%,d", maxTokens))
+                .append("</div>");
+        if (!costPerRequest.isBlank()) {
+            body.append("<div>Estimated cost/request: ")
+                    .append(htmlEscape(costPerRequest))
+                    .append("</div>");
+        }
+        return wrapTooltipHtml(body.toString(), 420);
+    }
+
+    private static String wrapTooltipHtml(String innerHtml, int maxWidthPx) {
+        return "<html><body style='width: " + maxWidthPx + "px'>" + innerHtml + "</body></html>";
+    }
+
+    private static String htmlEscape(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /**
@@ -1083,23 +1202,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Token/cost indicator (to the left/"west" of the Attach Files button)
-        bottomPanel.add(tokenCostLabel);
-        bottomPanel.add(Box.createHorizontalStrut(4));
-
-        // Attach button
-        var attachButton = new MaterialButton();
-        SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
-        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
-        attachButton.setFocusable(false);
-        attachButton.setOpaque(false);
-        attachButton.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog();
-        });
-        attachButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(attachButton);
-        bottomPanel.add(Box.createHorizontalStrut(4));
-
         // Wand button (Magic Ask) on the right
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Size set after fixedHeight is computed below
@@ -1129,11 +1231,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Size the attach and wand buttons to match height of action button
+        // Size the wand button to match height of action button
         var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
-        attachButton.setPreferredSize(iconButtonSize);
-        attachButton.setMinimumSize(iconButtonSize);
-        attachButton.setMaximumSize(iconButtonSize);
         wandButton.setPreferredSize(iconButtonSize);
         wandButton.setMinimumSize(iconButtonSize);
         wandButton.setMaximumSize(iconButtonSize);

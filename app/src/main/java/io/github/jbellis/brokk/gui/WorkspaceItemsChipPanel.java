@@ -86,8 +86,19 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             add(createChip(fragment));
         }
 
+        // Re-layout this panel
         revalidate();
         repaint();
+
+        // Also nudge ancestors so containers like BoxLayout recompute heights
+        java.awt.Container p = getParent();
+        while (p != null) {
+            if (p instanceof javax.swing.JComponent jc) {
+                jc.revalidate();
+                jc.repaint();
+            }
+            p = p.getParent();
+        }
     }
 
     private enum ChipKind {
