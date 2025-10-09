@@ -27,8 +27,8 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
-import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
+import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
@@ -524,7 +524,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (newFocusOwner != null) {
                 historyOutputPanel.getLlmStreamArea();
                 if (historyOutputPanel.getHistoryTable() != null) {
-                    if (newFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()
+                    if (newFocusOwner
+                                    == instructionsTasksTabbedPanel
+                                            .getInstructionsPanel()
+                                            .getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
                             || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getHistoryTable())
                             || SwingUtilities.isDescendingFrom(
@@ -999,18 +1002,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 .getInstructionsArea()
                 .getInputMap(JComponent.WHEN_FOCUSED)
                 .put(submitKeyStroke, "submitAction");
-        instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        instructionsTasksTabbedPanel.getInstructionsPanel().onActionButtonPressed();
-                    } catch (Exception ex) {
-                        logger.error("Error executing submit action", ex);
+        instructionsTasksTabbedPanel
+                .getInstructionsPanel()
+                .getInstructionsArea()
+                .getActionMap()
+                .put("submitAction", new AbstractAction() {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                instructionsTasksTabbedPanel
+                                        .getInstructionsPanel()
+                                        .onActionButtonPressed();
+                            } catch (Exception ex) {
+                                logger.error("Error executing submit action", ex);
+                            }
+                        });
                     }
                 });
-            }
-        });
 
         // Cmd/Ctrl+M => toggle Code/Answer mode (configurable)
         KeyStroke toggleModeKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
@@ -2519,9 +2528,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
-                if (instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canUndo()) {
-                    instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().undo();
+            if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                if (instructionsTasksTabbedPanel
+                        .getInstructionsPanel()
+                        .getCommandInputUndoManager()
+                        .canUndo()) {
+                    instructionsTasksTabbedPanel
+                            .getInstructionsPanel()
+                            .getCommandInputUndoManager()
+                            .undo();
                 }
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 if (contextManager.getContextHistory().hasUndoStates()) {
@@ -2532,8 +2548,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         public void updateEnabledState() {
             boolean canUndoNow = false;
-            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
-                canUndoNow = instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canUndo();
+            if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                canUndoNow = instructionsTasksTabbedPanel
+                        .getInstructionsPanel()
+                        .getCommandInputUndoManager()
+                        .canUndo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canUndoNow = contextManager.getContextHistory().hasUndoStates();
             }
@@ -2548,9 +2568,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
-                if (instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canRedo()) {
-                    instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().redo();
+            if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                if (instructionsTasksTabbedPanel
+                        .getInstructionsPanel()
+                        .getCommandInputUndoManager()
+                        .canRedo()) {
+                    instructionsTasksTabbedPanel
+                            .getInstructionsPanel()
+                            .getCommandInputUndoManager()
+                            .redo();
                 }
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 if (contextManager.getContextHistory().hasRedoStates()) {
@@ -2561,8 +2588,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         public void updateEnabledState() {
             boolean canRedoNow = false;
-            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
-                canRedoNow = instructionsTasksTabbedPanel.getInstructionsPanel().getCommandInputUndoManager().canRedo();
+            if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                canRedoNow = instructionsTasksTabbedPanel
+                        .getInstructionsPanel()
+                        .getCommandInputUndoManager()
+                        .canRedo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canRedoNow = contextManager.getContextHistory().hasRedoStates();
             }
@@ -2581,8 +2612,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (lastRelevantFocusOwner == null) {
                 return;
             }
-            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
-                instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea().copy();
+            if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                instructionsTasksTabbedPanel
+                        .getInstructionsPanel()
+                        .getInstructionsArea()
+                        .copy();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getLlmStreamArea())) {
                 historyOutputPanel.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)
@@ -2604,7 +2639,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             boolean canCopyNow = false;
-            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+            if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
                 var field = instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea();
                 canCopyNow = (field.getSelectedText() != null
                                 && !field.getSelectedText().isEmpty())
@@ -2635,8 +2671,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return;
             }
 
-            if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
-                instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea().paste();
+            if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+                instructionsTasksTabbedPanel
+                        .getInstructionsPanel()
+                        .getInstructionsArea()
+                        .paste();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
                 workspacePanel.performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
             }
@@ -2646,7 +2686,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             boolean canPasteNow = false;
             if (lastRelevantFocusOwner == null) {
                 // leave it false
-            } else if (lastRelevantFocusOwner == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
+            } else if (lastRelevantFocusOwner
+                    == instructionsTasksTabbedPanel.getInstructionsPanel().getInstructionsArea()) {
                 canPasteNow = java.awt.Toolkit.getDefaultToolkit()
                         .getSystemClipboard()
                         .isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor);
@@ -2666,16 +2707,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-        InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsTasksTabbedPanel.getInstructionsPanel();
-        VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            InstructionsPanel currentInstructionsPanel =
+                    Chrome.this.instructionsTasksTabbedPanel.getInstructionsPanel();
+            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
             if (micButton.isEnabled()) {
                 micButton.doClick();
             }
         }
 
         public void updateEnabledState() {
-        InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsTasksTabbedPanel.getInstructionsPanel();
-        VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            InstructionsPanel currentInstructionsPanel =
+                    Chrome.this.instructionsTasksTabbedPanel.getInstructionsPanel();
+            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
             boolean canToggleMic = micButton.isEnabled();
             setEnabled(canToggleMic);
         }

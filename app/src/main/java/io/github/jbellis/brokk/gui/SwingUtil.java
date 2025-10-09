@@ -76,10 +76,10 @@ public class SwingUtil {
     /**
      * Safely loads a theme-aware icon from UIManager, avoiding race conditions during startup.
      *
-     * <p>This method always returns a {@link ThemedIcon} proxy. By deferring the icon lookup until
-     * paint time, it avoids a race condition where an eager check could fail if UI components are
-     * initialized before the theme's icons are registered, leading to a permanent placeholder. The
-     * proxy handles its own fallback rendering, ensuring the correct icon is eventually displayed.
+     * <p>This method always returns a {@link ThemedIcon} proxy. By deferring the icon lookup until paint time, it
+     * avoids a race condition where an eager check could fail if UI components are initialized before the theme's icons
+     * are registered, leading to a permanent placeholder. The proxy handles its own fallback rendering, ensuring the
+     * correct icon is eventually displayed.
      *
      * @param iconKey The UIManager key for the desired icon (e.g., "FileView.directoryIcon")
      */
@@ -218,14 +218,13 @@ public class SwingUtil {
             }
 
             // If primary key fails, try common fallback icons
-            var fallbackKeys =
-                    new String[] {
-                        "OptionPane.informationIcon", // Usually available and neutral
-                        "FileView.fileIcon", // Generic file icon
-                        "Tree.leafIcon", // Small document icon
-                        "OptionPane.questionIcon", // Question mark icon
-                        "FileView.directoryIcon" // Folder icon
-                    };
+            var fallbackKeys = new String[] {
+                "OptionPane.informationIcon", // Usually available and neutral
+                "FileView.fileIcon", // Generic file icon
+                "Tree.leafIcon", // Small document icon
+                "OptionPane.questionIcon", // Question mark icon
+                "FileView.directoryIcon" // Folder icon
+            };
 
             for (var fallbackKey : fallbackKeys) {
                 var fallbackValue = UIManager.get(fallbackKey);

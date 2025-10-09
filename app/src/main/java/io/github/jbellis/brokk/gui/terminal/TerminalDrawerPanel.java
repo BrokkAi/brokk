@@ -24,15 +24,13 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Developer drawer panel that hosts the TerminalPanel on the right side.
  *
- * UI composition summary:
- * - Chrome is the main window/root container. Chrome constructs an InstructionsPanel for the main input area.
- * - Chrome also constructs a TerminalDrawerPanel (this class) and mounts it as the right component of a JSplitPane.
- * - TaskListPanel is no longer hosted here (it lives in InstructionsTasksTabbedPanel).
+ * <p>UI composition summary: - Chrome is the main window/root container. Chrome constructs an InstructionsPanel for the
+ * main input area. - Chrome also constructs a TerminalDrawerPanel (this class) and mounts it as the right component of
+ * a JSplitPane. - TaskListPanel is no longer hosted here (it lives in InstructionsTasksTabbedPanel).
  *
- * Behavior:
- * - Uses a vertical icon button bar (simulating an icon-only tab) to toggle the terminal.
- * - Persists open/closed state and divider proportion (per-project or globally via GlobalUiSettings).
- * - Collapses to the icon strip when no tool is active, restoring the previous split when reopened.
+ * <p>Behavior: - Uses a vertical icon button bar (simulating an icon-only tab) to toggle the terminal. - Persists
+ * open/closed state and divider proportion (per-project or globally via GlobalUiSettings). - Collapses to the icon
+ * strip when no tool is active, restoring the previous split when reopened.
  */
 public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TerminalDrawerPanel.class);
