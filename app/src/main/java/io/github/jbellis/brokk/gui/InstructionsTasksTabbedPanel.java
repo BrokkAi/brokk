@@ -15,7 +15,11 @@ import javax.swing.SwingUtilities;
  * - The tab order is: Instructions, then Tasks.
  *
  * <p>Theming:
- * - Only the TaskListPanel requires explicit theme application here.
+ * - Both tabs (Instructions and Tasks) receive theme updates via applyTheme.
+ *
+ * <p>Verification:
+ * - See docs/ManualVerification.md for a manual verification checklist covering tabs, tasks,
+ *   Architect runs on tasks, theme toggling, and persistence across restarts.
  */
 public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
   private final JTabbedPane tabbedPane;
