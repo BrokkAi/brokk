@@ -71,8 +71,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
-    private JCheckBox showGeminiLiteCostNotificationsCheckbox =
-            new JCheckBox("Show Gemini Flash Lite cost notifications");
+    private JCheckBox showGeminiLiteCostNotificationsCheckbox = new JCheckBox("Show free internal LLM calls");
     private JCheckBox showErrorNotificationsCheckbox = new JCheckBox("Show error notifications");
     private JCheckBox showConfirmNotificationsCheckbox = new JCheckBox("Show confirmation notifications");
     private JCheckBox showInfoNotificationsCheckbox = new JCheckBox("Show info notifications");
