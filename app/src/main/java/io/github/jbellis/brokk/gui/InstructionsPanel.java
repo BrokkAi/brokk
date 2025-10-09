@@ -263,6 +263,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initial checkbox visibility is handled by the optionsPanel (CardLayout) in buildBottomPanel().
 
+        // Initialize the Action selector group (Code/Ask toggle) early so it can be placed into the Top Bar.
+        this.actionGroupPanel = new ActionGroupPanel(codeModeLabel, modeSwitch, answerModeLabel);
+        this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        // Visually highlight Code/Ask group when the switch gains focus
+        modeSwitch.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) {
+                actionGroupPanel.setAccentColor(new Color(0x1F6FEB));
+            }
+
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                // Restore mode accent
+                refreshModeIndicator();
+            }
+        });
+
         this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
         // this is when the button is in the blocking state
         this.secondaryActionButtonBg = UIManager.getColor("Button.background");
@@ -603,27 +620,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel topBarPanel = new JPanel(new BorderLayout(H_GAP, 0));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // Right-aligned panel with: Code/Ask toggle, History, Microphone (in that order)
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, H_GAP, 0));
 
         var micPref = micButton.getPreferredSize();
         int controlHeight = micPref.height;
-
-        var micDim = new Dimension(controlHeight, controlHeight);
-        micButton.setPreferredSize(micDim);
-        micButton.setMinimumSize(micDim);
-        micButton.setMaximumSize(micDim);
-
-        leftPanel.add(micButton);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
 
         var historyDropdown = createHistoryDropdown();
         historyDropdown.setPreferredSize(new Dimension(120, controlHeight));
         historyDropdown.setMinimumSize(new Dimension(120, controlHeight));
         historyDropdown.setMaximumSize(new Dimension(400, controlHeight));
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        leftPanel.add(historyDropdown);
 
-        topBarPanel.add(leftPanel, BorderLayout.WEST);
+        var micDim = new Dimension(controlHeight, controlHeight);
+        micButton.setPreferredSize(micDim);
+        micButton.setMinimumSize(micDim);
+        micButton.setMaximumSize(micDim);
+
+        actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        rightPanel.add(actionGroupPanel);
+        rightPanel.add(Box.createHorizontalStrut(H_GAP));
+        rightPanel.add(historyDropdown);
+        rightPanel.add(Box.createHorizontalStrut(H_GAP));
+        rightPanel.add(micButton);
+
+        topBarPanel.add(rightPanel, BorderLayout.EAST);
 
         return topBarPanel;
     }
@@ -1103,26 +1124,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
-        // Action selector group: Code/Answer switch inside a bordered panel
-        this.actionGroupPanel = new ActionGroupPanel(codeModeLabel, modeSwitch, answerModeLabel);
-        this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Visually highlight Code/Ask group when the switch gains focus
-        modeSwitch.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
-                actionGroupPanel.setAccentColor(new Color(0x1F6FEB));
-            }
-
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                // Restore mode accent
-                refreshModeIndicator();
-            }
-        });
-
-        bottomPanel.add(this.actionGroupPanel);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+        // Code/Ask toggle moved to Top Bar.
 
         // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
         optionsPanel = new JPanel(new CardLayout());
@@ -1143,8 +1145,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
         optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        int planFixedHeight = Math.max(
-                Math.max(actionButton.getPreferredSize().height, actionGroupPanel.getPreferredSize().height), 32);
+        int planFixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
 
         // Ensure the card panel has enough width for its widest child (e.g., "Search") and allow horizontal growth.
         int optWidth = Math.max(optionsPanel.getPreferredSize().width, searchProjectCheckBox.getPreferredSize().width);
