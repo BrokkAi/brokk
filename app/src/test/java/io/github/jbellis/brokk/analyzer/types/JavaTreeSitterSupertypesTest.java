@@ -5,24 +5,44 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzerTest;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.testutil.TestProject;
+
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class JavaTreeSitterSupertypesTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterSupertypesTest.class);
     private static TestProject testProject;
     private static JavaTreeSitterAnalyzer analyzer;
 
     @BeforeAll
     static void setup() {
-        Path tempDir = Path.of(System.getProperty("java.io.tmpdir"), "brokk-tsa-supertypes");
-        testProject = new TestProject(tempDir, Languages.JAVA);
+        final var testPath =
+                Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
+        assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
+        testProject = new TestProject(testPath, Languages.JAVA);
+        logger.debug(
+                "Setting up analyzer with test code from {}",
+                testPath.toAbsolutePath().normalize());
         analyzer = new JavaTreeSitterAnalyzer(testProject);
+    }
+
+    @AfterAll
+    public static void teardown() {
+        if (testProject != null) {
+            testProject.close();
+        }
     }
 
     @Test
