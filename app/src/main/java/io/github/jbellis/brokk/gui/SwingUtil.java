@@ -73,57 +73,21 @@ public class SwingUtil {
         }
     }
 
-    private static @Nullable Icon loadUIIcon(@Nullable String iconKey) {
-        if (iconKey == null || iconKey.trim().isEmpty()) {
-            return null;
-        }
-
-        try {
-            var value = UIManager.get(iconKey);
-            if (value instanceof Icon icon) {
-                // Verify the icon is actually usable by checking its dimensions
-                if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
-                    return icon;
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to load UI icon for key '{}': {}", iconKey, e.getMessage());
-        }
-
-        return null;
-    }
-
     /**
-     * Safely loads an icon from the UIManager theme with fallback support. Tries the primary icon key first, then falls
-     * back to a reliable default icon.
+     * Safely loads an icon from the UIManager theme with fallback support.
+     *
+     * <p>This method returns a theme-aware proxy icon that safely handles cases where an icon may not
+     * be immediately available during startup (due to theme initialization race conditions). The actual
+     * icon lookup is deferred until painting time, preventing fallback to an incorrect, permanent
+     * icon.
      *
      * @param iconKey The UIManager key for the desired icon (e.g., "FileView.directoryIcon")
      */
     public static Icon uiIcon(String iconKey) {
-        // Always return a theme-aware proxy so icons refresh automatically
-        if (loadUIIcon(iconKey) != null) {
-            return new ThemedIcon(iconKey);
-        }
-
-        // Try common fallback icons in order of preference
-        var fallbackKeys = new String[] {
-            "OptionPane.informationIcon", // Usually available and neutral
-            "FileView.fileIcon", // Generic file icon
-            "Tree.leafIcon", // Small document icon
-            "OptionPane.questionIcon", // Question mark icon
-            "FileView.directoryIcon" // Folder icon
-        };
-
-        for (var fallbackKey : fallbackKeys) {
-            if (loadUIIcon(fallbackKey) != null) {
-                logger.debug("Using fallback icon '{}' for requested key '{}'", fallbackKey, iconKey);
-                return new ThemedIcon(fallbackKey);
-            }
-        }
-
-        // If all else fails, create a simple colored rectangle as last resort
-        logger.warn("No UI icons available, creating simple fallback for key '{}'", iconKey);
-        return createSimpleFallbackIcon();
+        // Always return a theme-aware proxy so icons refresh automatically.
+        // The proxy handles its own fallback logic at paint time, which avoids
+        // race conditions during startup where icons might not yet be registered.
+        return new ThemedIcon(iconKey);
     }
 
     /** Replacement for the deprecated {@code JTextComponent.modelToView(int)}. */
@@ -223,26 +187,61 @@ public class SwingUtil {
             }
         }
 
-        /** Retrieve the up-to-date delegate icon (or a simple fallback). */
-        public Icon delegate() {
-            Object value = UIManager.get(uiKey);
-            if (displaySize > 0) {
-                if (value instanceof FlatSVGIcon svgIcon) {
-                    return svgIcon.derive(displaySize, displaySize);
-                } else if (value instanceof ImageIcon imageIcon) {
-                    var image = imageIcon.getImage();
-                    var resized = new BufferedImage(displaySize, displaySize, BufferedImage.TYPE_INT_ARGB);
-                    var g = resized.createGraphics();
-                    g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                    g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g.drawImage(image, 0, 0, displaySize, displaySize, null);
-                    g.dispose();
-                    return new ImageIcon(resized);
-                }
-            } else if (value instanceof Icon icon && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+        private Icon getSizedIcon(Icon icon) {
+            if (displaySize <= 0) {
                 return icon;
             }
+
+            if (icon instanceof FlatSVGIcon svgIcon) {
+                return svgIcon.derive(displaySize, displaySize);
+            }
+
+            if (icon instanceof ImageIcon imageIcon) {
+                var image = imageIcon.getImage();
+                var resized = new BufferedImage(displaySize, displaySize, BufferedImage.TYPE_INT_ARGB);
+                var g = resized.createGraphics();
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.drawImage(image, 0, 0, displaySize, displaySize, null);
+                g.dispose();
+                return new ImageIcon(resized);
+            }
+
+            // Cannot resize this icon type, return as-is
+            return icon;
+        }
+
+        /** Retrieve the up-to-date delegate icon (or a simple fallback). */
+        public Icon delegate() {
+            // Try to resolve the icon for the primary key
+            var value = UIManager.get(uiKey);
+            if (value instanceof Icon icon && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+                return getSizedIcon(icon);
+            }
+
+            // If primary key fails, try common fallback icons
+            var fallbackKeys =
+                    new String[] {
+                        "OptionPane.informationIcon", // Usually available and neutral
+                        "FileView.fileIcon", // Generic file icon
+                        "Tree.leafIcon", // Small document icon
+                        "OptionPane.questionIcon", // Question mark icon
+                        "FileView.directoryIcon" // Folder icon
+                    };
+
+            for (var fallbackKey : fallbackKeys) {
+                var fallbackValue = UIManager.get(fallbackKey);
+                if (fallbackValue instanceof Icon fallbackIcon
+                        && fallbackIcon.getIconWidth() > 0
+                        && fallbackIcon.getIconHeight() > 0) {
+                    logger.debug("Using fallback icon '{}' for requested key '{}'", fallbackKey, uiKey);
+                    return getSizedIcon(fallbackIcon);
+                }
+            }
+
+            // If all else fails, create a simple colored rectangle as last resort
+            logger.warn("No UI icons available, creating simple fallback for key '{}'", uiKey);
             return createSimpleFallbackIcon();
         }
 
