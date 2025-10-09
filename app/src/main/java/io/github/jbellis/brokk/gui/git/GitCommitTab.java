@@ -24,6 +24,7 @@ import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
+import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -672,7 +673,10 @@ public class GitCommitTab extends JPanel {
                         otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
                 var taskResult = new TaskResult(
                         rollbackDescription,
-                        new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
+                        new ContextFragment.TaskFragment(
+                                contextManager,
+                                List.of(Messages.customSystem(rollbackDescription)),
+                                rollbackDescription),
                         new HashSet<>(selectedFiles),
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 

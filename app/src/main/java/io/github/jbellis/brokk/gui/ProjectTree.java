@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -339,11 +340,12 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     var description = "Deleted " + fileList;
                     var taskResult = new TaskResult(
                             description,
-                            new ContextFragment.TaskFragment(contextManager, List.of(), description),
+                            new ContextFragment.TaskFragment(
+                                    contextManager, List.of(Messages.customSystem(description)), description),
                             new HashSet<>(filesToDelete),
                             new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 
-                    try (var scope = contextManager.beginTask("", false)) {
+                    try (var scope = contextManager.beginTask(description, false)) {
                         scope.append(taskResult);
                     }
 
