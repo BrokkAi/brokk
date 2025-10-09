@@ -9,8 +9,8 @@ export function createZoomWidget(): HTMLElement {
     const widgetHTML = `
         <div class="zoom-widget">
             <div class="zoom-icon">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"></path>
+                <svg width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+                    <path d="M560-160v-520H360v-120h520v120H680v520H560Zm-360 0v-320H80v-120h360v120H320v320H200Z"/>
                 </svg>
             </div>
             <div class="zoom-controls">

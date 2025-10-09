@@ -66,8 +66,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected static final int PRIORITY_LOW = 1;
 
     // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(this::definitionOverridePriority)
-            .thenComparingInt(this::firstStartByteForSelection)
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
+                    (CodeUnit cu) -> definitionOverridePriority(cu))
+            .thenComparingInt(cu -> firstStartByteForSelection(cu))
             .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(cu -> cu.kind().name());
@@ -447,7 +448,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
     }
 
-    protected List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+    @Override
+    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
         return fileProperties(file).topLevelCodeUnits();
     }
 
@@ -460,6 +462,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /* ---------- IAnalyzer ---------- */
+    @Override
+    public Set<Language> languages() {
+        return Set.of(language);
+    }
+
     @Override
     public boolean isEmpty() {
         return withReadLock(codeUnitState::isEmpty);

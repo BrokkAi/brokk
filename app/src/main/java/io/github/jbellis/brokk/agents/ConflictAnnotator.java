@@ -38,12 +38,22 @@ public final class ConflictAnnotator {
 
     private static final Logger logger = LogManager.getLogger(ConflictAnnotator.class);
 
+    static boolean containsConflictMarkers(String text) {
+        return text.contains("BRK_CONFLICT_BEGIN_") || text.contains("BRK_CONFLICT_END_");
+    }
+
     /**
      * Structured result for an annotated conflict. - file: the file being annotated - contents: the annotated text with
-     * BRK_* markers - theirCommits / ourCommits: ids seen in blame during construction (base commits omitted)
+     * BRK_* markers - theirCommits / ourCommits: ids seen in blame during construction (base commits omitted) -
+     * conflictBlockCount: number of BRK_CONFLICT_BEGIN_* blocks actually emitted (excludes auto-resolved import
+     * conflicts)
      */
     public record ConflictFileCommits(
-            ProjectFile file, String contents, Set<String> theirCommits, Set<String> ourCommits) {}
+            ProjectFile file,
+            String contents,
+            Set<String> theirCommits,
+            Set<String> ourCommits,
+            int conflictLineCount) {}
 
     private final AtomicInteger conflictCounter = new AtomicInteger();
     private final GitRepo repo;
@@ -118,6 +128,7 @@ public final class ConflictAnnotator {
         var outLines = new ArrayList<String>();
         var ourCommitIds = new LinkedHashSet<String>();
         var theirCommitIds = new LinkedHashSet<String>();
+        int actualConflictLineCount = 0;
 
         for (int i = 0; i < chunkList.size(); i++) {
             var chunk = chunkList.get(i);
@@ -171,6 +182,8 @@ public final class ConflictAnnotator {
                 }
                 // Emit BRK_* annotated conflict (custom format) with a sequential number
                 int conflictNum = conflictCounter.incrementAndGet();
+                int linesInConflict = ourLines.size() + baseLines.size() + theirLines.size();
+                actualConflictLineCount += linesInConflict;
                 outLines.add("BRK_CONFLICT_BEGIN_" + conflictNum);
                 // Header with a commit-ish for our side (best-effort)
                 outLines.add("BRK_OUR_VERSION " + oursShort);
@@ -206,7 +219,8 @@ public final class ConflictAnnotator {
                 requireNonNull(cf.ourFile()),
                 String.join("\n", outLines),
                 Set.copyOf(theirCommitIds),
-                Set.copyOf(ourCommitIds));
+                Set.copyOf(ourCommitIds),
+                actualConflictLineCount);
     }
 
     private static @Nullable BlameResult getBlame(

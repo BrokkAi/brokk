@@ -1309,11 +1309,13 @@ public class Llm {
                 if (usage != null) {
                     var service = contextManager.getService();
                     var modelName = service.nameOf(model);
-                    // Filter out cost notifications for Gemini Flash Lite unless explicitly enabled
-                    boolean isGeminiLite =
-                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.5-flash-lite".equals(modelName);
-                    if (isGeminiLite && !GlobalUiSettings.isShowGeminiLiteCostNotifications()) {
-                        logger.debug("Skipping cost notification for {} (user preference for Gemini Lite)", modelName);
+                    // Filter out cost notifications for 2.0 flash and flash-lite unless explicitly enabled
+                    boolean isFreeInternalLLM =
+                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
+                    if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
+                        logger.debug(
+                                "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
+                                modelName);
                         return;
                     }
                     // Respect user preference for cost notifications

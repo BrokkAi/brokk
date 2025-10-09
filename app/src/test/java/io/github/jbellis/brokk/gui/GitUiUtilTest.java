@@ -3,7 +3,10 @@ package io.github.jbellis.brokk.gui;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,5 +76,28 @@ public class GitUiUtilTest {
                 new ProjectFile(tempDir, "src/main/java/File.java"), new ProjectFile(tempDir, "test/File.java"));
         String result = GitUiUtil.formatFileList(files);
         assertEquals("File.java, File.java", result);
+    }
+
+    @Test
+    void testFilterTextFiles_MixedFiles() throws IOException {
+        // Create actual files so isText() can check their properties
+        Files.createFile(tempDir.resolve("Main.java"));
+        Files.createFile(tempDir.resolve("image.png"));
+        Files.createFile(tempDir.resolve("README.md"));
+        Files.createFile(tempDir.resolve("logo.pdf"));
+
+        List<GitRepo.ModifiedFile> modifiedFiles = List.of(
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "Main.java"), "modified"),
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "image.png"), "new"),
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "README.md"), "modified"),
+                new GitRepo.ModifiedFile(new ProjectFile(tempDir, "logo.pdf"), "new"));
+
+        List<ProjectFile> result = GitUiUtil.filterTextFiles(modifiedFiles);
+
+        assertEquals(2, result.size());
+        assertTrue(result.stream().anyMatch(f -> f.getFileName().equals("Main.java")));
+        assertTrue(result.stream().anyMatch(f -> f.getFileName().equals("README.md")));
+        assertFalse(result.stream().anyMatch(f -> f.getFileName().equals("image.png")));
+        assertFalse(result.stream().anyMatch(f -> f.getFileName().equals("logo.pdf")));
     }
 }

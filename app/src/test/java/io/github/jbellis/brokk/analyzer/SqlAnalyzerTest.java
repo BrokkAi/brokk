@@ -276,4 +276,75 @@ class SqlAnalyzerTest {
         assertTrue(allDecls.stream().anyMatch(cu -> cu.fqName().equals("valid_table")));
         assertTrue(allDecls.stream().anyMatch(cu -> cu.fqName().equals("valid_view")));
     }
+
+    @Test
+    void testTopLevelCodeUnitsOfSingleTable() throws IOException {
+        Path sqlFile = tempDir.resolve("test_top_level.sql");
+        String sqlContent = "CREATE TABLE my_table (id INT, name VARCHAR(100));";
+        Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
+        assertEquals(1, topLevelUnits.size(), "Should return one top-level code unit.");
+        assertEquals("my_table", topLevelUnits.get(0).shortName());
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfMultipleTables() throws IOException {
+        Path sqlFile = tempDir.resolve("multi_top_level.sql");
+        String sqlContent =
+                """
+                CREATE TABLE table1 (id INT);
+                CREATE VIEW schema.view1 AS SELECT * FROM table1;
+                CREATE TABLE table2 (name VARCHAR);
+                """;
+        Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
+        assertEquals(3, topLevelUnits.size(), "Should return three top-level code units.");
+
+        var names = topLevelUnits.stream().map(CodeUnit::fqName).toList();
+        assertTrue(names.contains("table1"));
+        assertTrue(names.contains("schema.view1"));
+        assertTrue(names.contains("table2"));
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfEmptyFile() throws IOException {
+        Path sqlFile = tempDir.resolve("empty_top_level.sql");
+        Files.writeString(sqlFile, "", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(projectFile);
+        assertTrue(topLevelUnits.isEmpty(), "Should return empty list for empty file.");
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfNonExistentFile() throws IOException {
+        Path existingFile = tempDir.resolve("existing.sql");
+        Files.writeString(existingFile, "CREATE TABLE tbl (id INT);", StandardCharsets.UTF_8);
+
+        ProjectFile existingProjectFile =
+                new ProjectFile(tempDir, existingFile.getFileName().toString());
+        ProjectFile nonExistentProjectFile = new ProjectFile(tempDir, "nonexistent.sql");
+
+        var testProject = createTestProject(Set.of(existingProjectFile));
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentProjectFile);
+        assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file.");
+    }
 }

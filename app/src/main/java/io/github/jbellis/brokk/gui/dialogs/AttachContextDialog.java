@@ -7,7 +7,6 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
 import io.github.jbellis.brokk.analyzer.UsagesProvider;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
@@ -21,7 +20,10 @@ import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import javax.swing.BorderFactory;
@@ -43,43 +45,47 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * AttachContextDialog (ACD) - Segmented control: Files | Classes | Methods | Usages, placed above the search bar -
- * Single text input with autocomplete and a light-grey "Search" overlay hint - Checkbox "Summarize" placed below the
- * search bar - Returns a Result(fragment, summarize) - Enter confirms current input; Escape cancels. No OK/Cancel
- * buttons. - If analyzer is not ready: disable all segments except Files. - Segments gated by analyzer capabilities
- * when ready: SkeletonProvider / SourceCodeProvider / UsagesProvider. - Registers an AnalyzerCallback to update gating
- * as analyzer state changes.
+ * AttachContextDialog (ACD) - Segmented control: Files | Folders | Classes | Methods | Usages - Single text input with
+ * autocomplete and a light-grey "Search" overlay hint - Checkbox "Include subfolders" (Folders tab only) above
+ * "Summarize" - Checkbox "Summarize" placed below - Returns a Result(fragments, summarize) where fragments is
+ * Set<ProjectFile> - Enter confirms current input; Escape cancels. No OK/Cancel buttons. - If analyzer is not ready:
+ * disable Classes/Methods/Usages; Files/Folders remain enabled. - Segments gated by analyzer capabilities when ready:
+ * SkeletonProvider / SourceCodeProvider / UsagesProvider. - Registers an AnalyzerCallback to update gating as analyzer
+ * state changes.
  */
 public class AttachContextDialog extends JDialog {
 
     public enum TabType {
         FILES,
+        FOLDERS,
         CLASSES,
         METHODS,
         USAGES
     }
 
-    public record Result(ContextFragment fragment, boolean summarize) {}
+    public record Result(Set<ProjectFile> fragments, boolean summarize) {}
 
     private final ContextManager cm;
 
     // Segmented control
     private final JPanel tabBar = new JPanel();
     private final JToggleButton filesBtn = new JToggleButton("Files");
+    private final JToggleButton foldersBtn = new JToggleButton("Folders");
     private final JToggleButton classesBtn = new JToggleButton("Classes");
     private final JToggleButton methodsBtn = new JToggleButton("Methods");
     private final JToggleButton usagesBtn = new JToggleButton("Usages");
     private final ButtonGroup tabGroup = new ButtonGroup();
 
     private final JTextField searchField = new JTextField(30);
+    private final JCheckBox includeSubfoldersCheck = new JCheckBox("Include subfolders");
     private final JCheckBox summarizeCheck = new JCheckBox("Summarize");
-    private final JLabel hint = new JLabel("Use glob patterns (e.g., src/**/*.java). Press Enter to attach.");
     private final OverlayPanel searchOverlay;
     private final ClosingAutoCompletion ac;
     private final String hotkeyModifierString;
 
     // Providers bound to the single text field
     private final FilesProvider filesProvider = new FilesProvider();
+    private final FoldersProvider foldersProvider = new FoldersProvider();
     private final SymbolsProvider classesProvider = new SymbolsProvider(SymbolsProvider.Mode.CLASSES);
     private final SymbolsProvider methodsProvider = new SymbolsProvider(SymbolsProvider.Mode.METHODS);
     private final SymbolsProvider usagesProvider = new SymbolsProvider(SymbolsProvider.Mode.ALL);
@@ -123,6 +129,7 @@ public class AttachContextDialog extends JDialog {
         tabBar.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         tabGroup.add(filesBtn);
+        tabGroup.add(foldersBtn);
         tabGroup.add(classesBtn);
         tabGroup.add(methodsBtn);
         tabGroup.add(usagesBtn);
@@ -133,11 +140,13 @@ public class AttachContextDialog extends JDialog {
         // Wire up selection changes
         var tabListener = (java.awt.event.ActionListener) e -> onTabChanged();
         filesBtn.addActionListener(tabListener);
+        foldersBtn.addActionListener(tabListener);
         classesBtn.addActionListener(tabListener);
         methodsBtn.addActionListener(tabListener);
         usagesBtn.addActionListener(tabListener);
 
         tabBar.add(filesBtn);
+        tabBar.add(foldersBtn);
         tabBar.add(classesBtn);
         tabBar.add(methodsBtn);
         tabBar.add(usagesBtn);
@@ -173,10 +182,12 @@ public class AttachContextDialog extends JDialog {
         var layered = searchOverlay.createLayeredPane(searchField);
         inputPanel.add(layered, BorderLayout.CENTER);
 
-        hint.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 0));
-        inputPanel.add(hint, BorderLayout.SOUTH);
+        // Checkboxes area: include-subfolders (Folders tab only) above summarize
+        includeSubfoldersCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        includeSubfoldersCheck.setMargin(new Insets(0, 0, 0, 0));
+        includeSubfoldersCheck.setVisible(false); // Only visible for Folders tab
 
-        // Summarize checkbox below the search bar
+        // Summarize checkbox below the include-subfolders
         summarizeCheck.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
         summarizeCheck.setMargin(new Insets(0, 0, 0, 0));
 
@@ -188,8 +199,10 @@ public class AttachContextDialog extends JDialog {
         searchAndSummarize.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GAP, 0, Constants.H_GAP));
         searchAndSummarize.add(inputPanel, BorderLayout.NORTH);
 
-        var summarizePanel = new JPanel(new BorderLayout());
-        summarizePanel.add(summarizeCheck, BorderLayout.WEST);
+        var summarizePanel = new JPanel();
+        summarizePanel.setLayout(new BoxLayout(summarizePanel, BoxLayout.Y_AXIS));
+        summarizePanel.add(includeSubfoldersCheck);
+        summarizePanel.add(summarizeCheck);
         searchAndSummarize.add(summarizePanel, BorderLayout.SOUTH);
 
         // Ensure components stay top-aligned and don't stretch vertically
@@ -222,7 +235,7 @@ public class AttachContextDialog extends JDialog {
                         KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
                         javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
 
-        // Hotkeys for tabs (1-4) - use platform menu shortcut (Cmd on macOS, Ctrl elsewhere)
+        // Hotkeys for tabs (1-5) - use platform menu shortcut (Cmd on macOS, Ctrl elsewhere)
         var menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
         getRootPane()
                 .registerKeyboardAction(
@@ -231,18 +244,23 @@ public class AttachContextDialog extends JDialog {
                         javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane()
                 .registerKeyboardAction(
-                        ev -> classesBtn.doClick(),
+                        ev -> foldersBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_2, menuMask),
                         javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane()
                 .registerKeyboardAction(
-                        ev -> methodsBtn.doClick(),
+                        ev -> classesBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_3, menuMask),
                         javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane()
                 .registerKeyboardAction(
-                        ev -> usagesBtn.doClick(),
+                        ev -> methodsBtn.doClick(),
                         KeyStroke.getKeyStroke(KeyEvent.VK_4, menuMask),
+                        javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane()
+                .registerKeyboardAction(
+                        ev -> usagesBtn.doClick(),
+                        KeyStroke.getKeyStroke(KeyEvent.VK_5, menuMask),
                         javax.swing.JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         // Hotkey for summarize checkbox
@@ -291,6 +309,7 @@ public class AttachContextDialog extends JDialog {
 
     private TabType getActiveTab() {
         if (filesBtn.isSelected()) return TabType.FILES;
+        if (foldersBtn.isSelected()) return TabType.FOLDERS;
         if (classesBtn.isSelected()) return TabType.CLASSES;
         if (methodsBtn.isSelected()) return TabType.METHODS;
         if (usagesBtn.isSelected()) return TabType.USAGES;
@@ -301,6 +320,7 @@ public class AttachContextDialog extends JDialog {
         DefaultCompletionProvider p =
                 switch (getActiveTab()) {
                     case FILES -> filesProvider;
+                    case FOLDERS -> foldersProvider;
                     case CLASSES -> classesProvider;
                     case METHODS -> methodsProvider;
                     case USAGES -> usagesProvider;
@@ -311,13 +331,8 @@ public class AttachContextDialog extends JDialog {
         // Refresh popup sizing on tab change
         AutoCompleteUtil.sizePopupWindows(ac, searchField, List.of());
 
-        // Update hint text for each tab
-        switch (getActiveTab()) {
-            case FILES -> hint.setText("Use glob patterns (e.g., src/**/*.java). Press Enter to attach.");
-            case CLASSES -> hint.setText("Type the class name to attach. Press Enter to attach.");
-            case METHODS -> hint.setText("Type the method name to attach. Press Enter to attach.");
-            case USAGES -> hint.setText("Type a symbol to attach usages. Press Enter to attach.");
-        }
+        // Update folder checkbox visibility for each tab
+        includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
 
         searchField.requestFocusInWindow();
     }
@@ -330,9 +345,11 @@ public class AttachContextDialog extends JDialog {
         summarizeCheck.setToolTipText(
                 analyzerReady ? hotkeyModifierString + "-I" : "Summarize" + ANALYZER_NOT_READY_TOOLTIP);
 
-        // Files is always enabled
+        // Files and Folders are always enabled
         filesBtn.setEnabled(true);
         filesBtn.setToolTipText(hotkeyModifierString + "-1");
+        foldersBtn.setEnabled(true);
+        foldersBtn.setToolTipText(hotkeyModifierString + "-2");
 
         if (!analyzerReady) {
             classesBtn.setEnabled(false);
@@ -344,7 +361,7 @@ public class AttachContextDialog extends JDialog {
             usagesBtn.setToolTipText("Usages" + ANALYZER_NOT_READY_TOOLTIP);
 
             // Ensure a valid selection when gating
-            if (!filesBtn.isSelected()) {
+            if (!filesBtn.isSelected() && !foldersBtn.isSelected()) {
                 filesBtn.setSelected(true);
                 onTabChanged();
             }
@@ -364,18 +381,18 @@ public class AttachContextDialog extends JDialog {
         boolean classesEnabled = hasSkeleton || hasSource;
         classesBtn.setEnabled(classesEnabled);
         classesBtn.setToolTipText(
-                classesEnabled ? hotkeyModifierString + "-2" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
+                classesEnabled ? hotkeyModifierString + "-3" : "Classes" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Methods segment
         boolean methodsEnabled = hasSource;
         methodsBtn.setEnabled(methodsEnabled);
         methodsBtn.setToolTipText(
-                methodsEnabled ? hotkeyModifierString + "-3" : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
+                methodsEnabled ? hotkeyModifierString + "-4" : "Methods" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Usages segment
         boolean usagesEnabled = hasUsages;
         usagesBtn.setEnabled(usagesEnabled);
-        usagesBtn.setToolTipText(usagesEnabled ? hotkeyModifierString + "-4" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
+        usagesBtn.setToolTipText(usagesEnabled ? hotkeyModifierString + "-5" : "Usages" + ANALYZER_NOT_READY_TOOLTIP);
 
         // Ensure the selected segment remains valid
         if ((classesBtn.isSelected() && !classesEnabled)
@@ -396,6 +413,7 @@ public class AttachContextDialog extends JDialog {
 
         switch (getActiveTab()) {
             case FILES -> confirmFile(text);
+            case FOLDERS -> confirmFolder(text);
             case CLASSES -> confirmClass(text);
             case METHODS -> confirmMethod(text);
             case USAGES -> confirmUsage(text);
@@ -411,8 +429,42 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
-        selection = new Result(frag, summarizeCheck.isSelected());
+        var files = Set.of(chosen);
+        selection = new Result(files, summarizeCheck.isSelected());
+        dispose();
+    }
+
+    private void confirmFolder(String input) {
+        var rel = input.replace("\\", "/");
+        rel = rel.startsWith("/") ? rel.substring(1) : rel;
+        rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
+
+        var includeSubfolders = includeSubfoldersCheck.isSelected();
+        var relPath = Path.of(rel);
+
+        Set<ProjectFile> all = cm.getProject().getAllFiles();
+        Set<ProjectFile> selected = new LinkedHashSet<>();
+        for (var pf : all) {
+            Path fileRel = pf.getRelPath();
+            if (includeSubfolders) {
+                if (fileRel.startsWith(relPath)) {
+                    selected.add(pf);
+                }
+            } else {
+                Path parent = fileRel.getParent();
+                if (Objects.equals(parent, relPath)) {
+                    selected.add(pf);
+                }
+            }
+        }
+
+        if (selected.isEmpty()) {
+            selection = null;
+            dispose();
+            return;
+        }
+
+        selection = new Result(selected, summarizeCheck.isSelected());
         dispose();
     }
 
@@ -438,8 +490,9 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-        var frag = new ContextFragment.CodeFragment(cm, cu);
-        selection = new Result(frag, summarizeCheck.isSelected());
+        // Map symbol to its source file
+        ProjectFile file = cu.source();
+        selection = new Result(Set.of(file), summarizeCheck.isSelected());
         dispose();
     }
 
@@ -465,9 +518,8 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-        var frag = new ContextFragment.CodeFragment(cm, cu);
-        // Summarize is a no-op for methods per spec; caller will treat summarize flag as no special behavior
-        selection = new Result(frag, summarizeCheck.isSelected());
+        ProjectFile file = cu.source();
+        selection = new Result(Set.of(file), summarizeCheck.isSelected());
         dispose();
     }
 
@@ -486,19 +538,15 @@ public class AttachContextDialog extends JDialog {
                 : analyzer.getDefinition(input)
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
-        if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
-            // For Usages with Summarize: create callers call graph with depth=1
-            var methodFqn = any.get().fqName();
-            var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
-            selection = new Result(frag, true);
+        if (any.isEmpty()) {
+            selection = null;
             dispose();
             return;
         }
 
-        // Default: plain usage
-        var target = any.map(CodeUnit::fqName).orElse(input);
-        var frag = new ContextFragment.UsageFragment(cm, target);
-        selection = new Result(frag, summarizeCheck.isSelected());
+        // Attach the file containing the definition (usage discovery may be added later)
+        var file = any.get().source();
+        selection = new Result(Set.of(file), summarizeCheck.isSelected());
         dispose();
     }
 
@@ -547,6 +595,47 @@ public class AttachContextDialog extends JDialog {
         private ShorthandCompletion create(ProjectFile pf) {
             var path = pf.getRelPath().toString();
             return new ShorthandCompletion(this, pf.getFileName(), path, path);
+        }
+    }
+
+    private class FoldersProvider extends DefaultCompletionProvider {
+        @Override
+        public String getAlreadyEnteredText(JTextComponent comp) {
+            return comp.getText();
+        }
+
+        @Override
+        public List<Completion> getCompletions(JTextComponent tc) {
+            var pattern = getAlreadyEnteredText(tc).trim();
+            if (pattern.isEmpty() || !cm.getProject().hasGit()) return List.of();
+
+            // Collect unique folder paths from all project files
+            Set<ProjectFile> files = cm.getProject().getAllFiles();
+            var folders = files.stream()
+                    .map(pf -> pf.getRelPath().getParent())
+                    .filter(Objects::nonNull)
+                    .map(Path::toString)
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+
+            var scored = io.github.jbellis.brokk.Completions.scoreShortAndLong(
+                    pattern,
+                    folders,
+                    s -> {
+                        var p = Path.of(s);
+                        var fn = p.getFileName();
+                        return fn != null ? fn.toString() : s;
+                    },
+                    s -> s,
+                    s -> 0,
+                    s -> {
+                        var p = Path.of(s);
+                        var fn = p.getFileName();
+                        var shortName = fn != null ? fn.toString() : s;
+                        return new ShorthandCompletion(this, shortName, s, s);
+                    });
+
+            AutoCompleteUtil.sizePopupWindows(ac, searchField, scored);
+            return scored.stream().map(c -> (Completion) c).toList();
         }
     }
 

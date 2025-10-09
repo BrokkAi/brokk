@@ -27,9 +27,9 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(LowMemoryWatcherManager.class);
 
-    private static final long MEM_THRESHOLD = 5 /*MB*/ * 1024 * 1024;
+    private static final long MEM_THRESHOLD = 25 /*MB*/ * 1024 * 1024;
     private static final long GC_TIME_THRESHOLD = 10_000; // 10 seconds
-    private static final float OCCUPIED_MEMORY_THRESHOLD = 0.90f;
+    private static final float OCCUPIED_MEMORY_THRESHOLD = 0.85f;
 
     private final AtomicLong lastGcTime = new AtomicLong();
 

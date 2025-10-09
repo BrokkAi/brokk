@@ -278,7 +278,8 @@ public final class DependenciesPanel extends JPanel {
                     setControlsLocked(false);
                 }
             };
-            ImportDependencyDialog.show(chrome, listener);
+            var parentWindow = SwingUtilities.getWindowAncestor(DependenciesPanel.this);
+            ImportDependencyDialog.show(chrome, parentWindow, listener);
         });
 
         removeButton.addActionListener(e -> removeSelectedDependency());

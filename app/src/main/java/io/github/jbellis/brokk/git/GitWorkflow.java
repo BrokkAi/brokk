@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import io.github.jbellis.brokk.prompts.MergePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.util.Messages;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -30,6 +31,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class GitWorkflow {
     private static final Logger logger = LogManager.getLogger(GitWorkflow.class);
+    private static final int EXPLAIN_COMMIT_FILE_LIMIT = 50;
 
     public record CommitResult(String commitId, String firstLine) {}
 
@@ -311,14 +313,16 @@ public final class GitWorkflow {
             // Always explain a single commit relative to its parent (or empty tree)
             diff = repo.showDiff(revision, parentOrEmptyTree(revision));
         } catch (GitAPIException e) {
-            logger.error("Failed to compute diff for commit {}", revision, e);
             throw new RuntimeException("Failed to produce diff for commit " + revision, e);
         }
 
-        var messages = MergePrompts.instance.collectMessages(diff, revision, revision);
-        if (messages.isEmpty()) {
+        var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
+                ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)
+                : diff;
+        if (preprocessedDiff.isBlank()) {
             return "No changes detected for %s.".formatted(revision);
         }
+        var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
 
         try {
             var shortId = repo.shortHash(revision);

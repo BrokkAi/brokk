@@ -63,6 +63,7 @@ java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
+apache-commons-text = "org.apache.commons:commons-text:1.12.0"
 mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
 uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 
@@ -136,7 +137,7 @@ git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
-apache = ["apache-compress"]
+apache = ["apache-compress", "apache-commons-text"]
 jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]
 jediterm = ["jediterm-ui", "jediterm-core", "jediterm-pty", "pty4j"]
 

@@ -691,4 +691,81 @@ public class JavaTreeSitterAnalyzerTest {
         // Also ensure plain constructor lookup works (control)
         assertTrue(analyzer.getMethodSource("B.B", true).isPresent(), "Constructor lookup should resolve");
     }
+
+    @Test
+    public void testTopLevelCodeUnitsOfFileWithSingleClass() {
+        var maybeFile = analyzer.getFileFor("D");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class D");
+        var topLevelClass = topLevelUnits.get(0);
+        assertEquals("D", topLevelClass.fqName());
+        assertTrue(topLevelClass.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfFileWithNestedClasses() {
+        var maybeFile = analyzer.getFileFor("A");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class A, not nested classes");
+        var topLevelClass = topLevelUnits.get(0);
+        assertEquals("A", topLevelClass.fqName());
+        assertTrue(topLevelClass.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfPackagedFile() {
+        var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class Foo");
+        var topLevelClass = topLevelUnits.get(0);
+        assertEquals("io.github.jbellis.brokk.Foo", topLevelClass.fqName());
+        assertTrue(topLevelClass.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfEnum() {
+        var maybeFile = analyzer.getFileFor("EnumClass");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the enum class");
+        var topLevelEnum = topLevelUnits.get(0);
+        assertEquals("EnumClass", topLevelEnum.fqName());
+        assertTrue(topLevelEnum.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfInterface() {
+        var maybeFile = analyzer.getFileFor("ServiceInterface");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the interface");
+        var topLevelInterface = topLevelUnits.get(0);
+        assertEquals("ServiceInterface", topLevelInterface.fqName());
+        assertTrue(topLevelInterface.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfNonExistentFile() {
+        var nonExistentFile = new ProjectFile(testProject.getRoot(), "NonExistent.java");
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentFile);
+
+        assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
+    }
 }

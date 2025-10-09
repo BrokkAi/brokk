@@ -11,7 +11,7 @@ public interface IAnalyzer {
         @Override
         public int compareTo(FileRelevance other) {
             int scoreComparison = Double.compare(other.score, this.score);
-            return scoreComparison != 0 ? scoreComparison : this.file.compareTo(other.file);
+            return scoreComparison != 0 ? scoreComparison : this.file.absPath().compareTo(other.file.absPath());
         }
     }
 
@@ -22,6 +22,14 @@ public interface IAnalyzer {
 
     default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
         return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
+    }
+
+    default List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+        throw new UnsupportedOperationException();
+    }
+    /** Returns the set of languages this analyzer understands. */
+    default Set<Language> languages() {
+        return Set.of();
     }
 
     /**
@@ -202,9 +210,9 @@ public interface IAnalyzer {
     /**
      * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
      *
-     * <p>This method is used by the default {@link #getSymbols(Set)} implementation to traverse the code unit hierarchy
-     * and collect symbols from nested declarations. The specific parent-child relationships depend on the target
-     * language:
+     * <p>This method is used by the default getSymbols(java.util.Set) implementation to traverse the code unit
+     * hierarchy and collect symbols from nested declarations. The specific parent-child relationships depend on the
+     * target language:
      *
      * <ul>
      *   <li><strong>Classes:</strong> Return methods, fields, and nested classes
@@ -222,7 +230,7 @@ public interface IAnalyzer {
      *   <li>Implementations should handle null input gracefully by returning an empty list
      * </ul>
      *
-     * @see #getSymbols(Set) for how this method is used in symbol collection
+     * See getSymbols(java.util.Set) for how this method is used in symbol collection.
      */
     default List<CodeUnit> directChildren(CodeUnit cu) {
         return List.of();

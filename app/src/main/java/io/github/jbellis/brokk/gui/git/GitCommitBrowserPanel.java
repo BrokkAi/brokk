@@ -1017,8 +1017,18 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    handleSingleFileSingleCommitAction((cid, fp) ->
-                            GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp)));
+                    var paths = changesTree.getSelectionPaths();
+                    int[] selRows = commitsTable.getSelectedRows();
+                    if (paths != null
+                            && paths.length == 1
+                            && selRows.length == 1
+                            && TreeNodeInfo.fromPath(paths[0], changesRootNode).isFile()) {
+                        var filePath =
+                                TreeNodeInfo.fromPath(paths[0], changesRootNode).filePath();
+                        if (filePath == null) return;
+                        var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ);
+                        GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo, filePath);
+                    }
                 }
             }
         });
@@ -1035,6 +1045,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             var allChangedFiles = commits.stream()
                     .flatMap(GitCommitBrowserPanel::safeChangedFiles)
                     .collect(Collectors.toSet());
+            final int changedCount = allChangedFiles.size();
             var newRootNode = new DefaultMutableTreeNode("Changes");
             var filesByDir = new HashMap<Path, List<String>>();
             for (var file : allChangedFiles) {
@@ -1058,7 +1069,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 changesRootNode = newRootNode;
                 changesTreeModel = new DefaultTreeModel(changesRootNode);
                 changesTree.setModel(changesTreeModel);
-                expandAllNodes(changesTree, 0, changesTree.getRowCount());
+                if (changedCount < 20) {
+                    expandAllNodes(changesTree, 0, changesTree.getRowCount());
+                }
             });
         });
     }
@@ -1465,34 +1478,49 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void handlePullAction(String branchName) {
+        pullButton.setEnabled(false);
         contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.pull(branchName);
                 SwingUtil.runOnEdt(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                    refreshCurrentViewAfterGitOp();
+                    refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                     chrome.updateCommitPanel(); // For uncommitted changes
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pulling {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage()));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage());
+                    pullButton.setEnabled(true);
+                });
+            } catch (Exception ex) {
+                logger.error("Unexpected error pulling {}: {}", branchName, ex.getMessage(), ex);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Unexpected error pulling " + branchName + ": " + ex.getMessage());
+                    pullButton.setEnabled(true);
+                });
             }
         });
     }
 
     private void handlePushAction(String branchName) {
+        pushButton.setEnabled(false);
         contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.push(branchName);
                 SwingUtil.runOnEdt(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                    refreshCurrentViewAfterGitOp();
+                    refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                 });
             } catch (GitRepo.GitPushRejectedException ex) {
                 logger.warn("Push rejected for {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError(
-                        "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: " + ex.getMessage(),
-                        "Push Rejected"));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError(
+                            "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: "
+                                    + ex.getMessage(),
+                            "Push Rejected");
+                    pushButton.setEnabled(true);
+                });
             } catch (org.eclipse.jgit.api.errors.TransportException ex) {
                 logger.error("Push failed for {} due to transport/permission error: {}", branchName, ex.getMessage());
                 SwingUtil.runOnEdt(() -> {
@@ -1513,10 +1541,20 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         errorMessage = "Push failed for " + branchName + ": " + ex.getMessage();
                     }
                     chrome.toolError(errorMessage, "Push Permission Denied");
+                    pushButton.setEnabled(true);
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pushing {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Push error for " + branchName + ": " + ex.getMessage()));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Push error for " + branchName + ": " + ex.getMessage());
+                    pushButton.setEnabled(true);
+                });
+            } catch (Exception ex) {
+                logger.error("Unexpected error pushing {}: {}", branchName, ex.getMessage(), ex);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Unexpected error pushing " + branchName + ": " + ex.getMessage());
+                    pushButton.setEnabled(true);
+                });
             }
         });
     }
@@ -1565,12 +1603,10 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             TableUtils.fitColumnWidth(commitsTable, 1); // Author
             TableUtils.fitColumnWidth(commitsTable, 2); // Date
 
-            if (commitsTableModel.getRowCount() > 0) {
-                commitsTable.setRowSelectionInterval(0, 0);
-            } else { // Should be covered by commitRows.isEmpty() check, but defensive
-                revisionTextLabel.setText("Revision:");
-                revisionIdTextArea.setText("N/A");
-            }
+            // Do not auto-select any commit; leave selection empty until the user chooses.
+            revisionTextLabel.setText("Revision:");
+            revisionIdTextArea.setText("N/A");
+            viewDiffButton.setEnabled(false);
         } finally {
             selectionModel.setValueIsAdjusting(false);
         }

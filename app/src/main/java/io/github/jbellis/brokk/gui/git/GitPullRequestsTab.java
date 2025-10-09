@@ -1488,18 +1488,34 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     GitUiUtil.capturePrDiffToContext(
                             contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
 
-                    // Also edit files mentioned in the diff
+                    // Also edit files mentioned in the diff (excluding binary files)
                     List<GitRepo.ModifiedFile> modifiedFiles =
                             repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
-                    var editableFiles = modifiedFiles.stream()
+
+                    var textFiles = GitUiUtil.filterTextFiles(modifiedFiles);
+                    var allFiles = modifiedFiles.stream()
                             .map(GitRepo.ModifiedFile::file)
-                            .collect(Collectors.toSet());
-                    if (!editableFiles.isEmpty()) {
-                        contextManager.addFiles(editableFiles);
+                            .collect(Collectors.toList());
+                    var filteredCount = allFiles.size() - textFiles.size();
+
+                    if (filteredCount > 0) {
+                        var filteredFiles =
+                                allFiles.stream().filter(f -> !f.isText()).collect(Collectors.toList());
                         logger.info(
-                                "Added {} changed files from PR #{} to editable context",
-                                editableFiles.size(),
-                                prNumber);
+                                "Filtered {} binary/non-text file(s) from PR #{}: {}",
+                                filteredCount,
+                                prNumber,
+                                filteredFiles.stream()
+                                                .limit(5)
+                                                .map(f -> f.getFileName().toString())
+                                                .collect(Collectors.joining(", "))
+                                        + (filteredFiles.size() > 5 ? "..." : ""));
+                    }
+
+                    if (!textFiles.isEmpty()) {
+                        contextManager.addFiles(new HashSet<>(textFiles));
+                        logger.info(
+                                "Added {} changed file(s) from PR #{} to editable context", textFiles.size(), prNumber);
                     }
 
                     // Capture PR description (markdown). If blank, try first issue comment by PR author.

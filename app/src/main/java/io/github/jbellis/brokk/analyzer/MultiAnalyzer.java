@@ -48,6 +48,11 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Set<Language> languages() {
+        return delegates.keySet();
+    }
+
+    @Override
     public List<CodeUnit> getUses(String fqName) {
         return delegates.values().stream()
                 .flatMap(
@@ -83,6 +88,16 @@ public class MultiAnalyzer
     public Optional<String> getSkeletonHeader(String className) {
         return findFirst(
                 analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(className)));
+    }
+
+    @Override
+    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
+        var delegate = delegates.get(lang);
+        if (delegate != null) {
+            return delegate.topLevelCodeUnitsOf(file);
+        }
+        return List.of();
     }
 
     @Override
