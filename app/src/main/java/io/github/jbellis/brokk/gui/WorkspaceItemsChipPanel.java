@@ -48,6 +48,7 @@ import javax.swing.UIManager;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
+
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -287,23 +288,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return "<html><body style='width: " + maxWidthPx + "px'>" + innerHtml + "</body></html>";
     }
 
-    private static String[] summaryLinesFrom(ContextFragment fragment) {
-        String desc;
-        try {
-            desc = fragment.description();
-        } catch (Exception e) {
-            desc = fragment.shortDescription();
-        }
-        if (desc == null) desc = "";
-        // Split on CRLF/CR/LF
-        String[] raw = desc.split("\\R");
-        // Trim lines but keep empty filtering decisions for counting and display
-        for (int i = 0; i < raw.length; i++) {
-            raw[i] = raw[i].trim();
-        }
-        return raw;
-    }
-
     private static String buildSummaryLabel(ContextFragment fragment) {
         int n = (int)
                 fragment.files().stream().map(f -> f.toString()).distinct().count();
@@ -331,7 +315,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildSummaryTooltip(ContextFragment fragment) {
-        String[] lines = summaryLinesFrom(fragment);
+        var files = fragment.files().stream()
+                .map(f -> f.toString())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+
         StringBuilder body = new StringBuilder();
 
         // Prepend metrics (LOC + tokens) if available
@@ -340,15 +329,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             body.append(metrics);
         }
 
-        boolean first = true;
-        for (String s : lines) {
-            if (s.isBlank()) continue;
-            if (!first) body.append("<br/>");
-            body.append(StringEscapeUtils.escapeHtml4(s));
-            first = false;
-        }
-        if (first) { // no non-blank lines were appended
-            // Fallback to any available description
+        // Header and divider
+        body.append("<div><b>Summaries</b></div>");
+        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+
+        if (files.isEmpty()) {
+            // Fallback: if no files are available, show any description as a last resort
             String d;
             try {
                 d = fragment.description();
@@ -357,14 +343,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             }
             if (d == null) d = "";
             body.append(StringEscapeUtils.escapeHtml4(d));
+        } else {
+            body.append("<ul style='margin:0;padding-left:16px'>");
+            for (var f : files) {
+                body.append("<li>")
+                        .append(StringEscapeUtils.escapeHtml4(f))
+                        .append("</li>");
+            }
+            body.append("</ul>");
         }
 
-        // Add preview hint
-        if (body.length() > 0) {
-            body.append("<br/><br/><i>Click to preview contents</i>");
-        } else {
-            body.append("<i>Click to preview contents</i>");
-        }
+        body.append("<br/><i>Click to preview contents</i>");
         return wrapTooltipHtml(body.toString(), 420);
     }
 
