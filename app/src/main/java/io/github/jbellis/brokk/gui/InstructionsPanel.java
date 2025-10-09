@@ -118,6 +118,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private InstructionsCompletionProvider instructionCompletionProvider;
 
     public InstructionsPanel(Chrome chrome) {
+        this(chrome, null);
+    }
+
+    public InstructionsPanel(Chrome chrome, @Nullable JPanel sharedBottomToolbar) {
         super(new BorderLayout(2, 2));
         this.instructionsTitledBorder = BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -333,8 +337,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         add(this.centerPanel, BorderLayout.CENTER);
 
         // Bottom Bar (Mic, Model, Actions) (South)
-        JPanel bottomPanel = buildBottomPanel();
-        add(bottomPanel, BorderLayout.SOUTH);
+        // If sharedBottomToolbar is provided, don't add it here (parent will manage it)
+        // Otherwise, create and add it for backward compatibility
+        if (sharedBottomToolbar == null) {
+            JPanel bottomPanel = buildBottomPanel();
+            add(bottomPanel, BorderLayout.SOUTH);
+        }
         // Ensure initial label bolding matches current mode
         updateModeLabels();
         refreshModeIndicator();
