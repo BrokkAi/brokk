@@ -699,6 +699,19 @@ public final class GitUiUtil {
     }
 
     /**
+     * Filters a list of modified files to include only text files (excludes binary files like images, PDFs, etc.).
+     *
+     * @param modifiedFiles The list of modified files to filter.
+     * @return A list containing only the text files.
+     */
+    public static List<ProjectFile> filterTextFiles(List<GitRepo.ModifiedFile> modifiedFiles) {
+        return modifiedFiles.stream()
+                .map(GitRepo.ModifiedFile::file)
+                .filter(io.github.jbellis.brokk.analyzer.BrokkFile::isText)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Captures the diff of a pull request (between its head and its effective base) and adds it to the context.
      *
      * @param cm The ContextManager instance.
