@@ -122,4 +122,21 @@ public class JavaLambdaAnalyzerTest {
                         .equals("AnonymousUsage.NestedClass.getSomething$anon$15:37")),
                 "Lambda should be a direct child of the enclosing method getSomething");
     }
+
+    @Test
+    public void lambdaIsAnon() {
+        assertTrue(analyzer.isAnonymousStructure("AnonymousUsage.NestedClass.getSomething$anon$15:37"));
+        assertFalse(analyzer.isAnonymousStructure("AnonymousUsage.NestedClass.getSomething"));
+    }
+
+    @Test
+    public void lambdaNotInSearch_getSomething() {
+        // Verify the lambda is not in a search result
+        final var searchResult = analyzer.searchDefinitions("AnonymousUsage.NestedClass.getSomething.*");
+        final var hasAnonInSearch = searchResult.stream()
+                .filter(x -> x.fqName().contains("$anon$"))
+                .iterator()
+                .hasNext();
+        assertFalse(hasAnonInSearch, "Should not return lambdas in NestedClass.getSomething");
+    }
 }
