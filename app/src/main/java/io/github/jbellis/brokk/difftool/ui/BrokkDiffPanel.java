@@ -350,6 +350,24 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 "previousChange",
                 this::navigateToPreviousChange);
 
+        // Register font size adjustment shortcuts (using same keybindings as MOP zoom)
+        var zoomInKeyStroke = GlobalUiSettings.getKeybinding(
+                "view.zoomIn",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        var zoomInEqualsKeyStroke = GlobalUiSettings.getKeybinding(
+                "view.zoomInAlt",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        var zoomOutKeyStroke = GlobalUiSettings.getKeybinding(
+                "view.zoomOut",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        KeyboardShortcutUtil.registerGlobalShortcut(this, zoomInKeyStroke, "increaseFontSize", this::increaseEditorFont);
+        KeyboardShortcutUtil.registerGlobalShortcut(this, zoomInEqualsKeyStroke, "increaseFontSize", this::increaseEditorFont);
+        KeyboardShortcutUtil.registerGlobalShortcut(this, zoomOutKeyStroke, "decreaseFontSize", this::decreaseEditorFont);
+
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);
@@ -1281,6 +1299,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
+        // Ensure editorFontSize is initialized (lazily) from the visible editor before applying it.
+        // This probes the panel's editor for a realistic starting font size (fallback handled internally).
+        ensureEditorFontSizeInitialized(cachedPanel);
+        // Apply current editor font size to the panel so theme application doesn't override it
+        applySizeToSinglePanel(cachedPanel, editorFontSize);
 
         // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
         // Theme application can trigger document events that incorrectly mark documents as dirty
@@ -1639,6 +1662,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
+        // Ensure newly-created panel respects the current editor font size (if we've initialized it)
+        if (editorFontSize > 0) { applySizeToSinglePanel(panel, editorFontSize); }
 
         // Ensure creation context is set for debugging (only for BufferDiffPanel)
         if (panel instanceof BufferDiffPanel bufferPanel) {
@@ -1780,6 +1805,369 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Suggest garbage collection
         System.gc();
+    }
+
+    /**
+     * Lazily initialize the editorFontSize from a panel or component if not initialized yet.
+     * Accepts either an IDiffPanel (preferred) or any Component (e.g., AbstractContentPanel is a Component).
+     * If no editor can be found, fall back to DEFAULT_FALLBACK_FONT_SIZE.
+     */
+    private void ensureEditorFontSizeInitialized(@Nullable Object panelOrComponent) {
+        if (editorFontSize > 0f) return;
+        float size = DEFAULT_FALLBACK_FONT_SIZE;
+
+        Component comp = null;
+        try {
+            if (panelOrComponent instanceof IDiffPanel idp) {
+                comp = idp.getComponent();
+            } else if (panelOrComponent instanceof Component c) {
+                comp = c;
+            }
+            if (comp != null) {
+                var editorOpt = findEditorInComponent(comp);
+                if (editorOpt.isPresent()) {
+                    try {
+                        size = editorOpt.get().getFont().getSize2D();
+                    } catch (Exception ignored) {
+                        // ignore and use fallback
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            // Defensive: don't let any unexpected runtime errors prevent initialization
+            logger.debug("Failed to derive editor font size from component: {}", t.getMessage());
+        }
+
+        // Clamp and set
+        editorFontSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, size));
+    }
+
+    /**
+     * Apply a specific font size to a single panel's editors and gutters.
+     * Handles UnifiedDiffPanel, BufferDiffPanel, and generic panels with comprehensive logic.
+     *
+     * @param panel The panel to update
+     * @param size The font size to apply
+     */
+    private void applySizeToSinglePanel(@Nullable IDiffPanel panel, float size) {
+        if (panel == null) return;
+        Component root = panel.getComponent();
+
+        // Special-case UnifiedDiffPanel: use its public getters for reliable access
+        if (panel instanceof UnifiedDiffPanel up) {
+            try {
+                var ta = up.getTextArea();
+                try {
+                    Font base = ta.getFont();
+                    Font newFont;
+                    if (base != null) {
+                        newFont = base.deriveFont(size);
+                    } else {
+                        newFont = ta.getFont().deriveFont(size);
+                    }
+                    ta.setFont(newFont);
+                    // Update syntax scheme fonts while preserving colors
+                    updateSyntaxSchemeFonts(ta, newFont);
+                } catch (Exception ex) {
+                    logger.debug("Could not apply font to unified text area: {}", ex.getMessage());
+                }
+                ta.revalidate();
+                ta.repaint();
+            } catch (Throwable t) {
+                logger.debug("Unified text area update failed: {}", t.getMessage());
+            }
+
+            try {
+                var gutter = up.getGutterComponent();
+                if (gutter != null) {
+                    try {
+                        Font gbase = gutter.getFont();
+                        if (gbase != null) {
+                            Font gf = gbase.deriveFont(size);
+                            gutter.setFont(gf);
+                            // Smaller blame font derived from gutter font
+                            try {
+                                float blameSize = Math.max(10f, size - 2f);
+                                gutter.setBlameFont(gf.deriveFont(blameSize));
+                            } catch (Throwable ignored) {
+                                // Best-effort: ignore if gutter doesn't support blame font changes
+                            }
+                        } else {
+                            gutter.setFont(gutter.getFont().deriveFont(size));
+                        }
+                    } catch (Exception ex) {
+                        logger.debug("Could not apply font to unified gutter: {}", ex.getMessage());
+                    }
+                    gutter.revalidate();
+                    gutter.repaint();
+                }
+            } catch (Throwable t) {
+                logger.debug("Unified gutter update failed: {}", t.getMessage());
+            }
+
+            // Nothing else needed for unified panel
+            return;
+        }
+
+        // Special-case BufferDiffPanel: ensure both LEFT and RIGHT FilePanels are updated
+        if (panel instanceof BufferDiffPanel bp) {
+            try {
+                var leftFp = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                if (leftFp != null) {
+                    try {
+                        var editor = leftFp.getEditor();
+                        Font base = editor.getFont();
+                        Font newFont;
+                        if (base != null) {
+                            newFont = base.deriveFont(size);
+                        } else {
+                            newFont = editor.getFont().deriveFont(size);
+                        }
+                        editor.setFont(newFont);
+                        // Update syntax scheme fonts while preserving colors
+                        updateSyntaxSchemeFonts(editor, newFont);
+                        editor.revalidate();
+                        editor.repaint();
+                    } catch (Exception ex) {
+                        logger.debug("Could not apply font to left editor: {}", ex.getMessage());
+                    }
+
+                    try {
+                        var gutter = leftFp.getGutterComponent();
+                        Font gbase = gutter.getFont();
+                        if (gbase != null) {
+                            Font gf = gbase.deriveFont(size);
+                            gutter.setFont(gf);
+                            try {
+                                float blameSize = Math.max(10f, size - 2f);
+                                gutter.setBlameFont(gf.deriveFont(blameSize));
+                            } catch (Throwable ignored) {
+                                // Best-effort: ignore if setBlameFont not supported
+                            }
+                        } else {
+                            gutter.setFont(gutter.getFont().deriveFont(size));
+                        }
+                        gutter.revalidate();
+                        gutter.repaint();
+                    } catch (Exception ex) {
+                        logger.debug("Could not apply font to left gutter: {}", ex.getMessage());
+                    }
+
+                    try {
+                        leftFp.invalidateViewportCache();
+                    } catch (Exception ignored) {
+                        // Best-effort: ignore cache invalidation errors
+                    }
+                }
+            } catch (Exception ignored) {
+                // Best-effort: ignore left panel font application errors
+            }
+
+            try {
+                var rightFp = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                if (rightFp != null) {
+                    try {
+                        var editor = rightFp.getEditor();
+                        Font base = editor.getFont();
+                        Font newFont;
+                        if (base != null) {
+                            newFont = base.deriveFont(size);
+                        } else {
+                            newFont = editor.getFont().deriveFont(size);
+                        }
+                        editor.setFont(newFont);
+                        // Update syntax scheme fonts while preserving colors
+                        updateSyntaxSchemeFonts(editor, newFont);
+                        editor.revalidate();
+                        editor.repaint();
+                    } catch (Exception ex) {
+                        logger.debug("Could not apply font to right editor: {}", ex.getMessage());
+                    }
+
+                    try {
+                        var gutter = rightFp.getGutterComponent();
+                        Font gbase = gutter.getFont();
+                        if (gbase != null) {
+                            Font gf = gbase.deriveFont(size);
+                            gutter.setFont(gf);
+                            try {
+                                float blameSize = Math.max(10f, size - 2f);
+                                gutter.setBlameFont(gf.deriveFont(blameSize));
+                            } catch (Throwable ignored) {
+                                // Best-effort: ignore if setBlameFont not supported
+                            }
+                        } else {
+                            gutter.setFont(gutter.getFont().deriveFont(size));
+                        }
+                        gutter.revalidate();
+                        gutter.repaint();
+                    } catch (Exception ex) {
+                        logger.debug("Could not apply font to right gutter: {}", ex.getMessage());
+                    }
+
+                    try {
+                        rightFp.invalidateViewportCache();
+                    } catch (Exception ignored) {
+                        // Best-effort: ignore cache invalidation errors
+                    }
+                }
+            } catch (Exception ignored) {
+                // Best-effort: ignore right panel font application errors
+            }
+
+            // We've handled both sides explicitly; no generic pass needed for BufferDiffPanel
+            return;
+        }
+
+        // Generic handling (fallback): find first RSyntaxTextArea and first DiffGutterComponent in component subtree
+        findEditorInComponent(root).ifPresent(editor -> {
+            try {
+                Font base = editor.getFont();
+                Font newFont;
+                if (base != null) {
+                    newFont = base.deriveFont(size);
+                } else {
+                    newFont = editor.getFont().deriveFont(size);
+                }
+                editor.setFont(newFont);
+                // Update syntax scheme fonts while preserving colors
+                updateSyntaxSchemeFonts(editor, newFont);
+            } catch (Exception ex) {
+                logger.debug("Could not apply font to editor: {}", ex.getMessage());
+            }
+            editor.revalidate();
+            editor.repaint();
+        });
+
+        findGutterInComponent(root).ifPresent(gutter -> {
+            try {
+                Font gbase = gutter.getFont();
+                if (gbase != null) {
+                    Font gf = gbase.deriveFont(size);
+                    gutter.setFont(gf);
+                    try {
+                        float blameSize = Math.max(10f, size - 2f);
+                        gutter.setBlameFont(gf.deriveFont(blameSize));
+                    } catch (Throwable ignored) {
+                        // ignore if gutter doesn't support blame font changes
+                    }
+                } else {
+                    gutter.setFont(gutter.getFont().deriveFont(size));
+                }
+            } catch (Exception ex) {
+                logger.debug("Could not apply font to gutter: {}", ex.getMessage());
+            }
+            gutter.revalidate();
+            gutter.repaint();
+        });
+    }
+
+    /**
+     * Apply a specific editor font size to every visible code editor and gutter (cached panels + visible panel).
+     * This is the central helper for immediately applying font changes across all panels.
+     */
+    private void applyEditorFontSize(float newSize) {
+        // Update stored size first
+        editorFontSize = newSize;
+
+        // Apply to cached panels
+        for (var p : panelCache.nonNullValues()) {
+            try {
+                applySizeToSinglePanel(p, newSize);
+            } catch (Throwable t) {
+                logger.debug("Failed applying font size to cached panel: {}", t.getMessage());
+            }
+        }
+
+        // Apply to currently visible panel too
+        if (currentDiffPanel != null) {
+            try {
+                applySizeToSinglePanel(currentDiffPanel, newSize);
+            } catch (Throwable t) {
+                logger.debug("Failed applying font size to current panel: {}", t.getMessage());
+            }
+        }
+
+        // Force a UI refresh
+        SwingUtilities.invokeLater(() -> {
+            revalidate();
+            repaint();
+        });
+    }
+
+    /** Increase font size (multiplicative), clamp to maximum and apply to cached/current panels. */
+    private void increaseEditorFont() {
+        var panel = getCurrentContentPanel();
+        ensureEditorFontSizeInitialized(panel);
+        float newSize = (float) Math.min(MAX_FONT_SIZE, editorFontSize * FONT_SCALE_FACTOR);
+        if (Math.abs(newSize - editorFontSize) < 0.001f) return;
+        editorFontSize = newSize;
+        applyEditorFontSize(newSize);
+    }
+
+    /** Decrease font size (multiplicative), clamp to minimum and apply to cached/current panels. */
+    private void decreaseEditorFont() {
+        var panel = getCurrentContentPanel();
+        ensureEditorFontSizeInitialized(panel);
+        float newSize = (float) Math.max(MIN_FONT_SIZE, editorFontSize / FONT_SCALE_FACTOR);
+        if (Math.abs(newSize - editorFontSize) < 0.001f) return;
+        editorFontSize = newSize;
+        applyEditorFontSize(newSize);
+    }
+
+    /**
+     * Update all token styles in the syntax scheme to use the new font while preserving colors.
+     * This ensures consistent font sizing across all syntax elements (keywords, identifiers, etc.).
+     */
+    private void updateSyntaxSchemeFonts(org.fife.ui.rsyntaxtextarea.RSyntaxTextArea editor, Font newFont) {
+        try {
+            var scheme = editor.getSyntaxScheme();
+            if (scheme == null) return;
+
+            // Update font for each token type style while preserving colors
+            for (int i = 0; i < scheme.getStyleCount(); i++) {
+                var style = scheme.getStyle(i);
+                if (style != null && style.font != null) {
+                    // Preserve font style (bold, italic) but use new size
+                    int fontStyle = style.font.getStyle();
+                    style.font = newFont.deriveFont(fontStyle);
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("Could not update syntax scheme fonts: {}", ex.getMessage());
+        }
+    }
+
+    /**
+     * Recursively search the component tree for the first RSyntaxTextArea instance and return it.
+     */
+    private java.util.Optional<org.fife.ui.rsyntaxtextarea.RSyntaxTextArea> findEditorInComponent(Component c) {
+        if (c instanceof org.fife.ui.rsyntaxtextarea.RSyntaxTextArea rte) {
+            return java.util.Optional.of(rte);
+        }
+        if (c instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                var res = findEditorInComponent(child);
+                if (res.isPresent()) return res;
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /**
+     * Recursively search the component tree for the first DiffGutterComponent instance and return it.
+     */
+    private java.util.Optional<DiffGutterComponent> findGutterInComponent(Component c) {
+        if (c instanceof DiffGutterComponent dg) {
+            return java.util.Optional.of(dg);
+        }
+        if (c instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                var res = findGutterInComponent(child);
+                if (res.isPresent()) return res;
+            }
+        }
+        return java.util.Optional.empty();
     }
 
     /**
