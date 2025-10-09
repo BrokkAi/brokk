@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import java.awt.BorderLayout;
 import javax.swing.JTabbedPane;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 
 /**
  * Container panel that hosts the InstructionsPanel and the TaskListPanel in a tabbed UI.
@@ -47,5 +48,21 @@ public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
 
   public InstructionsPanel getInstructionsPanel() {
     return instructionsPanel;
+  }
+
+  public void selectInstructionsTab() {
+    if (SwingUtilities.isEventDispatchThread()) {
+      tabbedPane.setSelectedIndex(0);
+    } else {
+      SwingUtilities.invokeLater(() -> tabbedPane.setSelectedIndex(0));
+    }
+  }
+
+  public void selectTasksTab() {
+    if (SwingUtilities.isEventDispatchThread()) {
+      tabbedPane.setSelectedIndex(1);
+    } else {
+      SwingUtilities.invokeLater(() -> tabbedPane.setSelectedIndex(1));
+    }
   }
 }
