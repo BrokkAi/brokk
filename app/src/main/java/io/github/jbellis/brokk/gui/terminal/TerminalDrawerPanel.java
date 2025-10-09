@@ -22,16 +22,16 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Developer drawer panel that hosts development tools (TerminalPanel and TaskListPanel) on the right side.
+ * Developer drawer panel that hosts the TerminalPanel on the right side.
  *
  * UI composition summary:
  * - Chrome is the main window/root container. Chrome constructs an InstructionsPanel for the main input area.
  * - Chrome also constructs a TerminalDrawerPanel (this class) and mounts it as the right component of a JSplitPane.
- * - TaskListPanel is not part of the main area; it lives inside this drawer and is created lazily in openTaskList().
+ * - TaskListPanel is no longer hosted here (it lives in InstructionsTasksTabbedPanel).
  *
  * Behavior:
- * - Uses a vertical icon button bar (simulating icon-only tabs) to toggle between tools.
- * - Persists last open/closed state, selected tool, and divider proportion (per-project or globally via GlobalUiSettings).
+ * - Uses a vertical icon button bar (simulating an icon-only tab) to toggle the terminal.
+ * - Persists open/closed state and divider proportion (per-project or globally via GlobalUiSettings).
  * - Collapses to the icon strip when no tool is active, restoring the previous split when reopened.
  */
 public class TerminalDrawerPanel extends JPanel implements ThemeAware {
@@ -41,9 +41,7 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     private final JPanel drawerContentPanel;
     private final JPanel buttonBar;
     private final MaterialToggleButton terminalToggle;
-    private final MaterialToggleButton tasksToggle;
     private @Nullable TerminalPanel activeTerminal;
-    private @Nullable TaskListPanel activeTaskList;
 
     // Drawer state management
     private double lastDividerLocation = 0.5;
@@ -70,11 +68,11 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         setBorder(BorderFactory.createEmptyBorder());
 
-        // Content area for the drawer (where TerminalPanel and future tools will appear)
+        // Content area for the drawer (where TerminalPanel will appear)
         drawerContentPanel = new JPanel(new BorderLayout());
         add(drawerContentPanel, BorderLayout.CENTER);
 
-        // Right-side vertical toggle buttons for tools
+        // Right-side vertical toggle button for the terminal
         buttonBar = new JPanel();
         buttonBar.setLayout(new BoxLayout(buttonBar, BoxLayout.Y_AXIS));
         buttonBar.setBorder(BorderFactory.createEmptyBorder());
@@ -90,21 +88,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             terminalToggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, p.height));
         }
 
-        tasksToggle = new MaterialToggleButton(Icons.LIST);
-        tasksToggle.setToolTipText("Task List");
-        tasksToggle.setFocusPainted(false);
-        tasksToggle.setBorderHighlightOnly(true);
-        tasksToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
-        {
-            Dimension p = tasksToggle.getPreferredSize();
-            tasksToggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, p.height));
-        }
-
         // Add listeners after fields are initialized
         terminalToggle.addActionListener(e -> {
             if (terminalToggle.isSelected()) {
-                tasksToggle.setSelected(false);
-                persistLastTab("terminal");
                 // Show terminal
                 drawerContentPanel.removeAll();
                 if (activeTerminal == null) {
@@ -125,50 +111,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                     }
                 }
             } else {
-                // Hide terminal; if no other tool selected, collapse
+                // Hide terminal; collapse if no active tools
                 drawerContentPanel.removeAll();
                 drawerContentPanel.revalidate();
                 drawerContentPanel.repaint();
-                if (tasksToggle.isSelected()) {
-                    if (activeTaskList != null) {
-                        drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
-                        drawerContentPanel.revalidate();
-                        drawerContentPanel.repaint();
-                        showDrawer();
-                    }
-                } else {
-                    collapseIfEmpty();
-                }
-            }
-        });
-
-        tasksToggle.addActionListener(e -> {
-            if (tasksToggle.isSelected()) {
-                terminalToggle.setSelected(false);
-                persistLastTab("tasks");
-                // Show task list
-                drawerContentPanel.removeAll();
-                openTaskList();
-            } else {
-                // Hide task list; if no other tool selected, collapse
-                drawerContentPanel.removeAll();
-                drawerContentPanel.revalidate();
-                drawerContentPanel.repaint();
-                if (terminalToggle.isSelected()) {
-                    if (activeTerminal != null) {
-                        drawerContentPanel.add(activeTerminal, BorderLayout.CENTER);
-                        drawerContentPanel.revalidate();
-                        drawerContentPanel.repaint();
-                        showDrawer();
-                    }
-                } else {
-                    collapseIfEmpty();
-                }
+                collapseIfEmpty();
             }
         });
 
         buttonBar.add(terminalToggle);
-        buttonBar.add(tasksToggle);
         buttonBar.add(Box.createVerticalGlue());
 
         add(buttonBar, BorderLayout.EAST);
@@ -198,7 +149,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         SwingUtilities.invokeLater(() -> {
             try {
                 terminalToggle.setSelected(true);
-                tasksToggle.setSelected(false);
 
                 drawerContentPanel.removeAll();
                 if (activeTerminal == null) {
@@ -251,32 +201,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
                 activeTerminal = null;
             }
 
-            if (tasksToggle.isSelected() && activeTaskList != null) {
-                drawerContentPanel.removeAll();
-                drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
-                drawerContentPanel.revalidate();
-                drawerContentPanel.repaint();
-                showDrawer();
-            } else {
-                terminalToggle.setSelected(false);
-                collapseIfEmpty();
-            }
+            terminalToggle.setSelected(false);
+            collapseIfEmpty();
         });
-    }
-
-    /** Opens the task list in the drawer. If already open, ensures it has focus. */
-    public TaskListPanel openTaskList() {
-        assert SwingUtilities.isEventDispatchThread();
-        tasksToggle.setSelected(true);
-        terminalToggle.setSelected(false);
-        if (activeTaskList == null) {
-            activeTaskList = new TaskListPanel(chrome);
-        }
-        drawerContentPanel.add(activeTaskList, BorderLayout.CENTER);
-        drawerContentPanel.revalidate();
-        drawerContentPanel.repaint();
-        showDrawer();
-        return activeTaskList;
     }
 
     /** Shows the drawer by restoring the divider to its last known position. */
@@ -411,11 +338,9 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         // Reflect visible content
         terminalToggle.setSelected(true);
-        tasksToggle.setSelected(false);
 
         // Update internal and persist
         lastDividerLocation = loc;
-        persistLastTab("terminal");
         persistOpen(true);
         persistProportion(loc);
 
@@ -431,7 +356,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
 
         // Ensure the Terminal is selected so it is visible
         terminalToggle.setSelected(true);
-        tasksToggle.setSelected(false);
 
         openTerminalAsync()
                 .thenAccept(tp -> SwingUtilities.invokeLater(() -> {
@@ -458,15 +382,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             var usePerProject = isUsingPerProjectPersistence();
             var ap = chrome.getProject();
 
-            // Last tab
-            var lastTab = usePerProject ? ap.getTerminalDrawerLastTab() : null;
-            if (lastTab == null) {
-                lastTab = GlobalUiSettings.getTerminalDrawerLastTab();
-            }
-            if (lastTab == null) {
-                lastTab = "terminal";
-            }
-
             // Open flag
             boolean open = usePerProject
                     ? Boolean.TRUE.equals(ap.getTerminalDrawerOpen()) || GlobalUiSettings.isTerminalDrawerOpen()
@@ -483,50 +398,13 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             }
 
             if (open) {
-                if ("tasks".equalsIgnoreCase(lastTab)) {
-                    openTaskList();
-                    applyProportion(prop);
-                } else {
-                    openInitially(prop);
-                }
+                openInitially(prop);
             } else {
                 collapseIfEmpty();
             }
         } catch (Exception e) {
             logger.debug("Failed to restore terminal drawer state", e);
             collapseIfEmpty();
-        }
-    }
-
-    private void applyProportion(double proportion) {
-        isCollapsed = false;
-        if (originalDividerSize > 0) {
-            parentSplitPane.setDividerSize(originalDividerSize);
-        }
-        parentSplitPane.setResizeWeight(0.5);
-        setMinimumSize(new Dimension(MIN_OPEN_WIDTH, 0));
-
-        double loc = (proportion > 0.0 && proportion < 0.90) ? proportion : 0.5;
-        suppressPersist = true;
-        parentSplitPane.setDividerLocation(loc);
-        suppressPersist = false;
-        lastDividerLocation = loc;
-
-        parentSplitPane.revalidate();
-        parentSplitPane.repaint();
-
-        // Persist immediately
-        persistProportion(loc);
-        persistOpen(true);
-    }
-
-    private void persistLastTab(String tab) {
-        var ap = chrome.getProject();
-        if (isUsingPerProjectPersistence()) {
-            ap.setTerminalDrawerLastTab(tab);
-            GlobalUiSettings.saveTerminalDrawerLastTab(tab);
-        } else {
-            GlobalUiSettings.saveTerminalDrawerLastTab(tab);
         }
     }
 
@@ -576,9 +454,6 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         if (activeTerminal != null) {
             activeTerminal.applyTheme(guiTheme);
         }
-        if (activeTaskList != null) {
-            activeTaskList.applyTheme(guiTheme);
-        }
     }
 
     private void createTerminal() {
@@ -606,14 +481,23 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     public void disablePlay() {
-        if (activeTaskList != null) {
-            activeTaskList.disablePlay();
-        }
+        // Delegate to TaskListPanel hosted in InstructionsTasksTabbedPanel
+        SwingUtilities.invokeLater(() -> {
+            try {
+                chrome.getTaskListPanel().disablePlay();
+            } catch (Exception ignored) {
+                // Defensive: do not let delegation failures break UI
+            }
+        });
     }
 
     public void enablePlay() {
-        if (activeTaskList != null) {
-            activeTaskList.enablePlay();
-        }
+        SwingUtilities.invokeLater(() -> {
+            try {
+                chrome.getTaskListPanel().enablePlay();
+            } catch (Exception ignored) {
+                // Defensive
+            }
+        });
     }
 }
