@@ -21,6 +21,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -35,6 +36,8 @@ import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
 import javax.swing.border.CompoundBorder;
@@ -48,7 +51,7 @@ import org.jetbrains.annotations.Nullable;
  * Displays current workspace items as "chips" with a close button to remove them from the workspace. Listens to context
  * changes and updates itself accordingly.
  */
-public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
+public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrollable {
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
 
     private final Chrome chrome;
@@ -185,6 +188,81 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
 
     private static Color contrastingText(Color bg) {
         return isDarkColor(bg) ? Color.WHITE : Color.BLACK;
+    }
+
+    // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane
+    @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return true;
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportHeight() {
+        return false;
+    }
+
+    @Override
+    public Dimension getPreferredScrollableViewportSize() {
+        return getPreferredSize();
+    }
+
+    @Override
+    public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+        int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
+        return Math.max(12, rowH / 2);
+    }
+
+    @Override
+    public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+        int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
+        return Math.max(rowH, visibleRect.height - rowH);
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        // Track viewport width to compute wrapped height
+        int width;
+        var parent = getParent();
+        if (parent instanceof JViewport vp) {
+            width = vp.getWidth();
+        } else {
+            width = getWidth();
+        }
+
+        if (width <= 0) {
+            return super.getPreferredSize();
+        }
+
+        Insets in = getInsets();
+        int contentWidth = width - (in == null ? 0 : in.left + in.right);
+        if (contentWidth <= 0) {
+            return super.getPreferredSize();
+        }
+
+        int hgap = 6;
+        int vgap = 4;
+        if (getLayout() instanceof FlowLayout fl) {
+            hgap = fl.getHgap();
+            vgap = fl.getVgap();
+        }
+
+        int lineWidth = 0;
+        int rows = 1;
+        for (var comp : getComponents()) {
+            if (!comp.isVisible()) continue;
+            int w = comp.getPreferredSize().width;
+            int next = (lineWidth == 0 ? w : lineWidth + hgap + w);
+            if (next <= contentWidth) {
+                lineWidth = next;
+            } else {
+                rows++;
+                lineWidth = w;
+            }
+        }
+
+        int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
+        int height = (rows * rowH) + (rows > 1 ? (rows - 1) * vgap : 0);
+        return new Dimension(width, Math.max(height, rowH));
     }
 
     // Tooltip helpers
