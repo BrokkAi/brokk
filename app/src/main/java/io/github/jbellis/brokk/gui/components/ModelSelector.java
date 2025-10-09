@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import java.awt.Component;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import javax.swing.DefaultListCellRenderer;
@@ -52,6 +51,7 @@ public class ModelSelector {
                 for (var listener : selectionListeners) {
                     listener.accept(fm.config());
                 }
+                chrome.getProject().setCodeModelConfig(lastSelected.config());
             } else if (sel instanceof String s && "Manage...".equals(s)) {
                 openCustomDialog();
             }
@@ -75,7 +75,6 @@ public class ModelSelector {
      * @return true if the configuration was found and selected, false otherwise
      */
     public boolean selectConfig(Service.ModelConfig desired) {
-        Objects.requireNonNull(desired, "desired config must not be null");
         if (dialogOpen) {
             return false; // don't interfere with an open dialog
         }
@@ -107,7 +106,7 @@ public class ModelSelector {
         if (sel instanceof Service.FavoriteModel fm) {
             return fm.config();
         }
-        throw new IllegalStateException("No favorite model selected");
+        throw new IllegalStateException("No model selected");
     }
 
     private void refresh() {

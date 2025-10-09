@@ -60,14 +60,19 @@ public final class DependenciesPanel extends JPanel {
     private final DefaultTableModel tableModel;
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
-    private final Set<ProjectFile> initialFiles;
     private boolean isProgrammaticChange = false;
     private static final String LOADING = "Loading...";
+    private static final String UNLOADING = "Unloading...";
 
     // UI pieces used to align the bottom area with WorkspacePanel
     private JPanel southContainerPanel;
     private JPanel addRemovePanel;
     private JPanel bottomSpacer;
+
+    private MaterialButton addButton;
+    private MaterialButton removeButton;
+    private boolean controlsLocked = false;
+    private @Nullable CompletableFuture<Void> inFlightToggleSave = null;
 
     private static class NumberRenderer extends DefaultTableCellRenderer {
         public NumberRenderer() {
@@ -88,7 +93,7 @@ public final class DependenciesPanel extends JPanel {
         return v instanceof Boolean b ? b : (v instanceof String s && LOADING.equals(s));
     }
 
-    private static class LiveCellRenderer extends DefaultTableCellRenderer {
+    private class LiveCellRenderer extends DefaultTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -97,6 +102,7 @@ public final class DependenciesPanel extends JPanel {
                 cb.setSelected(b);
                 cb.setHorizontalAlignment(CENTER);
                 cb.setOpaque(true);
+                cb.setEnabled(!controlsLocked);
                 if (isSelected) {
                     cb.setBackground(table.getSelectionBackground());
                     cb.setForeground(table.getSelectionForeground());
@@ -106,7 +112,8 @@ public final class DependenciesPanel extends JPanel {
                 }
                 return cb;
             } else {
-                var lbl = new JLabel(LOADING);
+                var text = java.util.Objects.toString(value, "");
+                var lbl = new JLabel(text);
                 lbl.setHorizontalAlignment(CENTER);
                 lbl.setOpaque(isSelected);
                 if (isSelected) {
@@ -128,7 +135,6 @@ public final class DependenciesPanel extends JPanel {
                 new Font(Font.DIALOG, Font.BOLD, 12)));
 
         this.chrome = chrome;
-        this.initialFiles = chrome.getProject().getAllFiles();
 
         var contentPanel = new JPanel(new BorderLayout());
 
@@ -144,6 +150,7 @@ public final class DependenciesPanel extends JPanel {
             @Override
             public boolean isCellEditable(int row, int column) {
                 if (column != 0) return false;
+                if (controlsLocked) return false;
                 Object v = getValueAt(row, 0);
                 return v instanceof Boolean;
             }
@@ -162,7 +169,7 @@ public final class DependenciesPanel extends JPanel {
 
                 // Return the same content as shown in the table cell (the Name column)
                 Object v = getValueAt(row, col);
-                return v != null ? v.toString() : null;
+                return java.util.Objects.toString(v, null);
             }
         };
         var sorter = new TableRowSorter<>(tableModel) {
@@ -220,9 +227,9 @@ public final class DependenciesPanel extends JPanel {
 
         // Add/Remove on the right
         addRemovePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
-        var addButton = new MaterialButton();
+        addButton = new MaterialButton();
         addButton.setIcon(Icons.ADD);
-        var removeButton = new MaterialButton();
+        removeButton = new MaterialButton();
         removeButton.setIcon(Icons.REMOVE);
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
@@ -246,17 +253,33 @@ public final class DependenciesPanel extends JPanel {
             var listener = new DependencyLifecycleListener() {
                 @Override
                 public void dependencyImportStarted(String name) {
+                    setControlsLocked(true);
+                    // Pause watcher to avoid churn during import I/O
+                    try {
+                        chrome.getContextManager().getAnalyzerWrapper().pause();
+                    } catch (Exception ex) {
+                        logger.debug("Error pausing watcher before dependency import", ex);
+                    }
                     addPendingDependencyRow(name);
                 }
 
                 @Override
                 public void dependencyImportFinished(String name) {
                     loadDependenciesAsync();
-                    // Persist changes after a dependency import completes.
-                    saveChangesAsync();
+                    // Persist changes after a dependency import completes and then resume watcher.
+                    var future = saveChangesAsync();
+                    future.whenComplete((r, ex) -> {
+                        try {
+                            chrome.getContextManager().getAnalyzerWrapper().resume();
+                        } catch (Exception e2) {
+                            logger.debug("Error resuming watcher after dependency import", e2);
+                        }
+                    });
+                    setControlsLocked(false);
                 }
             };
-            ImportDependencyDialog.show(chrome, listener);
+            var parentWindow = SwingUtilities.getWindowAncestor(DependenciesPanel.this);
+            ImportDependencyDialog.show(chrome, parentWindow, listener);
         });
 
         removeButton.addActionListener(e -> removeSelectedDependency());
@@ -264,7 +287,7 @@ public final class DependenciesPanel extends JPanel {
 
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                removeButton.setEnabled(table.getSelectedRow() != -1);
+                removeButton.setEnabled(!controlsLocked && table.getSelectedRow() != -1);
             }
         });
 
@@ -296,17 +319,28 @@ public final class DependenciesPanel extends JPanel {
                         String depName = (String) tableModel.getValueAt(row, 1);
                         boolean prev = !bool;
 
-                        // Show "Loading..." while saving the change only when enabling (checking).
-                        if (bool) {
+                        // If an operation is already in-flight or any row is Loading, revert this toggle.
+                        if (controlsLocked
+                                || (inFlightToggleSave != null && !inFlightToggleSave.isDone())
+                                || anyRowLoading()) {
                             isProgrammaticChange = true;
-                            tableModel.setValueAt(LOADING, row, 0);
+                            tableModel.setValueAt(prev, row, 0);
                             isProgrammaticChange = false;
+                            return;
                         }
+
+                        // Lock UI early and stop editing to ensure renderer updates.
+                        setControlsLocked(true);
+
+                        // Show progress text while saving: "Loading..." when enabling, "Unloading..." when disabling.
+                        isProgrammaticChange = true;
+                        tableModel.setValueAt(bool ? LOADING : UNLOADING, row, 0);
+                        isProgrammaticChange = false;
 
                         final int rowIndex = row;
                         final boolean newVal = bool;
                         final boolean prevVal = prev;
-                        saveChangesAsync(Map.of(depName, Boolean.valueOf(bool)))
+                        inFlightToggleSave = saveChangesAsync(Map.of(depName, Boolean.valueOf(bool)))
                                 .whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> {
                                     isProgrammaticChange = true;
                                     if (ex != null) {
@@ -320,11 +354,35 @@ public final class DependenciesPanel extends JPanel {
                                         tableModel.setValueAt(newVal, rowIndex, 0);
                                     }
                                     isProgrammaticChange = false;
+                                    inFlightToggleSave = null;
+                                    // Unlock UI after save completes (success or failure).
+                                    setControlsLocked(false);
                                 }));
                     }
                 }
             }
         });
+    }
+
+    private void setControlsLocked(boolean locked) {
+        controlsLocked = locked;
+        addButton.setEnabled(!locked);
+        removeButton.setEnabled(!locked && table.getSelectedRow() != -1);
+        if (table.isEditing()) {
+            var editor = table.getCellEditor();
+            if (editor != null) editor.stopCellEditing();
+        }
+        table.repaint();
+    }
+
+    private boolean anyRowLoading() {
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            Object v = tableModel.getValueAt(i, 0);
+            if (LOADING.equals(v) || UNLOADING.equals(v)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -337,28 +395,26 @@ public final class DependenciesPanel extends JPanel {
 
         // Update spacer when the Workspace layout changes
         var workspacePanel = chrome.getContextPanel();
-        if (workspacePanel != null) {
-            workspacePanel.addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    updateBottomSpacer();
-                }
+        workspacePanel.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                updateBottomSpacer();
+            }
 
-                @Override
-                public void componentShown(ComponentEvent e) {
-                    updateBottomSpacer();
-                }
-            });
+            @Override
+            public void componentShown(ComponentEvent e) {
+                updateBottomSpacer();
+            }
+        });
 
-            // Listen for explicit bottom-controls height changes from WorkspacePanel
-            workspacePanel.addBottomControlsListener(
-                    new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
-                        @Override
-                        public void bottomControlsHeightChanged(int newHeight) {
-                            updateBottomSpacer();
-                        }
-                    });
-        }
+        // Listen for explicit bottom-controls height changes from WorkspacePanel
+        workspacePanel.addBottomControlsListener(
+                new io.github.jbellis.brokk.gui.WorkspacePanel.BottomControlsListener() {
+                    @Override
+                    public void bottomControlsHeightChanged(int newHeight) {
+                        updateBottomSpacer();
+                    }
+                });
     }
 
     private void addPendingDependencyRow(String name) {
@@ -443,21 +499,60 @@ public final class DependenciesPanel extends JPanel {
         var cm = chrome.getContextManager();
         return cm.submitBackgroundTask("Save dependency configuration", () -> {
             var project = chrome.getProject();
-            project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
 
-            var newFiles = project.getAllFiles();
+                // Snapshot union of files from currently live dependencies before saving
+                var prevLiveDeps = project.getLiveDependencies();
+                var prevFiles = new HashSet<ProjectFile>();
+                for (var d : prevLiveDeps) {
+                    prevFiles.addAll(d.files());
+                }
 
-            var addedFiles = new HashSet<>(newFiles);
-            addedFiles.removeAll(initialFiles);
+                long t0 = System.currentTimeMillis();
+                project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
+                long t1 = System.currentTimeMillis();
 
-            var removedFiles = new HashSet<>(initialFiles);
-            removedFiles.removeAll(newFiles);
+                // Compute union of files from live dependencies after saving
+                var nextLiveDeps = project.getLiveDependencies();
+                var nextFiles = new HashSet<ProjectFile>();
+                for (var d : nextLiveDeps) {
+                    nextFiles.addAll(d.files());
+                }
 
-            var changedFiles = new HashSet<>(addedFiles);
-            changedFiles.addAll(removedFiles);
+                // Symmetric difference between before/after dependency files
+                var changedFiles = new HashSet<>(nextFiles);
+                changedFiles.removeAll(prevFiles);
+                var removedFiles = new HashSet<>(prevFiles);
+                removedFiles.removeAll(nextFiles);
+                changedFiles.addAll(removedFiles);
 
-            if (!changedFiles.isEmpty()) {
-                cm.getAnalyzerWrapper().updateFiles(changedFiles);
+                long t2 = System.currentTimeMillis();
+
+                logger.info(
+                        "Dependencies save timing: saveLiveDependencies={} ms, diff={} ms, changedFiles={}",
+                        (t1 - t0),
+                        (t2 - t1),
+                        changedFiles.size());
+
+                if (!changedFiles.isEmpty()) {
+                    long t3 = System.currentTimeMillis();
+                    try {
+                        cm.getAnalyzerWrapper().updateFiles(changedFiles).get();
+                    } catch (InterruptedException e) {
+                        throw new AssertionError(e);
+                    } catch (ExecutionException e) {
+                        throw new RuntimeException(e);
+                    }
+                    long t4 = System.currentTimeMillis();
+                    logger.info(
+                            "Dependencies save timing: updateFiles={} ms for {} files", (t4 - t3), changedFiles.size());
+                } else {
+                    logger.info("Dependencies save timing: no changed files detected");
+                }
+            } finally {
+                analyzer.resume();
             }
         });
     }
@@ -499,17 +594,13 @@ public final class DependenciesPanel extends JPanel {
     private void updateBottomSpacer() {
         try {
             var wp = chrome.getContextPanel();
-            int target = (wp != null) ? wp.getBottomControlsPreferredHeight() : 0;
-            int controls = (addRemovePanel != null) ? addRemovePanel.getPreferredSize().height : 0;
+            int target = wp.getBottomControlsPreferredHeight();
+            int controls = addRemovePanel.getPreferredSize().height;
             int filler = Math.max(0, target - controls);
-            if (bottomSpacer != null) {
-                bottomSpacer.setPreferredSize(new Dimension(0, filler));
-                bottomSpacer.setMinimumSize(new Dimension(0, filler));
-            }
-            if (southContainerPanel != null) {
-                southContainerPanel.revalidate();
-                southContainerPanel.repaint();
-            }
+            bottomSpacer.setPreferredSize(new Dimension(0, filler));
+            bottomSpacer.setMinimumSize(new Dimension(0, filler));
+            southContainerPanel.revalidate();
+            southContainerPanel.repaint();
         } catch (Exception e) {
             logger.debug("Error updating dependencies bottom spacer", e);
         }
@@ -565,7 +656,7 @@ public final class DependenciesPanel extends JPanel {
         var dep = depOpt.get();
 
         var cm = chrome.getContextManager();
-        cm.submitContextTask("Summarize files for " + depName, () -> {
+        cm.submitContextTask(() -> {
             cm.addSummaries(dep.files(), Set.of());
         });
     }
@@ -588,6 +679,8 @@ public final class DependenciesPanel extends JPanel {
         if (choice == JOptionPane.YES_OPTION) {
             var pf = dependencyProjectFileMap.get(depName);
             if (pf != null) {
+                var cm = chrome.getContextManager();
+                cm.getAnalyzerWrapper().pause();
                 try {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependenciesAsync();
@@ -599,6 +692,8 @@ public final class DependenciesPanel extends JPanel {
                             "Error deleting dependency '" + depName + "':\n" + ex.getMessage(),
                             "Deletion Error",
                             JOptionPane.ERROR_MESSAGE);
+                } finally {
+                    cm.getAnalyzerWrapper().resume();
                 }
             }
         }

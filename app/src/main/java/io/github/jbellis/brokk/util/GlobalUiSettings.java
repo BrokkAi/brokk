@@ -36,6 +36,16 @@ public final class GlobalUiSettings {
     private static final String KEY_TERM_PROP = "drawers.terminal.proportion";
     private static final String KEY_TERM_LASTTAB = "drawers.terminal.lastTab";
     private static final String KEY_PERSIST_PER_PROJECT_BOUNDS = "window.persistPerProjectBounds";
+    private static final String KEY_DIFF_UNIFIED_VIEW = "diff.unifiedView";
+    private static final String KEY_DIFF_SHOW_BLANK_LINES = "diff.showBlankLines";
+    private static final String KEY_DIFF_SHOW_ALL_LINES = "diff.showAllLines";
+    private static final String KEYBIND_PREFIX = "keybinding.";
+    private static final String KEY_SHOW_COST_NOTIFICATIONS = "notifications.cost.enabled";
+    private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
+    private static final String KEY_SHOW_CONFIRM_NOTIFICATIONS = "notifications.confirm.enabled";
+    private static final String KEY_SHOW_INFO_NOTIFICATIONS = "notifications.info.enabled";
+    private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
+            "notifications.cost.geminiFlashLite.enabled";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -93,6 +103,31 @@ public final class GlobalUiSettings {
         } catch (IOException e) {
             logger.warn("Failed to save global UI settings: {}", e.getMessage());
         }
+    }
+
+    // --- Keybinding persistence ---
+    public static javax.swing.KeyStroke getKeybinding(String id, javax.swing.KeyStroke fallback) {
+        var props = loadProps();
+        var raw = props.getProperty(KEYBIND_PREFIX + id);
+        if (raw == null || raw.isBlank()) return fallback;
+        try {
+            var parts = com.google.common.base.Splitter.on(',').splitToList(raw);
+            if (parts.size() != 2) return fallback;
+            int keyCode = Integer.parseInt(parts.get(0));
+            int modifiers = Integer.parseInt(parts.get(1));
+            var ks = javax.swing.KeyStroke.getKeyStroke(keyCode, modifiers);
+            return ks != null ? ks : fallback;
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    public static void saveKeybinding(String id, javax.swing.KeyStroke stroke) {
+        var props = loadProps();
+        int keyCode = stroke.getKeyCode();
+        int modifiers = stroke.getModifiers();
+        props.setProperty(KEYBIND_PREFIX + id, keyCode + "," + modifiers);
+        saveProps(props);
     }
 
     // Main window bounds
@@ -208,6 +243,72 @@ public final class GlobalUiSettings {
 
     public static void savePersistPerProjectBounds(boolean persist) {
         setBoolean(KEY_PERSIST_PER_PROJECT_BOUNDS, persist);
+    }
+
+    // Diff view preferences
+    public static boolean isDiffUnifiedView() {
+        return getBoolean(KEY_DIFF_UNIFIED_VIEW, false);
+    }
+
+    public static void saveDiffUnifiedView(boolean unified) {
+        setBoolean(KEY_DIFF_UNIFIED_VIEW, unified);
+    }
+
+    public static boolean isDiffShowBlankLines() {
+        return getBoolean(KEY_DIFF_SHOW_BLANK_LINES, false);
+    }
+
+    public static void saveDiffShowBlankLines(boolean show) {
+        setBoolean(KEY_DIFF_SHOW_BLANK_LINES, show);
+    }
+
+    public static boolean isDiffShowAllLines() {
+        return getBoolean(KEY_DIFF_SHOW_ALL_LINES, false);
+    }
+
+    public static void saveDiffShowAllLines(boolean show) {
+        setBoolean(KEY_DIFF_SHOW_ALL_LINES, show);
+    }
+
+    // Cost notifications preference (default: true)
+    public static boolean isShowCostNotifications() {
+        return getBoolean(KEY_SHOW_COST_NOTIFICATIONS, true);
+    }
+
+    public static void saveShowCostNotifications(boolean show) {
+        setBoolean(KEY_SHOW_COST_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowErrorNotifications() {
+        return getBoolean(KEY_SHOW_ERROR_NOTIFICATIONS, true);
+    }
+
+    public static void saveShowErrorNotifications(boolean show) {
+        setBoolean(KEY_SHOW_ERROR_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowConfirmNotifications() {
+        return getBoolean(KEY_SHOW_CONFIRM_NOTIFICATIONS, true);
+    }
+
+    public static void saveShowConfirmNotifications(boolean show) {
+        setBoolean(KEY_SHOW_CONFIRM_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowInfoNotifications() {
+        return getBoolean(KEY_SHOW_INFO_NOTIFICATIONS, true);
+    }
+
+    public static void saveShowInfoNotifications(boolean show) {
+        setBoolean(KEY_SHOW_INFO_NOTIFICATIONS, show);
+    }
+
+    public static boolean isShowFreeInternalLLMCostNotifications() {
+        return getBoolean(KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS, false);
+    }
+
+    public static void saveShowFreeInternalLLMCostNotifications(boolean show) {
+        setBoolean(KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS, show);
     }
 
     private static int getInt(String key) {

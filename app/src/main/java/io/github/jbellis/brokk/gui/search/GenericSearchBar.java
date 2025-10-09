@@ -24,21 +24,27 @@ public class GenericSearchBar extends JPanel {
     private final JButton previousButton;
     private final JLabel matchCountLabel;
     private final SearchableComponent targetComponent;
+    private final JPanel controlsPanel; // Panel for navigation controls
 
     // Performance optimization: debouncing
     private Timer searchTimer;
     private static final int SEARCH_DELAY_MS = 300; // 300ms delay for debouncing
 
+    // Layout thresholds for responsive behavior
+    private static final int VERY_NARROW_WIDTH = 200; // Hide all controls
+    private static final int MEDIUM_NARROW_WIDTH = 350; // Stack controls vertically
+
     // Case sensitive listeners
     private final List<Consumer<Boolean>> caseSensitiveListeners = new ArrayList<>();
 
     public GenericSearchBar(SearchableComponent targetComponent) {
-        super(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        super(new GridBagLayout());
         this.targetComponent = targetComponent;
 
         // Initialize components
-        searchField = new JTextField(20);
+        searchField = new JTextField();
         searchField.setBorder(new EmptyBorder(4, 4, 4, 4));
+        searchField.setColumns(15); // Preferred width but can shrink
 
         // Create clear button as a small floating button
         clearButton = new JButton("×");
@@ -87,39 +93,143 @@ public class GenericSearchBar extends JPanel {
         searchField.setMargin(new Insets(2, 2, 2, 20));
         caseSensitiveButton = new MaterialToggleButton("Cc");
         caseSensitiveButton.setToolTipText("Case sensitive search");
-        caseSensitiveButton.setMargin(new Insets(2, 4, 2, 4));
+        caseSensitiveButton.setMargin(new Insets(1, 3, 1, 3));
         nextButton = new JButton();
         nextButton.setIcon(UIManager.getIcon("Table.descendingSortIcon"));
         nextButton.setEnabled(false);
+        nextButton.setMargin(new Insets(1, 2, 1, 2));
         previousButton = new JButton();
         previousButton.setIcon(UIManager.getIcon("Table.ascendingSortIcon"));
         previousButton.setEnabled(false);
+        previousButton.setMargin(new Insets(1, 2, 1, 2));
         matchCountLabel = new JLabel("");
         matchCountLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
 
-        // Build UI
-        add(new JLabel("Search:"));
-        add(searchFieldPanel);
-        add(caseSensitiveButton);
-        add(previousButton);
-        add(nextButton);
-        add(matchCountLabel);
+        // Create a panel for navigation controls that can wrap
+        controlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        controlsPanel.add(caseSensitiveButton);
+        controlsPanel.add(previousButton);
+        controlsPanel.add(nextButton);
+        controlsPanel.add(matchCountLabel);
 
-        // Set preferred size for the search field panel based on the search field's size
+        // Build UI with GridBagLayout for better responsive behavior
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 2, 0, 2);
+
+        // Search label
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0;
+        gbc.anchor = GridBagConstraints.WEST;
+        add(new JLabel("Search:"), gbc);
+
+        // Search field panel (expandable)
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.weightx = 1.0; // Takes remaining space
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        add(searchFieldPanel, gbc);
+
+        // Controls panel (wraps to next line if needed)
+        gbc.gridx = 2;
+        gbc.gridy = 0;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.WEST;
+        add(controlsPanel, gbc);
+
+        // Set size constraints for the search field panel
         Dimension fieldSize = searchField.getPreferredSize();
-        searchFieldPanel.setPreferredSize(new Dimension(fieldSize.width, fieldSize.height));
-        searchFieldPanel.setMinimumSize(new Dimension(100, fieldSize.height));
-        searchFieldPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, fieldSize.height));
+        searchFieldPanel.setPreferredSize(new Dimension(200, fieldSize.height));
+        searchFieldPanel.setMinimumSize(new Dimension(60, fieldSize.height));
+
+        // Set minimum size for search field itself
+        searchField.setMinimumSize(new Dimension(50, fieldSize.height));
 
         // Setup event handlers
         setupEventHandlers();
-        setupKeyboardShortcuts();
+
+        // Setup keyboard shortcuts - Down/Up arrow navigation
+        KeyboardShortcutUtil.registerSearchNavigationShortcuts(searchField, this::findNext, this::findPrevious);
 
         // Initialize tooltip
         updateTooltip();
 
         // Setup async search callback
         targetComponent.setSearchCompleteCallback(this::onSearchComplete);
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        // Register resize listener after component is added to hierarchy
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                handleResize();
+            }
+        });
+    }
+
+    /** Handles layout adjustments when the component is resized to very narrow widths. */
+    private void handleResize() {
+        int width = getWidth();
+        if (width <= 0) return; // Skip if not properly sized yet
+
+        // For very narrow widths, adjust component visibility and layout
+        GridBagConstraints gbc = new GridBagConstraints();
+        removeAll(); // Clear current layout
+
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 2, 0, 2);
+
+        // Add search label and field (common to all layouts)
+        addSearchLabelAndField(gbc);
+
+        if (width < VERY_NARROW_WIDTH) {
+            // Very narrow: hide all buttons, show only search field
+            controlsPanel.setVisible(false);
+        } else if (width < MEDIUM_NARROW_WIDTH) {
+            // Medium narrow: stack controls on second row
+            gbc.gridx = 0;
+            gbc.gridy = 1;
+            gbc.gridwidth = 2;
+            gbc.weightx = 1.0;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            controlsPanel.setVisible(true);
+            add(controlsPanel, gbc);
+        } else {
+            // Normal width: horizontal layout with all controls visible
+            gbc.gridx = 2;
+            gbc.gridy = 0;
+            gbc.weightx = 0;
+            gbc.fill = GridBagConstraints.NONE;
+            gbc.anchor = GridBagConstraints.WEST;
+            controlsPanel.setVisible(true);
+            add(controlsPanel, gbc);
+        }
+
+        revalidate();
+        repaint();
+    }
+
+    /** Helper method to add search label and field panel (common to all layouts). */
+    private void addSearchLabelAndField(GridBagConstraints gbc) {
+        // Search label
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        add(new JLabel("Search:"), gbc);
+
+        // Search field panel
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        add(searchFieldPanel, gbc);
     }
 
     private void setupEventHandlers() {
@@ -174,11 +284,6 @@ public class GenericSearchBar extends JPanel {
             updateSearchHighlights();
             fireCaseSensitiveChanged(caseSensitiveButton.isSelected());
         });
-    }
-
-    private void setupKeyboardShortcuts() {
-        // Down/Up arrow navigation shortcuts
-        KeyboardShortcutUtil.registerSearchNavigationShortcuts(searchField, this::findNext, this::findPrevious);
     }
 
     private void updateTooltip() {

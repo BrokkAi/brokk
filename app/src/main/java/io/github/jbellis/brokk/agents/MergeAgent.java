@@ -1,38 +1,39 @@
 package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.Messages;
-import io.github.jbellis.brokk.util.TokenAware;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.jetbrains.annotations.Nullable;
+
+/* Added imports for referenced helpers/agents. These are typically in the same package;
+importing is harmless and makes intent explicit. */
 
 /**
  * Simplified MergeAgent that delegates conflict detection, annotation and per-file planning to ConflictInspector,
@@ -46,32 +47,43 @@ public class MergeAgent {
 
     public enum MergeMode {
         MERGE,
+        SQUASH,
         REBASE,
         REVERT,
         CHERRY_PICK
     }
 
+    // NonTextType is defined at package scope (io.github.jbellis.brokk.agents.NonTextType);
+    // use the top-level enum to avoid type conflicts with other classes in the package.
+
     protected final IContextManager cm;
-    protected final MergeConflict conflict;
+    protected MergeConflict conflict;
 
     // Convenience fields derived from conflict
     protected final MergeMode mode;
-    protected final String otherCommitId;
-    protected final @Nullable String baseCommitId;
-    protected final Set<FileConflict> conflicts;
+    protected String otherCommitId;
+    protected @Nullable String baseCommitId;
+    protected Set<FileConflict> conflicts;
 
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
+    private final ContextManager.TaskScope scope;
+    private final String mergeInstructions;
+
+    public static final String DEFAULT_MERGE_INSTRUCTIONS =
+            "Resolve ALL conflicts with the minimal change that preserves the\n"
+                    + "semantics of the changes made in both \"theirs\" and \"ours.\"";
 
     // Lightweight accumulators used during a run
-    private final List<String> codeAgentFailures = new ArrayList<>();
-    private final Map<ProjectFile, String> mergedTestSources = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ProjectFile, String> codeAgentFailures = new ConcurrentHashMap<>();
 
     public MergeAgent(
             IContextManager cm,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
-            MergeConflict conflict) {
+            MergeConflict conflict,
+            ContextManager.TaskScope scope,
+            String mergeInstructions) {
         this.cm = cm;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -81,51 +93,119 @@ public class MergeAgent {
         this.baseCommitId = conflict.baseCommitId();
         this.otherCommitId = conflict.otherCommitId();
         this.conflicts = conflict.files();
-    }
-
-    /** Create a MergeAgent by inspecting the on-disk repository state. */
-    public static MergeAgent inferFromExternal(
-            ContextManager cm, StreamingChatModel planningModel, StreamingChatModel codeModel) {
-        var conflict = ConflictInspector.inspectFromProject(cm.getProject());
-        logger.debug(conflict);
-        return new MergeAgent(cm, planningModel, codeModel, conflict);
+        this.scope = scope;
+        this.mergeInstructions = mergeInstructions.isBlank() ? DEFAULT_MERGE_INSTRUCTIONS : mergeInstructions;
     }
 
     /**
      * High-level merge entry point. First annotates all conflicts, then resolves them file-by-file. Also publishes
      * commit explanations for the relevant ours/theirs commits discovered by blame.
      */
-    public void execute() throws IOException, GitAPIException, InterruptedException {
+    public TaskResult execute() throws IOException, GitAPIException, InterruptedException {
         codeAgentFailures.clear();
 
         var repo = (GitRepo) cm.getProject().getRepo();
         validateOtherIsNotMergeCommitForNonMergeMode(repo, mode, otherCommitId);
 
-        var conflictAnnotator = new ConflictAnnotator(repo, conflict);
+        // Notify start of annotation
+        cm.getIo()
+                .showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Preparing %d conflicted files for AI merge...".formatted(conflicts.size()));
 
-        // First pass: annotate ALL files up front (single loop).
-        var annotatedConflicts = new ArrayList<ConflictAnnotator.ConflictFileCommits>(conflicts.size());
-        var unionOurCommits = new LinkedHashSet<String>();
-        var unionTheirCommits = new LinkedHashSet<String>();
-
-        for (var cf : conflicts) {
-            if (Thread.interrupted()) throw new InterruptedException();
-
-            if (!cf.isContentConflict()) {
-                // FIXME: handle non-content conflicts (adds, deletes, renames) in a future enhancement
-                continue;
+        // NEW: Heuristic non-text resolution phase (rename/delete/mode/dir collisions, etc.)
+        if (scope.nonTextMode() != NonTextResolutionMode.OFF) {
+            try {
+                resolveNonTextConflicts(this.conflict, repo);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return interruptedResult("Merge cancelled by user.");
             }
 
+            // IMPORTANT: re-inspect repo state; non-text ops may change the set of conflicts
+            var refreshedOpt = ConflictInspector.inspectFromProject(cm.getProject());
+            if (refreshedOpt.isEmpty()) {
+                logger.warn(
+                        "ConflictInspector.inspectFromProject returned empty Optional after non-text resolution; continuing with previous conflict snapshot.");
+            } else {
+                var refreshed = refreshedOpt.get();
+                if (refreshed.files().isEmpty()) {
+                    // nothing left to resolve; still run verification as usual
+                    logger.info("All non-text conflicts resolved; no content conflicts remain.");
+                    var buildFailureText = runVerificationIfConfigured();
+                    if (buildFailureText.isBlank()) {
+                        return new TaskResult(
+                                cm,
+                                "Merge",
+                                List.of(new AiMessage("Non-text conflicts resolved; verification passed.")),
+                                Set.of(),
+                                new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+                    }
+                    // fall through to ArchitectAgent handoff path already present below
+                } else {
+                    // Swap our conflict snapshot to the refreshed one
+                    this.conflict = refreshed;
+                    this.baseCommitId = this.conflict.baseCommitId();
+                    this.otherCommitId = this.conflict.otherCommitId();
+                    this.conflicts = this.conflict.files();
+                }
+            }
+        }
+
+        // First pass: annotate ALL files up front (parallel)
+        var annotatedConflicts = ConcurrentHashMap.<ConflictAnnotator.ConflictFileCommits>newKeySet();
+        var unionOurCommits = ConcurrentHashMap.<String>newKeySet();
+        var unionTheirCommits = ConcurrentHashMap.<String>newKeySet();
+
+        conflicts.parallelStream().forEach(cf -> {
+            if (!cf.isContentConflict()) {
+                // Non-content conflicts are handled separately by the non-text resolver above.
+                return;
+            }
+
+            var conflictAnnotator = new ConflictAnnotator(repo, conflict);
             var pf = requireNonNull(cf.ourFile());
 
             var annotated = conflictAnnotator.annotate(cf);
 
             // Write annotated contents to our working path
-            pf.write(annotated.contents());
+            try {
+                pf.write(annotated.contents());
+            } catch (IOException e) {
+                logger.error("Failed to write annotated contents for {}: {}", pf, e.toString(), e);
+                return;
+            }
 
             annotatedConflicts.add(annotated);
             unionOurCommits.addAll(annotated.ourCommits());
             unionTheirCommits.addAll(annotated.theirCommits());
+        });
+
+        // Separate zero-conflict files from those needing AI processing
+        var partitioned =
+                annotatedConflicts.stream().collect(Collectors.partitioningBy(ac -> ac.conflictLineCount() == 0));
+        var noConflictLines = castNonNull(partitioned.get(true));
+        var hasConflictLines = castNonNull(partitioned.get(false));
+
+        // Stage files with no conflict markers immediately
+        if (!noConflictLines.isEmpty()) {
+            var filesToStage = noConflictLines.stream()
+                    .map(ConflictAnnotator.ConflictFileCommits::file)
+                    .toList();
+            try {
+                repo.add(filesToStage);
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        // Compute changed files set for reporting (all annotated files)
+        var changedFiles = annotatedConflicts.stream()
+                .map(ConflictAnnotator.ConflictFileCommits::file)
+                .collect(Collectors.toSet());
+
+        if (Thread.currentThread().isInterrupted()) {
+            return interruptedResult("Merge cancelled by user.");
         }
 
         // Kick off background explanations for our/their relevant commits discovered via blame.
@@ -146,156 +226,42 @@ public class MergeAgent {
             }
         });
 
-        // Partition test vs non-test for the MERGE phase only (annotation already done above).
-        var testAnnotated = annotatedConflicts.stream()
-                .filter(ac -> ContextManager.isTestFile(ac.file()))
-                .sorted(Comparator.comparing(ac -> ac.file().toString()))
-                .toList();
-        var nonTestAnnotated = annotatedConflicts.stream()
-                .filter(ac -> !ContextManager.isTestFile(ac.file()))
-                .sorted(Comparator.comparing(ac -> ac.file().toString()))
-                .toList();
+        // BlitzForge only works on ProjectFile inputs so map back to the ConflictFileCommits with this
+        var acByFile = hasConflictLines.stream()
+                .collect(Collectors.toMap(ConflictAnnotator.ConflictFileCommits::file, ac -> ac));
 
-        List<ProjectFile> allTestFiles = testAnnotated.stream()
-                .map(ConflictAnnotator.ConflictFileCommits::file)
-                .toList();
+        // If only a single conflict remains, handle it in the foreground without BlitzForge.
+        if (hasConflictLines.size() == 1) {
+            var onlyFile = acByFile.keySet().iterator().next();
+            var ac = requireNonNull(acByFile.get(onlyFile));
+            executeMergeForFile(onlyFile, ac, repo, cm.getIo());
 
-        // Merge test files first (in parallel) to seed relevance
-        if (!testAnnotated.isEmpty()) {
-            var service = requireNonNull(cm.getService());
-            ExecutorService testExecutor = AdaptiveExecutor.create(service, codeModel, testAnnotated.size());
-            try {
-                CompletionService<MergeOneFile.Outcome> completionService =
-                        new ExecutorCompletionService<>(testExecutor);
-
-                // Token-aware callable to merge a single test file
-                for (var ac : testAnnotated) {
-                    if (Thread.interrupted()) throw new InterruptedException();
-
-                    interface TokenAwareCallable extends Callable<MergeOneFile.Outcome>, TokenAware {}
-
-                    completionService.submit(new TokenAwareCallable() {
-                        @Override
-                        public int tokens() {
-                            try {
-                                return Messages.getApproximateTokens(ac.contents());
-                            } catch (Exception e) {
-                                logger.debug("Token estimation failed for {} – {}", ac.file(), e.toString());
-                                return 0;
-                            }
-                        }
-
-                        @Override
-                        public MergeOneFile.Outcome call() throws Exception {
-                            var planner = new MergeOneFile(
-                                    cm,
-                                    planningModel,
-                                    codeModel,
-                                    mode,
-                                    baseCommitId,
-                                    otherCommitId,
-                                    Map.of(),
-                                    allTestFiles,
-                                    ac);
-                            return planner.merge();
-                        }
-                    });
-                }
-
-                for (var cfc : testAnnotated) {
-                    if (Thread.interrupted()) throw new InterruptedException();
-
-                    var fut = completionService.take();
-                    // logging context only; order does not strictly map
-                    try {
-                        var outcome = fut.get();
-                        logger.info("Merged test file (parallel) possibly {} => {}", cfc.file(), outcome);
-                    } catch (ExecutionException e) {
-                        var cause = e.getCause() == null ? e : e.getCause();
-                        logger.error("Error merging test file {}: {}", cfc.file(), cause.toString(), cause);
-                    }
-
-                    // Update merged test sources for files that no longer have conflict markers
-                    var textOpt = cfc.file().read();
-                    if (textOpt.isPresent() && !containsConflictMarkers(textOpt.get())) {
-                        mergedTestSources.put(cfc.file(), textOpt.get());
-                    } else {
-                        logger.warn("Test file {} still contains conflict markers after merge attempt", cfc.file());
-                    }
-                }
-            } finally {
-                testExecutor.shutdownNow();
+            if (Thread.currentThread().isInterrupted()) {
+                return interruptedResult("Merge cancelled by user.");
             }
-        }
+        } else {
+            // Prepare BlitzForge configuration and listener
+            var instructionsText =
+                    "AI-assisted merge of conflicted files from %s (mode: %s)".formatted(otherCommitId, mode);
+            var bfConfig = new BlitzForge.RunConfig(
+                    instructionsText,
+                    codeModel, // model used only for token-aware scheduling
+                    () -> "", // perFileContext
+                    () -> "", // sharedContext
+                    "", // contextFilter
+                    BlitzForge.ParallelOutputMode.CHANGED);
 
-        // Then merge non-test files (in parallel), leveraging merged test sources
-        if (!nonTestAnnotated.isEmpty()) {
-            var service = requireNonNull(cm.getService());
-            ExecutorService nonTestExecutor = AdaptiveExecutor.create(service, codeModel, nonTestAnnotated.size());
-            try {
-                CompletionService<Map.Entry<ProjectFile, MergeOneFile.Outcome>> completionService =
-                        new ExecutorCompletionService<>(nonTestExecutor);
+            var bfListener = cm.getIo().getBlitzForgeListener(() -> {});
 
-                // Token-aware callable to merge a single non-test file
-                for (var ac : nonTestAnnotated) {
-                    if (Thread.interrupted()) throw new InterruptedException();
+            var blitz = new BlitzForge(cm, cm.getService(), bfConfig, bfListener);
 
-                    interface TokenAwareCallable
-                            extends Callable<Map.Entry<ProjectFile, MergeOneFile.Outcome>>, TokenAware {}
+            var result = blitz.executeParallel(acByFile.keySet(), file -> {
+                var ac = requireNonNull(acByFile.get(file));
+                return executeMergeForFile(file, ac, repo, bfListener.getConsoleIO(file));
+            });
 
-                    completionService.submit(new TokenAwareCallable() {
-                        @Override
-                        public int tokens() {
-                            try {
-                                return Messages.getApproximateTokens(ac.contents());
-                            } catch (Exception e) {
-                                logger.debug("Token estimation failed for {} – {}", ac.file(), e.toString());
-                                return 0;
-                            }
-                        }
-
-                        @Override
-                        public Map.Entry<ProjectFile, MergeOneFile.Outcome> call() throws Exception {
-                            var planner = new MergeOneFile(
-                                    cm,
-                                    planningModel,
-                                    codeModel,
-                                    mode,
-                                    baseCommitId,
-                                    otherCommitId,
-                                    mergedTestSources,
-                                    allTestFiles,
-                                    ac);
-                            var outcome = planner.merge();
-                            return Map.entry(ac.file(), outcome);
-                        }
-                    });
-                }
-
-                for (int i = 0; i < nonTestAnnotated.size(); i++) {
-                    if (Thread.interrupted()) throw new InterruptedException();
-
-                    var fut = completionService.take();
-                    try {
-                        var entry = fut.get();
-                        var file = entry.getKey();
-                        var outcome = entry.getValue();
-                        logger.info("Merged source file (parallel) {} => {}", file, outcome);
-
-                        if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
-                            if (outcome.details() != null) {
-                                codeAgentFailures.add(outcome.details());
-                            } else {
-                                codeAgentFailures.add("<unknown code-agent failure for " + file + ">");
-                            }
-                        }
-                    } catch (ExecutionException e) {
-                        var cause = e.getCause() == null ? e : e.getCause();
-                        logger.error("Error merging source file in parallel: {}", cause.toString(), cause);
-                    }
-                }
-            } finally {
-                nonTestExecutor.shutdownNow();
+            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                return interruptedResult("Merge cancelled by user.");
             }
         }
 
@@ -306,7 +272,7 @@ public class MergeAgent {
                 addTextToWorkspace("Relevant 'ours' change summaries", oursExpl);
             }
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            return interruptedResult("Merge cancelled by user.");
         } catch (ExecutionException e) {
             logger.warn("Failed to compute OUR commit explanations: {}", e.getMessage(), e);
         }
@@ -317,57 +283,62 @@ public class MergeAgent {
                 addTextToWorkspace("Relevant 'theirs' change summaries", theirsExpl);
             }
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            return interruptedResult("Merge cancelled by user.");
         } catch (ExecutionException e) {
             logger.warn("Failed to compute THEIR commit explanations: {}", e.getMessage(), e);
         }
 
         // Run verification step if configured
         var buildFailureText = runVerificationIfConfigured();
+        if (Thread.currentThread().isInterrupted()) {
+            return interruptedResult("Merge cancelled by user.");
+        }
         if (buildFailureText.isBlank() && codeAgentFailures.isEmpty()) {
             logger.info("Verification passed and no CodeAgent failures; merge completed successfully.");
-            return;
+            var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
+                    .formatted(hasConflictLines.size());
+            return new TaskResult(
+                    cm,
+                    "Merge",
+                    List.of(new AiMessage(msg)),
+                    changedFiles,
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
         }
 
-        // We tried auto-editing files that are mentioned i nthe build failure, the trouble is that you
+        // We tried auto-editing files that are mentioned in the build failure, the trouble is that you
         // can cause errors in lots of files by screwing up the API in one, and adding all of them
         // obscures rather than clarifies the actual problem. So don't do that.
 
         // Kick off Architect in the background to attempt to fix build failures and code-agent errors.
         var contextManager = (ContextManager) cm;
-        var codeAgentText = codeAgentFailures.isEmpty() ? "" : String.join("\n\n", codeAgentFailures);
-
-        // Publish build output to the workspace BuildFragment so Architect can reference it.
-        // Architect instructions should not inline the full build output; it will be available
-        // as a concise Build fragment in the workspace (keeps prompts compact).
-        contextManager.updateBuildFragment(buildFailureText);
+        var codeAgentText = "";
+        if (!codeAgentFailures.isEmpty()) {
+            codeAgentText = "The Code Agent reported these failures:\n"
+                    + codeAgentFailures.entrySet().stream()
+                            .map(e -> e.getKey() + "\n```\n" + e.getValue() + "\n```")
+                            .collect(Collectors.joining("\n\n"));
+        }
 
         var agentInstructions =
                 """
-                I attempted to merge changes from %s into our branch (mode: %s). I have added summaries
-                of the changes involved to the Workspace.
+                        I attempted to merge changes from %s into our branch (mode: %s). My goal was:
+                        %s
 
-                The per-file code agent reported these failures:
-                ```
-                %s
-                ```
+                        I have added summaries of the changes involved to the Workspace.
 
-                The verification/build output has been added to the Workspace as a Build fragment. Please fix the build and tests, update code as necessary, and produce a clean build. Commit any changes.
-                """
-                        .formatted(otherCommitId, mode, codeAgentText);
+                        %s
 
-        var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions);
-        var result = agent.execute();
-        contextManager.addToHistory(result, true);
-    }
+                        The verification/build output has been added to the Workspace as a Build fragment. Please fix the build and tests, update code as necessary, and produce a clean build. Commit any changes.
+                        """
+                        .formatted(otherCommitId, mode, mergeInstructions, codeAgentText);
 
-    private static boolean containsConflictMarkers(String text) {
-        return text.contains("<<<<<<<") || text.contains("=======") || text.contains(">>>>>>>");
+        var agent = new ArchitectAgent(contextManager, planningModel, codeModel, agentInstructions, scope);
+        return agent.executeWithSearch(scope);
     }
 
     private static void validateOtherIsNotMergeCommitForNonMergeMode(
             GitRepo repo, MergeMode mode, String otherCommitId) {
-        if (mode == MergeMode.MERGE) return;
+        if (mode == MergeMode.MERGE || mode == MergeMode.SQUASH) return;
         try (var rw = new RevWalk(repo.getGit().getRepository())) {
             var oid = repo.getGit().getRepository().resolve(otherCommitId);
             if (oid == null) {
@@ -410,22 +381,7 @@ public class MergeAgent {
     /** Run verification build if configured; returns empty string on success, otherwise failure text. */
     private String runVerificationIfConfigured() {
         try {
-            var cmd = BuildAgent.determineVerificationCommandAsync((ContextManager) cm)
-                    .join();
-            if (cmd == null || cmd.isBlank()) return "";
-            cm.getIo()
-                    .llmOutput(
-                            "\nRunning verification command: " + cmd,
-                            dev.langchain4j.data.message.ChatMessageType.CUSTOM);
-            cm.getIo().llmOutput("\n```bash\n", dev.langchain4j.data.message.ChatMessageType.CUSTOM);
-            Environment.instance.runShellCommand(
-                    cmd,
-                    ((ContextManager) cm).getProject().getRoot(),
-                    line -> cm.getIo().llmOutput(line + "\n", dev.langchain4j.data.message.ChatMessageType.CUSTOM),
-                    Environment.UNLIMITED_TIMEOUT);
-            return ""; // success
-        } catch (Environment.SubprocessException e) {
-            return e.getMessage() + "\n\n" + e.getOutput();
+            return BuildAgent.runVerification(cm);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "Verification command was interrupted.";
@@ -450,6 +406,19 @@ public class MergeAgent {
         }
     }
 
+    /** Metadata describing non-textual aspects of a conflict detected from the git index and trees. */
+    public record NonTextMetadata(
+            NonTextType type,
+            @Nullable String indexPath,
+            @Nullable String ourPath,
+            @Nullable String theirPath,
+            boolean oursIsDirectory,
+            boolean theirsIsDirectory,
+            boolean oursBinary,
+            boolean theirsBinary,
+            boolean oursExecBit,
+            boolean theirsExecBit) {}
+
     /**
      * baseCommitId may ay be null if no merge base can be determined (e.g. unrelated histories, shallow clone, root
      * commit with no parent, or cherry-pick/rebase target where first parent is undefined).
@@ -459,7 +428,19 @@ public class MergeAgent {
             String ourCommitId,
             String otherCommitId,
             @Nullable String baseCommitId,
-            Set<FileConflict> files) {}
+            Set<FileConflict> files,
+            Map<FileConflict, NonTextMetadata> nonText) {
+
+        // Backward-compatible constructor for tests and callers that don't supply non-text metadata
+        public MergeConflict(
+                MergeMode state,
+                String ourCommitId,
+                String otherCommitId,
+                @Nullable String baseCommitId,
+                Set<FileConflict> files) {
+            this(state, ourCommitId, otherCommitId, baseCommitId, files, Map.of());
+        }
+    }
 
     /**
      * Represents a single path's merge conflict.
@@ -490,5 +471,146 @@ public class MergeAgent {
         public boolean isContentConflict() {
             return ourContent != null && theirContent != null;
         }
+    }
+
+    /**
+     * Resolve non-text conflicts (delete/modify, rename/modify, file<->dir, add/add-binary, mode bits) using the
+     * NonTextHeuristicResolver. Groups related paths to avoid conflicting ops, applies ops, and emits a receipt.
+     */
+    private void resolveNonTextConflicts(MergeConflict mc, GitRepo repo) throws InterruptedException {
+        // Collect candidates with metadata
+        var metaMap = mc.nonText();
+        var candidates = mc.files().stream()
+                .filter(fc -> !fc.isContentConflict())
+                .filter(metaMap::containsKey)
+                .map(fc -> Map.entry(fc, metaMap.get(fc)))
+                .toList();
+        if (candidates.isEmpty()) return;
+
+        var groups = groupNonText(candidates);
+
+        // Parallelize by group; each group runs serially
+        var service = cm.getService();
+        var exec = AdaptiveExecutor.create(service, codeModel, groups.size());
+        try {
+            var cs = new ExecutorCompletionService<String>(exec);
+            for (var g : groups) {
+                cs.submit(() -> {
+                    var plan = NonTextHeuristicResolver.plan(g.items());
+                    try {
+                        NonTextHeuristicResolver.apply(repo, cm.getProject().getRoot(), plan.ops());
+                        // Build a short receipt for Workspace
+                        var receipt = new StringBuilder();
+                        receipt.append("Group:\n");
+                        for (var it : g.items()) {
+                            var m = it.getValue();
+                            receipt.append("- type=")
+                                    .append(m.type())
+                                    .append(" index=")
+                                    .append(nullToDash(m.indexPath()))
+                                    .append(" ours=")
+                                    .append(nullToDash(m.ourPath()))
+                                    .append(" theirs=")
+                                    .append(nullToDash(m.theirPath()))
+                                    .append("\n");
+                        }
+                        receipt.append("\nPlan (").append(plan.confidence()).append("):\n");
+                        for (var op : plan.ops()) {
+                            receipt.append("  ").append(op).append("\n");
+                        }
+                        if (!plan.summary().isBlank()) {
+                            receipt.append("\nSummary:\n")
+                                    .append(plan.summary())
+                                    .append("\n");
+                        }
+                        return receipt.toString();
+                    } catch (Exception e) {
+                        logger.warn("Non-text heuristic apply failed: {}", e.toString(), e);
+                        return "Non-text heuristic apply FAILED for group: " + e.getMessage();
+                    }
+                });
+            }
+
+            var receipts = new ArrayList<String>(groups.size());
+            for (int i = 0; i < groups.size(); i++) {
+                if (Thread.interrupted()) throw new InterruptedException();
+                var fut = cs.take();
+                try {
+                    receipts.add(fut.get());
+                } catch (ExecutionException ee) {
+                    var cause = ee.getCause() == null ? ee : ee.getCause();
+                    logger.warn("Non-text group task failed: {}", cause.toString(), cause);
+                    receipts.add("Non-text group task FAILED: " + cause.getMessage());
+                }
+            }
+
+            // Publish a single Workspace note aggregating all receipts
+            addTextToWorkspace("Non-text conflict decisions", String.join("\n\n---\n\n", receipts));
+        } finally {
+            exec.shutdownNow();
+        }
+    }
+
+    private record Group(List<Map.Entry<FileConflict, NonTextMetadata>> items) {}
+
+    private static List<Group> groupNonText(List<Map.Entry<FileConflict, NonTextMetadata>> candidates) {
+        var grouped = NonTextGrouper.group(candidates);
+        var out = new ArrayList<Group>(grouped.size());
+        for (var g : grouped) {
+            out.add(new Group(g));
+        }
+        return out;
+    }
+
+    private static String nullToDash(@Nullable String s) {
+        return s == null ? "-" : s;
+    }
+
+    /**
+     * Execute the merge flow for a single annotated conflicted file (foreground or BlitzForge worker). Encapsulates the
+     * planner invocation, repo add, and failure capture.
+     */
+    private BlitzForge.FileResult executeMergeForFile(
+            ProjectFile file, ConflictAnnotator.ConflictFileCommits ac, GitRepo repo, IConsoleIO console) {
+
+        var planner = new MergeOneFile(cm, planningModel, codeModel, mode, baseCommitId, otherCommitId, ac, console);
+
+        var outcome = planner.merge();
+
+        boolean edited =
+                file.read().map(current -> !current.equals(ac.contents())).orElse(false);
+
+        if (outcome.status() == MergeOneFile.Status.UNRESOLVED) {
+            var detail =
+                    (outcome.details() != null) ? outcome.details() : "<unknown code-agent failure for " + file + ">";
+            codeAgentFailures.put(file, detail);
+            return new BlitzForge.FileResult(file, edited, detail, "");
+        }
+
+        if (outcome.status() == MergeOneFile.Status.RESOLVED) {
+            try {
+                repo.add(List.of(file));
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        return new BlitzForge.FileResult(file, edited, null, "");
+    }
+
+    private Set<ProjectFile> allConflictFilesInWorkspace() {
+        // Include all files participating from the conflict set
+        return conflicts.stream()
+                .flatMap(fc -> Stream.of(fc.ourFile(), fc.theirFile()).filter(f -> f != null))
+                .collect(Collectors.toSet());
+    }
+
+    private TaskResult interruptedResult(String message) {
+        return new TaskResult(
+                cm,
+                "Merge",
+                List.of(new AiMessage(message)),
+                allConflictFilesInWorkspace(),
+                new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
     }
 }

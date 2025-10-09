@@ -2,13 +2,11 @@ package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
-import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.util.List;
-import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 public interface IConsoleIO {
@@ -37,6 +35,10 @@ public interface IConsoleIO {
         // pass
     }
 
+    default void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
+        llmOutput(taskEntry.toString(), ChatMessageType.CUSTOM);
+    }
+
     enum MessageSubType {
         Run,
         Ask,
@@ -53,21 +55,20 @@ public interface IConsoleIO {
         llmOutput(token, type, false, false);
     }
 
-    default void setLlmOutput(ContextFragment.TaskFragment newOutput) {
-        var firstMessage = newOutput.messages().getFirst();
-        llmOutput(Messages.getText(firstMessage), firstMessage.type());
-    }
-
-    default void systemOutput(String message) {
-        llmOutput("\n" + message, ChatMessageType.USER);
-    }
-
     /**
      * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;
      * messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)
      */
     default void systemNotify(String message, String title, int messageType) {
-        systemOutput(message);
+        showNotification(NotificationRole.INFO, message);
+    }
+
+    /**
+     * Generic, non-blocking notifications for output panels or headless use. Default implementation forwards to
+     * systemOutput.
+     */
+    default void showNotification(NotificationRole role, String message) {
+        llmOutput("\n" + message, ChatMessageType.CUSTOM, true, false);
     }
 
     default void showOutputSpinner(String message) {}
@@ -78,7 +79,7 @@ public interface IConsoleIO {
 
     default void hideSessionSwitchSpinner() {}
 
-    default List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
+    default List<ChatMessage> getLlmRawMessages() {
         throw new UnsupportedOperationException();
     }
 
@@ -132,5 +133,22 @@ public interface IConsoleIO {
 
     default void enableActionButtons() {
         // pass
+    }
+
+    enum NotificationRole {
+        ERROR,
+        CONFIRM,
+        COST,
+        INFO
+    }
+
+    /**
+     * Returns a BlitzForge.Listener implementation suitable for the current console type (GUI or headless).
+     *
+     * @param cancelCallback A callback to invoke if the user requests cancellation (e.g., presses Cancel).
+     * @return A BlitzForge.Listener instance.
+     */
+    default BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
+        throw new UnsupportedOperationException("getBlitzForgeListener not implemented for this console type");
     }
 }

@@ -5,12 +5,14 @@ import static java.util.Objects.requireNonNull;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
+import io.github.jbellis.brokk.agents.ConflictInspector;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
@@ -49,7 +51,9 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private Path projectPath;
 
-    @CommandLine.Option(names = "--edit", description = "Add a file to the workspace for editing. Can be repeated.")
+    @CommandLine.Option(
+            names = {"--edit", "--read"},
+            description = "Add a file to the workspace for editing. Can be repeated.")
     private List<String> editFiles = new ArrayList<>();
 
     @CommandLine.Option(
@@ -104,15 +108,17 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String askPrompt;
 
-    @CommandLine.Option(names = "--search", description = "Run Search agent with the given prompt.")
+    @CommandLine.Option(
+            names = "--search-answer",
+            description = "Run Search agent to find an answer for the given prompt.")
     @Nullable
-    private String searchPrompt;
+    private String searchAnswerPrompt;
 
     @CommandLine.Option(
-            names = "--search-terminal",
-            description = "Terminal mode for --search: ${COMPLETION-CANDIDATES} (defaults to ANSWER).",
-            defaultValue = "ANSWER")
-    private Terminal searchTerminal = Terminal.ANSWER;
+            names = "--search-tasks",
+            description = "Run Search agent to produce a task list for the given prompt.")
+    @Nullable
+    private String searchTasksPrompt;
 
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
@@ -151,17 +157,18 @@ public final class BrokkCli implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         // --- Action Validation ---
-        long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
+        long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, searchTasksPrompt)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
         if (actionCount > 1) {
-            System.err.println("At most one action (--architect, --code, --ask, --search, --merge) can be specified.");
+            System.err.println(
+                    "At most one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search, --merge) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --search-tasks, --merge) or --worktree is required.");
             return 1;
         }
 
@@ -171,7 +178,7 @@ public final class BrokkCli implements Callable<Integer> {
                 System.err.println("For the --code action, specify at most one of --model or --codemodel.");
                 return 1;
             }
-        } else if (askPrompt != null || searchPrompt != null) {
+        } else if (askPrompt != null || searchAnswerPrompt != null || searchTasksPrompt != null) {
             if (codeModelName != null) {
                 System.err.println("--codemodel is not valid with --ask or --search actions.");
                 return 1;
@@ -183,7 +190,8 @@ public final class BrokkCli implements Callable<Integer> {
             architectPrompt = maybeLoadFromFile(architectPrompt);
             codePrompt = maybeLoadFromFile(codePrompt);
             askPrompt = maybeLoadFromFile(askPrompt);
-            searchPrompt = maybeLoadFromFile(searchPrompt);
+            searchAnswerPrompt = maybeLoadFromFile(searchAnswerPrompt);
+            searchTasksPrompt = maybeLoadFromFile(searchTasksPrompt);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
@@ -298,28 +306,34 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
-            io.systemOutput("# Workspace (pre-scan)");
-            io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    ContextFragment.getSummary(cm.topContext().allFragments()));
 
-            String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
+            String goalForScan = Stream.of(
+                            architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, searchTasksPrompt)
                     .filter(s -> s != null && !s.isBlank())
                     .findFirst()
                     .orElseThrow();
             var scanModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
             var agent = new ContextAgent(cm, scanModel, goalForScan, true);
             var recommendations = agent.getRecommendations(false);
-            io.systemOutput("Deep Scan token usage: " + recommendations.tokenUsage());
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.tokenUsage());
 
             if (recommendations.success()) {
-                io.systemOutput("Deep Scan suggested "
-                        + recommendations.fragments().stream()
-                                .map(ContextFragment::shortDescription)
-                                .toList());
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Deep Scan suggested "
+                                + recommendations.fragments().stream()
+                                        .map(ContextFragment::shortDescription)
+                                        .toList());
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
                             cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
-                            io.systemOutput("Added " + fragment);
+                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
                         default -> cm.addSummaries(fragment.files(), Set.of());
                     }
@@ -330,58 +344,87 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // --- Run Action ---
-        io.systemOutput("# Workspace (pre-task)");
-        io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                ContextFragment.getSummary(cm.topContext().allFragments()));
 
         TaskResult result = null;
-        try {
-            if (architectPrompt != null) {
-                var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
-                var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                var agent = new ArchitectAgent(cm, architectModel, codeModel, architectPrompt);
-                result = agent.execute();
-            } else if (codePrompt != null) {
-                var effectiveModel = codeModelOverride == null
-                        ? (taskModelOverride != null ? taskModelOverride : cm.getCodeModel())
-                        : codeModelOverride;
-                var agent = new CodeAgent(cm, effectiveModel);
-                result = agent.runTask(codePrompt, Set.of());
-            } else if (askPrompt != null) {
-                StreamingChatModel askModel;
-                askModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                result = InstructionsPanel.executeAskCommand(cm, askModel, askPrompt);
-            } else if (merge) {
-                var planningModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
-                var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                MergeAgent mergeAgent;
-                try {
-                    mergeAgent = MergeAgent.inferFromExternal(cm, planningModel, codeModel);
-                } catch (IllegalStateException e) {
-                    System.err.println("Cannot run --merge: " + e.getMessage());
-                    return 1;
-                }
-                try {
-                    mergeAgent.execute();
-                } catch (Exception e) {
-                    io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
-                    return 1;
-                }
-                return 0; // merge is terminal for this CLI command
-            } else { // searchPrompt != null
-                var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                var terminalSet = (searchTerminal == Terminal.TASK_LIST)
-                        ? EnumSet.of(Terminal.TASK_LIST)
-                        : EnumSet.of(Terminal.ANSWER);
-                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, terminalSet);
-                result = agent.execute();
-            }
-        } catch (Throwable th) {
-            io.toolError(getStackTrace(th), "Internal error: " + th.getMessage());
-            return 1; // internal error
+        // Decide scope action/input
+        String scopeInput;
+        if (architectPrompt != null) {
+            scopeInput = architectPrompt;
+        } else if (codePrompt != null) {
+            scopeInput = codePrompt;
+        } else if (askPrompt != null) {
+            scopeInput = requireNonNull(askPrompt);
+        } else if (merge) {
+            scopeInput = "Merge";
+        } else if (searchAnswerPrompt != null) {
+            scopeInput = requireNonNull(searchAnswerPrompt);
+        } else { // searchTasksPrompt != null
+            scopeInput = requireNonNull(searchTasksPrompt);
         }
 
-        // Add the TaskResult to history so it is preserved in subsequent workspace sessions
-        cm.addToHistory(result, false);
+        try (var scope = cm.beginTask(scopeInput, false)) {
+            try {
+                if (architectPrompt != null) {
+                    var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
+                    var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
+                    var agent = new ArchitectAgent(cm, architectModel, codeModel, architectPrompt, scope);
+                    result = agent.execute();
+                    scope.append(result);
+                } else if (codePrompt != null) {
+                    var effectiveModel = codeModelOverride == null
+                            ? (taskModelOverride != null ? taskModelOverride : cm.getCodeModel())
+                            : codeModelOverride;
+                    var agent = new CodeAgent(cm, effectiveModel);
+                    result = agent.runTask(codePrompt, Set.of());
+                    scope.append(result);
+                } else if (askPrompt != null) {
+                    StreamingChatModel askModel;
+                    askModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+                    result = InstructionsPanel.executeAskCommand(cm, askModel, askPrompt);
+                    scope.append(result);
+                } else if (merge) {
+                    var planningModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
+                    var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
+                    var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
+                    if (conflictOpt.isEmpty()) {
+                        System.out.println(
+                                "Cannot run --merge: Repository is not in a merge/rebase/cherry-pick/revert conflict state");
+                        return 1;
+                    }
+                    var conflict = conflictOpt.get();
+                    System.out.println(conflict);
+                    MergeAgent mergeAgent = new MergeAgent(
+                            cm, planningModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+                    try {
+                        result = mergeAgent.execute();
+                        scope.append(result);
+                    } catch (Exception e) {
+                        io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
+                        return 1;
+                    }
+                    return 0; // merge is terminal for this CLI command
+                } else if (searchAnswerPrompt != null) {
+                    var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+                    var agent = new SearchAgent(
+                            requireNonNull(searchAnswerPrompt), cm, searchModel, EnumSet.of(Terminal.ANSWER));
+                    result = agent.execute();
+                    scope.append(result);
+                } else { // searchTasksPrompt != null
+                    var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+                    var agent = new SearchAgent(
+                            requireNonNull(searchTasksPrompt), cm, searchModel, EnumSet.of(Terminal.TASK_LIST));
+                    result = agent.execute();
+                    scope.append(result);
+                }
+            } catch (Throwable th) {
+                io.toolError(getStackTrace(th), "Internal error: " + th.getMessage());
+                return 1; // internal error
+            }
+        }
 
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             io.toolError(
@@ -517,7 +560,7 @@ public final class BrokkCli implements Callable<Integer> {
                 matches.stream().map(s -> "  - " + s).collect(Collectors.joining("\n")));
     }
 
-    /**
+    /*
      * If the prompt begins with '@', treat the remainder as a filename and return the file's contents; otherwise return
      * the original prompt.
      */

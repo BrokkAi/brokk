@@ -303,13 +303,17 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, fileContent);
             resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
             final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
-            resultSkeletons = withSignatures(signatures -> namespaceProcessor.mergeNamespaceBlocks(
-                    tempSkeletons,
-                    signatures,
-                    file,
-                    rootNode,
-                    fileContent,
-                    namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName)));
+            resultSkeletons = withCodeUnitProperties(properties -> {
+                var signaturesMap = new HashMap<CodeUnit, List<String>>();
+                properties.forEach((cu, props) -> signaturesMap.put(cu, props.signatures()));
+                return namespaceProcessor.mergeNamespaceBlocks(
+                        tempSkeletons,
+                        signaturesMap,
+                        file,
+                        rootNode,
+                        fileContent,
+                        namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
+            });
             if (isHeaderFile(file)) {
                 resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
             }

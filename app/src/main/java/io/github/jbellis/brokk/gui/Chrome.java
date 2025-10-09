@@ -9,6 +9,7 @@ import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.agents.BlitzForge;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
@@ -16,6 +17,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.git.*;
@@ -38,14 +41,12 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.prefs.Preferences;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
@@ -70,13 +71,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
-    private final String SYSMSG_EMPTY = "Ready";
 
     // is a setContext updating the MOP?
     private boolean skipNextUpdateOutputPanelOnContextChange = false;
 
     // Track active preview windows for reuse
     private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
+    private @Nullable Rectangle dependenciesDialogBounds = null;
 
     /**
      * Gets whether updates to the output panel are skipped on context changes.
@@ -159,11 +160,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private int lastExpandedSidebarLocation = -1;
     private boolean sidebarCollapsed = false;
 
+    // Workspace collapse state (toggled by clicking token/cost label)
+    private boolean workspaceCollapsed = false;
+
+    // Pin exact Instructions height (in px) during collapse so only Output resizes
+    private int pinnedInstructionsHeightPx = -1;
+
+    // Save the Workspace↔Instructions divider as a proportion (0..1) to restore Workspace height precisely
+    private double savedTopSplitProportion = -1.0;
+
+    // Guard to prevent recursion when clamping the Output↔Bottom divider
+    private boolean adjustingMainDivider = false;
+
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
-    private JLabel systemMessageLabel;
-    private final List<String> systemMessages = new ArrayList<>();
     private final JPanel bottomPanel;
 
     private final JSplitPane topSplitPane; // Instructions | Workspace
@@ -177,19 +188,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
 
-    // Workspace | Dependencies (right drawer)
-    @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JSplitPane workspaceDependenciesSplit;
-
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel workspaceTopContainer;
-
-    @SuppressWarnings("NullAway.Init")
-    private io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel dependenciesDrawerPanel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
+    private final DependenciesPanel dependenciesPanel;
 
     // Git
     @Nullable
@@ -216,6 +221,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Nullable
     private BadgedIcon gitTabBadgedIcon;
+
+    // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
+    @Nullable
+    private String lastDisplayedBranchLabel = null;
 
     // Reference to Tools ▸ BlitzForge… menu item so we can enable/disable it
     @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
@@ -261,8 +270,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomPanel = new JPanel(new BorderLayout());
         // Status labels at the very bottom
         // System message label (left side)
-        systemMessageLabel = new JLabel(SYSMSG_EMPTY);
-        systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
 
         // Background status label (right side)
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
@@ -270,7 +277,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Panel to hold both labels
         var statusPanel = new JPanel(new BorderLayout());
-        statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
 
         var statusLabels = (JComponent) statusPanel;
@@ -299,17 +305,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.setTitle("Brokk: " + getProject().getRoot());
 
         // Show initial system message
-        systemOutput("Opening project at " + getProject().getRoot());
+        showNotification(
+                NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
         // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+        dependenciesPanel = new DependenciesPanel(this);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
-        var projectIcon = requireNonNull(Icons.FOLDER_CODE);
+        var projectIcon = Icons.FOLDER_CODE;
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
@@ -321,6 +329,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
+        // Add Dependencies tab
+        var dependenciesIcon = Icons.MANAGE_DEPENDENCIES;
+        leftTabbedPanel.addTab(null, dependenciesIcon, dependenciesPanel);
+        var dependenciesTabIdx = leftTabbedPanel.indexOfComponent(dependenciesPanel);
+        var dependenciesTabLabel = createSquareTabLabel(dependenciesIcon, "Dependencies");
+        leftTabbedPanel.setTabComponentAt(dependenciesTabIdx, dependenciesTabLabel);
+        dependenciesTabLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleTabToggle(dependenciesTabIdx);
+            }
+        });
+
         // Add Git tabs (Changes, Worktrees, Log) if available
         if (getProject().hasGit()) {
             gitCommitTab = new GitCommitTab(this, contextManager);
@@ -328,7 +349,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             gitLogTab = new GitLogTab(this, contextManager);
 
             // Changes tab (with badge)
-            var commitIcon = requireNonNull(Icons.COMMIT);
+            var commitIcon = Icons.COMMIT;
             gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
             leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
             var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
@@ -342,7 +363,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
 
             // Worktrees tab
-            var worktreeIcon = requireNonNull(Icons.FLOWCHART);
+            var worktreeIcon = Icons.FLOWCHART;
             leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
             var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
             var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees");
@@ -355,7 +376,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
 
             // Log tab
-            var logIcon = requireNonNull(Icons.FLOWSHEET);
+            var logIcon = Icons.FLOWSHEET;
             leftTabbedPanel.addTab(null, logIcon, gitLogTab);
             var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
             var logTabLabel = createSquareTabLabel(logIcon, "Log");
@@ -379,7 +400,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // --- New top-level Pull-Requests panel ---------------------------------
         if (getProject().isGitHubRepo() && gitLogTab != null) {
             pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitLogTab);
-            var prIcon = requireNonNull(Icons.PULL_REQUEST);
+            var prIcon = Icons.PULL_REQUEST;
             leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
             var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
             var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
@@ -395,7 +416,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // --- New top-level Issues panel ----------------------------------------
         if (getProject().getIssuesProvider().type() != IssueProviderType.NONE) {
             issuesPanel = new GitIssuesTab(this, contextManager);
-            var issIcon = requireNonNull(Icons.ADJUST);
+            var issIcon = Icons.ADJUST;
             leftTabbedPanel.addTab(null, issIcon, issuesPanel);
             var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var issLabel = createSquareTabLabel(issIcon, "Issues");
@@ -420,19 +441,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // 1) Nested split for Workspace (top) / Instructions (bottom)
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
-        // Create a right-hand Dependencies drawer beside the Workspace
-        workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        this.dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
-        workspaceDependenciesSplit.setResizeWeight(0.67); // Give more space to workspace by default
-        workspaceDependenciesSplit.setLeftComponent(workspacePanel);
-        workspaceDependenciesSplit.setRightComponent(this.dependenciesDrawerPanel);
-        // Drawer state will be restored from GlobalUiSettings after layout
-
         workspaceTopContainer = new JPanel(new BorderLayout());
-        workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
+        workspaceTopContainer.add(workspacePanel, BorderLayout.CENTER);
 
         // Create terminal drawer panel
         instructionsDrawerSplit = new DrawerSplitPanel();
+        // Ensure bottom area doesn't get squeezed to near-zero height on first layout after swaps
+        // This is the minimum height for the Instructions+Drawer when the workspace is hidden.
+        instructionsDrawerSplit.setMinimumSize(new Dimension(200, 325));
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
         // Attach instructions (left) and drawer (right)
@@ -443,6 +459,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
         workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
+        // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
+        workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
 
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
@@ -593,15 +611,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Sets up .gitignore entries and adds .brokk project files to git */
     private void setupGitIgnore() {
-        if (getProject().hasGit()) {
-            logger.warn("setupGitIgnore called when gitPanel is null. Skipping.");
+        // If project does not have git, nothing to do.
+        if (!getProject().hasGit()) {
+            logger.debug("setupGitIgnore called but project has no git repository; skipping.");
             return;
         }
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
             try {
                 var project = getProject();
-                var gitRepo =
-                        (GitRepo) project.getRepo(); // This is the repo for the current project (worktree or main)
+                var repo = project.getRepo();
+                if (!(repo instanceof GitRepo gitRepo)) {
+                    // Defensive: project claims to have git but repo isn't a GitRepo instance.
+                    logger.warn(
+                            "setupGitIgnore: project {} reports git but repo is not a GitRepo instance. Skipping.",
+                            project.getRoot());
+                    return;
+                }
                 var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
 
                 // Update .gitignore (located at gitTopLevel)
@@ -630,7 +655,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
                     Files.writeString(gitignorePath, content);
-                    systemOutput("Updated .gitignore with .brokk entries");
+                    showNotification(NotificationRole.INFO, "Updated .gitignore with .brokk entries");
 
                     // Add .gitignore itself to git if it's not already in the index
                     // The path for 'add' should be relative to the git repo's CWD, or absolute.
@@ -670,7 +695,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // The GitRepo instance is for the current project (which could be a worktree),
                 // but 'add' operations apply to the whole repository.
                 gitRepo.add(filesToAdd);
-                systemOutput("Added shared .brokk project files (style.md, review.md, project.properties) to git");
+                showNotification(
+                        NotificationRole.INFO,
+                        "Added shared .brokk project files (style.md, review.md, project.properties) to git");
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
@@ -750,9 +777,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
+    public List<ChatMessage> getLlmRawMessages() {
         if (SwingUtilities.isEventDispatchThread()) {
-            return historyOutputPanel.getLlmRawMessages(includeReasoning);
+            return historyOutputPanel.getLlmRawMessages();
         }
 
         // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw
@@ -763,14 +790,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         while (true) {
             try {
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
-                SwingUtilities.invokeAndWait(
-                        () -> future.complete(historyOutputPanel.getLlmRawMessages(includeReasoning)));
+                SwingUtilities.invokeAndWait(() -> future.complete(historyOutputPanel.getLlmRawMessages()));
                 return future.get();
             } catch (InterruptedException e) {
                 // retry
             } catch (ExecutionException | InvocationTargetException e) {
                 logger.error(e);
-                systemOutput("Error retrieving LLM messages");
+                showNotification(NotificationRole.INFO, "Error retrieving LLM messages");
                 return List.of();
             }
         }
@@ -786,6 +812,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
             instructionsPanel.disableButtons();
+            terminalDrawer.disablePlay();
             if (gitCommitTab != null) {
                 gitCommitTab.disableButtons();
             }
@@ -798,6 +825,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             instructionsPanel.enableButtons();
+            terminalDrawer.enablePlay();
             if (gitCommitTab != null) {
                 gitCommitTab.enableButtons();
             }
@@ -815,16 +843,74 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void updateGitRepo() {
+        logger.trace("updateGitRepo invoked");
+
+        // Determine current branch (if available) and update InstructionsPanel on EDT
+        String branchToDisplay = null;
+        boolean hasGit = getProject().hasGit();
+        try {
+            if (hasGit) {
+                var currentBranch = getProject().getRepo().getCurrentBranch();
+                logger.trace("updateGitRepo: current branch='{}'", currentBranch);
+                if (!currentBranch.isBlank()) {
+                    branchToDisplay = currentBranch;
+                }
+            } else {
+                logger.trace("updateGitRepo: project has no Git repository");
+            }
+        } catch (Exception e) {
+            // Detached HEAD without resolvable HEAD or empty repo can land here
+            logger.warn("updateGitRepo: unable to determine current branch: {}", e.getMessage());
+        }
+
+        // Fallback to a safe label for UI to avoid stale/missing branch display
+        if (hasGit) {
+            if (branchToDisplay == null || branchToDisplay.isBlank()) {
+                branchToDisplay = "(no branch)";
+                logger.trace("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
+            }
+            final String display = branchToDisplay;
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    // Redundancy guard: only refresh if the displayed branch text actually changed
+                    if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
+                        logger.trace(
+                                "updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
+                        return;
+                    }
+                    instructionsPanel.refreshBranchUi(display);
+                    lastDisplayedBranchLabel = display;
+                } catch (Exception ex) {
+                    logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+                }
+            });
+        }
+
+        // Update individual Git-related panels and log what is being updated
         if (gitCommitTab != null) {
+            logger.trace("updateGitRepo: updating GitCommitTab");
             gitCommitTab.updateCommitPanel();
+        } else {
+            logger.trace("updateGitRepo: GitCommitTab not present (skipping)");
         }
+
         if (gitLogTab != null) {
+            logger.trace("updateGitRepo: updating GitLogTab");
             gitLogTab.update();
+        } else {
+            logger.trace("updateGitRepo: GitLogTab not present (skipping)");
         }
+
         if (gitWorktreeTab != null) {
+            logger.trace("updateGitRepo: refreshing GitWorktreeTab");
             gitWorktreeTab.refresh();
+        } else {
+            logger.trace("updateGitRepo: GitWorktreeTab not present (skipping)");
         }
+
+        logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
+        logger.trace("updateGitRepo: finished");
     }
 
     /** Recreate the top-level Issues panel (e.g. after provider change). */
@@ -835,7 +921,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 if (idx != -1) leftTabbedPanel.remove(idx);
             }
             issuesPanel = new GitIssuesTab(this, contextManager);
-            var icon = requireNonNull(Icons.ASSIGNMENT);
+            var icon = Icons.ASSIGNMENT;
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var label = createSquareTabLabel(icon, "Issues");
@@ -853,56 +939,120 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void registerGlobalKeyboardShortcuts() {
         var rootPane = frame.getRootPane();
 
-        // Cmd/Ctrl+Z => undo
-        var undoKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(undoKeyStroke, "globalUndo");
+        // Cmd/Ctrl+Z => undo (configurable)
+        KeyStroke undoKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.undo",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        bindKey(rootPane, undoKeyStroke, "globalUndo");
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
         // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
-        var redoKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+        KeyStroke redoKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.redo",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Z,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         // For Windows/Linux, Ctrl+Y is also common for redo
-        var redoYKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        KeyStroke redoYKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.redoY",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
 
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(redoKeyStroke, "globalRedo");
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(redoYKeyStroke, "globalRedo");
+        bindKey(rootPane, redoKeyStroke, "globalRedo");
+        bindKey(rootPane, redoYKeyStroke, "globalRedo");
         rootPane.getActionMap().put("globalRedo", globalRedoAction);
 
         // Cmd/Ctrl+C => global copy
-        var copyKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(copyKeyStroke, "globalCopy");
+        KeyStroke copyKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.copy",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        bindKey(rootPane, copyKeyStroke, "globalCopy");
         rootPane.getActionMap().put("globalCopy", globalCopyAction);
 
         // Cmd/Ctrl+V => global paste
-        var pasteKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(pasteKeyStroke, "globalPaste");
+        KeyStroke pasteKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.paste",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        bindKey(rootPane, pasteKeyStroke, "globalPaste");
         rootPane.getActionMap().put("globalPaste", globalPasteAction);
 
         // Cmd/Ctrl+L => toggle microphone
-        var toggleMicKeyStroke =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
+        KeyStroke toggleMicKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.toggleMicrophone",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L));
+        bindKey(rootPane, toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
-        // Cmd/Ctrl+M => toggle Code/Answer mode
-        var toggleModeKeyStroke =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleModeKeyStroke, "toggleCodeAnswer");
+        // Submit action (configurable; default Cmd/Ctrl+Enter) - only when instructions area is focused
+        KeyStroke submitKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "instructions.submit",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        // Bind directly to instructions area instead of globally to avoid interfering with other components
+        instructionsPanel
+                .getInstructionsArea()
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(submitKeyStroke, "submitAction");
+        instructionsPanel.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        instructionsPanel.onActionButtonPressed();
+                    } catch (Exception ex) {
+                        logger.error("Error executing submit action", ex);
+                    }
+                });
+            }
+        });
+
+        // Cmd/Ctrl+M => toggle Code/Answer mode (configurable)
+        KeyStroke toggleModeKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "instructions.toggleMode",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+        bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
         rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     try {
                         instructionsPanel.toggleCodeAnswerMode();
-                        systemOutput("Toggled Code/Ask mode");
+                        showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
                     } catch (Exception ex) {
                         logger.warn("Error toggling Code/Answer mode via shortcut", ex);
                     }
                 });
+            }
+        });
+
+        // Open Settings (configurable; default Cmd/Ctrl+,)
+        KeyStroke openSettingsKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.openSettings",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
+        bindKey(rootPane, openSettingsKeyStroke, "openSettings");
+        rootPane.getActionMap().put("openSettings", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> MenuBar.openSettingsDialog(Chrome.this));
+            }
+        });
+
+        // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
+        KeyStroke closeWindowKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "global.closeWindow",
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
+            closeWindowKeyStroke =
+                    io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+        }
+        bindKey(rootPane, closeWindowKeyStroke, "closeMainWindow");
+        rootPane.getActionMap().put("closeMainWindow", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
             }
         });
 
@@ -914,8 +1064,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         : KeyEvent.ALT_DOWN_MASK;
 
         // Alt/Cmd+1 for Project Files
-        var switchToProjectFiles = KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToProjectFiles, "switchToProjectFiles");
+        KeyStroke switchToProjectFiles = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "panel.switchToProjectFiles", KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
+        bindKey(rootPane, switchToProjectFiles, "switchToProjectFiles");
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -925,8 +1076,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+2 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
-            var switchToChanges = KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
-            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToChanges, "switchToChanges");
+            KeyStroke switchToChanges = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                    "panel.switchToChanges", KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
+            bindKey(rootPane, switchToChanges, "switchToChanges");
             rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -938,8 +1090,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+3 for Worktrees
         if (gitWorktreeTab != null) {
-            var switchToWorktrees = KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
-            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToWorktrees, "switchToWorktrees");
+            KeyStroke switchToWorktrees = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                    "panel.switchToWorktrees", KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
+            bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -951,8 +1104,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+4 for Log
         if (gitLogTab != null) {
-            var switchToLog = KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
-            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToLog, "switchToLog");
+            KeyStroke switchToLog = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                    "panel.switchToLog", KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
+            bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -964,8 +1118,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+5 for Pull Requests panel (if available)
         if (pullRequestsPanel != null) {
-            var switchToPR = KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier);
-            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToPR, "switchToPullRequests");
+            KeyStroke switchToPR = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                    "panel.switchToPullRequests", KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier));
+            bindKey(rootPane, switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -977,8 +1132,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+6 for Issues panel (if available)
         if (issuesPanel != null) {
-            var switchToIssues = KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier);
-            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToIssues, "switchToIssues");
+            KeyStroke switchToIssues = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                    "panel.switchToIssues", KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier));
+            bindKey(rootPane, switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
@@ -988,24 +1144,88 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Zoom shortcuts: Ctrl/Cmd + Plus, Minus, 0
-        var zoomInKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        var zoomInEqualsKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        var zoomOutKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        var resetZoomKeyStroke = KeyStroke.getKeyStroke(
-                KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        // Drawer navigation shortcuts
+        // Cmd/Ctrl+Shift+T => toggle terminal drawer
+        KeyStroke toggleTerminalDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.toggleTerminal",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_T,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        bindKey(rootPane, toggleTerminalDrawerKeyStroke, "toggleTerminalDrawer");
+        rootPane.getActionMap().put("toggleTerminalDrawer", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                terminalDrawer.openTerminal();
+            }
+        });
 
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInKeyStroke, "zoomIn");
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomInEqualsKeyStroke, "zoomIn");
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(zoomOutKeyStroke, "zoomOut");
-        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(resetZoomKeyStroke, "resetZoom");
+        // Cmd/Ctrl+Shift+D => toggle dependencies tab
+        KeyStroke toggleDependenciesTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.toggleDependencies",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_D,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        bindKey(rootPane, toggleDependenciesTabKeyStroke, "toggleDependenciesTab");
+        rootPane.getActionMap().put("toggleDependenciesTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                showDependenciesTab();
+            }
+        });
+
+        // Cmd/Ctrl+T => switch to terminal tab
+        KeyStroke switchToTerminalTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.switchToTerminal",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        bindKey(rootPane, switchToTerminalTabKeyStroke, "switchToTerminalTab");
+        rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                terminalDrawer.openTerminal();
+            }
+        });
+
+        // Cmd/Ctrl+K => switch to tasks tab
+        KeyStroke switchToTasksTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "drawer.switchToTasks",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        bindKey(rootPane, switchToTasksTabKeyStroke, "switchToTasksTab");
+        rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                terminalDrawer.openTaskList();
+            }
+        });
+
+        // Zoom shortcuts: read from global settings (defaults preserved)
+        KeyStroke zoomInKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "view.zoomIn",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        KeyStroke zoomInEqualsKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "view.zoomInAlt",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        KeyStroke zoomOutKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "view.zoomOut",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        KeyStroke resetZoomKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+                "view.resetZoom",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        bindKey(rootPane, zoomInKeyStroke, "zoomIn");
+        bindKey(rootPane, zoomInEqualsKeyStroke, "zoomIn");
+        bindKey(rootPane, zoomOutKeyStroke, "zoomOut");
+        bindKey(rootPane, resetZoomKeyStroke, "resetZoom");
 
         rootPane.getActionMap().put("zoomIn", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Use MOP webview zoom for global zoom functionality
                 historyOutputPanel.getLlmStreamArea().zoomIn();
             }
         });
@@ -1013,6 +1233,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("zoomOut", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Use MOP webview zoom for global zoom functionality
                 historyOutputPanel.getLlmStreamArea().zoomOut();
             }
         });
@@ -1020,9 +1241,37 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("resetZoom", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Use MOP webview zoom for global zoom functionality
                 historyOutputPanel.getLlmStreamArea().resetZoom();
             }
         });
+    }
+
+    private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
+        // Remove any previous stroke bound to this actionKey to avoid duplicates
+        var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        // Remove all existing inputs mapping to actionKey
+        for (KeyStroke ks : im.allKeys() == null ? new KeyStroke[0] : im.allKeys()) {
+            Object val = im.get(ks);
+            if (actionKey.equals(val)) {
+                im.remove(ks);
+            }
+        }
+        im.put(stroke, actionKey);
+    }
+
+    /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
+    public void refreshKeybindings() {
+        // Unregister and re-register by rebuilding the maps for the keys we manage
+        var rootPane = frame.getRootPane();
+        var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        var am = rootPane.getActionMap();
+
+        // Remove old mappings for the keys we control (best-effort)
+        // Then call the standard registration method to repopulate from settings
+        im.clear();
+        am.clear();
+        registerGlobalKeyboardShortcuts();
     }
 
     @Override
@@ -1030,11 +1279,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
     }
 
+    /**
+     * Resets the Output to history + main, and clears internal message buffers. After this, getLlmRawMessages will
+     * return only the messages from `main`. Typically this use called with a single UserMessage in `main` to reset the
+     * output to a fresh state for a new task.
+     *
+     * <p>You should probably call ContextManager::beginTask instead of calling this directly.
+     */
     @Override
-    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
-    }
-
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
     }
@@ -1043,42 +1295,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void toolError(String msg, String title) {
         logger.warn("%s: %s".formatted(msg, title));
         SwingUtilities.invokeLater(() -> systemNotify(msg, title, JOptionPane.ERROR_MESSAGE));
-    }
-
-    @Override
-    public void systemOutput(String message) {
-        logger.debug(message);
-        systemOutputInternal(message);
-    }
-
-    private void systemOutputInternal(String message) {
-        SwingUtilities.invokeLater(() -> {
-            // Format timestamp as HH:MM
-            String timestamp = LocalTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"));
-            String timestampedMessage = timestamp + ": " + message;
-
-            // Add to messages list
-            systemMessages.add(timestampedMessage);
-
-            // Keep only last 50 messages to prevent memory issues
-            if (systemMessages.size() > 50) {
-                systemMessages.removeFirst();
-            }
-
-            // Update label text (show only the latest message)
-            systemMessageLabel.setText(timestampedMessage);
-
-            // Update tooltip with all recent messages
-            StringBuilder tooltipText = new StringBuilder("<html>");
-            for (int i = Math.max(0, systemMessages.size() - 10); i < systemMessages.size(); i++) {
-                if (i > Math.max(0, systemMessages.size() - 10)) {
-                    tooltipText.append("<br>");
-                }
-                tooltipText.append(systemMessages.get(i));
-            }
-            tooltipText.append("</html>");
-            systemMessageLabel.setToolTipText(tooltipText.toString());
-        });
     }
 
     @Override
@@ -1102,6 +1318,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void close() {
         logger.info("Closing Chrome UI");
+
         contextManager.close();
         frame.dispose();
         // Unregister this instance
@@ -1253,28 +1470,55 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
 
             var project = contextManager.getProject();
-            var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
-            if (storedBounds.width > 0 && storedBounds.height > 0) {
-                previewFrame.setBounds(storedBounds);
-                if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                    previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+            boolean isDependencies = contentComponent instanceof DependenciesDrawerPanel;
+
+            if (isDependencies) {
+                if (dependenciesDialogBounds != null
+                        && dependenciesDialogBounds.width > 0
+                        && dependenciesDialogBounds.height > 0) {
+                    previewFrame.setBounds(dependenciesDialogBounds);
+                    if (!isPositionOnScreen(dependenciesDialogBounds.x, dependenciesDialogBounds.y)) {
+                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                    }
+                } else {
+                    previewFrame.setSize(800, 500);
+                    previewFrame.setLocationRelativeTo(frame);
                 }
             } else {
-                previewFrame.setSize(800, 600); // Default size if no bounds saved
-                previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+                var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
+                if (storedBounds.width > 0 && storedBounds.height > 0) {
+                    previewFrame.setBounds(storedBounds);
+                    if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                        previewFrame.setLocationRelativeTo(frame); // Center if off-screen
+                    }
+                } else {
+                    previewFrame.setSize(800, 600); // Default size if no bounds saved
+                    previewFrame.setLocationRelativeTo(frame); // Center relative to main window
+                }
             }
+
+            // Set a minimum width for preview windows to ensure search controls work properly
+            previewFrame.setMinimumSize(new Dimension(400, 200));
 
             // Add listener to save bounds using the "preview" key
             final JFrame finalFrameForBounds = previewFrame;
             previewFrame.addComponentListener(new java.awt.event.ComponentAdapter() {
                 @Override
                 public void componentMoved(java.awt.event.ComponentEvent e) {
-                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    if (isDependencies) {
+                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
+                    } else {
+                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    }
                 }
 
                 @Override
                 public void componentResized(java.awt.event.ComponentEvent e) {
-                    project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    if (isDependencies) {
+                        dependenciesDialogBounds = finalFrameForBounds.getBounds();
+                    } else {
+                        project.savePreviewWindowBounds(finalFrameForBounds); // Save JFrame bounds
+                    }
                 }
             });
         } else {
@@ -1373,6 +1617,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         } else {
             // For other types of previews, use a generic key based on class and title
             return "preview:" + contentComponent.getClass().getSimpleName() + ":" + title;
+        }
+    }
+
+    /** Shows the dependencies tab. If the tab is already visible, it collapses the sidebar. */
+    public void showDependenciesTab() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        int dependenciesTabIndex = leftTabbedPanel.indexOfComponent(dependenciesPanel);
+        if (dependenciesTabIndex != -1) {
+            handleTabToggle(dependenciesTabIndex);
         }
     }
 
@@ -1501,8 +1754,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 for (TaskEntry entry : outputFragment.entries()) {
                     if (entry.isCompressed()) {
 
-                        combinedMessages.add(Messages.create(
-                                Objects.toString(entry.summary(), "Summary not available"), ChatMessageType.SYSTEM));
+                        combinedMessages.add(
+                                Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
                     } else {
                         combinedMessages.addAll(castNonNull(entry.log()).messages());
                     }
@@ -1792,6 +2045,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Restore drawer states from global settings
         restoreDrawersFromGlobalSettings();
+
+        // Restore Workspace collapsed/expanded state: prefer per-project, fallback to global default
+        try {
+            Boolean projCollapsed = readProjectWorkspaceCollapsed();
+            boolean collapsed = (projCollapsed != null) ? projCollapsed : readGlobalWorkspaceCollapsed();
+            // Only apply if different from current to avoid redundant relayout
+            if (collapsed != this.workspaceCollapsed) {
+                setWorkspaceCollapsed(collapsed);
+            }
+        } catch (Exception ignored) {
+            // Defensive: do not let preference errors interrupt UI construction
+        }
     }
 
     /**
@@ -1799,22 +2064,70 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * handled by TerminalDrawerPanel itself to respect per-project settings.
      */
     private void restoreDrawersFromGlobalSettings() {
-        // Dependencies drawer (global)
-        boolean depOpen = GlobalUiSettings.isDependenciesDrawerOpen();
-        double depProp = GlobalUiSettings.getDependenciesDrawerProportion();
-        if (depOpen) {
-            // Ensure drawer is open synchronously before first layout to avoid startup motion
-            dependenciesDrawerPanel.openInitially();
-            if (depProp > 0.0 && depProp < 1.0) {
-                workspaceDependenciesSplit.setDividerLocation(depProp);
-            }
-        } else {
-            // Ensure it is collapsed
-            dependenciesDrawerPanel.collapseIfEmpty();
-        }
-
         // Do not restore Terminal drawer here.
         // TerminalDrawerPanel.restoreInitialState() handles per-project-first, then global fallback.
+    }
+
+    // --- Workspace collapsed persistence (per-project with global fallback) ---
+
+    private static final String PREFS_ROOT = "io.github.jbellis.brokk";
+    private static final String PREFS_PROJECTS = "projects";
+    private static final String PREF_KEY_WORKSPACE_COLLAPSED = "workspaceCollapsed";
+    private static final String PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL = "workspaceCollapsedGlobal";
+
+    private static Preferences prefsRoot() {
+        return Preferences.userRoot().node(PREFS_ROOT);
+    }
+
+    private static String sanitizeNodeName(String s) {
+        // Preferences node names may not contain '/'.
+        return s.replace('/', '_').replace('\\', '_').replace(':', '_');
+    }
+
+    private Preferences projectPrefsNode() {
+        String projKey = sanitizeNodeName(getProject().getRoot().toString());
+        return prefsRoot().node(PREFS_PROJECTS).node(projKey);
+    }
+
+    /** Save the current workspace collapsed state both per-project and as a global default. */
+    private void saveWorkspaceCollapsedSetting(boolean collapsed) {
+        try {
+            // Per-project
+            var p = projectPrefsNode();
+            p.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED, collapsed);
+            p.flush();
+        } catch (Exception ignored) {
+            // Non-fatal persistence failure
+        }
+        try {
+            // Global default
+            var g = prefsRoot();
+            g.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, collapsed);
+            g.flush();
+        } catch (Exception ignored) {
+            // Non-fatal persistence failure
+        }
+    }
+
+    /** Returns the per-project collapsed setting if present; otherwise returns null. */
+    private @Nullable Boolean readProjectWorkspaceCollapsed() {
+        try {
+            var p = projectPrefsNode();
+            String raw = p.get(PREF_KEY_WORKSPACE_COLLAPSED, null);
+            return (raw == null) ? null : Boolean.valueOf(raw);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /** Returns the global default collapsed setting, defaulting to false if unset. */
+    private boolean readGlobalWorkspaceCollapsed() {
+        try {
+            var g = prefsRoot();
+            return g.getBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, false);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     /** Adds property change listeners to split panes for saving positions (global-first). */
@@ -1831,13 +2144,40 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (mainVerticalSplitPane.isShowing()) {
-                var newPos = mainVerticalSplitPane.getDividerLocation();
-                if (newPos > 0) {
-                    // Keep backward-compat but persist globally as the source of truth
-                    project.saveRightVerticalSplitPosition(newPos);
-                    GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+            if (!mainVerticalSplitPane.isShowing()) {
+                return;
+            }
+
+            int newPos = mainVerticalSplitPane.getDividerLocation();
+
+            // Clamp so the bottom (Instructions area) never shrinks below its minimum height.
+            int total = mainVerticalSplitPane.getHeight();
+            if (total > 0) {
+                int dividerSize = mainVerticalSplitPane.getDividerSize();
+                Component bottom = mainVerticalSplitPane.getBottomComponent();
+                int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
+                int maxLocation = Math.max(0, total - dividerSize - minBottom);
+
+                if (newPos > maxLocation) {
+                    if (!adjustingMainDivider) {
+                        adjustingMainDivider = true;
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                mainVerticalSplitPane.setDividerLocation(maxLocation);
+                            } finally {
+                                adjustingMainDivider = false;
+                            }
+                        });
+                    }
+                    // Do not persist out-of-bounds positions
+                    return;
                 }
+            }
+
+            if (newPos > 0) {
+                // Keep backward-compat but persist globally as the source of truth
+                project.saveRightVerticalSplitPosition(newPos);
+                GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
             }
         });
 
@@ -1854,23 +2194,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     }
                 }
             }
-        });
-
-        // Persist Dependencies drawer open/proportion globally
-        workspaceDependenciesSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (workspaceDependenciesSplit.isShowing()) {
-                int total = workspaceDependenciesSplit.getWidth();
-                if (total > 0) {
-                    double prop = Math.max(
-                            0.05,
-                            Math.min(0.95, (double) workspaceDependenciesSplit.getDividerLocation() / (double) total));
-                    GlobalUiSettings.saveDependenciesDrawerProportion(prop);
-                    GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
-                }
-            }
-        });
-        workspaceDependenciesSplit.addPropertyChangeListener("dividerSize", e -> {
-            GlobalUiSettings.saveDependenciesDrawerOpen(workspaceDependenciesSplit.getDividerSize() > 0);
         });
 
         // Persist Terminal drawer open/proportion globally
@@ -1915,8 +2238,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void updateCaptureButtons() {
-        var messageSize = historyOutputPanel.getLlmRawMessages(true).size();
-        SwingUtilities.invokeLater(() -> historyOutputPanel.setCopyButtonEnabled(messageSize > 0));
+        var messageSize = historyOutputPanel.getLlmRawMessages().size();
+        SwingUtilities.invokeLater(() -> {
+            var enabled = messageSize > 0;
+            historyOutputPanel.setCopyButtonEnabled(enabled);
+            historyOutputPanel.setClearButtonEnabled(enabled);
+            historyOutputPanel.setCaptureButtonEnabled(enabled);
+            historyOutputPanel.setOpenWindowButtonEnabled(enabled);
+        });
     }
 
     public JFrame getFrame() {
@@ -2113,7 +2442,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Called by MenuBar after constructing the BlitzForge menu item. */
     public void setBlitzForgeMenuItem(JMenuItem blitzForgeMenuItem) {
-        this.blitzForgeMenuItem = requireNonNull(blitzForgeMenuItem);
+        this.blitzForgeMenuItem = blitzForgeMenuItem;
     }
 
     public void showFileInProjectTree(ProjectFile projectFile) {
@@ -2446,6 +2775,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Ensure that prev setText calls are processed before blocking => we need the invokeLater
         SwingUtilities.invokeLater(() -> {
             historyOutputPanel.setMarkdownOutputPanelBlocking(blocked);
+            // Also propagate task progress state to the WebView so the frontend can react
+            historyOutputPanel.setTaskInProgress(blocked);
         });
     }
 
@@ -2473,6 +2804,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             //noinspection MagicConstant
             JOptionPane.showMessageDialog(frame, message, title, messageType);
         });
+    }
+
+    @Override
+    public void showNotification(NotificationRole role, String message) {
+        boolean allowed =
+                switch (role) {
+                    case COST -> GlobalUiSettings.isShowCostNotifications();
+                    case ERROR -> GlobalUiSettings.isShowErrorNotifications();
+                    case CONFIRM -> GlobalUiSettings.isShowConfirmNotifications();
+                    case INFO -> GlobalUiSettings.isShowInfoNotifications();
+                };
+        if (!allowed) return;
+
+        SwingUtilities.invokeLater(() -> historyOutputPanel.showNotification(role, message));
     }
 
     /** Helper method to find JScrollPane component within a container */
@@ -2573,6 +2918,27 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         label.setMinimumSize(label.getPreferredSize());
         label.setHorizontalAlignment(SwingConstants.CENTER);
         label.setToolTipText(tooltip);
+
+        // If this is a themed icon wrapper, ask it to ensure its delegate is resolved (non-blocking).
+        if (icon instanceof io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon themedIcon) {
+            try {
+                themedIcon.ensureResolved();
+            } catch (Exception ignored) {
+                // Defensive: do not let icon resolution errors interrupt UI construction
+            }
+        }
+
+        // Ensure we repaint when the label becomes showing; some themed icons resolve lazily and
+        // a repaint on SHOWING ensures the resolved image is painted immediately (fixes hover-only reveal).
+        label.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && label.isShowing()) {
+                SwingUtilities.invokeLater(() -> {
+                    label.revalidate();
+                    label.repaint();
+                });
+            }
+        });
+
         return label;
     }
 
@@ -2590,10 +2956,164 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return Math.max(min, Math.min(ideal, max));
     }
 
+    /**
+     * Toggle collapsing the Workspace (top of Workspace|Instructions split) and hide/show the divider between Output
+     * and the bottom stack.
+     */
+    public void toggleWorkspaceCollapsed() {
+        setWorkspaceCollapsed(!workspaceCollapsed);
+    }
+
+    /**
+     * Collapse/expand the Workspace area.
+     *
+     * <p>New behavior: - When collapsed, completely remove the Workspace+Instructions split from the bottom stack and
+     * show only the Instructions/Drawer as the bottom component. The Output↔Bottom divider remains visible. - When
+     * expanded, restore the original Workspace+Instructions split as the bottom component and restore the previous
+     * divider location for the top split (Workspace↔Instructions).
+     */
+    public void setWorkspaceCollapsed(boolean collapsed) {
+        Runnable r = () -> {
+            if (this.workspaceCollapsed == collapsed) {
+                return;
+            }
+
+            if (collapsed) {
+                // Also save as a proportion for robust restore after resizes
+                try {
+                    int t = Math.max(0, topSplitPane.getHeight());
+                    if (t > 0) {
+                        double p = (double) Math.max(0, topSplitPane.getDividerLocation()) / (double) t;
+                        // Clamp to avoid pathological values
+                        savedTopSplitProportion = Math.max(0.05, Math.min(0.95, p));
+                    }
+                } catch (Exception ignored) {
+                    // fallback will be used on restore
+                }
+
+                // Measure the current on-screen height of the Instructions area so we can keep it EXACT
+                int instructionsHeightPx = 0;
+                try {
+                    // Bottom of the topSplitPane is the Instructions container when expanded
+                    Component bottom = topSplitPane.getBottomComponent();
+                    if (bottom != null) {
+                        instructionsHeightPx = Math.max(0, bottom.getHeight());
+                    }
+                    // Fallback estimate if height not realized yet
+                    if (instructionsHeightPx == 0) {
+                        int tsTotal = Math.max(0, topSplitPane.getHeight());
+                        int tsDivider = topSplitPane.getDividerSize();
+                        int maxFromTop = Math.max(0, tsTotal - tsDivider);
+                        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
+                        instructionsHeightPx = Math.min(
+                                Math.max(minBottom, instructionsDrawerSplit.getMinimumSize().height), maxFromTop);
+                    }
+                } catch (Exception ignored) {
+                    // Defensive; we'll clamp during restore regardless
+                }
+                // Pin the measured Instructions height for exact restore later
+                pinnedInstructionsHeightPx = instructionsHeightPx;
+
+                // Swap to Instructions-only in the bottom
+                mainVerticalSplitPane.setBottomComponent(instructionsDrawerSplit);
+
+                // Revalidate layout, then set the main divider so bottom == pinned Instructions height
+                mainVerticalSplitPane.revalidate();
+                SwingUtilities.invokeLater(
+                        () -> applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx)));
+
+                this.workspaceCollapsed = true;
+            } else {
+                // Ensure the workspace split bottom points to the instructions drawer, then restore it as bottom
+                try {
+                    topSplitPane.setBottomComponent(instructionsDrawerSplit);
+                } catch (Exception ignored) {
+                    // If it's already set due to prior operations, ignore
+                }
+                mainVerticalSplitPane.setBottomComponent(topSplitPane);
+
+                // Revalidate the top split, then restore Workspace and bottom height exactly
+                topSplitPane.revalidate();
+                SwingUtilities.invokeLater(() -> {
+                    // Choose saved proportion; fall back to DEFAULT if missing
+                    double p = (savedTopSplitProportion > 0.0 && savedTopSplitProportion < 1.0)
+                            ? savedTopSplitProportion
+                            : DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT;
+                    // Clamp proportion
+                    p = Math.max(0.05, Math.min(0.95, p));
+
+                    // Compute the target bottom height so that Instructions stays at pinnedInstructionsHeightPx
+                    // For a vertical JSplitPane: bottomHeight = (1 - p) * T - dividerSize  =>  T = (pinned +
+                    // dividerSize) / (1 - p)
+                    int dividerSizeTS = topSplitPane.getDividerSize();
+                    int pinned = Math.max(0, pinnedInstructionsHeightPx);
+                    int desiredBottom = (int) Math.round((pinned + dividerSizeTS) / Math.max(0.05, (1.0 - p)));
+
+                    // Set the main Output↔Bottom divider so bottom == desiredBottom (clamped)
+                    applyMainDividerForExactBottomHeight(desiredBottom);
+
+                    // Finally set the top split divider by proportion to restore Workspace share
+                    try {
+                        topSplitPane.setDividerLocation(p);
+                    } catch (Exception ignored) {
+                        // ignore
+                    }
+                });
+
+                this.workspaceCollapsed = false;
+            }
+
+            // Refresh layout/paint
+            mainVerticalSplitPane.revalidate();
+            mainVerticalSplitPane.repaint();
+
+            // Persist collapsed/expanded state (per-project + global)
+            try {
+                saveWorkspaceCollapsedSetting(this.workspaceCollapsed);
+            } catch (Exception ignored) {
+                // Non-fatal persistence failure
+            }
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    /**
+     * Set the Output↔Bottom divider so that the bottom height equals the exact desired pixel height, clamped to the
+     * bottom component's minimum size. This is used when collapsing Workspace to guarantee the Instructions area does
+     * not resize at all.
+     */
+    private void applyMainDividerForExactBottomHeight(int desiredBottomPx) {
+        int total = mainVerticalSplitPane.getHeight();
+        if (total <= 0) {
+            return;
+        }
+        int dividerSize = mainVerticalSplitPane.getDividerSize();
+        java.awt.Component bottom = mainVerticalSplitPane.getBottomComponent();
+        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
+
+        int target = Math.max(0, desiredBottomPx);
+        int minAllowed = minBottom;
+        int maxAllowed = Math.max(minAllowed, total - dividerSize); // cannot exceed available space
+        int clampedBottom = Math.max(minAllowed, Math.min(target, maxAllowed));
+
+        int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
+        mainVerticalSplitPane.setDividerLocation(safeDivider);
+    }
+
     /** Updates the terminal font size for all active terminals. */
     public void updateTerminalFontSize() {
-        SwingUtilities.invokeLater(() -> {
-            terminalDrawer.updateTerminalFontSize();
-        });
+        SwingUtilities.invokeLater(() -> terminalDrawer.updateTerminalFontSize());
+    }
+
+    @Override
+    public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
+        var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
+        SwingUtilities.invokeLater(() -> dialog.setVisible(true));
+        return dialog;
     }
 }

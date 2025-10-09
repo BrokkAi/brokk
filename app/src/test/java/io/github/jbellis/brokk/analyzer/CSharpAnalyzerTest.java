@@ -60,7 +60,7 @@ public final class CSharpAnalyzerTest {
                 normalize.apply(expectedClassASkeleton), normalize.apply(classASkeleton), "Class A skeleton mismatch.");
 
         // Check that attribute_list capture does not result in top-level CodeUnits or signatures
-        boolean hasAnnotationSignature = analyzer.withSignatures(Map::keySet).stream()
+        boolean hasAnnotationSignature = analyzer.withCodeUnitProperties(Map::keySet).stream()
                 .filter(cu -> cu.source().equals(fileA))
                 .anyMatch(cu -> "annotation".equals(cu.shortName())
                         || (cu.packageName() != null && cu.packageName().equals("annotation"))

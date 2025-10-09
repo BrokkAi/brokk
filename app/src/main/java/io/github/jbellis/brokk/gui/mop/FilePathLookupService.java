@@ -3,13 +3,12 @@ package io.github.jbellis.brokk.gui.mop;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.mop.FilePathResult.*;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +22,26 @@ public class FilePathLookupService {
 
     // Pattern to match line numbers: :42 or :15-20
     private static final Pattern LINE_NUMBER_PATTERN = Pattern.compile("^(.+?):([0-9]+)(?:-([0-9]+))?$");
+
+    // Lightweight, per-project filename index to avoid expensive Files.walk
+    private static final long INDEX_TTL_MS = 30_000L;
+    private static final Map<Path, CachedIndex> INDEX_CACHE = new ConcurrentHashMap<>();
+
+    private record IndexedMatch(String relativePath, String absolutePath, boolean isDirectory) {}
+
+    private static final class CachedIndex {
+        final Map<String, List<IndexedMatch>> byName;
+        final long builtAt;
+
+        CachedIndex(Map<String, List<IndexedMatch>> byName, long builtAt) {
+            this.byName = byName;
+            this.builtAt = builtAt;
+        }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - builtAt > INDEX_TTL_MS;
+        }
+    }
 
     /**
      * Main entry point for file path lookup
@@ -51,10 +70,13 @@ public class FilePathLookupService {
         logger.debug("Looking up {} file paths", filePaths.size());
 
         try {
+            // Build or reuse an index of tracked files once for this batch
+            var index = getOrBuildIndex(project);
+
             // Process each file path
             for (String filePath : filePaths) {
                 long startTime = System.currentTimeMillis();
-                var result = checkFilePathExists(project, filePath);
+                var result = checkFilePathExists(project, filePath, index);
                 long processingTime = System.currentTimeMillis() - startTime;
 
                 // Update processing time in result
@@ -79,15 +101,49 @@ public class FilePathLookupService {
         }
     }
 
-    /** Check if a single file path exists in the project */
-    private static FilePathLookupResult checkFilePathExists(IProject project, String filePath) {
+    /** Build or reuse a cached filename index for the project (TTL-based). */
+    private static CachedIndex getOrBuildIndex(IProject project) {
+        var key = project.getRoot().toAbsolutePath().normalize();
+        var existing = INDEX_CACHE.get(key);
+        if (existing != null && !existing.isExpired()) {
+            return existing;
+        }
+        long start = System.currentTimeMillis();
+        var byName = buildIndexFromTrackedFiles(project);
+        var fresh = new CachedIndex(byName, System.currentTimeMillis());
+        INDEX_CACHE.put(key, fresh);
+        logger.debug(
+                "FilePathLookupService: built filename index for {} with {} entries in {}ms",
+                key,
+                byName.size(),
+                fresh.builtAt - start);
+        return fresh;
+    }
+
+    /** Build a filename -> list of matches map from the repo's tracked files. */
+    private static Map<String, List<IndexedMatch>> buildIndexFromTrackedFiles(IProject project) {
+        var root = project.getRoot();
+        var tracked = project.getRepo().getTrackedFiles(); // honors ignore rules; avoids scanning .git/.brokk
+        Map<String, List<IndexedMatch>> byName = new HashMap<>(Math.max(16, tracked.size()));
+        for (var pf : tracked) {
+            var abs = pf.absPath();
+            var rel = root.relativize(abs).toString();
+            var name = abs.getFileName().toString();
+            var entry = new IndexedMatch(rel, abs.toString(), Files.isDirectory(abs));
+            byName.computeIfAbsent(name, k -> new ArrayList<>()).add(entry);
+        }
+        return byName;
+    }
+
+    /** Check if a single file path exists in the project (using the cached index for filename lookups). */
+    private static FilePathLookupResult checkFilePathExists(IProject project, String filePath, CachedIndex index) {
         try {
             // 1. Parse line numbers and clean the path
             var parsed = parseFilePath(filePath);
             var cleanPath = parsed.path();
 
             // 2. Find all matching files (no extension filtering - if it exists in project, it's valid)
-            var matches = findMatchingFiles(project, cleanPath, parsed.lineNumber(), parsed.lineRange());
+            var matches = findMatchingFiles(project, cleanPath, parsed.lineNumber(), parsed.lineRange(), index);
 
             if (matches.isEmpty()) {
                 logger.debug("No matches found for file path '{}'", filePath);
@@ -125,7 +181,11 @@ public class FilePathLookupService {
 
     /** Find all files matching the given path in the project */
     private static List<ProjectFileMatch> findMatchingFiles(
-            IProject project, String inputPath, @Nullable Integer lineNumber, @Nullable LineRange lineRange) {
+            IProject project,
+            String inputPath,
+            @Nullable Integer lineNumber,
+            @Nullable LineRange lineRange,
+            CachedIndex index) {
         var matches = new ArrayList<ProjectFileMatch>();
         var projectRoot = project.getRoot();
 
@@ -147,7 +207,7 @@ public class FilePathLookupService {
                 }
             } else {
                 // Relative path or bare filename - search within project
-                matches.addAll(findRelativePathMatches(project, inputPath, lineNumber, lineRange));
+                matches.addAll(findRelativePathMatches(project, inputPath, lineNumber, lineRange, index));
             }
 
         } catch (Exception e) {
@@ -175,7 +235,11 @@ public class FilePathLookupService {
 
     /** Find matches for relative paths and bare filenames */
     private static List<ProjectFileMatch> findRelativePathMatches(
-            IProject project, String inputPath, @Nullable Integer lineNumber, @Nullable LineRange lineRange) {
+            IProject project,
+            String inputPath,
+            @Nullable Integer lineNumber,
+            @Nullable LineRange lineRange,
+            CachedIndex index) {
         var matches = new ArrayList<ProjectFileMatch>();
         var projectRoot = project.getRoot();
         var cleanPath = removeQuotes(inputPath);
@@ -194,8 +258,8 @@ public class FilePathLookupService {
                             lineRange));
                 }
             } else {
-                // Bare filename - search entire project
-                matches.addAll(findFilesByName(project, cleanPath, lineNumber, lineRange));
+                // Bare filename - use the cached filename index
+                matches.addAll(findFilesByName(cleanPath, lineNumber, lineRange, index));
             }
         } catch (Exception e) {
             logger.warn("Error finding relative path matches for '{}': {}", inputPath, e.getMessage());
@@ -214,32 +278,18 @@ public class FilePathLookupService {
         return trimmed;
     }
 
-    /** Find all files with matching filename in the project */
+    /** Find all files with matching filename in the project (via cached index, no disk walk). */
     private static List<ProjectFileMatch> findFilesByName(
-            IProject project, String filename, @Nullable Integer lineNumber, @Nullable LineRange lineRange) {
+            String filename, @Nullable Integer lineNumber, @Nullable LineRange lineRange, CachedIndex index) {
         var matches = new ArrayList<ProjectFileMatch>();
-        var projectRoot = project.getRoot();
-
-        try {
-            // Walk the project directory tree to find matching files
-            try (Stream<Path> paths = Files.walk(projectRoot)) {
-                paths.filter(Files::isRegularFile)
-                        .filter(path -> path.getFileName().toString().equals(filename))
-                        .filter(path -> isWithinProject(path, projectRoot))
-                        .forEach(path -> {
-                            try {
-                                var relativePath = projectRoot.relativize(path);
-                                matches.add(createProjectFileMatch(
-                                        relativePath.toString(), path.toString(), false, lineNumber, lineRange));
-                            } catch (Exception e) {
-                                logger.debug("Error processing file '{}': {}", path, e.getMessage());
-                            }
-                        });
-            }
-        } catch (IOException e) {
-            logger.warn("Error walking project directory for filename '{}': {}", filename, e.getMessage());
+        var candidates = index.byName.get(filename);
+        if (candidates == null || candidates.isEmpty()) {
+            return matches;
         }
-
+        for (IndexedMatch im : candidates) {
+            matches.add(createProjectFileMatch(
+                    im.relativePath(), im.absolutePath(), im.isDirectory(), lineNumber, lineRange));
+        }
         return matches;
     }
 

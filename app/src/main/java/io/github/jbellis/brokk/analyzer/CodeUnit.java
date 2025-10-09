@@ -28,10 +28,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
             @JsonProperty("kind") CodeUnitType kind,
             @JsonProperty("packageName") String packageName,
             @JsonProperty("shortName") String shortName) {
-        Objects.requireNonNull(source, "source must not be null");
-        Objects.requireNonNull(kind, "kind must not be null");
-        Objects.requireNonNull(packageName, "packageName must not be null"); // Allow empty, but not null
-        Objects.requireNonNull(shortName, "shortName must not be null");
         if (shortName.isEmpty()) {
             throw new IllegalArgumentException("shortName must not be empty");
         }

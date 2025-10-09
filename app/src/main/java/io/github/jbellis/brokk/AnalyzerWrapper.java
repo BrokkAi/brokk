@@ -6,25 +6,24 @@ import io.github.jbellis.brokk.IWatchService.EventBatch;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
+import io.github.jbellis.brokk.util.LoggingExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
-import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
+public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
-
-    public static final String ANALYZER_BUSY_MESSAGE =
-            "Code Intelligence is still being built. Please wait until completion.";
-    public static final String ANALYZER_BUSY_TITLE = "Analyzer Busy";
 
     @Nullable
     private final AnalyzerListener listener; // can be null if no one is listening
@@ -34,32 +33,54 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     @Nullable
     private final Path gitRepoRoot;
 
-    private final ContextManager.TaskRunner runner;
     private final IProject project;
     private final IWatchService watchService;
 
-    private volatile Future<IAnalyzer> future;
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
-    private volatile boolean rebuildInProgress = false;
-    private volatile boolean externalRebuildRequested = false;
-    private volatile boolean rebuildPending = false;
-    private volatile boolean wasReady = false;
 
-    public AnalyzerWrapper(
-            IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener, IConsoleIO io) {
+    // I/O bridge to UI (Chrome) to request UI updates like updateGitRepo()
+    private final IConsoleIO io;
+
+    // Flags related to external rebuild requests and readiness
+    private volatile boolean externalRebuildRequested = false;
+    private volatile boolean wasReady = false;
+    private final AtomicLong idlePollTriggeredRebuilds = new AtomicLong(0);
+
+    // Dedicated single-threaded executor for analyzer refresh tasks
+    private final LoggingExecutorService analyzerExecutor;
+    private volatile @Nullable Thread analyzerExecutorThread;
+
+    public AnalyzerWrapper(IProject project, @Nullable AnalyzerListener listener, IConsoleIO io) {
         this.project = project;
         this.root = project.getRoot();
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        this.runner = runner;
         this.listener = listener;
+        this.io = io;
         if (listener == null) {
             this.watchService = new IWatchService() {};
         } else {
             this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
         }
 
+        // Create a single-threaded executor for analyzer refresh tasks (wrapped with logging).
+        var threadFactory = new ThreadFactory() {
+            private final ThreadFactory delegate = Executors.defaultThreadFactory();
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = delegate.newThread(r);
+                t.setName("brokk-analyzer-exec-" + root.getFileName());
+                t.setDaemon(true);
+                analyzerExecutorThread = t; // Store the thread reference
+                return t;
+            }
+        };
+        var delegateExecutor = Executors.newSingleThreadExecutor(threadFactory);
+        Consumer<Throwable> exceptionHandler = th -> logger.error("Uncaught exception in analyzer executor", th);
+        this.analyzerExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
+
         // build the initial Analyzer
-        future = runner.submit("Initializing code intelligence", () -> {
+        analyzerExecutor.submit(() -> {
             // Watcher will wait for the future to complete before processing events,
             // but it will start watching files immediately in order not to miss any changes in the meantime.
             var delayNotificationsUntilCompleted = new CompletableFuture<Void>();
@@ -67,7 +88,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             long start = System.currentTimeMillis();
-            currentAnalyzer = loadOrCreateAnalyzer(io);
+            currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
 
             delayNotificationsUntilCompleted.complete(null);
@@ -88,35 +109,52 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     public void onFilesChanged(EventBatch batch) {
         logger.trace("Events batch: {}", batch);
 
+        // Instrumentation: identify whether .git paths are included and whether we are watching .git at all
+        Path gitMetaRel = (gitRepoRoot != null) ? root.relativize(gitRepoRoot.resolve(".git")) : null;
+        boolean dueToGitMeta = gitMetaRel != null
+                && batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaRel));
+        boolean watchingGitMeta = gitRepoRoot != null;
+
+        int repoChangeCallbacks = 0;
+        int trackedFileChangeCallbacks = 0;
+
+        logger.debug(
+                "onFilesChanged fired: files={}, overflowed={}, dueToGitMeta={}, watchingGitMeta={}, gitMetaDir={}",
+                batch.files.size(),
+                batch.isOverflowed,
+                dueToGitMeta,
+                watchingGitMeta,
+                (gitMetaRel != null ? gitMetaRel : "(none)"));
+
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
             Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            if (batch.isOverflowed
-                    || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir))) {
+            boolean gitMetaTouched =
+                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+            if (batch.isOverflowed || gitMetaTouched) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
+                    repoChangeCallbacks++;
                     listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
+                    trackedFileChangeCallbacks++;
                 }
             }
         }
+
         // 2) If overflowed, assume something changed
         if (batch.isOverflowed) {
-            if (listener != null) listener.onTrackedFileChange();
-            refresh(() -> {
-                final var analyzer = requireNonNull(currentAnalyzer);
-                return analyzer.as(IncrementalUpdateProvider.class)
-                        .map(incAnalyzer -> {
-                            long startTime = System.currentTimeMillis();
-                            IAnalyzer result = incAnalyzer.update();
-                            long duration = System.currentTimeMillis() - startTime;
-                            logger.info(
-                                    "Library ingestion: {} analyzer refresh completed in {}ms",
-                                    getLanguageDescription(),
-                                    duration);
-                            return result;
-                        })
-                        .orElse(analyzer);
+            if (listener != null) {
+                listener.onTrackedFileChange();
+                trackedFileChangeCallbacks++;
+            }
+            refresh(prev -> {
+                long startTime = System.currentTimeMillis();
+                IAnalyzer result = prev.update();
+                long duration = System.currentTimeMillis() - startTime;
+                logger.info(
+                        "Library ingestion: {} analyzer refresh completed in {}ms", getLanguageDescription(), duration);
+                return result;
             });
         }
 
@@ -129,8 +167,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         if (!changedTrackedFiles.isEmpty()) {
             // call listener (refreshes git panel)
-            logger.debug("Changes in tracked files detected");
-            if (listener != null) listener.onTrackedFileChange();
+            logger.debug("Changes in tracked files detected ({} files)", changedTrackedFiles.size());
+            if (listener != null) {
+                listener.onTrackedFileChange();
+                trackedFileChangeCallbacks++;
+            }
         }
 
         var relevantFiles = changedTrackedFiles.stream()
@@ -149,33 +190,46 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                             .distinct()
                             .map(ProjectFile::toString)
                             .collect(Collectors.joining(", ")));
-            refresh(() -> {
-                final var analyzer = requireNonNull(currentAnalyzer);
-                return analyzer.as(IncrementalUpdateProvider.class)
-                        .map(incAnalyzer -> {
-                            long startTime = System.currentTimeMillis();
-                            IAnalyzer result = incAnalyzer.update(relevantFiles);
-                            long duration = System.currentTimeMillis() - startTime;
-                            logger.info(
-                                    "Library ingestion: {} analyzer processed {} files in {}ms",
-                                    getLanguageDescription(),
-                                    relevantFiles.size(),
-                                    duration);
-                            return result;
-                        })
-                        .orElse(analyzer);
-            });
+
+            updateFiles(relevantFiles);
         } else {
             logger.trace(
                     "No tracked files changed for any of the configured analyzer languages; skipping analyzer rebuild");
         }
+
+        // 4) Summary instrumentation helps verify whether only onTrackedFileChange() fires for e.g. CLI branch switches
+        logger.debug(
+                "Callbacks summary for batch: repoChangeCalls={}, trackedFileChangeCalls={}, overflow={}, dueToGitMeta={}, watchingGitMeta={}, changedTrackedFiles={}",
+                repoChangeCallbacks,
+                trackedFileChangeCallbacks,
+                batch.isOverflowed,
+                dueToGitMeta,
+                watchingGitMeta,
+                changedTrackedFiles.size());
+    }
+
+    @Override
+    public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
+        return refresh(prev -> {
+            long startTime = System.currentTimeMillis();
+            IAnalyzer result = prev.update(relevantFiles);
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info(
+                    "Library ingestion: {} analyzer processed {} files in {}ms",
+                    getLanguageDescription(),
+                    relevantFiles.size(),
+                    duration);
+            return result;
+        });
     }
 
     @Override
     public void onNoFilesChangedDuringPollInterval() {
-        if (externalRebuildRequested && !rebuildInProgress) {
-            logger.debug("External rebuild requested");
-            refresh(() -> getLanguageHandle().createAnalyzer(project));
+        if (externalRebuildRequested) {
+            long count = idlePollTriggeredRebuilds.incrementAndGet();
+            logger.debug("Idle-poll triggered external rebuild #{}", count);
+            refresh(prev -> getLanguageHandle().createAnalyzer(project));
+            externalRebuildRequested = false;
         }
     }
 
@@ -194,11 +248,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
      * loadSingleCachedAnalyzerForLanguage</code> are now performed here <em>before</em> we decide whether to call
      * <code>langHandle.loadAnalyzer()</code> (use cache) or <code>langHandle.createAnalyzer()</code> (full rebuild).
      */
-    private IAnalyzer loadOrCreateAnalyzer(IConsoleIO io) {
-        // ACHTUNG!
-        // Do not call into the listener directly in this method, since if the listener asks for the analyzer
-        // object via get() it can cause a deadlock.
-
+    private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
         var projectLangs = project.getAnalyzerLanguages().stream()
@@ -214,10 +264,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
         if (listener != null) {
-            runner.submit("Prep Code Intelligence", () -> {
-                listener.beforeEachBuild();
-                return null;
-            });
+            listener.beforeEachBuild();
         }
 
         logger.debug("Waiting for build details");
@@ -250,7 +297,13 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
             if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
-                communicativeAnalyzer.setIo(io);
+                communicativeAnalyzer.setIo(this.io);
+            } else if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
+                multiAnalyzer.getDelegates().values().forEach(delegate -> {
+                    if (delegate instanceof CanCommunicate communicativeAnalyzer) {
+                        communicativeAnalyzer.setIo(this.io);
+                    }
+                });
             }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
@@ -266,23 +319,17 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
             logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
-            // Check if analyzer became ready BEFORE submitting task to avoid race condition
-            boolean isNowReady = (analyzer != null);
-            logger.debug("Checking analyzer ready transition: wasReady={}, isNowReady={}", wasReady, isNowReady);
 
             // always refresh workspace in case there was a race and we shut down
             // after saving a new analyzer but before refreshing the workspace
-            runner.submit("Refreshing Workspace", () -> {
-                if (!wasReady && isNowReady) {
-                    logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
-                    listener.onAnalyzerReady();
-                } else {
-                    logger.debug("No analyzer ready transition detected");
-                }
-                listener.afterEachBuild(false);
-                wasReady = isNowReady;
-                return null;
-            });
+            if (wasReady) {
+                logger.debug("No analyzer ready transition detected");
+            } else {
+                logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
+                listener.onAnalyzerReady();
+            }
+            listener.afterEachBuild(false);
+            wasReady = true;
         } else {
             logger.debug("AnalyzerWrapper has no listener - skipping notification");
         }
@@ -290,27 +337,24 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
-            IAnalyzer finalAnalyzer = analyzer;
-            runner.submit("Refreshing Code Intelligence", () -> {
-                finalAnalyzer
-                        .as(IncrementalUpdateProvider.class)
-                        .ifPresent(incAnalyzer -> refresh(incAnalyzer::update));
-                return null;
-            });
+            refresh(IAnalyzer::update);
         }
 
         logger.debug("Analyzer load complete!");
         return analyzer;
     }
 
+    @Override
     public boolean providesInterproceduralAnalysis() {
         return project.getAnalyzerLanguages().stream().anyMatch(Language::providesInterproceduralAnalysis);
     }
 
+    @Override
     public boolean providesSummaries() {
         return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSummaries);
     }
 
+    @Override
     public boolean providesSourceCode() {
         return project.getAnalyzerLanguages().stream().anyMatch(Language::providesSourceCode);
     }
@@ -390,59 +434,45 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     }
 
     /**
-     * Refreshes the analyzer by scheduling a job on the analyzerExecutor. Avoids concurrent rebuilds by setting a flag,
-     * but if a change is detected during the rebuild, a new rebuild will be scheduled immediately afterwards. This
-     * refreshes the entire analyzer setup (single or multi). The supplier controls whether a new analyzer is created,
-     * or an optimistic or pessimistic incremental rebuild.
+     * Refreshes the analyzer by scheduling a job on the analyzerExecutor. The function controls whether a new analyzer
+     * is created, or an optimistic or pessimistic incremental rebuild. The function receives the current analyzer
+     * (possibly {@code null}) as its argument and must return the new analyzer to become current.
+     *
+     * <p>Returns the Future representing the scheduled task.
+     *
+     * <p>Synchronized to simplify reasoning about pause/resume; otherwise is inherently threadsafe.
      */
-    private synchronized void refresh(Supplier<IAnalyzer> supplier) {
-        if (rebuildInProgress) {
-            rebuildPending = true;
-            return;
-        }
-
-        rebuildInProgress = true;
-        logger.trace("Refreshing analyzer (full)");
-        future = runner.submit("Refreshing code intelligence", () -> {
-            try {
-                if (listener != null) {
-                    listener.beforeEachBuild();
-                }
-                // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
-                currentAnalyzer = supplier.get();
-                logger.debug("Analyzer refresh completed.");
-                if (listener != null) {
-                    // Check readiness after analyzer assignment to avoid race condition
-                    boolean isNowReady = (currentAnalyzer != null);
-                    logger.debug(
-                            "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
-                            wasReady,
-                            isNowReady);
-                    if (!wasReady && isNowReady) {
-                        logger.debug("Analyzer became ready, notifying listeners");
-                        listener.onAnalyzerReady();
-                    }
-                    listener.afterEachBuild(externalRebuildRequested);
-                    wasReady = isNowReady;
-                }
-                return currentAnalyzer;
-            } finally {
-                synchronized (AnalyzerWrapper.this) {
-                    rebuildInProgress = false;
-                    if (rebuildPending) {
-                        rebuildPending = false;
-                        logger.trace("Refreshing immediately after pending request");
-                        refresh(() -> getLanguageHandle().createAnalyzer(project));
-                    } else {
-                        externalRebuildRequested = false;
-                    }
-                }
+    private synchronized CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
+        logger.trace("Scheduling analyzer refresh task");
+        return analyzerExecutor.submit(() -> {
+            requireNonNull(currentAnalyzer);
+            if (listener != null) {
+                listener.beforeEachBuild();
             }
+            // The function is supplied the current analyzer (may be null).
+            currentAnalyzer = fn.apply(currentAnalyzer);
+            logger.debug("Analyzer refresh completed.");
+            if (listener != null) {
+                boolean isNowReady = (currentAnalyzer != null);
+                logger.debug(
+                        "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
+                        wasReady,
+                        isNowReady);
+                if (!wasReady && isNowReady) {
+                    logger.debug("Analyzer became ready, notifying listeners");
+                    listener.onAnalyzerReady();
+                }
+                listener.afterEachBuild(externalRebuildRequested);
+                wasReady = isNowReady;
+            }
+            return currentAnalyzer;
         });
     }
 
     /** Get the analyzer, showing a spinner UI while waiting if requested. */
+    @Override
     public IAnalyzer get() throws InterruptedException {
+        // Prevent calling blocking get() from the EDT.
         if (SwingUtilities.isEventDispatchThread()) {
             logger.error("Never call blocking get() from EDT", new UnsupportedOperationException());
             if (Boolean.getBoolean("brokk.devmode")) {
@@ -455,75 +485,42 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             return currentAnalyzer;
         }
 
-        // Otherwise, this must be the very first build (or a failed one).
+        // Prevent blocking on the analyzer's own executor thread.
+        if (Thread.currentThread() == analyzerExecutorThread) {
+            throw new IllegalStateException("Attempted to call blocking get() from the analyzer's own executor thread "
+                    + "before the analyzer was ready. This would cause a deadlock.");
+        }
+
+        // Otherwise, this must be the very first build (or a failed one); we'll have to wait for it to be ready.
         if (listener != null) {
             listener.onBlocked();
         }
-        try {
-            // Block until the future analyzer finishes building
-            return future.get();
-        } catch (ExecutionException e) {
-            throw new RuntimeException("Failed to create analyzer", e);
+        while (currentAnalyzer == null) {
+            //noinspection BusyWait
+            Thread.sleep(100);
         }
+        return currentAnalyzer;
     }
 
     /** @return null if analyzer is not ready yet */
-    @Nullable
-    public IAnalyzer getNonBlocking() {
-        if (currentAnalyzer != null) {
-            return currentAnalyzer;
-        }
-
-        try {
-            // Try to get with zero timeout - returns null if not done
-            return future.get(0, TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            // Not done yet
-            return null;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while checking analyzer", e);
-        } catch (ExecutionException e) {
-            throw new RuntimeException("Failed to create analyzer", e);
-        }
+    @Override
+    public @Nullable IAnalyzer getNonBlocking() {
+        return currentAnalyzer;
     }
 
-    /** @return true if the analyzer is ready for use, false if still building */
-    public boolean isReady() {
-        return getNonBlocking() != null;
-    }
-
+    @Override
     public void requestRebuild() {
         externalRebuildRequested = true;
     }
 
-    public void updateFiles(Set<ProjectFile> changedFiles) {
-        try {
-            final var analyzer = future.get();
-            currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
-                    .map(incAnalyzer -> {
-                        long startTime = System.currentTimeMillis();
-                        IAnalyzer result = incAnalyzer.update(changedFiles);
-                        long duration = System.currentTimeMillis() - startTime;
-                        logger.info(
-                                "Library ingestion: {} analyzer processed {} files in {}ms",
-                                getLanguageDescription(),
-                                changedFiles.size(),
-                                duration);
-                        return result;
-                    })
-                    .orElse(analyzer);
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     /** Pause the file watching service. */
+    @Override
     public synchronized void pause() {
         watchService.pause();
     }
 
     /** Resume the file watching service. */
+    @Override
     public synchronized void resume() {
         watchService.resume();
     }
@@ -531,5 +528,12 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     @Override
     public void close() {
         watchService.close();
+
+        try {
+            // Attempt a graceful shutdown of the analyzer executor; do not propagate exceptions.
+            analyzerExecutor.shutdownAndAwait(5000L, "AnalyzerWrapper");
+        } catch (Throwable th) {
+            logger.debug("Exception while shutting down analyzerExecutor: {}", th.getMessage());
+        }
     }
 }

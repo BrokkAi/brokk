@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import static java.util.Objects.requireNonNull;
-
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Language.DependencyCandidate;
 import io.github.jbellis.brokk.analyzer.Language.DependencyKind;
@@ -160,7 +158,7 @@ public class ImportLanguagePanel extends JPanel {
         searchField.getDocument().addDocumentListener(new SimpleDocumentListener() {
             @Override
             public void update(javax.swing.event.DocumentEvent e) {
-                var text = requireNonNull(searchField).getText().trim();
+                var text = searchField.getText().trim();
                 if (text.isEmpty()) {
                     sorter.setRowFilter(null);
                 } else {

@@ -52,6 +52,9 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
     private JLabel gitHubSuccessMessageLabel;
 
     @Nullable
+    private JLabel gitHubInstallAppLabel;
+
+    @Nullable
     private Timer authProgressTimer;
 
     @Nullable
@@ -182,6 +185,31 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
         gbc.fill = GridBagConstraints.HORIZONTAL;
         add(gitHubSuccessMessageLabel, gbc);
 
+        // Row: Installation App Reminder (initially hidden)
+        gitHubInstallAppLabel = new JLabel(
+                "<html>To use Brokk with your repositories, <a href=\"\">install the GitHub App</a>.</html>");
+        gitHubInstallAppLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        gitHubInstallAppLabel.setFont(gitHubInstallAppLabel
+                .getFont()
+                .deriveFont(Font.PLAIN, gitHubInstallAppLabel.getFont().getSize() * 0.9f));
+        gitHubInstallAppLabel.setVisible(false);
+        gitHubInstallAppLabel.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                try {
+                    Environment.openInBrowser(
+                            "https://github.com/apps/brokkai/installations/select_target",
+                            SwingUtilities.getWindowAncestor(parentComponent));
+                } catch (Exception ex) {
+                    logger.error("Failed to open GitHub App installation page", ex);
+                }
+            }
+        });
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        add(gitHubInstallAppLabel, gbc);
+
         // Filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
@@ -219,20 +247,24 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
             gitHubProgressBar.setVisible(authInProgress);
         }
 
-        // Show success message when authentication just completed
-        if (gitHubSuccessMessageLabel != null) {
+        // Show success message and app installation reminder when authentication just completed
+        if (gitHubSuccessMessageLabel != null && gitHubInstallAppLabel != null) {
             if (justCompleted) {
-                gitHubSuccessMessageLabel.setText("✓ Successfully connected to GitHub!");
+                gitHubSuccessMessageLabel.setText("Successfully connected to GitHub!");
                 gitHubSuccessMessageLabel.setVisible(true);
-                // Hide the success message after 5 seconds
+                gitHubInstallAppLabel.setVisible(true);
+                // Hide both messages after 10 seconds
                 var successLabel = gitHubSuccessMessageLabel;
-                Timer hideMessageTimer = new Timer(5000, e -> {
+                var installLabel = gitHubInstallAppLabel;
+                Timer hideMessageTimer = new Timer(10000, e -> {
                     successLabel.setVisible(false);
+                    installLabel.setVisible(false);
                 });
                 hideMessageTimer.setRepeats(false);
                 hideMessageTimer.start();
             } else if (!connected) {
                 gitHubSuccessMessageLabel.setVisible(false);
+                gitHubInstallAppLabel.setVisible(false);
             }
         }
 
@@ -263,8 +295,8 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
             // Stop timer when auth is complete
             authProgressTimer.stop();
             authProgressTimer = null;
-            currentDeviceCodeResponse = null; // Clear device code
-            browserOpenedForCurrentCode = false; // Reset flag
+            currentDeviceCodeResponse = null;
+            browserOpenedForCurrentCode = false;
         }
     }
 

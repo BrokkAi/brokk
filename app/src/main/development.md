@@ -50,29 +50,32 @@ Dependencies:
 ### Frontend Build Tasks
 
 #### Gradle Tasks (Recommended)
-- `./gradlew frontendBuild` - Build frontend with Vite (includes npm install)
+- `./gradlew frontendBuild` - Build frontend with Vite (includes pnpm install)
 - `./gradlew frontendClean` - Clean frontend build artifacts and node_modules
 
-#### Direct npm Commands (Development)
+#### Direct pnpm Commands (Development)
 For frontend-only development, you can work directly in the `frontend-mop/` directory:
 
 ```bash
 cd frontend-mop/
 
+# Use Gradle-installed pnpm (recommended)
+alias pnpm='../.gradle/pnpm/pnpm-v9.15.4/bin/pnpm'
+
 # Install dependencies
-npm install
+pnpm install
 
 # Development server with hot reload
-npm run dev
+pnpm run dev
 
 # Production build (outputs to app/src/main/resources/mop-web/)
-npm run build
+pnpm run build
 
 # Preview production build
-npm run preview
+pnpm run preview
 ```
 
-**Note**: The npm `build` script runs both worker and main builds via Vite. Gradle automatically handles npm commands during the main build process.
+**Note**: The project uses **pnpm** (not npm) for faster installs and better disk usage. The `build` script runs both worker and main builds via Vite. Gradle automatically handles pnpm via the `pnpmInstall` task. Configuration is in `frontend-mop/.npmrc` (shamefully-hoist mode for compatibility).
 
 ### Development Workflow - Individual Projects
 - `./gradlew :analyzer-api:compileJava` - Compile API interfaces only

@@ -38,4 +38,9 @@ public class DisabledAnalyzer implements IAnalyzer {
     public Set<String> getSymbols(Set<CodeUnit> sources) {
         return Collections.emptySet();
     }
+
+    @Override
+    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+        return Collections.emptyList();
+    }
 }

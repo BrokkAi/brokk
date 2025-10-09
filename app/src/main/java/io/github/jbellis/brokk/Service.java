@@ -48,7 +48,8 @@ public class Service {
 
     public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
-    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
+    // we tried setting this to 60s but the transition from thinking to final response can get long
+    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
 
     public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
 
@@ -781,6 +782,7 @@ public class Service {
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
             // Non-Brokk proxy
             builder = builder.apiKey("dummy-key");
+            params = params.user("e99a7c42-faf6-4139-9537-874c76928da4");
         } else {
             var kp = parseKey(MainProject.getBrokkKey());
             builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
@@ -1045,6 +1047,17 @@ public class Service {
         return model;
     }
 
+    /** Returns a model for the Wand button: prefer GPT-5 Mini; fall back to Gemini 2.0 Flash. */
+    public StreamingChatModel getWandModel() {
+        var modelName = modelLocations.containsKey(GPT_5_MINI) ? GPT_5_MINI : GEMINI_2_0_FLASH;
+        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
+        if (model == null) {
+            logger.error("Failed to get wand model '{}'", modelName);
+            return new UnavailableStreamingModel();
+        }
+        return model;
+    }
+
     /**
      * Convenience helper to check whether a real STT model is available.
      *
@@ -1078,9 +1091,6 @@ public class Service {
     public void sendFeedback(
             String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
             throws IOException {
-        Objects.requireNonNull(category, "category must not be null");
-        Objects.requireNonNull(feedbackText, "feedbackText must not be null");
-
         // Get user ID from Brokk key
         var kp = parseKey(MainProject.getBrokkKey());
 

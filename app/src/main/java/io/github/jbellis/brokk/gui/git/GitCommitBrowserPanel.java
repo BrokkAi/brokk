@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.gui.git;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -26,11 +28,22 @@ import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -80,6 +93,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     private JLabel revisionTextLabel;
     private JTextArea revisionIdTextArea;
     private JTextField commitSearchTextField;
+    // Debounce timer used for incremental search-as-you-type (default 300 ms)
+    @Nullable
+    private javax.swing.Timer debounceTimer;
+
+    // Default debounce timeout in milliseconds (can be made configurable later)
+    private static final int DEFAULT_DEBOUNCE_MILLIS = 300;
 
     private JMenuItem addToContextItem;
     private JMenuItem softResetItem;
@@ -159,20 +178,37 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             commitSearchTextField = new JTextField();
             commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
 
-            MaterialButton commitSearchButton = new MaterialButton("Search");
-            Runnable searchAction = () -> {
-                String query = commitSearchTextField.getText().trim();
-                if (!query.isEmpty()) {
-                    searchCommitsInPanel(query);
-                } else {
-                    reloader.reloadCurrentContext();
+            // Enter key triggers immediate search using centralized performSearch
+            commitSearchTextField.addActionListener(
+                    e -> performSearch(commitSearchTextField.getText().trim()));
+
+            // Incremental search: schedule searches as the user types (debounced)
+            commitSearchTextField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    scheduleSearch();
                 }
-            };
 
-            commitSearchButton.addActionListener(e -> searchAction.run());
-            commitSearchTextField.addActionListener(e -> searchAction.run());
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    scheduleSearch();
+                }
 
-            commitSearchInputPanel.add(commitSearchButton, BorderLayout.EAST);
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    // Plain text components typically do not fire this
+                }
+            });
+
+            // Initialize debounce timer: when it fires, run the centralized performSearch on the EDT.
+            debounceTimer = new javax.swing.Timer(DEFAULT_DEBOUNCE_MILLIS, ev -> {
+                ((javax.swing.Timer) ev.getSource()).stop(); // stop after firing
+                SwingUtilities.invokeLater(
+                        () -> performSearch(commitSearchTextField.getText().trim()));
+            });
+            debounceTimer.setRepeats(false);
+
+            // Search button removed: search-as-you-type and Enter key perform search
             commitsPanel.add(commitSearchInputPanel, BorderLayout.NORTH);
         } else {
             commitSearchTextField = new JTextField(); // Keep it initialized to avoid NPEs if accessed
@@ -637,7 +673,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
             var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
             if (ci == null || ci.stashIndex().isPresent()) {
-                chrome.systemOutput("Capture is only available for standard commits.");
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Capture is only available for standard commits.");
                 return;
             }
             final String commitId = ci.id();
@@ -646,11 +683,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             // Gather selected project files from the workspace
             var selectedFiles = chrome.getContextPanel().getSelectedProjectFiles();
             if (selectedFiles.isEmpty()) {
-                chrome.systemOutput("No project files selected in the workspace to capture.");
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "No project files selected in the workspace to capture.");
                 return;
             }
 
-            contextManager.submitUserTask("Capturing workspace selections at " + shortId, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 int success = 0;
                 for (var pf : selectedFiles) {
                     try {
@@ -664,7 +702,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 }
                 final int captured = success;
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput("Captured " + captured + " file(s) at " + shortId + ".");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Captured " + captured + " file(s) at " + shortId + ".");
                     chrome.updateWorkspace();
                 });
             });
@@ -718,11 +757,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             }
             final String branchLabel = branchTmp;
 
-            String taskName = (commitIds.size() == 1)
-                    ? "Cherry picking 1 commit into " + branchLabel
-                    : "Cherry picking " + commitIds.size() + " commits into " + branchLabel;
-
-            contextManager.submitUserTask(taskName, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 int applied = 0;
                 for (var cid : commitIds) {
                     CherryPickResult res;
@@ -756,7 +791,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
                 int finalApplied = applied;
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput("Cherry-picked " + finalApplied + " commit(s) into '" + branchLabel + "'.");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Cherry-picked " + finalApplied + " commit(s) into '" + branchLabel + "'.");
                     refreshCurrentViewAfterGitOp();
                     chrome.updateCommitPanel();
                 });
@@ -980,8 +1017,18 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    handleSingleFileSingleCommitAction((cid, fp) ->
-                            GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp)));
+                    var paths = changesTree.getSelectionPaths();
+                    int[] selRows = commitsTable.getSelectedRows();
+                    if (paths != null
+                            && paths.length == 1
+                            && selRows.length == 1
+                            && TreeNodeInfo.fromPath(paths[0], changesRootNode).isFile()) {
+                        var filePath =
+                                TreeNodeInfo.fromPath(paths[0], changesRootNode).filePath();
+                        if (filePath == null) return;
+                        var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ);
+                        GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo, filePath);
+                    }
                 }
             }
         });
@@ -998,6 +1045,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             var allChangedFiles = commits.stream()
                     .flatMap(GitCommitBrowserPanel::safeChangedFiles)
                     .collect(Collectors.toSet());
+            final int changedCount = allChangedFiles.size();
             var newRootNode = new DefaultMutableTreeNode("Changes");
             var filesByDir = new HashMap<Path, List<String>>();
             for (var file : allChangedFiles) {
@@ -1021,19 +1069,23 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 changesRootNode = newRootNode;
                 changesTreeModel = new DefaultTreeModel(changesRootNode);
                 changesTree.setModel(changesTreeModel);
-                expandAllNodes(changesTree, 0, changesTree.getRowCount());
+                if (changedCount < 20) {
+                    expandAllNodes(changesTree, 0, changesTree.getRowCount());
+                }
             });
         });
     }
 
     private void softResetToCommitInternal(String commitId, String commitMessage) {
-        contextManager.submitUserTask("Soft resetting to " + getShortId(commitId), () -> {
+        contextManager.submitExclusiveAction(() -> {
             var oldHeadId = getOldHeadId();
             try {
                 getRepo().softReset(commitId);
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput("Soft reset from " + getShortId(oldHeadId) + " to " + getShortId(commitId)
-                            + ": " + commitMessage);
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Soft reset from " + getShortId(oldHeadId) + " to " + getShortId(commitId) + ": "
+                                    + commitMessage);
                     refreshCurrentViewAfterGitOp(); // Assumes this method exists or is adapted
                 });
             } catch (GitAPIException e) {
@@ -1044,11 +1096,12 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void revertCommitInternal(String commitId) {
-        contextManager.submitUserTask("Reverting " + getShortId(commitId), () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 getRepo().revertCommit(commitId);
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput("Commit " + getShortId(commitId) + " reverted.");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Commit " + getShortId(commitId) + " reverted.");
                     refreshCurrentViewAfterGitOp();
                 });
             } catch (GitAPIException e) {
@@ -1060,11 +1113,11 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private void performStashOp(
             int idx, String description, StashActionPerformer repoCall, String successMsg, boolean refreshView) {
-        contextManager.submitUserTask(description + " @" + idx, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 repoCall.perform(idx);
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput(successMsg);
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMsg);
                     if (refreshView) {
                         refreshCurrentViewAfterGitOp();
                     }
@@ -1162,6 +1215,40 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         });
     }
 
+    /**
+     * Schedule a debounced search based on the current text in the search field. If the debounce timer is not
+     * initialized for some reason, falls back to an immediate search.
+     */
+    private void scheduleSearch() {
+        if (debounceTimer != null) {
+            if (debounceTimer.isRunning()) {
+                debounceTimer.restart();
+            } else {
+                debounceTimer.start();
+            }
+            return;
+        }
+
+        // Fallback: immediate execution (shouldn't normally happen)
+        String q = commitSearchTextField.getText().trim();
+        performSearch(q);
+    }
+
+    /* package-private so tests in the same package can call it */ void performSearch(String query) {
+        // Ensure UI-related actions run on the Event Dispatch Thread.
+        // If called off-EDT, re-dispatch and return immediately.
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            javax.swing.SwingUtilities.invokeLater(() -> performSearch(query));
+            return;
+        }
+
+        if (!query.isEmpty()) {
+            searchCommitsInPanel(query);
+        } else {
+            reloader.reloadCurrentContext();
+        }
+    }
+
     private void searchCommitsInPanel(String query) {
         contextManager.submitBackgroundTask("Searching commits for: " + query, () -> {
             try {
@@ -1170,8 +1257,13 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 // so we pass empty/false for them.
                 setCommits(searchResults, Collections.emptySet(), false, false, "Search: " + query);
                 SwingUtil.runOnEdt(() -> {
-                    if (searchResults.isEmpty()) chrome.systemOutput("No commits found matching: " + query);
-                    else chrome.systemOutput("Found " + searchResults.size() + " commits matching: " + query);
+                    if (searchResults.isEmpty())
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "No commits found matching: " + query);
+                    else
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Found " + searchResults.size() + " commits matching: " + query);
                 });
             } catch (Exception e) {
                 logger.error("Error searching commits for panel: {}", query, e);
@@ -1356,7 +1448,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         }
 
         // Token check first, as it's cheap and local.
-        if (!GitHubAuth.tokenPresent(contextManager.getProject())) {
+        if (!GitHubAuth.tokenPresent()) {
             return new ButtonConfig(
                     false,
                     "A GitHub token is required to create pull requests. Please configure it in settings.",
@@ -1386,37 +1478,83 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void handlePullAction(String branchName) {
-        contextManager.submitUserTask("Pulling " + branchName, () -> {
+        pullButton.setEnabled(false);
+        contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.pull(branchName);
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput(msg);
-                    refreshCurrentViewAfterGitOp();
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                    refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                     chrome.updateCommitPanel(); // For uncommitted changes
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pulling {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage()));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage());
+                    pullButton.setEnabled(true);
+                });
+            } catch (Exception ex) {
+                logger.error("Unexpected error pulling {}: {}", branchName, ex.getMessage(), ex);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Unexpected error pulling " + branchName + ": " + ex.getMessage());
+                    pullButton.setEnabled(true);
+                });
             }
         });
     }
 
     private void handlePushAction(String branchName) {
-        contextManager.submitUserTask("Pushing " + branchName, () -> {
+        pushButton.setEnabled(false);
+        contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.push(branchName);
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput(msg);
-                    refreshCurrentViewAfterGitOp();
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                    refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                 });
             } catch (GitRepo.GitPushRejectedException ex) {
                 logger.warn("Push rejected for {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError(
-                        "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: " + ex.getMessage(),
-                        "Push Rejected"));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError(
+                            "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: "
+                                    + ex.getMessage(),
+                            "Push Rejected");
+                    pushButton.setEnabled(true);
+                });
+            } catch (org.eclipse.jgit.api.errors.TransportException ex) {
+                logger.error("Push failed for {} due to transport/permission error: {}", branchName, ex.getMessage());
+                SwingUtil.runOnEdt(() -> {
+                    String errorMessage;
+                    if (GitRepo.isGitHubPermissionDenied(ex)) {
+                        errorMessage = String.format(
+                                """
+                                Push to %s was denied. This usually means:
+
+                                1. Missing or invalid GitHub token
+                                   → Go to Settings → Global → GitHub and verify your token
+
+                                2. You don't have write access to this repository
+                                   → Verify you own or are a collaborator on this repository
+                                """,
+                                branchName);
+                    } else {
+                        errorMessage = "Push failed for " + branchName + ": " + ex.getMessage();
+                    }
+                    chrome.toolError(errorMessage, "Push Permission Denied");
+                    pushButton.setEnabled(true);
+                });
             } catch (GitAPIException ex) {
                 logger.error("Error pushing {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Push error for " + branchName + ": " + ex.getMessage()));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Push error for " + branchName + ": " + ex.getMessage());
+                    pushButton.setEnabled(true);
+                });
+            } catch (Exception ex) {
+                logger.error("Unexpected error pushing {}: {}", branchName, ex.getMessage(), ex);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Unexpected error pushing " + branchName + ": " + ex.getMessage());
+                    pushButton.setEnabled(true);
+                });
             }
         });
     }
@@ -1465,12 +1603,10 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             TableUtils.fitColumnWidth(commitsTable, 1); // Author
             TableUtils.fitColumnWidth(commitsTable, 2); // Date
 
-            if (commitsTableModel.getRowCount() > 0) {
-                commitsTable.setRowSelectionInterval(0, 0);
-            } else { // Should be covered by commitRows.isEmpty() check, but defensive
-                revisionTextLabel.setText("Revision:");
-                revisionIdTextArea.setText("N/A");
-            }
+            // Do not auto-select any commit; leave selection empty until the user chooses.
+            revisionTextLabel.setText("Revision:");
+            revisionIdTextArea.setText("N/A");
+            viewDiffButton.setEnabled(false);
         } finally {
             selectionModel.setValueIsAdjusting(false);
         }
@@ -1554,7 +1690,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     return;
                 }
             }
-            chrome.systemOutput("Commit " + getShortId(commitId) + " not found in current commit browser view.");
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Commit " + getShortId(commitId) + " not found in current commit browser view.");
         });
     }
 
@@ -1594,19 +1732,17 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         }
     }
 
-    /** Builds a git-style tooltip string for a commit. */
+    /** Builds a git-style tooltip string for a commit using HTML formatting. */
     private String buildTooltip(ICommitInfo commit) {
-        // Author
         String author = commit.author();
 
-        // Date (git log default format)
         String dateStr = "";
         if (commit.date() != null) {
             dateStr = DateTimeFormatter.ofPattern("EEE MMM d HH:mm:ss yyyy Z", java.util.Locale.US)
                     .format(ZonedDateTime.ofInstant(commit.date(), ZoneId.systemDefault()));
         }
 
-        // Full commit message (fallback to short message if full unavailable)
+        // Fetch full commit message (fallback to short message if unavailable)
         String fullMessage;
         try {
             fullMessage = getRepo().getCommitFullMessage(commit.id());
@@ -1614,12 +1750,35 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             fullMessage = commit.message();
         }
 
-        // Indent every message line by four spaces
-        String indentedMsg = java.util.Arrays.stream(fullMessage.split("\\R"))
-                .map(line -> "    " + line)
-                .collect(java.util.stream.Collectors.joining("\n"));
+        // Truncate very long messages for tooltip display
+        final int MAX_LINES = 20;
+        final int MAX_LINE_LENGTH = 100;
+        var linesList = Splitter.on(Pattern.compile("\\R")).splitToList(fullMessage);
+        var tooltipLines = new ArrayList<String>();
 
-        return "Author: " + author + "\n" + "Date:   " + dateStr + "\n\n" + indentedMsg;
+        for (int i = 0; i < Math.min(linesList.size(), MAX_LINES); i++) {
+            String line = linesList.get(i);
+            if (line.length() > MAX_LINE_LENGTH) {
+                line = line.substring(0, MAX_LINE_LENGTH) + "...";
+            }
+            tooltipLines.add(line);
+        }
+
+        if (linesList.size() > MAX_LINES) {
+            tooltipLines.add("... (" + (linesList.size() - MAX_LINES) + " more lines)");
+        }
+
+        String messageHtml = escapeHtml(String.join("\n", tooltipLines));
+
+        return "<html><body style='max-width: 500px;'>"
+                + "<b>Author:</b> " + escapeHtml(author) + "<br>"
+                + "<b>Date:</b> " + escapeHtml(dateStr) + "<br><br>"
+                + "<pre style='margin: 0; white-space: pre-wrap;'>" + messageHtml + "</pre>"
+                + "</body></html>";
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private void configureButton(

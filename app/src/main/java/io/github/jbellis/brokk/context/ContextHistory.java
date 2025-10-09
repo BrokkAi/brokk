@@ -7,18 +7,16 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -149,7 +147,7 @@ public class ContextHistory {
      * @param contextGenerator a function to apply to the live context
      * @return the new live context
      */
-    public synchronized Context push(java.util.function.Function<Context, Context> contextGenerator) {
+    public synchronized Context push(Function<Context, Context> contextGenerator) {
         var updatedLiveContext = contextGenerator.apply(this.liveContext);
         if (this.liveContext.equals(updatedLiveContext)) {
             return this.liveContext;
@@ -159,6 +157,26 @@ public class ContextHistory {
         this.liveContext = fr.liveContext();
         addFrozenContextAndClearRedo(fr.frozenContext());
         return this.liveContext;
+    }
+
+    /**
+     * Applies the given function to the top (frozen) context and pushes the result to the history. This operates on the
+     * frozen context rather than the live context, making it suitable for silent updates that shouldn't trigger file
+     * reloading or history compression.
+     *
+     * <p>Unlike with push(), the `contextGenerator` must not generate dynamic ContextFragments.
+     */
+    public synchronized Context pushQuietly(Function<Context, Context> contextGenerator) {
+        var updatedTopContext = contextGenerator.apply(topContext());
+        if (topContext().equals(updatedTopContext)) {
+            return topContext();
+        }
+
+        // apply the same transformation to the live context
+        assert !updatedTopContext.containsDynamicFragments();
+        liveContext = contextGenerator.apply(liveContext);
+        addFrozenContextAndClearRedo(updatedTopContext);
+        return updatedTopContext;
     }
 
     public synchronized void pushLiveAndFrozen(Context live, Context frozen) {
@@ -200,47 +218,11 @@ public class ContextHistory {
         var fr = liveContext.freezeAndCleanup();
         if (!topContext().workspaceContentEquals(fr.frozenContext())) {
             var topCtx = topContext();
-
-            // Compute list of filenames that changed (added, removed, or modified)
-            var oldMap = new HashMap<String, String>();
-            topCtx.getEditableFragments()
-                    .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                    .forEach(fragment -> {
-                        var pf = fragment.files().iterator().next();
-                        var key = pf.getRelPath().toString();
-                        oldMap.put(key, fragment.text());
-                    });
-
-            var newMap = new HashMap<String, String>();
-            fr.frozenContext()
-                    .getEditableFragments()
-                    .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                    .forEach(fragment -> {
-                        var pf = fragment.files().iterator().next();
-                        var key = pf.getRelPath().toString();
-                        newMap.put(key, fragment.text());
-                    });
-
-            var keys = new HashSet<String>();
-            keys.addAll(oldMap.keySet());
-            keys.addAll(newMap.keySet());
-            var changedNames = new ArrayList<String>();
-            for (var key : keys) {
-                var oldText = oldMap.get(key);
-                var newText = newMap.get(key);
-                if (!Objects.equals(oldText, newText)) {
-                    var filename = Path.of(key).getFileName().toString();
-                    changedNames.add(filename);
-                }
-            }
-            var filesSuffix = changedNames.isEmpty() ? "" : ": " + String.join(", ", changedNames);
-
             var previousAction = topCtx.getAction();
             if (!previousAction.startsWith("Load external changes")) {
                 // If the previous action is not about external changes, push a new context
-                var newAction = "Load external changes" + filesSuffix;
-                var newLiveContext =
-                        fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
+                var newLiveContext = fr.liveContext()
+                        .withParsedOutput(null, CompletableFuture.completedFuture("Load external changes"));
                 var cleaned = newLiveContext.freezeAndCleanup();
                 pushLiveAndFrozen(cleaned.liveContext(), cleaned.frozenContext());
                 return cleaned.frozenContext();
@@ -262,8 +244,7 @@ public class ContextHistory {
             }
 
             // Form the new action string with the updated count
-            var newAction = (newCount > 1 ? "Load external changes (%d)".formatted(newCount) : "Load external changes")
-                    + filesSuffix;
+            var newAction = newCount > 1 ? "Load external changes (%d)".formatted(newCount) : "Load external changes";
             var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
             var cleaned = newLiveContext.freezeAndCleanup();
             replaceTop(cleaned.liveContext(), cleaned.frozenContext());
@@ -328,12 +309,14 @@ public class ContextHistory {
             if (!trackedToStage.isEmpty() && project.hasGit()) {
                 try {
                     project.getRepo().add(trackedToStage);
-                    io.systemOutput("Restored and staged files: "
-                            + String.join(
-                                    ", ",
-                                    trackedToStage.stream()
-                                            .map(Object::toString)
-                                            .toList()));
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Restored and staged files: "
+                                    + String.join(
+                                            ", ",
+                                            trackedToStage.stream()
+                                                    .map(Object::toString)
+                                                    .toList()));
                 } catch (Exception e) {
                     var msg = "Failed to stage restored files during undo: " + e.getMessage();
                     io.toolError(msg, "Undo Error");
@@ -384,10 +367,14 @@ public class ContextHistory {
                             Files.deleteIfExists(file.absPath());
                         }
                     }
-                    io.systemOutput("Deleted files as part of redo: "
-                            + String.join(
-                                    ", ",
-                                    filesToDelete.stream().map(Object::toString).toList()));
+                    io.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Deleted files as part of redo: "
+                                    + String.join(
+                                            ", ",
+                                            filesToDelete.stream()
+                                                    .map(Object::toString)
+                                                    .toList()));
                 } catch (Exception e) {
                     io.toolError("Failed to delete files during redo: " + e.getMessage(), "Redo error");
                     logger.error("Failed to delete files during redo", e);
@@ -490,7 +477,9 @@ public class ContextHistory {
                             pf.write(newContent);
                             var restoredFiles = new ArrayList<String>();
                             restoredFiles.add(pf.toString());
-                            io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
+                            io.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Restored files: " + String.join(", ", restoredFiles));
                             io.updateWorkspace();
                         }
                     } catch (IOException e) {

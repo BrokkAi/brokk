@@ -90,7 +90,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             String originalClassName,
             Map<String, String> meta,
             @Nullable String reprContent) {
-        super(requireNonNull(contentHashAsId), contextManager); // ID is the content hash, must not be null
+        super(contentHashAsId, contextManager); // ID is the content hash, must not be null
         this.originalType = originalType;
         this.descriptionContent = description;
         this.shortDescriptionContent = shortDescription;
@@ -515,21 +515,6 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 var depth = Integer.parseInt(depthStr);
                 var isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
                 yield new ContextFragment.CallGraphFragment(cm, methodName, depth, isCalleeGraph);
-            }
-            case "io.github.jbellis.brokk.context.ContextFragment$BuildFragment" -> {
-                // Recreate a live BuildFragment with the captured build output.
-                var bf = new ContextFragment.BuildFragment(cm);
-                if (isTextFragment && textContent != null) {
-                    // BuildFragment.text() stores "# CURRENT BUILD STATUS\n\n" + content.
-                    // We store the whole textContent during freezing, so strip the prefix when restoring.
-                    String prefix = "# CURRENT BUILD STATUS\n\n";
-                    if (textContent.startsWith(prefix)) {
-                        bf.setContent(textContent.substring(prefix.length()));
-                    } else {
-                        bf.setContent(textContent);
-                    }
-                }
-                yield bf;
             }
             case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment" -> {
                 var repoRoot = meta.get("repoRoot");

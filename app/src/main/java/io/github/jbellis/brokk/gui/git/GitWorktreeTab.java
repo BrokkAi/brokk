@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -386,7 +387,8 @@ public class GitWorktreeTab extends JPanel {
                             contextManager.submitBackgroundTask("Pruning stale worktrees", () -> {
                                 try {
                                     gitRepo.pruneWorktrees();
-                                    chrome.systemOutput("Successfully pruned stale worktrees.");
+                                    chrome.showNotification(
+                                            IConsoleIO.NotificationRole.INFO, "Successfully pruned stale worktrees.");
                                     SwingUtilities.invokeLater(this::loadWorktrees); // Reload after prune
                                 } catch (Exception e) {
                                     logger.error("Failed to prune stale worktrees", e);
@@ -446,7 +448,7 @@ public class GitWorktreeTab extends JPanel {
 
         MainProject parentProject = (MainProject) contextManager.getProject().getParent();
 
-        contextManager.submitContextTask("Opening/focusing worktree(s)", () -> {
+        contextManager.submitContextTask(() -> {
             for (Path worktreePath : worktreePaths) {
                 if (worktreePath.equals(parentProject.getRoot())) {
                     logger.debug("Attempted to open/focus main project from worktree tab, focusing current window.");
@@ -497,7 +499,7 @@ public class GitWorktreeTab extends JPanel {
         MainProject project = contextManager.getProject().getMainProject();
         IGitRepo repo = project.getRepo(); // This repo instance is effectively final for the lambda
 
-        contextManager.submitContextTask("Preparing to add worktree...", () -> {
+        contextManager.submitContextTask(() -> {
             if (!(repo instanceof GitRepo gitRepo)) {
                 SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
                         this,
@@ -683,7 +685,7 @@ public class GitWorktreeTab extends JPanel {
             try {
                 AddWorktreeDialogResult dialogResult = dialogFuture.get(); // Wait for dialog on background thread
                 if (!dialogResult.okPressed()) {
-                    chrome.systemOutput("Add worktree cancelled by user.");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Add worktree cancelled by user.");
                     return;
                 }
 
@@ -723,7 +725,8 @@ public class GitWorktreeTab extends JPanel {
                 } else { // Using existing branch
                 }
 
-                chrome.systemOutput("Adding worktree for branch: " + branchForWorktree);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Adding worktree for branch: " + branchForWorktree);
 
                 WorktreeSetupResult setupResult = setupNewGitWorktree(
                         project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
@@ -739,14 +742,18 @@ public class GitWorktreeTab extends JPanel {
                 final String finalBranchForWorktree = branchForWorktree; // for lambda
                 openProjectBuilder.open().thenAccept(success -> {
                     if (Boolean.TRUE.equals(success)) {
-                        chrome.systemOutput("Successfully opened worktree: " + newWorktreePath.getFileName());
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Successfully opened worktree: " + newWorktreePath.getFileName());
                     } else {
                         chrome.toolError("Error opening worktree " + newWorktreePath.getFileName());
                     }
                     SwingUtilities.invokeLater(this::loadWorktrees);
                 });
-                chrome.systemOutput("Successfully created worktree for branch '" + finalBranchForWorktree + "' at "
-                        + newWorktreePath);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Successfully created worktree for branch '" + finalBranchForWorktree + "' at "
+                                + newWorktreePath);
 
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error during add worktree dialog processing or future execution", e);
@@ -800,7 +807,7 @@ public class GitWorktreeTab extends JPanel {
             return;
         }
 
-        contextManager.submitContextTask("Removing worktree(s)", () -> {
+        contextManager.submitContextTask(() -> {
             boolean anyFailed = false;
             boolean forceAll = false;
             for (Path worktreePath : pathsToRemove) {
@@ -872,7 +879,8 @@ public class GitWorktreeTab extends JPanel {
                                 anyFailed = true;
                             }
                         } else {
-                            chrome.systemOutput(
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
                                     "Force removal of worktree " + worktreePath.getFileName() + " cancelled by user.");
                         }
                     } catch (InterruptedException ie) {
@@ -902,9 +910,11 @@ public class GitWorktreeTab extends JPanel {
             SwingUtilities.invokeLater(() -> {
                 loadWorktrees(); // Refresh list after all attempts
                 if (finalAnyFailed) {
-                    chrome.systemOutput("Completed worktree removal with one or more errors.");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Completed worktree removal with one or more errors.");
                 } else if (!pathsToRemove.isEmpty()) {
-                    chrome.systemOutput("Successfully removed all selected worktrees.");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Successfully removed all selected worktrees.");
                 }
             });
         });
@@ -915,7 +925,9 @@ public class GitWorktreeTab extends JPanel {
         try {
             repo.removeWorktree(worktreePath, force);
 
-            chrome.systemOutput("Successfully " + (force ? "force " : "") + "removed worktree at " + worktreePath);
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Successfully " + (force ? "force " : "") + "removed worktree at " + worktreePath);
 
             SwingUtilities.invokeLater(() -> {
                 var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
@@ -1096,7 +1108,7 @@ public class GitWorktreeTab extends JPanel {
 
         Path worktreePath = worktreeProject.getRoot();
 
-        contextManager.submitUserTask("Performing merge operation...", () -> {
+        contextManager.submitExclusiveAction(() -> {
             String originalParentBranch = null;
             try {
                 originalParentBranch = parentGitRepo.getCurrentBranch();
@@ -1127,7 +1139,8 @@ public class GitWorktreeTab extends JPanel {
                             case SQUASH_COMMIT -> "squash merged";
                             case REBASE_MERGE -> "rebase-merged";
                         };
-                chrome.systemOutput(
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
                         "Successfully " + modeDescription + " " + worktreeBranchName + " into " + targetBranch);
 
                 // Post-Merge Cleanup
@@ -1137,7 +1150,9 @@ public class GitWorktreeTab extends JPanel {
                             worktreePath); // Attempt to close if open
                     try {
                         parentGitRepo.removeWorktree(worktreePath, true); // Force remove during automated cleanup
-                        chrome.systemOutput("Worktree " + worktreePath.getFileName() + " removed.");
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Worktree " + worktreePath.getFileName() + " removed.");
 
                         // After successfully removing the worktree, close any associated Brokk window.
                         SwingUtilities.invokeLater(() -> {
@@ -1163,7 +1178,8 @@ public class GitWorktreeTab extends JPanel {
                         logger.info("Attempting to force delete branch: {}", worktreeBranchName);
                         try {
                             parentGitRepo.forceDeleteBranch(worktreeBranchName);
-                            chrome.systemOutput("Branch " + worktreeBranchName + " deleted.");
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO, "Branch " + worktreeBranchName + " deleted.");
                         } catch (GitAPIException e) {
                             String branchDeleteError =
                                     "Failed to delete branch " + worktreeBranchName + ": " + e.getMessage();
@@ -1191,7 +1207,9 @@ public class GitWorktreeTab extends JPanel {
                     try {
                         logger.info("Attempting to switch parent repository back to branch: {}", originalParentBranch);
                         parentGitRepo.checkout(originalParentBranch);
-                        chrome.systemOutput("Switched parent repository back to branch: " + originalParentBranch);
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Switched parent repository back to branch: " + originalParentBranch);
                     } catch (GitAPIException e) {
                         String restoreError = "Critical: Failed to switch parent repository back to original branch '"
                                 + originalParentBranch + "': " + e.getMessage();

@@ -51,6 +51,38 @@ class CodeAgentTest {
         }
     }
 
+    private static class CountingPreprocessorModel implements StreamingChatModel {
+        private final AtomicInteger preprocessingCallCount = new AtomicInteger(0);
+        private final String cannedResponse;
+
+        CountingPreprocessorModel(String cannedResponse) {
+            this.cannedResponse = cannedResponse;
+        }
+
+        @Override
+        public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+            // Check if this is a preprocessing request by looking for the distinctive system message
+            boolean isPreprocessingRequest = chatRequest.messages().stream().anyMatch(msg -> {
+                String text = Messages.getText(msg);
+                return text != null && text.contains("You are familiar with common build and lint tools");
+            });
+
+            if (isPreprocessingRequest) {
+                preprocessingCallCount.incrementAndGet();
+            }
+
+            handler.onPartialResponse(cannedResponse);
+            var cr = ChatResponse.builder()
+                    .aiMessage(new AiMessage(cannedResponse))
+                    .build();
+            handler.onCompleteResponse(cr);
+        }
+
+        int getPreprocessingCallCount() {
+            return preprocessingCallCount.get();
+        }
+    }
+
     @TempDir
     Path projectRoot;
 
@@ -81,7 +113,7 @@ class CodeAgentTest {
         Environment.shellCommandRunnerFactory = originalShellCommandRunnerFactory;
     }
 
-    private CodeAgent.ConversationState createConversationState(
+    protected CodeAgent.ConversationState createConversationState(
             List<ChatMessage> taskMessages, UserMessage nextRequest) {
         return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size());
     }
@@ -96,7 +128,8 @@ class CodeAgentTest {
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
                 new HashSet<>(), // changedFiles
-                new HashMap<>() // originalFileContents
+                new HashMap<>(), // originalFileContents
+                Collections.emptyMap() // javaLintDiagnostics
                 );
     }
 
@@ -251,7 +284,7 @@ class CodeAgentTest {
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(List.of(nonMatchingBlock), 0);
 
-        var result = codeAgent.applyPhase(cs, es, parser, null);
+        var result = codeAgent.applyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -280,7 +313,7 @@ class CodeAgentTest {
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(List.of(successBlock, failureBlock), 0);
 
-        var result = codeAgent.applyPhase(cs, es, parser, null);
+        var result = codeAgent.applyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -332,7 +365,7 @@ class CodeAgentTest {
         contextManager.getProject().setBuildDetails(bd);
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
 
-        java.util.concurrent.atomic.AtomicInteger attempt = new java.util.concurrent.atomic.AtomicInteger(0);
+        var attempt = new java.util.concurrent.atomic.AtomicInteger(0);
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             int currentAttempt = attempt.getAndIncrement();
             // Log the attempt to help diagnose mock behavior using a more visible marker
@@ -372,7 +405,8 @@ class CodeAgentTest {
                 1, // Simulate one new fix was applied to pass the guard in verifyPhase
                 retryStep.es().lastBuildError(),
                 retryStep.es().changedFiles(),
-                retryStep.es().originalFileContents());
+                retryStep.es().originalFileContents(),
+                retryStep.es().javaLintDiagnostics());
 
         var resultSuccess = codeAgent.verifyPhase(cs2, es2, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
@@ -472,7 +506,7 @@ class CodeAgentTest {
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(List.of(block), 0);
 
-        var result = codeAgent.applyPhase(cs, es, parser, null);
+        var result = codeAgent.applyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
@@ -504,7 +538,6 @@ class CodeAgentTest {
 
         assertFalse(sanitized.contains(rootFwd), "Sanitized output should not contain absolute root");
         assertTrue(sanitized.contains("src/Main.java:12"), "Sanitized output should contain relativized path");
-        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("src/Main.java:12"));
     }
 
     // S-2: verifyPhase sanitizes Windows Java-style compiler output
@@ -533,7 +566,6 @@ class CodeAgentTest {
 
         assertFalse(sanitized.contains(rootBwd), "Sanitized traceback should not contain absolute Windows root");
         assertTrue(sanitized.contains("src\\Main.java:12"), "Sanitized output should contain relativized Windows path");
-        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("src\\Main.java:12"));
     }
 
     // S-3: verifyPhase sanitizes Python-style traceback paths
@@ -567,7 +599,6 @@ class CodeAgentTest {
 
         assertFalse(sanitized.contains(rootFwd), "Sanitized traceback should not contain absolute root");
         assertTrue(sanitized.contains("pkg/mod.py"), "Sanitized traceback should contain relativized path");
-        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("pkg/mod.py"));
     }
 
     // SRB-1: Generate SRBs from per-turn baseline; verify two-turn baseline behavior
@@ -580,8 +611,16 @@ class CodeAgentTest {
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
         var es1 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block1)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
-        var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, parser, null);
+                new ArrayList<>(List.of(block1)),
+                0,
+                0,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap());
+        var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
 
@@ -595,8 +634,16 @@ class CodeAgentTest {
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
         var es2 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block2)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
-        var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, parser, null);
+                new ArrayList<>(List.of(block2)),
+                0,
+                0,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap());
+        var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
 
@@ -625,14 +672,15 @@ class CodeAgentTest {
         file.write(revised);
 
         var es = new CodeAgent.EditState(
-                List.of(), // pendingBlocks
+                List.of(), // pending blocks
                 0,
                 0,
                 0,
                 1, // blocksAppliedWithoutBuild (not relevant for generation)
                 "", // lastBuildError
                 changedFiles,
-                originalMap);
+                originalMap,
+                Collections.emptyMap());
 
         var blocks = es.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
@@ -663,7 +711,7 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
 
         var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
@@ -690,7 +738,7 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
 
         var blocks = es.toSearchReplaceBlocks();
 
@@ -728,5 +776,48 @@ class CodeAgentTest {
         assertEquals("Here are the SEARCH/REPLACE blocks:\n\n<summary>", ((AiMessage) finalMsgs.get(3)).text());
         // Next turn should start at end
         assertEquals(finalMsgs.size(), replaced.turnStartIndex());
+    }
+
+    // verifyPhase should call BuildOutputPreprocessor.processForLlm only once, not twice
+    @Test
+    void testVerifyPhase_callsProcessForLlmOnlyOnce() {
+        // Setup: Create a counting model that tracks preprocessing requests
+        var cannedPreprocessedOutput = "Error in file.java:10: syntax error";
+        var countingModel = new CountingPreprocessorModel(cannedPreprocessedOutput);
+
+        // Configure the context manager to use the counting model for quickest model
+        contextManager.setQuickestModel(countingModel);
+
+        // Configure build to fail with output that exceeds threshold (> 200 lines)
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Generate long build output (> 200 lines to trigger LLM preprocessing)
+        StringBuilder longOutput = new StringBuilder();
+        for (int i = 1; i <= 210; i++) {
+            longOutput.append("Error line ").append(i).append("\n");
+        }
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", longOutput.toString());
+        };
+
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1); // 1 block applied to trigger verification
+
+        // Act: Run verifyPhase which should process build output
+        var result = codeAgent.verifyPhase(cs, es, null);
+
+        // Assert: Should be a retry with build error
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+
+        // Assert: processForLlm should be called exactly once by BuildAgent
+        // CodeAgent retrieves the processed output from BuildFragment instead of reprocessing
+        assertEquals(
+                1,
+                countingModel.getPreprocessingCallCount(),
+                "BuildOutputPreprocessor.processForLlm should only be called once per build failure "
+                        + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
     }
 }

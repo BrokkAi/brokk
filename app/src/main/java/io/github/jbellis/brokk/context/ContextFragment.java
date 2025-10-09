@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -308,13 +309,6 @@ public interface ContextFragment {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
-        // Record canonical constructor - ensures `id` is properly set
-        public ProjectPathFragment {
-            Objects.requireNonNull(file);
-            Objects.requireNonNull(id); // id is now always String
-            // contextManager can be null for some test/serialization cases if handled by callers
-        }
-
         @Override
         public FragmentType getType() {
             return FragmentType.PROJECT_PATH;
@@ -326,7 +320,6 @@ public interface ContextFragment {
         }
 
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
-            Objects.requireNonNull(existingId);
             try {
                 int numericId = Integer.parseInt(existingId);
                 setMinimumId(numericId + 1);
@@ -401,12 +394,12 @@ public interface ContextFragment {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ProjectPathFragment that)) return false;
-            return Objects.equals(id(), that.id());
+            return file.equals(that.file());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(id());
+            return Objects.hash(file);
         }
     }
 
@@ -495,12 +488,12 @@ public interface ContextFragment {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof GitFileFragment that)) return false;
-            return Objects.equals(id(), that.id());
+            return file.equals(that.file()) && revision.equals(that.revision());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(id());
+            return Objects.hash(file, revision);
         }
 
         @Override
@@ -515,12 +508,6 @@ public interface ContextFragment {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
-        // Record canonical constructor
-        public ExternalPathFragment {
-            Objects.requireNonNull(file);
-            Objects.requireNonNull(id);
-        }
-
         @Override
         public FragmentType getType() {
             return FragmentType.EXTERNAL_PATH;
@@ -533,7 +520,6 @@ public interface ContextFragment {
 
         public static ExternalPathFragment withId(
                 ExternalFile file, String existingId, IContextManager contextManager) {
-            Objects.requireNonNull(existingId);
             try {
                 int numericId = Integer.parseInt(existingId);
                 if (numericId >= ContextFragment.nextId.get()) {
@@ -569,12 +555,12 @@ public interface ContextFragment {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ExternalPathFragment that)) return false;
-            return Objects.equals(id(), that.id());
+            return file.equals(that.file());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(id());
+            return Objects.hash(file);
         }
     }
 
@@ -587,8 +573,6 @@ public interface ContextFragment {
 
         // Record canonical constructor
         public ImageFileFragment {
-            Objects.requireNonNull(file);
-            Objects.requireNonNull(id);
             assert !file.isText() : "ImageFileFragment should only be used for non-text files";
         }
 
@@ -603,7 +587,6 @@ public interface ContextFragment {
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
-            Objects.requireNonNull(existingId);
             assert !file.isText() : "ImageFileFragment should only be used for non-text files";
             try {
                 int numericId = Integer.parseInt(existingId);
@@ -701,12 +684,12 @@ public interface ContextFragment {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof ImageFileFragment that)) return false;
-            return Objects.equals(id(), that.id());
+            return file.equals(that.file());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(id());
+            return Objects.hash(file);
         }
 
         @Override
@@ -748,7 +731,6 @@ public interface ContextFragment {
 
         // Constructor for VirtualFragments with a pre-determined ID (e.g., hash or from DTO)
         protected VirtualFragment(String existingId, IContextManager contextManager) {
-            requireNonNull(existingId);
             this.id = existingId;
             this.contextManager = contextManager;
             // If the existingId is numeric (from a dynamic fragment that was frozen/unfrozen or loaded),
@@ -818,6 +800,14 @@ public interface ContextFragment {
             return Objects.hash(id()); // Use String's hashCode
         }
     }
+
+    record StringFragmentType(String description, String syntaxStyle) {}
+
+    StringFragmentType BUILD_RESULTS =
+            new StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+    StringFragmentType SEARCH_NOTES = new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+    StringFragmentType DISCARDED_CONTEXT =
+            new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
 
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         private final String text;
@@ -973,8 +963,13 @@ public interface ContextFragment {
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final String text;
+        protected transient Future<String> syntaxStyleFuture;
 
-        public PasteTextFragment(IContextManager contextManager, String text, Future<String> descriptionFuture) {
+        public PasteTextFragment(
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
             super(
                     FragmentUtils.calculateContentHash(
                             FragmentType.PASTE_TEXT,
@@ -985,13 +980,29 @@ public interface ContextFragment {
                     contextManager,
                     descriptionFuture);
             this.text = text;
+            this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public PasteTextFragment(
                 String existingHashId, IContextManager contextManager, String text, Future<String> descriptionFuture) {
+            this(
+                    existingHashId,
+                    contextManager,
+                    text,
+                    descriptionFuture,
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+        }
+
+        public PasteTextFragment(
+                String existingHashId,
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
             this.text = text;
+            this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
         @Override
@@ -1001,13 +1012,28 @@ public interface ContextFragment {
 
         @Override
         public String syntaxStyle() {
-            // TODO infer from contents
+            if (syntaxStyleFuture.isDone()) {
+                try {
+                    return syntaxStyleFuture.get();
+                } catch (Exception e) {
+                    return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+                }
+            }
             return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
         }
 
         @Override
         public String text() {
             return text;
+        }
+
+        public Future<String> getSyntaxStyleFuture() {
+            return syntaxStyleFuture;
+        }
+
+        @Override
+        public String shortDescription() {
+            return "pasted text";
         }
     }
 
@@ -1106,6 +1132,11 @@ public interface ContextFragment {
                 }
             }
             return "(Summarizing. This does not block LLM requests)";
+        }
+
+        @Override
+        public String shortDescription() {
+            return "pasted image";
         }
     }
 
@@ -1694,57 +1725,6 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "SkeletonFragment('%s')".formatted(description());
-        }
-    }
-
-    // Special dynamic fragment that holds the latest build results.
-    // Only ContextManager should update its content.
-    class BuildFragment extends VirtualFragment { // Dynamic, uses nextId
-        private volatile String content = "";
-
-        public BuildFragment(IContextManager contextManager) {
-            super(contextManager);
-        }
-
-        @Override
-        public FragmentType getType() {
-            return FragmentType.BUILD_LOG;
-        }
-
-        @Override
-        public String description() {
-            return "Latest build results";
-        }
-
-        @Override
-        public String text() {
-            return "# CURRENT BUILD STATUS\n\n" + content;
-        }
-
-        @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
-        public boolean isEligibleForAutoContext() {
-            // Do not seed auto-context from build output
-            return false;
-        }
-
-        @Override
-        public String syntaxStyle() {
-            // Build output may contain Markdown formatting
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
-        }
-
-        public void setContent(String newContent) {
-            content = newContent;
-        }
-
-        @Override
-        public String toString() {
-            return "BuildFragment('%s')".formatted(description());
         }
     }
 

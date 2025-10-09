@@ -1459,7 +1459,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             });
 
             // Now perform the capture into the newly created session
-            contextManager.submitContextTask("Capture PR Diff #" + pr.getNumber(), () -> {
+            contextManager.submitContextTask(() -> {
                 try {
                     var repo = getRepo();
 
@@ -1488,18 +1488,34 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     GitUiUtil.capturePrDiffToContext(
                             contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
 
-                    // Also edit files mentioned in the diff
+                    // Also edit files mentioned in the diff (excluding binary files)
                     List<GitRepo.ModifiedFile> modifiedFiles =
                             repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
-                    var editableFiles = modifiedFiles.stream()
+
+                    var textFiles = GitUiUtil.filterTextFiles(modifiedFiles);
+                    var allFiles = modifiedFiles.stream()
                             .map(GitRepo.ModifiedFile::file)
-                            .collect(Collectors.toSet());
-                    if (!editableFiles.isEmpty()) {
-                        contextManager.addFiles(editableFiles);
+                            .collect(Collectors.toList());
+                    var filteredCount = allFiles.size() - textFiles.size();
+
+                    if (filteredCount > 0) {
+                        var filteredFiles =
+                                allFiles.stream().filter(f -> !f.isText()).collect(Collectors.toList());
                         logger.info(
-                                "Added {} changed files from PR #{} to editable context",
-                                editableFiles.size(),
-                                prNumber);
+                                "Filtered {} binary/non-text file(s) from PR #{}: {}",
+                                filteredCount,
+                                prNumber,
+                                filteredFiles.stream()
+                                                .limit(5)
+                                                .map(f -> f.getFileName().toString())
+                                                .collect(Collectors.joining(", "))
+                                        + (filteredFiles.size() > 5 ? "..." : ""));
+                    }
+
+                    if (!textFiles.isEmpty()) {
+                        contextManager.addFiles(new HashSet<>(textFiles));
+                        logger.info(
+                                "Added {} changed file(s) from PR #{} to editable context", textFiles.size(), prNumber);
                     }
 
                     // Capture PR description (markdown). If blank, try first issue comment by PR author.
@@ -1590,7 +1606,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GHPullRequest pr = displayedPrs.get(selectedRow);
         logger.info("Opening full diff viewer for PR #{}", pr.getNumber());
 
-        contextManager.submitUserTask("Show PR Diff", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var repo = getRepo();
 
@@ -1822,7 +1838,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      */
     private void updateExistingLocalPrBranch(int prNumber, String localBranchName) {
         logger.info("Updating existing local branch {} for PR #{}", localBranchName, prNumber);
-        contextManager.submitUserTask("Updating local branch " + localBranchName + " for PR #" + prNumber, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var repo = getRepo();
                 repo.checkout(localBranchName);
@@ -1832,7 +1848,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     gitLogTab.update();
                     gitLogTab.selectCurrentBranch();
                 });
-                chrome.systemOutput("Updated local branch " + localBranchName + " for PR #" + prNumber);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Updated local branch " + localBranchName + " for PR #" + prNumber);
                 logger.info("Successfully updated local branch {} for PR #{}", localBranchName, prNumber);
             } catch (Exception e) {
                 chrome.toolError("Error updating local branch " + localBranchName + ": " + e.getMessage());
@@ -1847,7 +1865,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private void checkoutPrAsNewBranch(org.kohsuke.github.GHPullRequest pr) {
         final int prNumber = pr.getNumber();
         logger.info("Starting checkout of PR #{} as a new local branch", prNumber);
-        contextManager.submitUserTask("Checking out PR #" + prNumber, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 var remoteUrl = getRepo().getRemoteUrl(); // Can be null
                 GitUiUtil.OwnerRepo ownerRepo =
@@ -1923,7 +1941,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     gitLogTab.selectCurrentBranch(); // Highlights the newly checked out branch
                 });
 
-                chrome.systemOutput("Checked out PR #" + prNumber + " as local branch " + localBranchName);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Checked out PR #" + prNumber + " as local branch " + localBranchName);
                 logger.info("Successfully checked out PR #{}", prNumber);
                 // Update button states on EDT
                 SwingUtilities.invokeLater(() -> {

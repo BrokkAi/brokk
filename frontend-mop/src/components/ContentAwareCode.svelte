@@ -24,6 +24,10 @@
   let isValidFilePath = $state(false);
   let filePathCacheEntry: FilePathCacheEntry | undefined = $state(undefined);
 
+  // Fallback state - track original text to try as symbol if file path fails
+  let originalTextForFallback = $state('');
+  let hasTriedSymbolFallback = $state(false);
+
   // Unique identifier for this component instance
   const componentId = `symbol-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -92,6 +96,9 @@
            !/\s/.test(symbolText); // No whitespace
   }
 
+  // Track last processed text to detect changes
+  let lastProcessedText = $state('');
+
   // Extract text from children - for inline code, this should be simple text
   function extractTextFromChildren(): string {
     // For svelte-exmarkdown, the children prop for inline code elements
@@ -127,12 +134,38 @@
     return '';
   }
 
+  // Reset all state when content changes
+  function resetState() {
+    extractedText = '';
+    symbolText = '';
+    isValidSymbol = false;
+    symbolCacheEntry = undefined;
+    filePathText = '';
+    isValidFilePath = false;
+    filePathCacheEntry = undefined;
+    originalTextForFallback = '';
+    hasTriedSymbolFallback = false;
+    symbolStore = undefined;
+    filePathStore = undefined;
+    lastProcessedText = '';
+  }
+
+  // Process new content
+  function processContent(text: string) {
+    if (text === lastProcessedText) {
+      return; // No change, skip processing
+    }
+
+    lastProcessedText = text;
+    extractedText = text;
+    validateAndRequestContent(text);
+  }
+
   onMount(() => {
     // Try to extract from props first
     const propsText = extractTextFromChildren();
     if (propsText && !propsText.includes('\n')) {
-      extractedText = propsText;
-      validateAndRequestContent(propsText);
+      processContent(propsText);
       return;
     }
 
@@ -147,10 +180,22 @@
           return;
         }
 
-        extractedText = textContent; // Store for fallback rendering
-        validateAndRequestContent(textContent);
+        processContent(textContent);
       }
     }, 0);
+  });
+
+  // Reactive effect to detect when children/content changes after mount
+  // This handles the streaming markdown case where children prop updates
+  $effect(() => {
+    // Watch for changes in the rest props (which include children)
+    // Re-extract and re-validate when they change
+    const propsText = extractTextFromChildren();
+    if (propsText && propsText !== lastProcessedText) {
+      // Content has changed, reset and reprocess
+      resetState();
+      processContent(propsText);
+    }
   });
 
   // Main detection function - tries files first, then symbols
@@ -165,6 +210,10 @@
     if (filePathResult.isValidPath) {
       isValidFilePath = true;
       filePathText = filePathResult.cleanPath;
+
+      // Save original text for potential fallback to symbol lookup
+      originalTextForFallback = text;
+      hasTriedSymbolFallback = false;
 
       // Request file path resolution
       requestFilePathResolution(filePathText, contextId).catch(error => {
@@ -218,6 +267,40 @@
   $effect(() => {
     if (filePathStore) {
       filePathCacheEntry = $filePathStore;
+    }
+  });
+
+  // Smart fallback: if file path doesn't exist, try symbol lookup
+  $effect(() => {
+    // Only attempt fallback if:
+    // 1. We tried file path detection
+    // 2. File path resolution completed (status === 'resolved')
+    // 3. File doesn't exist
+    // 4. We haven't already tried symbol fallback
+    // 5. We have original text to try
+    if (
+      isValidFilePath &&
+      filePathCacheEntry?.status === 'resolved' &&
+      !filePathCacheEntry.result?.exists &&
+      !hasTriedSymbolFallback &&
+      originalTextForFallback
+    ) {
+      log.debug(`File path '${filePathText}' not found, trying symbol fallback for '${originalTextForFallback}'`);
+
+      const cleaned = cleanSymbolName(originalTextForFallback);
+      if (cleaned && shouldAttemptLookup(cleaned)) {
+        isValidSymbol = true;
+        symbolText = cleaned;
+        hasTriedSymbolFallback = true;
+
+        // Request symbol resolution
+        requestSymbolResolution(symbolText, contextId).catch(error => {
+          log.warn(`Symbol fallback resolution failed for ${symbolText}:`, error);
+        });
+      } else {
+        // Mark as tried even if we can't lookup, to avoid infinite loops
+        hasTriedSymbolFallback = true;
+      }
     }
   });
 

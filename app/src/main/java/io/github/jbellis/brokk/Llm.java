@@ -14,6 +14,8 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.LangChain4jException;
+import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ResponseFormat;
@@ -34,6 +36,7 @@ import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.util.GlobalUiSettings;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.ByteArrayOutputStream;
@@ -156,10 +159,11 @@ public class Llm {
      * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
      * 'echo' is true, partial tokens go to console.
      */
-    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo) throws InterruptedException {
+    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo, boolean addJsonFence)
+            throws InterruptedException {
         StreamingResult result;
         try {
-            result = doSingleStreamingCallInternal(request, echo);
+            result = doSingleStreamingCallInternal(request, echo, addJsonFence);
         } catch (InterruptedException e) {
             logResult(model, request, null);
             throw e;
@@ -168,7 +172,7 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo)
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo, boolean addJsonFence)
             throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
@@ -189,6 +193,7 @@ public class Llm {
         var accumulatedReasoningBuilder = new StringBuilder();
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
+        var fenceOpen = new AtomicBoolean(false);
 
         Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
@@ -216,6 +221,10 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
+                        if (addJsonFence && !fenceOpen.get()) {
+                            io.llmOutput("\n```json\n", ChatMessageType.AI);
+                            fenceOpen.set(true);
+                        }
                         io.llmOutput(token, ChatMessageType.AI);
                     }
                 });
@@ -256,6 +265,10 @@ public class Llm {
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
+                    if (echo && addJsonFence && fenceOpen.get()) {
+                        io.llmOutput("\n```", ChatMessageType.AI);
+                        fenceOpen.set(false);
+                    }
                     completed.set(true);
                 });
             }
@@ -264,8 +277,16 @@ public class Llm {
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
                     logger.debug(th);
-                    io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
+                    var retryable = !(th instanceof NonRetriableException);
+                    // Immediate feedback for user
+                    String message =
+                            "LLM Error: " + th.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(th);
+                    if (echo && addJsonFence && fenceOpen.get()) {
+                        io.llmOutput("\n```", ChatMessageType.AI);
+                        fenceOpen.set(false);
+                    }
                     completed.set(true);
                 });
             }
@@ -273,7 +294,29 @@ public class Llm {
 
         var finalHandler =
                 contextManager.getService().usesThinkTags(model) ? new ThinkTagInterceptor(rawHandler) : rawHandler;
-        model.chat(request, finalHandler);
+        try {
+            model.chat(request, finalHandler);
+        } catch (Throwable t) {
+            var mapped = ExceptionMapper.DEFAULT.mapException(t);
+            lock.lock();
+            try {
+                cancelled.set(true);
+                logger.debug(mapped);
+                var retryable = !(mapped instanceof NonRetriableException);
+                String message =
+                        "LLM Error: " + mapped.getMessage() + (retryable ? " (retry-able)" : " (non-retriable)");
+                io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                errorRef.set(mapped);
+                if (echo && addJsonFence && fenceOpen.get()) {
+                    io.llmOutput("\n```", ChatMessageType.AI);
+                    fenceOpen.set(false);
+                }
+                completed.set(true);
+            } finally {
+                lock.unlock();
+                tick.release();
+            }
+        }
 
         try {
             while (!completed.get()) {
@@ -298,6 +341,12 @@ public class Llm {
                 lock.unlock();
             }
             throw e; // Propagate interruption
+        }
+
+        // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
+        if (echo && addJsonFence && fenceOpen.get()) {
+            io.llmOutput("\n```", ChatMessageType.AI);
+            fenceOpen.set(false);
         }
 
         // At this point, latch has been counted down and we have a result or an error
@@ -354,6 +403,12 @@ public class Llm {
         }
     }
 
+    public static class EmptyResponseError extends LangChain4jException {
+        public EmptyResponseError() {
+            super("Empty response from LLM");
+        }
+    }
+
     private static String formatTokensUsage(ChatResponse response) {
         var tu = (OpenAiTokenUsage) response.tokenUsage();
         var template = "token usage: %,d input (%s cached), %,d output (%s reasoning)";
@@ -402,7 +457,7 @@ public class Llm {
                 && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED) {
-            io.systemOutput("Enforcing tool selection");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Enforcing tool selection");
 
             var extraMessages = new ArrayList<>(messages);
             extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
@@ -442,8 +497,11 @@ public class Llm {
                 return response.withRetryCount(attempt - 1);
             }
 
-            // don't retry on bad request errors
+            // don't retry on non-retriable errors or known bad request errors
             if (lastError != null) {
+                if (lastError instanceof NonRetriableException) {
+                    break;
+                }
                 var msg = requireNonNull(lastError.getMessage());
                 if (msg.contains("BadRequestError")
                         || msg.contains("UnsupportedParamsError")
@@ -463,24 +521,29 @@ public class Llm {
 
             // Busywait with countdown
             if (backoffSeconds > 1) {
-                io.systemOutput(String.format(
-                        "LLM issue on attempt %d/%d (retrying in %d seconds).", attempt, maxAttempts, backoffSeconds));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "LLM issue on attempt %d/%d (retrying in %d seconds).",
+                                attempt, maxAttempts, backoffSeconds));
             } else {
-                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
             }
             long endTime = System.currentTimeMillis() + backoffSeconds * 1000;
             while (System.currentTimeMillis() < endTime) {
                 long remain = endTime - System.currentTimeMillis();
                 if (remain <= 0) break;
-                io.systemOutput("Retrying in %.1f seconds...".formatted(remain / 1000.0));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Retrying in %.1f seconds...".formatted(remain / 1000.0));
                 Thread.sleep(Math.min(remain, 100));
             }
         }
 
         // If we get here, we failed all attempts
         if (lastError == null) {
-            return new StreamingResult(
-                    null, new IllegalStateException("Empty response after max retries"), attempt - 1);
+            return new StreamingResult(null, new EmptyResponseError(), attempt - 1);
         }
         return new StreamingResult(null, lastError, attempt - 1);
     }
@@ -529,7 +592,7 @@ public class Llm {
         }
 
         var request = requestBuilder.build();
-        var sr = doSingleStreamingCall(request, echo);
+        var sr = doSingleStreamingCall(request, echo, false);
 
         // Pretty-print native tool calls when echo is enabled
         // (For emulated calls, echo means we get the raw json in the response which is not ideal but
@@ -613,7 +676,7 @@ public class Llm {
 
             // Perform the request for THIS attempt
             lastRequest = requestBuilder.apply(attemptMessages);
-            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo);
+            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo, true);
 
             // Fast-fail on transport / HTTP errors (no retry)
             if (rawResult.error() != null) {
@@ -633,10 +696,6 @@ public class Llm {
 
                 if (echo) {
                     // output the LLM's thinking
-                    var reasoning = parseResult.reasoningContent();
-                    if (reasoning != null && !reasoning.isBlank()) {
-                        io.llmOutput(reasoning, ChatMessageType.AI, false, true);
-                    }
                     String textToOutput = parseResult.text();
                     if (textToOutput != null && !textToOutput.isBlank()) {
                         io.llmOutput(textToOutput, ChatMessageType.AI, false, false);
@@ -647,8 +706,7 @@ public class Llm {
                 var registry = contextManager.getToolRegistry();
                 var validationErrors = new ArrayList<String>();
                 Object toolOwner = requireNonNull(
-                        requireNonNull(toolContext).toolOwner(),
-                        "ToolContext.toolOwner() must be provided for tool validation");
+                        toolContext.toolOwner(), "ToolContext.toolOwner() must be provided for tool validation");
                 for (var ter : parseResult.toolRequests()) {
                     try {
                         registry.validateTool(toolOwner, ter);
@@ -1243,6 +1301,63 @@ public class Llm {
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
         }
+
+        // Compute and show cost notification if usage/pricing are available
+        try {
+            if (result != null) {
+                var usage = result.tokenUsage();
+                if (usage != null) {
+                    var service = contextManager.getService();
+                    var modelName = service.nameOf(model);
+                    // Filter out cost notifications for 2.0 flash and flash-lite unless explicitly enabled
+                    boolean isFreeInternalLLM =
+                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
+                    if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
+                        logger.debug(
+                                "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
+                                modelName);
+                        return;
+                    }
+                    // Respect user preference for cost notifications
+                    if (!GlobalUiSettings.isShowCostNotifications()) {
+                        logger.debug("Cost notifications disabled by user settings");
+                        return;
+                    }
+                    var pricing = service.getModelPricing(modelName);
+
+                    int input = usage.inputTokens();
+                    int cached = usage.cachedInputTokens();
+                    int uncached = Math.max(0, input - cached);
+                    int output = usage.outputTokens();
+
+                    int totalTokens = Math.max(0, input) + Math.max(0, output);
+                    int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
+                    String tokenSummary = "tokens: %,d (%d%% cached)".formatted(totalTokens, cachedPct);
+
+                    String message;
+                    if (pricing.bands().isEmpty()) {
+                        message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
+                    } else {
+                        double cost = pricing.estimateCost(uncached, cached, output);
+                        java.text.DecimalFormat df =
+                                (java.text.DecimalFormat) java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
+                        df.applyPattern("#,##0.0000");
+                        String costStr = df.format(cost);
+                        message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
+                    }
+
+                    try {
+                        io.showNotification(IConsoleIO.NotificationRole.COST, message);
+                    } catch (Throwable t) {
+                        logger.debug("Unable to show cost notification; falling back to system output", t);
+                        io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                    }
+                    logger.debug("LLM cost: {}", message);
+                }
+            }
+        } catch (Throwable t) {
+            logger.debug("Unable to compute cost notification", t);
+        }
     }
 
     public record NullSafeResponse(
@@ -1262,8 +1377,7 @@ public class Llm {
 
         public boolean isEmpty() {
             var emptyText = text == null || text.isEmpty();
-            var emptyReasoning = reasoningContent == null || reasoningContent.isEmpty();
-            return emptyText && toolRequests.isEmpty() && emptyReasoning;
+            return emptyText && toolRequests.isEmpty();
         }
 
         public AiMessage aiMessage() {

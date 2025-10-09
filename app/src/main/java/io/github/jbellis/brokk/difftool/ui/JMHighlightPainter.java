@@ -304,4 +304,15 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
             }
         }
     }
+
+    /**
+     * Painter that highlights the full line width with background color. Useful for unified diff highlighting to match
+     * side-by-side appearance.
+     */
+    public static class JMHighlightFullLinePainter extends JMHighlightPainter {
+
+        public JMHighlightFullLinePainter(Color color) {
+            super(color, true); // paintFullLine = true
+        }
+    }
 }

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.mcp.McpConfig;
@@ -25,6 +26,10 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
 
+    public TestProject(Path root) {
+        this(root, Languages.NONE);
+    }
+
     public TestProject(Path root, Language language) {
         this.root = root;
         this.language = language;
@@ -36,6 +41,11 @@ public class TestProject implements IProject {
 
     @Override
     public BuildAgent.BuildDetails loadBuildDetails() {
+        return this.buildDetails;
+    }
+
+    @Override
+    public BuildAgent.BuildDetails awaitBuildDetails() {
         return this.buildDetails;
     }
 

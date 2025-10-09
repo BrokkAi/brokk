@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer.cpp;
 import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.analyzer.*;
-import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -66,8 +65,7 @@ public class NamespaceProcessor {
             Map<CodeUnit, List<String>> signatures,
             TSNode rootNode,
             String fileContent,
-            Function<String, CodeUnit> codeUnitFactory)
-            throws IOException {
+            Function<String, CodeUnit> codeUnitFactory) {
 
         var namespaceBlocks = findAllNamespaceBlocks(rootNode, fileContent);
         var groupedNamespaces = new HashMap<String, List<NamespaceBlock>>();

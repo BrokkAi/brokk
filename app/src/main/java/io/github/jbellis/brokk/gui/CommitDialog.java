@@ -150,7 +150,7 @@ public class CommitDialog extends JDialog {
         cancelButton.setEnabled(false);
         commitMessageArea.setEnabled(false);
 
-        contextManager.submitUserTask("Committing files via dialog", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg);
                 SwingUtilities.invokeLater(() -> {

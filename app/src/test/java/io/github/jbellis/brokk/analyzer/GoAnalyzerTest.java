@@ -146,10 +146,10 @@ public class GoAnalyzerTest {
         // Check if the analyzer processed the file at all. If topLevelDeclarations doesn't contain the file,
         // it means it might have been filtered out or an error occurred during its initial processing.
         assertTrue(
-                analyzer.withTopLevelDeclarations(tld -> tld.containsKey(declarationsGoFile))
+                analyzer.withFileProperties(tld -> tld.containsKey(declarationsGoFile))
                         .booleanValue(),
                 "Analyzer's topLevelDeclarations should contain declarations.go. Current keys: "
-                        + analyzer.withTopLevelDeclarations(Map::keySet));
+                        + analyzer.withFileProperties(Map::keySet));
         assertFalse(
                 declarations.isEmpty(),
                 "Declarations set should not be empty for declarations.go. Check query and createCodeUnit logic. Actual declarations: "

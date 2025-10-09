@@ -35,8 +35,7 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
     // Use the existing body tokenizer for search/replace content, with fence close guard
     const tokenizeBody = makeEditBlockBodyTokenizer({
         divider: tokenizeDivider,
-        tail: tokenizeTail,
-        fenceClose: tokenizeFenceClose
+        tail: tokenizeTail
     });
 
     // Use strict header tokenizer for unfenced blocks to ensure complete header
@@ -55,6 +54,14 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
     }
 
     function afterOpen(code: Code): State {
+        // Tolerate optional horizontal whitespace right after the opening fence
+        if (code === codes.space || code === codes.horizontalTab) {
+            fx.enter("chunk");
+            fx.consume(code);
+            fx.exit("chunk");
+            return afterOpen; // continue consuming any further spaces/tabs
+        }
+
         const next = eatEndLineAndCheckEof(code, afterOpen);
         if (next) return next;
 

@@ -24,6 +24,15 @@ public class TestConsoleIO implements IConsoleIO {
     }
 
     @Override
+    public void showNotification(NotificationRole role, String message) {
+        if (role == IConsoleIO.NotificationRole.ERROR) {
+            errorLog.append(message).append("\n");
+        } else {
+            outputLog.append(message).append("\n");
+        }
+    }
+
+    @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         if (type == ChatMessageType.AI) {
             if (isNewMessage && streamingAiMessage.length() > 0) {
@@ -45,14 +54,13 @@ public class TestConsoleIO implements IConsoleIO {
         }
     }
 
-    @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         finishStreamingAiMessage();
         llmRawMessages.addAll(newOutput.messages());
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages(boolean includeStreaming) {
+    public List<ChatMessage> getLlmRawMessages() {
         finishStreamingAiMessage();
         return llmRawMessages;
     }

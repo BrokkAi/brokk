@@ -3,13 +3,10 @@ package io.github.jbellis.brokk;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
-import io.github.jbellis.brokk.Service.RemoteSessionMeta;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
 import java.io.IOException;
@@ -21,20 +18,18 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import javax.swing.JOptionPane;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -56,10 +51,8 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
-    private final IProject project;
 
-    public SessionManager(IProject project, Path sessionsDir) {
-        this.project = project;
+    public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
         this.sessionExecutor = Executors.newFixedThreadPool(3, r -> {
             var t = Executors.defaultThreadFactory().newThread(r);
@@ -77,8 +70,9 @@ public class SessionManager implements AutoCloseable {
             Files.createDirectories(sessionsDir);
             try (var stream = Files.list(sessionsDir)) {
                 stream.filter(path -> path.toString().endsWith(".zip"))
-                        .forEach(zipPath -> readSessionInfoFromZip(zipPath)
-                                .ifPresent(sessionInfo -> sessions.put(sessionInfo.id(), sessionInfo)));
+                        .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
+                            sessions.put(sessionInfo.id(), sessionInfo);
+                        }));
             }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
@@ -141,24 +135,24 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public void deleteSession(UUID sessionId) {
+    public void deleteSession(UUID sessionId) throws Exception {
         sessionsCache.remove(sessionId);
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
-            Path tombstonePath = getTombstonePath(sessionId);
             try {
-                if (Files.exists(historyZipPath)) {
-                    Files.move(historyZipPath, tombstonePath, StandardCopyOption.REPLACE_EXISTING);
-                    logger.info("Marked session {} for deletion with tombstone.", sessionId);
+                boolean deleted = Files.deleteIfExists(historyZipPath);
+                if (deleted) {
+                    logger.info("Deleted session zip: {}", historyZipPath.getFileName());
+                } else {
+                    logger.warn(
+                            "Session zip {} not found for deletion, or already deleted.", historyZipPath.getFileName());
                 }
             } catch (IOException e) {
-                logger.error("Error creating tombstone for session {}: {}", sessionId, e.getMessage());
+                logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+                throw new RuntimeException("Failed to delete session " + sessionId, e);
             }
         });
-    }
-
-    private Path getTombstonePath(UUID sessionId) {
-        return sessionsDir.resolve(sessionId.toString() + ".tombstone");
+        deleteFuture.get(); // Wait for deletion to complete
     }
 
     /**
@@ -345,7 +339,6 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    @Nullable
     private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws IOException {
         try {
             return loadHistoryInternal(sessionId, contextManager);
@@ -366,7 +359,8 @@ public class SessionManager implements AutoCloseable {
                 infoToSave = new SessionInfo(
                         currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
-            }
+            } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
+            // to the session
         } else {
             logger.warn(
                     "Session ID {} not found in cache. History content will be saved, but manifest cannot be updated.",
@@ -377,9 +371,38 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+
+                // Snapshot current tasklist.json (if present) before we rewrite the zip
+                String taskListJsonSnapshot = null;
+                if (Files.exists(sessionHistoryPath)) {
+                    try {
+                        taskListJsonSnapshot = readTaskListJson(sessionHistoryPath);
+                    } catch (IOException ioe) {
+                        logger.warn(
+                                "Could not snapshot existing tasklist.json for session {}: {}",
+                                sessionId,
+                                ioe.getMessage());
+                    }
+                }
+
+                // Rewrite history zip
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
+
+                // Write manifest after the rewrite
                 if (finalInfoToSave != null) {
                     writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
+                }
+
+                // Restore tasklist.json if we had one
+                if (taskListJsonSnapshot != null) {
+                    try {
+                        writeTaskListJson(sessionHistoryPath, taskListJsonSnapshot);
+                    } catch (IOException ioe) {
+                        logger.warn(
+                                "Failed restoring tasklist.json for session {} after history save: {}",
+                                sessionId,
+                                ioe.getMessage());
+                    }
                 }
             } catch (IOException e) {
                 logger.error(
@@ -432,7 +455,6 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    @Nullable
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
         var sessionHistoryPath = getSessionHistoryPath(sessionId);
         ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
@@ -475,221 +497,99 @@ public class SessionManager implements AutoCloseable {
         return ch;
     }
 
-    private static boolean promptCopySessionBeforeChanging(ContextManager cm, String title, String message) {
-        Integer choice = SwingUtil.runOnEdt(
-                () -> cm.getIo()
-                        .showConfirmDialog(message, title, JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE),
-                JOptionPane.NO_OPTION);
-        if (choice == null) {
-            logger.debug("Prompt for remote session decision failed; defaulting to 'Copy current'");
-            return true;
+    // Internal helpers for synchronous tasklist read/write. These avoid re-entrancy issues when called
+    // inside the per-session serialized executor and allow saveHistory to preserve exact JSON.
+    private @Nullable String readTaskListJson(Path zipPath) throws IOException {
+        if (!Files.exists(zipPath)) {
+            return null;
         }
-        return choice == JOptionPane.YES_OPTION;
-    }
-
-    public void synchronizeRemoteSessions() {
-        try {
-            String key = MainProject.getBrokkKey();
-            if (key.isBlank()) {
-                return;
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+            Path taskListPath = fs.getPath("tasklist.json");
+            if (Files.exists(taskListPath)) {
+                return Files.readString(taskListPath);
             }
-
-            String remoteUrl = project.getRemoteProjectName();
-            List<RemoteSessionMeta> remoteMetas = Service.listRemoteSessions(remoteUrl);
-            Files.createDirectories(sessionsDir);
-
-            var remoteSessionsMap = remoteMetas.stream()
-                    .collect(Collectors.toMap(
-                            meta -> {
-                                try {
-                                    return UUID.fromString(meta.id());
-                                } catch (IllegalArgumentException e) {
-                                    return null;
-                                }
-                            },
-                            meta -> meta,
-                            (a, b) -> a))
-                    .entrySet()
-                    .stream()
-                    .filter(e -> e.getKey() != null)
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-
-            // Process tombstones (deletions)
-            try (var stream = Files.list(sessionsDir)) {
-                var tombstones = stream.filter(path -> path.toString().endsWith(".tombstone"))
-                        .toList();
-
-                for (Path tombstone : tombstones) {
-                    var fileName = tombstone.getFileName().toString();
-                    var idStr = fileName.substring(0, fileName.length() - ".tombstone".length());
-                    try {
-                        UUID id = UUID.fromString(idStr);
-                        var remoteMeta = remoteSessionsMap.get(id);
-                        if (remoteMeta != null && remoteMeta.deletedAt() == null) {
-                            sessionExecutorByKey
-                                    .submit(id.toString(), () -> {
-                                        try {
-                                            Service.deleteRemoteSession(id);
-                                            logger.debug("Deleted session {} from remote", id);
-                                        } catch (IOException e) {
-                                            logger.warn(
-                                                    "Failed to delete session {} from remote: {}", id, e.getMessage());
-                                        }
-                                    })
-                                    .join();
-                        }
-                        Files.delete(tombstone);
-                        logger.info("Deleted tombstone for session {}", id);
-                    } catch (IllegalArgumentException | IOException e) {
-                        logger.warn("Error processing tombstone {}: {}", tombstone, e.getMessage());
-                    }
-                }
-            }
-
-            // Bidirectional sync: compare mtime, bigger wins
-            var localSessions = new HashMap<>(sessionsCache);
-
-            for (var entry : remoteSessionsMap.entrySet()) {
-                UUID id = entry.getKey();
-                var remoteMeta = entry.getValue();
-                var localInfo = localSessions.get(id);
-
-                var cmOpt = Brokk.getOpenProjectWindows().values().stream()
-                        .map(Chrome::getContextManager)
-                        .filter(cm -> cm.getCurrentSessionId().equals(id))
-                        .findFirst();
-
-                if (remoteMeta.deletedAt() != null) {
-                    if (cmOpt.isPresent() && localInfo != null) {
-                        handleOpenSessionDeletion(cmOpt.get(), localInfo, id);
-                    } else {
-                        deleteLocalSessionAndWait(id);
-                    }
-                } else if (shouldDownloadRemoteSession(localInfo, remoteMeta)) {
-                    if (cmOpt.isPresent() && localInfo != null) {
-                        handleOpenSessionDownload(cmOpt.get(), localInfo, id);
-                    } else {
-                        downloadSessionAndWait(id);
-                    }
-                } else if (localInfo != null && localInfo.modified() > remoteMeta.modifiedAtMillis()) {
-                    sessionExecutorByKey
-                            .submit(id.toString(), () -> uploadSession(id, remoteUrl))
-                            .join();
-                }
-            }
-
-            // Upload local sessions that don't exist remotely
-            for (var localInfo : localSessions.values()) {
-                if (!remoteSessionsMap.containsKey(localInfo.id())) {
-                    sessionExecutorByKey
-                            .submit(localInfo.id().toString(), () -> uploadSession(localInfo.id(), remoteUrl))
-                            .join();
-                }
-            }
-
-        } catch (Exception e) {
-            logger.warn("synchronizeRemoteSessions failed.", e);
+            return null;
         }
     }
 
-    private void handleOpenSessionDownload(ContextManager cm, SessionInfo localInfo, UUID id) {
-        String sessionName = localInfo.name();
-        boolean accept = promptCopySessionBeforeChanging(
-                cm,
-                "Remote Session Updated",
-                "Session '" + sessionName + "' (" + id + ") was modified on the remote.\n"
-                        + "Copy the current session first before updating it?");
-        if (accept) {
-            cm.copySessionAsync(id, sessionName).join();
+    private void writeTaskListJson(Path zipPath, String json) throws IOException {
+        try (var fs =
+                FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+            Path taskListPath = fs.getPath("tasklist.json");
+            Files.writeString(taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
-        downloadSessionAndWait(id);
-        cm.reloadCurrentSessionAsync();
     }
 
-    private void handleOpenSessionDeletion(ContextManager cm, SessionInfo localInfo, UUID id) {
-        String sessionName = localInfo.name();
-        boolean accept = promptCopySessionBeforeChanging(
-                cm,
-                "Remote Session Deleted",
-                "Session '" + sessionName + "' (" + id + ") was deleted on the remote.\n"
-                        + "Copy the current session first before deleting it?");
-        if (accept) {
-            cm.copySessionAsync(id, sessionName).join();
-            deleteLocalSessionAndWait(id);
-        } else {
-            deleteLocalSessionAndWait(id);
-            cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).join();
-        }
-        cm.reloadCurrentSessionAsync();
-    }
-
-    private void downloadSessionAndWait(UUID id) {
-        sessionExecutorByKey.submit(id.toString(), () -> downloadSession(id)).join();
-    }
-
-    private void deleteLocalSessionAndWait(UUID id) {
-        sessionExecutorByKey.submit(id.toString(), () -> deleteLocalSession(id)).join();
-    }
-
-    private void deleteLocalSession(UUID id) {
-        sessionsCache.remove(id);
-        Path historyZipPath = getSessionHistoryPath(id);
-        if (Files.exists(historyZipPath)) {
+    /**
+     * Asynchronously write the task list for a session, serialized per session key. Stores tasklist.json inside the
+     * session's zip file.
+     *
+     * <p>Concurrency: this uses {@link SerialByKeyExecutor} with the session UUID string as the key: calls for the same
+     * session are executed in submission order, while calls for different sessions run in parallel. This mirrors how
+     * manifest/history writes are handled elsewhere in this class.
+     *
+     * <pre>{@code
+     * // All I/O for a given sessionId runs serially with respect to that same sessionId:
+     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
+     *     // ... open the session zip and write tasklist.json ...
+     *     return null;
+     * });
+     *
+     * // A different sessionId can proceed concurrently on the same underlying ExecutorService:
+     * sessionExecutorByKey.submit(otherSessionId.toString(), () -> {
+     *     // ... independent I/O for another session ...
+     *     return null;
+     * });
+     * }</pre>
+     */
+    public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskListData data) {
+        Path zipPath = getSessionHistoryPath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
-                Files.delete(historyZipPath);
-                logger.info("Deleted local session {} as it was deleted on remote", id);
+                var normalized = new TaskListData(List.copyOf(data.tasks()));
+                String json = AbstractProject.objectMapper.writeValueAsString(normalized);
+                writeTaskListJson(zipPath, json);
             } catch (IOException e) {
-                logger.error("Failed to delete local session {}: {}", id, e.getMessage());
+                throw new UncheckedIOException("Failed to write task list for session " + sessionId, e);
             }
-        }
+            return null;
+        });
     }
 
-    private boolean shouldDownloadRemoteSession(@Nullable SessionInfo localInfo, RemoteSessionMeta meta) {
-        if (meta.deletedAt() != null) {
-            return false;
-        }
-        if (localInfo == null) {
-            return true;
-        }
-        return meta.modifiedAtMillis() > localInfo.modified();
-    }
-
-    private void downloadSession(UUID id) {
-        try {
-            byte[] content = Service.getRemoteSessionContent(id);
-            Path localPath = getSessionHistoryPath(id);
-            Files.createDirectories(localPath.getParent());
-            Files.write(localPath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-
-            readSessionInfoFromZip(localPath).ifPresent(si -> {
-                sessionsCache.put(si.id(), si);
-                logger.info("Downloaded session {} from remote", id);
-            });
-        } catch (IOException e) {
-            logger.warn("Failed to download session {}: {}", id, e.getMessage());
-        }
-    }
-
-    private void uploadSession(UUID id, String remoteUrl) {
-        Path zipPath = getSessionHistoryPath(id);
-        try {
+    /**
+     * Asynchronously read the task list for a session, serialized per session key. Reads tasklist.json from the
+     * session's zip file. Returns an empty list if not present.
+     *
+     * <p>Concurrency: submitted via {@link SerialByKeyExecutor} using {@code sessionId.toString()} so reads of the same
+     * session are ordered with respect to writes/reads for that session, while reads on different sessions may run in
+     * parallel.
+     *
+     * <pre>{@code
+     * // Serialized with other work for the same session:
+     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
+     *     // ... open the session zip and read tasklist.json ...
+     *     return new TaskListData(List.of());
+     * });
+     * }</pre>
+     */
+    public CompletableFuture<TaskListData> readTaskList(UUID sessionId) {
+        Path zipPath = getSessionHistoryPath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
             if (!Files.exists(zipPath)) {
-                return;
+                return new TaskListData(List.of());
             }
-
-            SessionInfo info = readSessionInfoFromZip(zipPath).orElse(null);
-            if (info == null) {
-                return;
+            try {
+                String json = readTaskListJson(zipPath);
+                if (json == null || json.isBlank()) {
+                    return new TaskListData(List.of());
+                }
+                var loaded = AbstractProject.objectMapper.readValue(json, TaskListData.class);
+                return new TaskListData(List.copyOf(loaded.tasks()));
+            } catch (IOException e) {
+                logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
+                return new TaskListData(List.of());
             }
-
-            String name = info.name();
-            long modifiedAt = info.modified();
-            byte[] bytes = Files.readAllBytes(zipPath);
-            Service.writeRemoteSession(id, remoteUrl, name, modifiedAt, bytes);
-            logger.debug("Uploaded session {} to remote", id);
-        } catch (IOException e) {
-            logger.warn("Failed to upload session {}: {}", id, e.getMessage());
-        }
+        });
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
@@ -750,15 +650,10 @@ public class SessionManager implements AutoCloseable {
 
     @Override
     public void close() {
-        try {
-            synchronizeRemoteSessions();
-        } catch (Exception e) {
-            logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
-        }
         sessionExecutor.shutdown();
         try {
-            if (!sessionExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                logger.warn("Session IO tasks did not finish in 5 seconds, forcing shutdown.");
+            if (!sessionExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                logger.warn("Session IO tasks did not finish in 30 seconds, forcing shutdown.");
                 sessionExecutor.shutdownNow();
             }
         } catch (InterruptedException e) {

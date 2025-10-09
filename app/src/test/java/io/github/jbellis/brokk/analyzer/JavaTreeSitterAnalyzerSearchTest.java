@@ -258,4 +258,18 @@ public class JavaTreeSitterAnalyzerSearchTest {
                 dotNames.contains("A.AInner.AInnerInner"),
                 "Dot-hierarchy query should match nested class FQN with '.' separators");
     }
+
+    @Test
+    public void testAutocomplete_RecordComponentsAsFields() {
+        // Record component should be treated as an implicit field
+        var resFull = analyzer.autocompleteDefinitions("C.Foo.x");
+        var namesFull = resFull.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(namesFull.contains("C.Foo.x"), "Should find record component as field 'C.Foo.x'");
+
+        // Single-letter query still includes fields (autocomplete fallback ensures this)
+        var resShort = analyzer.autocompleteDefinitions("x");
+        var namesShort = resShort.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(
+                namesShort.contains("C.Foo.x"), "Single-letter query should include record component field 'C.Foo.x'");
+    }
 }

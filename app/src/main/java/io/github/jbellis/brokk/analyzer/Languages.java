@@ -7,7 +7,6 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
@@ -614,7 +613,6 @@ public class Languages {
      * @throws NullPointerException if name is null.
      */
     public static Language valueOf(String name) {
-        Objects.requireNonNull(name, "Name is null");
         for (Language lang : ALL_LANGUAGES) {
             // Check current human-friendly name first, then old programmatic name for backward compatibility.
             if (lang.name().equals(name) || lang.internalName().equals(name)) {

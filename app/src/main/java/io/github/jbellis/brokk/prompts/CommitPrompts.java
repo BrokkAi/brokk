@@ -36,7 +36,7 @@ public class CommitPrompts {
             return List.of();
         }
 
-        var trimmedDiff = preprocessUnifiedDiff(diffTxt);
+        var trimmedDiff = preprocessUnifiedDiff(diffTxt, FILE_LIMIT);
         if (trimmedDiff.isBlank()) {
             return List.of();
         }
@@ -84,7 +84,7 @@ public class CommitPrompts {
                 .formatted(formatInstructions);
     }
 
-    private String preprocessUnifiedDiff(String diffTxt) {
+    public String preprocessUnifiedDiff(String diffTxt, int fileCount) {
         // Pre-validate the diff text to avoid unnecessary parsing attempts
         if (diffTxt.trim().isEmpty()) {
             return "";
@@ -156,7 +156,7 @@ public class CommitPrompts {
 
         // For each file, add hunks in decreasing size until reaching LINES_PER_FILE_LIMIT.
         var output = new ArrayList<String>();
-        for (var fm : candidates.subList(0, Math.min(FILE_LIMIT, candidates.size()))) {
+        for (var fm : candidates.subList(0, Math.min(fileCount, candidates.size()))) {
             var f = fm.file();
 
             // Build a/b paths similar to git

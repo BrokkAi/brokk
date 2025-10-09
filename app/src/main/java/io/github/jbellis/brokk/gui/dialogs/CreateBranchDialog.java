@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -160,17 +161,19 @@ public class CreateBranchDialog extends JDialog {
         boolean checkoutAfter = checkoutCheckBox.isSelected();
         dispose();
 
-        contextManager.submitUserTask("Creating branch", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 String finalBranchName =
                         getRepo().sanitizeBranchName(userInputBranchName); // Ensures uniqueness and validity
                 getRepo().createBranchFromCommit(finalBranchName, commitId);
-                chrome.systemOutput(
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
                         "Successfully created branch '" + finalBranchName + "' from commit " + shortCommitId);
 
                 if (checkoutAfter) {
                     getRepo().checkout(finalBranchName);
-                    chrome.systemOutput("Checked out branch '" + finalBranchName + "'.");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Checked out branch '" + finalBranchName + "'.");
                 }
                 // UI will refresh on the next user action; no direct call required here
             } catch (GitAPIException gitEx) {

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
@@ -231,8 +232,10 @@ public class PythonLanguage implements Language {
                 copyPythonFiles(requireNonNull(sitePackages), rels, targetRoot);
 
                 javax.swing.SwingUtilities.invokeLater(() -> {
-                    chrome.systemOutput("Python package copied to " + targetRoot
-                            + ". Reopen project to incorporate the new files.");
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Python package copied to " + targetRoot
+                                    + ". Reopen project to incorporate the new files.");
                     if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });
             } catch (Exception ex) {

@@ -32,18 +32,6 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
-    - name: Cache npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-npm-${{ hashFiles('frontend-mop/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-
-
-    - name: Install frontend dependencies
-      run: npm ci
-      working-directory: frontend-mop
-
     - name: Check commit
       run: git rev-parse HEAD
 
@@ -93,18 +81,6 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('frontend-mop/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
-
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend-mop
 
       - name: Run dependency analysis
         run: ./gradlew buildHealth

@@ -2,13 +2,16 @@ package io.github.jbellis.brokk.tools;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Predicate;
@@ -32,7 +35,7 @@ public class SearchTools {
     private final IContextManager contextManager; // Needed for file operations
 
     public SearchTools(IContextManager contextManager) {
-        this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null");
+        this.contextManager = contextManager;
     }
 
     // --- Sanitization Helper Methods
@@ -64,7 +67,6 @@ public class SearchTools {
      */
     public static CompressedSymbols compressSymbolsWithPackagePrefix(List<String> symbols) {
         List<String[]> packageParts = symbols.stream()
-                .filter(Objects::nonNull) // Filter nulls just in case
                 .map(s -> s.split("\\."))
                 .filter(arr -> arr.length > 0) // Ensure split resulted in something
                 .toList();
@@ -794,5 +796,91 @@ public class SearchTools {
         }
 
         return "Files in " + directoryPath + ": " + files;
+    }
+
+    @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
+    public String createTaskList(
+            @P(
+                            """
+            Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
+
+            Requirements (apply to EACH task):
+            - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
+            - Size target: ~2 hours for an experienced contributor across < 10 files.
+            - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior; if automation is not a good fit, you may omit tests rather than prescribe manual steps.
+            - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
+            - Output: starts with a strong verb and names concrete artifact(s) (class/method/file, config, test).
+            - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
+
+            Rubric for slicing:
+            - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.
+            - TOO SMALL if it lacks a distinct, reviewable outcome (or test) - merge into its nearest parent goal.
+            - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
+
+            Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
+            """)
+                    List<String> tasks) {
+        logger.debug("createTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
+        }
+
+        var io = contextManager.getIo();
+        // Append tasks to Task List Panel (if running in Chrome UI)
+        try {
+            ((Chrome) io).appendTasksToTaskList(tasks);
+        } catch (ClassCastException ignored) {
+            // Not running in Chrome UI; skip appending
+        }
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+
+        var lines = java.util.stream.IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+        io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        return formattedTaskList;
+    }
+
+    @Tool(
+            "Append a Markdown-formatted note to Task Notes in the Workspace. Use this to record findings, hypotheses, checklists, links, and decisions in Markdown.")
+    public String appendNote(@P("Markdown content to append to Task Notes") String markdown) {
+        if (markdown.isBlank()) {
+            throw new IllegalArgumentException("Note content cannot be empty");
+        }
+
+        final var description = ContextFragment.SEARCH_NOTES.description();
+        final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
+        final var appendedFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        contextManager.pushContext(ctx -> {
+            var existing = ctx.virtualFragments()
+                    .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
+                    .filter(vf -> description.equals(vf.description()))
+                    .findFirst();
+
+            if (existing.isPresent()) {
+                appendedFlag.set(true);
+                var prev = existing.get();
+                String prevText = prev.text();
+                String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
+
+                var next = ctx.removeFragmentsByIds(java.util.List.of(prev.id()));
+                var newFrag = new ContextFragment.StringFragment(contextManager, combined, description, syntax);
+                logger.debug(
+                        "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
+                        prev.id(),
+                        combined.length());
+                return next.addVirtualFragment(newFrag);
+            } else {
+                var newFrag = new ContextFragment.StringFragment(contextManager, markdown, description, syntax);
+                logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
+                return ctx.addVirtualFragment(newFrag);
+            }
+        });
+
+        return appendedFlag.get() ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
     }
 }

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.AbstractProject;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -13,10 +14,13 @@ import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.FileUtil;
 import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Window;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
@@ -48,15 +52,24 @@ public class ImportDependencyDialog {
 
     public static void show(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
         assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
-        new DialogHelper(chrome, listener).buildAndShow();
+        // Default to owning the import dialog by the main frame if no explicit owner is provided.
+        show(chrome, chrome.getFrame(), listener);
     }
 
     public static void show(Chrome chrome) {
-        show(chrome, null);
+        show(chrome, chrome.getFrame(), null);
+    }
+
+    // New overload to allow specifying the owner window (e.g., the Dependencies dialog)
+    public static void show(
+            Chrome chrome, Window owner, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
+        assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
+        new DialogHelper(chrome, owner, listener).buildAndShow();
     }
 
     private static class DialogHelper {
         private final Chrome chrome;
+        private final Window owner;
         private JDialog dialog = new JDialog();
 
         @Nullable
@@ -93,8 +106,9 @@ public class ImportDependencyDialog {
         @Nullable
         private GitRepo.RemoteInfo remoteInfo;
 
-        DialogHelper(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
+        DialogHelper(Chrome chrome, Window owner, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
             this.chrome = chrome;
+            this.owner = owner;
             this.dependenciesRoot = chrome.getProject()
                     .getRoot()
                     .resolve(AbstractProject.BROKK_DIR)
@@ -105,7 +119,7 @@ public class ImportDependencyDialog {
         }
 
         void buildAndShow() {
-            dialog = new JDialog(chrome.getFrame(), "Import Dependency", true);
+            dialog = new JDialog(owner, "Import Dependency", java.awt.Dialog.ModalityType.DOCUMENT_MODAL);
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
             dialog.setLayout(new BorderLayout(10, 10));
 
@@ -123,7 +137,7 @@ public class ImportDependencyDialog {
                     lp.addSelectionListener(pkg -> updateImportButtonState());
                     lp.addDoubleClickListener(() -> {
                         if (importButton.isEnabled() && tabbedPane.getSelectedComponent() == lp) {
-                            if (lp.initiateImport()) dialog.dispose();
+                            lp.initiateImport();
                         }
                     });
 
@@ -152,7 +166,10 @@ public class ImportDependencyDialog {
                 var comp = tabbedPane.getSelectedComponent();
                 if (comp instanceof ImportLanguagePanel lp) {
                     if (lp.initiateImport()) {
+                        // Close the import dialog right away for language-based imports
                         dialog.dispose();
+                        // Ensure the dependencies dialog stays visible and on top
+                        SwingUtilities.invokeLater(this::bringDependenciesDialogToFront);
                     } else {
                         importButton.setEnabled(true);
                     }
@@ -356,6 +373,38 @@ public class ImportDependencyDialog {
             importButton.setEnabled(enabled);
         }
 
+        // Bring the owning Dependencies dialog to the front (if available), otherwise best-effort search.
+        private void bringDependenciesDialogToFront() {
+            try {
+                if (owner instanceof JDialog jd && jd.isShowing()) {
+                    jd.toFront();
+                    jd.requestFocus();
+                    return;
+                }
+                for (Window w : Window.getWindows()) {
+                    if (w instanceof JDialog jd && jd.isShowing()) {
+                        if (containsDependenciesPanel(jd)) {
+                            jd.toFront();
+                            jd.requestFocus();
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignore) {
+                // best-effort
+            }
+        }
+
+        private boolean containsDependenciesPanel(Component c) {
+            if (c instanceof DependenciesPanel) return true;
+            if (c instanceof Container cont) {
+                for (Component child : cont.getComponents()) {
+                    if (containsDependenciesPanel(child)) return true;
+                }
+            }
+            return false;
+        }
+
         private void validateRepository() {
             String url = requireNonNull(gitUrlField).getText().trim();
             if (url.isEmpty()) {
@@ -381,7 +430,9 @@ public class ImportDependencyDialog {
 
                     SwingUtilities.invokeLater(() -> {
                         populateGitRefComboBox(info);
-                        chrome.systemOutput("Repository validated successfully. Select a branch or tag to import.");
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Repository validated successfully. Select a branch or tag to import.");
                         updateImportButtonState();
                     });
                 } catch (Exception ex) {
@@ -430,7 +481,6 @@ public class ImportDependencyDialog {
             if (listener != null) {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(depName));
             }
-            dialog.dispose();
 
             var project = chrome.getProject();
             if (project.getAnalyzerLanguages().stream().anyMatch(lang -> lang.isAnalyzed(project, sourcePath))) {
@@ -475,9 +525,12 @@ public class ImportDependencyDialog {
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
                     SwingUtilities.invokeLater(() -> {
-                        chrome.systemOutput(
+                        dialog.dispose();
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
                                 "Directory copied to " + targetPath + ". Reopen project to incorporate the new files.");
                         if (listener != null) listener.dependencyImportFinished(depName);
+                        bringDependenciesDialogToFront();
                     });
                 } catch (IOException ex) {
                     logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
@@ -531,7 +584,6 @@ public class ImportDependencyDialog {
             if (listener != null) {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(repoName));
             }
-            dialog.dispose();
 
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
                 try {
@@ -559,8 +611,12 @@ public class ImportDependencyDialog {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
 
                         SwingUtilities.invokeLater(() -> {
-                            chrome.systemOutput("Repository " + repoName + " imported successfully.");
+                            dialog.dispose();
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Repository " + repoName + " imported successfully.");
                             if (listener != null) listener.dependencyImportFinished(repoName);
+                            bringDependenciesDialogToFront();
                         });
                     } catch (Exception postCloneException) {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);

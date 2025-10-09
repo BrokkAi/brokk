@@ -214,9 +214,11 @@ public class GitLogTab extends JPanel {
                 try {
                     var pm = new IoProgressMonitor(contextManager.getIo());
                     getRepo().fetchAll(pm); // network call
-                    contextManager.getIo().systemOutput("Fetch finished");
+                    IConsoleIO iConsoleIO = contextManager.getIo();
+                    iConsoleIO.showNotification(IConsoleIO.NotificationRole.INFO, "Fetch finished");
                 } catch (GitAPIException ex) {
-                    contextManager.getIo().systemOutput("Fetch failed: " + ex.getMessage());
+                    IConsoleIO iConsoleIO = contextManager.getIo();
+                    iConsoleIO.showNotification(IConsoleIO.NotificationRole.INFO, "Fetch failed: " + ex.getMessage());
                     logger.warn("Fetch failed", ex);
                 } finally {
                     SwingUtilities.invokeLater(() -> {
@@ -703,16 +705,36 @@ public class GitLogTab extends JPanel {
 
     /** Check out a branch (local or remote). */
     private void checkoutBranch(String branchName) {
-        contextManager.submitUserTask("Checking out branch: " + branchName, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
-                if (!getRepo().listLocalBranches().contains(branchName)) {
+                var localBranches = getRepo().listLocalBranches();
+                var createdTracking = false;
+                var localTrackingName = branchName;
+
+                if (!localBranches.contains(branchName)) {
                     // If it's not a known local branch, assume it's remote or needs tracking.
+                    if (branchName.contains("/")) {
+                        localTrackingName = branchName.substring(branchName.indexOf('/') + 1);
+                    }
                     getRepo().checkoutRemoteBranch(branchName);
-                    chrome.systemOutput("Created local tracking branch for " + branchName);
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Created local tracking branch for " + branchName);
+                    createdTracking = true;
                 } else {
                     getRepo().checkout(branchName);
                 }
-                update();
+
+                // After successful checkout, update branch selector and Project Files title on EDT
+                var currentActualBranch = getRepo().getCurrentBranch();
+                if (createdTracking) {
+                    // If JGit reports a non-local name (e.g. remote-ref or detached), use the expected local tracking
+                    // name
+                    var localsAfter = getRepo().listLocalBranches();
+                    if (!localsAfter.contains(currentActualBranch)) {
+                        currentActualBranch = localTrackingName;
+                    }
+                }
+                refreshAllGitUi(currentActualBranch);
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -732,10 +754,7 @@ public class GitLogTab extends JPanel {
 
     /** Enhanced merge that supports target branch selection and branch deletion. */
     private void performEnhancedMerge(MergeDialogUtil.MergeDialogResult result) {
-        String taskDescription = String.format(
-                "Merging %s into %s (%s)", result.sourceBranch(), result.targetBranch(), result.mergeMode());
-
-        contextManager.submitUserTask(taskDescription, () -> {
+        contextManager.submitExclusiveAction(() -> {
             var repo = getRepo();
             String originalBranch = null;
 
@@ -760,9 +779,11 @@ public class GitLogTab extends JPanel {
                                 case REBASE_MERGE -> "rebase-merged";
                             };
 
-                    chrome.systemOutput(String.format(
-                            "Branch '%s' successfully %s into '%s'.",
-                            result.sourceBranch(), modeDescription, result.targetBranch()));
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            String.format(
+                                    "Branch '%s' successfully %s into '%s'.",
+                                    result.sourceBranch(), modeDescription, result.targetBranch()));
 
                     // Delete source branch if requested
                     if (result.deleteBranch()) {
@@ -782,7 +803,9 @@ public class GitLogTab extends JPanel {
                     try {
                         logger.info("Restoring original branch: {}", originalBranch);
                         repo.checkout(originalBranch);
-                        chrome.systemOutput("Switched back to original branch: " + originalBranch);
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Switched back to original branch: " + originalBranch);
                     } catch (GitAPIException e) {
                         String restoreError = String.format(
                                 "Warning: Failed to switch back to original branch '%s': %s",
@@ -793,7 +816,20 @@ public class GitLogTab extends JPanel {
                 }
 
                 // Refresh UI to reflect changes
-                SwingUtilities.invokeLater(this::update);
+                String branchForUiRefresh;
+                try {
+                    branchForUiRefresh = repo.getCurrentBranch();
+                } catch (GitAPIException ex) {
+                    logger.error("Error determining current branch after merge: {}", ex.getMessage());
+                    branchForUiRefresh = null;
+                }
+                final String branchForUiRefreshFinal = branchForUiRefresh;
+                SwingUtilities.invokeLater(() -> {
+                    // Update commit/branch tables
+                    if (branchForUiRefreshFinal != null) {
+                        refreshAllGitUi(branchForUiRefreshFinal);
+                    }
+                });
             }
 
             return null;
@@ -810,10 +846,13 @@ public class GitLogTab extends JPanel {
                 // Check if branch is merged before deletion
                 if (repo.isBranchMerged(branchName)) {
                     repo.deleteBranch(branchName);
-                    chrome.systemOutput(String.format("Branch '%s' deleted after merge.", branchName));
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            String.format("Branch '%s' deleted after merge.", branchName));
                 } else {
                     logger.warn("Branch '{}' appears unmerged, skipping deletion after merge", branchName);
-                    chrome.systemOutput(
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
                             String.format("Warning: Branch '%s' appears unmerged, skipping deletion.", branchName));
                 }
             }
@@ -852,11 +891,12 @@ public class GitLogTab extends JPanel {
                 "Create New Branch",
                 JOptionPane.QUESTION_MESSAGE);
         if (newName != null && !newName.trim().isEmpty()) {
-            contextManager.submitUserTask("Creating new branch: " + newName + " from " + sourceBranch, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    update();
-                    chrome.systemOutput(
+                    refreshAllGitUi(newName);
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
                     logger.error("Error creating new branch from {}: {}", sourceBranch, e);
@@ -868,7 +908,7 @@ public class GitLogTab extends JPanel {
 
     /** Delete a local branch (with checks for merges). */
     private void deleteBranch(String branchName) {
-        contextManager.submitUserTask("Checking branch merge status", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 boolean isMerged = getRepo().isBranchMerged(branchName);
                 SwingUtilities.invokeLater(() -> {
@@ -909,7 +949,7 @@ public class GitLogTab extends JPanel {
 
     /** Perform the actual branch deletion with or without force. */
     private void performBranchDeletion(String branchName, boolean force) {
-        contextManager.submitUserTask("Deleting branch: " + branchName, () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 logger.debug("Initiating {} deletion for branch: {}", force ? "force" : "normal", branchName);
 
@@ -935,7 +975,9 @@ public class GitLogTab extends JPanel {
                 }
 
                 SwingUtilities.invokeLater(this::update);
-                chrome.systemOutput("Branch '" + branchName + "' " + (force ? "force " : "") + "deleted successfully.");
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Branch '" + branchName + "' " + (force ? "force " : "") + "deleted successfully.");
             } catch (GitAPIException e) {
                 chrome.toolError("Error deleting branch '" + branchName + "': " + e.getMessage());
             }
@@ -945,6 +987,13 @@ public class GitLogTab extends JPanel {
     // ==================================================================
     // Helper Methods
     // ==================================================================
+
+    private void refreshAllGitUi(String branchName) {
+        SwingUtilities.invokeLater(() -> {
+            chrome.updateGitRepo();
+            chrome.getInstructionsPanel().refreshBranchUi(branchName);
+        });
+    }
 
     private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();
@@ -1077,7 +1126,7 @@ public class GitLogTab extends JPanel {
          * @param io The IConsoleIO instance to output progress messages to. Must not be null.
          */
         public IoProgressMonitor(IConsoleIO io) {
-            this.io = Objects.requireNonNull(io, "IConsoleIO cannot be null");
+            this.io = io;
         }
 
         @Override
@@ -1087,7 +1136,7 @@ public class GitLogTab extends JPanel {
 
         @Override
         public void beginTask(String title, int totalWork) {
-            io.systemOutput("Fetch: " + title);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Fetch: " + title);
         }
 
         @Override
@@ -1173,11 +1222,13 @@ public class GitLogTab extends JPanel {
                 return; // No change, do nothing.
             }
 
-            contextManager.submitUserTask("Renaming branch: " + oldName, () -> {
+            contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().renameBranch(oldName, newName);
                     SwingUtilities.invokeLater(() -> {
-                        chrome.systemOutput("Branch '" + oldName + "' renamed to '" + newName + "' successfully.");
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Branch '" + oldName + "' renamed to '" + newName + "' successfully.");
                         // On success, a full update ensures UI consistency (e.g., current branch checkmark moves).
                         update();
                     });

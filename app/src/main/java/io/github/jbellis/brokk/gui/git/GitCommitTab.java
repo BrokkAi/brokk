@@ -1,7 +1,13 @@
 package io.github.jbellis.brokk.gui.git;
 
+import static java.util.Objects.requireNonNull;
+
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.agents.ConflictInspector;
+import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
@@ -55,6 +61,9 @@ public class GitCommitTab extends JPanel {
 
     // Thread-safe cached count for badge updates
     private volatile int cachedModifiedFileCount = 0;
+
+    // Guard to avoid repeatedly offering AI merge while a conflict is active
+    private volatile boolean mergeOfferShown = false;
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
@@ -227,9 +236,11 @@ public class GitCommitTab extends JPanel {
                     workflowService,
                     filesToCommit,
                     commitResult -> { // This is the onCommitSuccessCallback
-                        chrome.systemOutput("Committed "
-                                + getRepo().shortHash(commitResult.commitId())
-                                + ": " + commitResult.firstLine());
+                        chrome.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Committed "
+                                        + getRepo().shortHash(commitResult.commitId())
+                                        + ": " + commitResult.firstLine());
                         updateCommitPanel(); // Refresh file list
                         chrome.updateLogTab();
                         chrome.selectCurrentBranchInLogTab();
@@ -251,7 +262,7 @@ public class GitCommitTab extends JPanel {
 
             // Stash without asking for a message, using a default one.
             String stashMessage = "Stash created by Brokk";
-            contextManager.submitUserTask("Stashing changes", () -> {
+            contextManager.submitExclusiveAction(() -> {
                 try {
                     performStash(filesToStash, stashMessage);
                 } catch (GitAPIException ex) {
@@ -314,52 +325,49 @@ public class GitCommitTab extends JPanel {
         }
 
         contextManager.submitBackgroundTask("Checking uncommitted files", () -> {
-            try {
-                var uncommittedFileStatuses = getRepo().getModifiedFiles();
-                logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
+            var uncommittedFileStatuses = getRepo().getModifiedFiles();
+            logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
 
-                SwingUtilities.invokeLater(() -> {
-                    // Convert Set to List to maintain an order for adding to table and restoring selection by index
-                    var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
+            // Detect active merge/rebase/cherry-pick/revert conflicts in background
+            var detectedConflict = ConflictInspector.inspectFromProject(contextManager.getProject());
 
-                    // Populate the table via the reusable FileStatusTable widget
-                    // This also populates the statusMap within FileStatusTable
-                    fileStatusPane.setFiles(uncommittedFilesList);
+            SwingUtilities.invokeLater(() -> {
+                // Convert Set to List to maintain an order for adding to table and restoring selection by index
+                var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
 
-                    // Restore selection
-                    List<Integer> rowsToSelect = new ArrayList<>();
-                    var model = (DefaultTableModel) uncommittedFilesTable.getModel();
-                    for (int i = 0; i < model.getRowCount(); i++) {
-                        if (previouslySelectedFiles.contains(model.getValueAt(i, 2))) {
-                            rowsToSelect.add(i);
-                        }
+                // Populate the table via the reusable FileStatusTable widget
+                // This also populates the statusMap within FileStatusTable
+                fileStatusPane.setFiles(uncommittedFilesList);
+
+                // Restore selection
+                List<Integer> rowsToSelect = new ArrayList<>();
+                var model = (DefaultTableModel) uncommittedFilesTable.getModel();
+                for (int i = 0; i < model.getRowCount(); i++) {
+                    if (previouslySelectedFiles.contains(model.getValueAt(i, 2))) {
+                        rowsToSelect.add(i);
                     }
+                }
 
-                    if (!rowsToSelect.isEmpty()) {
-                        for (int rowIndex : rowsToSelect) {
-                            uncommittedFilesTable.addRowSelectionInterval(rowIndex, rowIndex);
-                        }
+                if (!rowsToSelect.isEmpty()) {
+                    for (int rowIndex : rowsToSelect) {
+                        uncommittedFilesTable.addRowSelectionInterval(rowIndex, rowIndex);
                     }
+                }
 
-                    updateButtonEnablement(); // General button enablement based on table content
-                    updateCommitButtonText(); // Updates commit button label specifically
+                updateButtonEnablement(); // General button enablement based on table content
+                updateCommitButtonText(); // Updates commit button label specifically
 
-                    // Update cached count and badge after status change
-                    updateAfterStatusChange(uncommittedFilesList.size());
-                });
-            } catch (Exception e) {
-                logger.error("Error fetching uncommitted files:", e);
-                SwingUtilities.invokeLater(() -> {
-                    logger.debug("Disabling commit/stash buttons due to error");
-                    commitButton.setEnabled(false);
-                    stashButton.setEnabled(false);
-                    if (uncommittedFilesTable.getModel() instanceof DefaultTableModel dtm) {
-                        dtm.setRowCount(0); // Clear table on error
-                    }
-                    // Update cached count and badge after error
-                    updateAfterStatusChange(0);
-                });
-            }
+                // Update cached count and badge after status change
+                updateAfterStatusChange(uncommittedFilesList.size());
+
+                // Offer AI-assisted merge once per conflict state
+                if (detectedConflict.isPresent()) {
+                    maybeOfferAiMerge(detectedConflict.get());
+                } else {
+                    // Reset guard when conflicts are gone
+                    mergeOfferShown = false;
+                }
+            });
             return null;
         });
     }
@@ -529,7 +537,7 @@ public class GitCommitTab extends JPanel {
             }
         }
 
-        contextManager.submitUserTask("show-uncomitted-files", () -> {
+        contextManager.submitBackgroundTask("Opening diff for uncommitted files", () -> {
             try {
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
@@ -602,7 +610,7 @@ public class GitCommitTab extends JPanel {
             return;
         }
 
-        contextManager.submitUserTask("Rolling back files", () -> {
+        contextManager.submitExclusiveAction(() -> {
             try {
                 // 1. Identify which files are not in the workspace.
                 var filesNotInWorkspace = selectedFiles.stream()
@@ -668,8 +676,9 @@ public class GitCommitTab extends JPanel {
                         new HashSet<>(selectedFiles),
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
 
-                // 8. Add the result to history. The snapshot will not contain the fragments for `newFiles`.
-                contextManager.addToHistory(taskResult, false);
+                try (var scope = contextManager.beginTask(rollbackDescription, false)) {
+                    scope.append(taskResult);
+                }
 
                 // 9. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {
@@ -702,7 +711,7 @@ public class GitCommitTab extends JPanel {
                 // 11. Update UI on EDT.
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
-                    chrome.systemOutput(successMessage);
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);
                     updateCommitPanel();
                     chrome.updateLogTab();
                 });
@@ -736,10 +745,12 @@ public class GitCommitTab extends JPanel {
 
         SwingUtilities.invokeLater(() -> {
             if (selectedFiles.isEmpty()) {
-                chrome.systemOutput("All changes stashed successfully: " + stashDescription);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "All changes stashed successfully: " + stashDescription);
             } else {
                 String fileList = GitUiUtil.formatFileList(selectedFiles);
-                chrome.systemOutput("Stashed " + fileList + ": " + stashDescription);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Stashed " + fileList + ": " + stashDescription);
             }
             updateCommitPanel(); // Refresh file list
             chrome.updateLogTab(); // Refresh log
@@ -768,5 +779,136 @@ public class GitCommitTab extends JPanel {
 
         // Update the git tab badge
         chrome.updateGitTabBadge(newCount);
+    }
+
+    /** Offer AI-assisted merge once per detected conflict. */
+    private void maybeOfferAiMerge(MergeAgent.MergeConflict conflict) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (mergeOfferShown) {
+            return;
+        }
+        mergeOfferShown = true;
+
+        var conflictCount = conflict.files().size();
+        var message =
+                """
+                Merge conflicts detected:
+                  - Mode: %s
+                  - Other: %s
+                  - Files with conflicts: %d
+
+                Would you like to resolve these conflicts with the Merge Agent?
+                """
+                        .stripIndent()
+                        .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
+
+        // Create custom dialog with instructions textarea
+        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
+        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+
+        // Message panel
+        var messageArea = new JTextArea(message);
+        messageArea.setEditable(false);
+        messageArea.setOpaque(false);
+        messageArea.setFont(UIManager.getFont("Label.font"));
+        var messagePanel = new JPanel(new BorderLayout());
+        messagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        messagePanel.add(messageArea, BorderLayout.CENTER);
+
+        // Custom instructions panel
+        var customInstructionsArea = new JTextArea(3, 40);
+        customInstructionsArea.setLineWrap(true);
+        customInstructionsArea.setWrapStyleWord(true);
+        customInstructionsArea.setText(MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+        var customScroll = new JScrollPane(customInstructionsArea);
+        customScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        customScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        var customPanel = new JPanel(new BorderLayout());
+        customPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(0, 10, 10, 10),
+                BorderFactory.createTitledBorder("Custom Instructions")));
+        customPanel.add(customScroll, BorderLayout.CENTER);
+
+        // Button panel with right-aligned buttons (platform standard for dialogs)
+        var dialogButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
+        dialogButtonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+
+        var resolveButton = new MaterialButton("Resolve with Merge Agent");
+        SwingUtil.applyPrimaryButtonStyle(resolveButton);
+        var cancelButton = new MaterialButton("Dismiss");
+
+        var dialogResult = new boolean[] {false};
+
+        resolveButton.addActionListener(e -> {
+            dialogResult[0] = true;
+            dialog.dispose();
+        });
+
+        cancelButton.addActionListener(e -> {
+            dialogResult[0] = false;
+            dialog.dispose();
+        });
+
+        dialogButtonPanel.add(resolveButton);
+        dialogButtonPanel.add(cancelButton);
+
+        // Layout
+        dialog.add(messagePanel, BorderLayout.NORTH);
+        dialog.add(customPanel, BorderLayout.CENTER);
+        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(chrome.getFrame());
+        dialog.setVisible(true);
+
+        if (dialogResult[0]) {
+            runAiMerge(conflict, customInstructionsArea.getText());
+        }
+    }
+
+    /** Run MergeAgent using the InstructionsPanel-selected planning model and GPT-5-mini as code model. */
+    private void runAiMerge(MergeAgent.MergeConflict conflict, String customInstructions) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Create a new session for this merge, mirroring PR Review behavior
+        String sessionName = "Merge " + conflict.ourCommitId() + " and " + conflict.otherCommitId();
+        contextManager.createSessionAsync(sessionName).whenComplete((ignored, err) -> {
+            if (err != null) {
+                logger.error("Failed to create merge session '{}'", sessionName, err);
+                SwingUtilities.invokeLater(() -> chrome.toolError(
+                        "Unable to create merge session: " + sessionName + ": " + err.getMessage(),
+                        "Merge Agent Error"));
+                return;
+            }
+
+            // Now execute the merge in an exclusive action
+            contextManager.submitLlmAction(() -> {
+                var service = contextManager.getService();
+
+                // Resolve planning model from InstructionsPanel
+                var modelConfig = chrome.getInstructionsPanel().getSelectedModel();
+                var planningModel = requireNonNull(service.getModel(modelConfig));
+                // Code model is hardcoded
+                var codeModel = requireNonNull(service.getModel(Service.GPT_5_MINI));
+
+                try (var scope = contextManager.beginTask("AI Merge", false)) {
+                    var agent = new MergeAgent(
+                            contextManager, planningModel, codeModel, conflict, scope, customInstructions);
+                    var result = agent.execute();
+                    scope.append(result);
+                } catch (Exception ex) {
+                    logger.error("AI merge failed", ex);
+                    SwingUtilities.invokeLater(
+                            () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
+                } finally {
+                    SwingUtilities.invokeLater(() -> {
+                        updateCommitPanel();
+                        chrome.updateLogTab();
+                    });
+                }
+            });
+        });
     }
 }

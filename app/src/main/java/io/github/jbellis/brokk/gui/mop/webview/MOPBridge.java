@@ -176,6 +176,12 @@ public final class MOPBridge {
                         "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
     }
 
+    public void setTaskInProgress(boolean inProgress) {
+        var js = "if (window.brokk && window.brokk.setTaskInProgress) { window.brokk.setTaskInProgress(" + inProgress
+                + "); } else { console.error('setTaskInProgress called - bridge not ready yet'); }";
+        Platform.runLater(() -> engine.executeScript(js));
+    }
+
     public void clear() {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.Clear(e));
@@ -209,7 +215,8 @@ public final class MOPBridge {
             var msgs = taskFragment.messages();
             for (var message : msgs) {
                 var text = Messages.getText(message);
-                messages.add(new BrokkEvent.HistoryTask.Message(text, message.type()));
+                messages.add(
+                        new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
             }
         }
         var event = new BrokkEvent.HistoryTask(e, entry.sequence(), false, null, messages);
@@ -381,7 +388,7 @@ public final class MOPBridge {
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
 
             try {
-                logger.debug(
+                logger.trace(
                         "Starting streaming symbol lookup for {} symbols in context {}", symbolNames.size(), contextId);
 
                 // Use streaming lookup to send results as they become available
@@ -408,7 +415,7 @@ public final class MOPBridge {
                         },
                         // Completion callback - called when all symbols are processed
                         () -> {
-                            logger.debug(
+                            logger.trace(
                                     "Streaming symbol lookup completed for {} symbols in context {}",
                                     symbolNames.size(),
                                     contextId);
@@ -465,7 +472,7 @@ public final class MOPBridge {
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
 
             try {
-                logger.debug("Starting file path lookup for {} paths in context {}", filePaths.size(), contextId);
+                logger.trace("Starting file path lookup for {} paths in context {}", filePaths.size(), contextId);
 
                 // Use file path lookup service
                 FilePathLookupService.lookupFilePaths(
@@ -527,12 +534,10 @@ public final class MOPBridge {
                         var projectFiles = new ArrayList<ProjectFile>();
 
                         var project = contextManager.getProject();
-                        if (project != null) {
-                            for (var match : matches) {
-                                String relativePath = (String) match.get("relativePath");
-                                if (relativePath != null) {
-                                    projectFiles.add(new ProjectFile(project.getRoot(), relativePath));
-                                }
+                        for (var match : matches) {
+                            String relativePath = (String) match.get("relativePath");
+                            if (relativePath != null) {
+                                projectFiles.add(new ProjectFile(project.getRoot(), relativePath));
                             }
                         }
 
@@ -591,7 +596,7 @@ public final class MOPBridge {
             logger.warn("Cannot delete history entry {} - no context manager", sequence);
             return;
         }
-        cm.submitUserTask("Delete history entry " + sequence, () -> cm.dropHistoryEntryBySequence(sequence));
+        cm.submitExclusiveAction(() -> cm.dropHistoryEntryBySequence(sequence));
     }
 
     public String getContextCacheId() {
@@ -651,7 +656,7 @@ public final class MOPBridge {
                             .filter(s -> !s.isEmpty())
                             .distinct()
                             .toList();
-                } else if (langs != null && langs.getClass().isArray()) {
+                } else if (langs.getClass().isArray()) {
                     var arr = (Object[]) langs;
                     analyzerLanguages = Arrays.stream(arr)
                             .map(String::valueOf)
@@ -659,12 +664,12 @@ public final class MOPBridge {
                             .filter(s -> !s.isEmpty())
                             .distinct()
                             .toList();
-                } else if (langs != null) {
+                } else {
                     var s = String.valueOf(langs).trim();
                     analyzerLanguages = s.isEmpty() ? List.of() : List.of(s);
                 }
             } catch (Throwable t) {
-                logger.debug("Analyzer languages unavailable from project", t);
+                logger.trace("Analyzer languages unavailable from project", t);
             }
 
             var payload = new java.util.LinkedHashMap<String, Object>();

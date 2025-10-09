@@ -371,26 +371,42 @@ public interface LspClient extends AutoCloseable {
     default Optional<String> getAnonymousName(Location lambdaLocation) {
         final Path filePath = Paths.get(URI.create(lambdaLocation.getUri()));
         logger.trace("Determining name for anonymous structure at {}", lambdaLocation);
-        return LspAnalyzerHelper.getSymbolsInFile(getServer(), filePath)
-                .thenApply(eithers -> eithers.stream()
-                        .flatMap(either -> {
-                            if (either.isLeft()) {
-                                return Optional.<String>empty().stream();
-                            }
-                            // Find the parent class and method for the anonymous symbol's location
-                            return findParentContext(
-                                    Collections.singletonList(either.getRight()), lambdaLocation.getRange())
-                                    .map(context -> String.format(
-                                            // Construct the name using Class.Method$anon$LineNumber:ColumnNumber
-                                            "%s.%s$anon$%d:%d",
-                                            context.containerFullName(),
-                                            context.methodName(),
-                                            lambdaLocation.getRange().getStart().getLine(),
-                                            lambdaLocation.getRange().getStart().getCharacter()))
-                                    .stream();
-                        })
-                        .findFirst())
-                .join();
+        try {
+            final var eithers =
+                    LspAnalyzerHelper.getSymbolsInFile(getServer(), filePath).join();
+
+            // Collect all top-level DocumentSymbols from the Right side
+            final var docSymbols = eithers.stream()
+                    .flatMap(e -> e.isRight() ? Stream.of(e.getRight()) : Stream.<DocumentSymbol>empty())
+                    .toList();
+
+            if (docSymbols.isEmpty()) {
+                logger.debug("No DocumentSymbols returned by LSP for file: {}", filePath);
+            }
+
+            // Find the parent class chain and the selected (highest non-anonymous) method
+            final var maybeContext = findParentContext(docSymbols, lambdaLocation.getRange());
+            if (maybeContext.isEmpty()) {
+                logger.warn(
+                        "Unable to resolve parent context for anonymous symbol at {} with range {}",
+                        filePath,
+                        lambdaLocation.getRange());
+                return Optional.empty();
+            }
+
+            final var context = maybeContext.get();
+            final var start = lambdaLocation.getRange().getStart();
+
+            // Construct fullname: ClassChain.SelectedMethod$anon$line:col
+            final var fullName = String.format(
+                    "%s.%s$anon$%d:%d",
+                    context.containerFullName(), context.methodName(), start.getLine(), start.getCharacter());
+
+            return Optional.of(fullName);
+        } catch (Exception ex) {
+            logger.warn("Failed computing anonymous name for location {} due to: {}", lambdaLocation, ex.toString());
+            return Optional.empty();
+        }
     }
 
     /** Recursively searches a symbol tree to find the containing class and method for a given range. */
@@ -412,20 +428,33 @@ public interface LspClient extends AutoCloseable {
                     }
                 }
                 // We've reached the deepest containing symbol. Now build the context.
-                String className = null;
-                String methodName = null;
-                for (final DocumentSymbol s : contextStack) {
-                    if (className == null && LspAnalyzerHelper.TYPE_KINDS.contains(s.getKind())) {
+                final List<String> classParts = new ArrayList<>();
+                String nearestMethodName = null;
+                String lastNonAnonymousMethodName = null;
+                boolean sawAnonymousType = false;
+
+                // Build fully-qualified container from all non-anonymous type symbols, outermost -> innermost
+                for (final Iterator<DocumentSymbol> it = contextStack.descendingIterator(); it.hasNext(); ) {
+                    final DocumentSymbol s = it.next();
+                    if (LspAnalyzerHelper.TYPE_KINDS.contains(s.getKind())) {
                         if (isAnonymousClass(s.getKind(), s.getName())) {
-                            methodName = null; // invalidate method name, keep traversing up
-                        } else {
-                            className = resolveMethodName(s.getName());
+                            sawAnonymousType = true;
+                            continue;
+                        }
+                        classParts.add(resolveMethodName(s.getName()));
+                    }
+                    if (LspAnalyzerHelper.METHOD_KINDS.contains(s.getKind())) {
+                        final String resolved = resolveMethodName(s.getName());
+                        nearestMethodName = resolved;
+                        if (!sawAnonymousType) {
+                            lastNonAnonymousMethodName = resolved;
                         }
                     }
-                    if (methodName == null && LspAnalyzerHelper.METHOD_KINDS.contains(s.getKind())) {
-                        methodName = resolveMethodName(s.getName());
-                    }
                 }
+
+                final String methodName = sawAnonymousType ? lastNonAnonymousMethodName : nearestMethodName;
+                final String className = classParts.isEmpty() ? null : String.join(".", classParts);
+
                 contextStack.pop();
                 return (className != null && methodName != null)
                         ? Optional.of(new SymbolContext(className, methodName))

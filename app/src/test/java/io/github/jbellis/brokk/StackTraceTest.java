@@ -73,4 +73,28 @@ public class StackTraceTest {
         assertEquals(2, st2.getFrames().size());
         assertEquals(2, st2.getFrames("io.github.jbellis.brokk.gui").size());
     }
+
+    @Test
+    public void testStackTraceWithInnerClass() {
+        var stackTraceStr =
+                """
+        [Error: dev.langchain4j.exception.LangChain4jException: closed
+            at dev.langchain4j.internal.ExceptionMapper$DefaultExceptionMapper.mapException(ExceptionMapper.java:48)
+            at dev.langchain4j.model.openai.OpenAiStreamingChatModel.lambda$doChat$4(OpenAiStreamingChatModel.java:123)
+        """;
+
+        var st = StackTrace.parse(stackTraceStr);
+        // Do not assert exception type here since the example line includes a prefix with a colon
+        assertEquals(2, st.getFrames().size());
+
+        var first = st.getFrames().get(0);
+        assertEquals("dev.langchain4j.internal.ExceptionMapper$DefaultExceptionMapper", first.getClassName());
+        assertEquals("mapException", first.getMethodName());
+        assertEquals("ExceptionMapper.java", first.getFileName());
+        assertEquals(48, first.getLineNumber());
+
+        // Ensure package filtering works even with '$' in the class name
+        assertEquals(1, st.getFrames("dev.langchain4j.internal").size());
+        assertEquals(1, st.getFrames("dev.langchain4j.internal.ExceptionMapper").size());
+    }
 }

@@ -12,7 +12,6 @@ public class MultiAnalyzer
                 UsagesProvider,
                 SkeletonProvider,
                 SourceCodeProvider,
-                IncrementalUpdateProvider,
                 TypeAliasProvider {
     private final Map<Language, IAnalyzer> delegates;
 
@@ -46,6 +45,11 @@ public class MultiAnalyzer
     @Override
     public boolean isEmpty() {
         return delegates.values().stream().allMatch(IAnalyzer::isEmpty);
+    }
+
+    @Override
+    public Set<Language> languages() {
+        return delegates.keySet();
     }
 
     @Override
@@ -87,9 +91,21 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName, boolean includeComments) {
-        return findFirst(analyzer ->
-                analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName, includeComments)));
+    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+        var lang = Languages.fromExtension(Files.getFileExtension(file.absPath().toString()));
+        var delegate = delegates.get(lang);
+        if (delegate != null) {
+            return delegate.topLevelCodeUnitsOf(file);
+        }
+        return List.of();
+    }
+
+    @Override
+    public Set<String> getMethodSources(String fqName, boolean includeComments) {
+        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class)
+                        .map(scp -> scp.getMethodSources(fqName, includeComments))
+                        .filter(sources -> !sources.isEmpty()))
+                .orElse(Collections.emptySet());
     }
 
     @Override
@@ -205,7 +221,7 @@ public class MultiAnalyzer
     @Override
     public IAnalyzer update() {
         for (var an : delegates.values()) {
-            an.as(IncrementalUpdateProvider.class).ifPresent(IncrementalUpdateProvider::update);
+            an.update();
         }
         return this;
     }
@@ -227,9 +243,7 @@ public class MultiAnalyzer
                 continue;
             }
 
-            analyzer.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> {
-                incAnalyzer.update(relevantFiles);
-            });
+            analyzer.update(relevantFiles);
         }
 
         return this;

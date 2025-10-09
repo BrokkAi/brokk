@@ -15,8 +15,14 @@ import org.jetbrains.annotations.Nullable;
 
 public final class TestService extends Service {
 
+    private StreamingChatModel customQuickestModel;
+
     public TestService(IProject project) {
         super(project);
+    }
+
+    public void setQuickestModel(StreamingChatModel model) {
+        this.customQuickestModel = model;
     }
 
     @Override
@@ -62,5 +68,13 @@ public final class TestService extends Service {
                         .build());
             }
         };
+    }
+
+    @Override
+    public StreamingChatModel quickestModel() {
+        if (customQuickestModel != null) {
+            return customQuickestModel;
+        }
+        return super.quickestModel();
     }
 }

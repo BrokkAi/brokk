@@ -159,9 +159,9 @@ public final class HistoryIo {
                         Stream.concat(referencedDtosById.keySet().stream(), virtualDtosById.keySet().stream()),
                         taskDtosById.keySet().stream())
                 .distinct()
-                .forEach(id -> fragmentCache.computeIfAbsent(
-                        id,
-                        currentId -> DtoMapper.resolveAndBuildFragment(
+                .forEach(id -> fragmentCache.computeIfAbsent(id, currentId -> {
+                    try {
+                        return DtoMapper.resolveAndBuildFragment(
                                 currentId,
                                 referencedDtosById,
                                 virtualDtosById,
@@ -169,7 +169,12 @@ public final class HistoryIo {
                                 mgr,
                                 imageBytesMap,
                                 fragmentCache,
-                                contentReader)));
+                                contentReader);
+                    } catch (Exception e) {
+                        logger.error("Error resolving and building fragment for ID {}: {}", currentId, e);
+                        return null;
+                    }
+                }));
 
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {

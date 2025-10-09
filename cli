@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Helper script to launch Brokk CLI from the most-recent build artifact.
-# Scans app/build/libs for the latest brokk*.jar and runs the CLI.
+# Scans app/build/libs for the latest brokk-*.jar and runs the CLI.
 
 set -euo pipefail
 
@@ -9,14 +9,14 @@ set -euo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LIB_DIR="$SCRIPT_DIR/app/build/libs"
 
-# Ensure at least one brokk*.jar exists
-if ! ls "$LIB_DIR"/brokk*.jar &>/dev/null; then
-  echo "Error: No brokk*.jar found in $LIB_DIR" >&2
+# Ensure at least one brokk-*.jar exists
+if ! ls "$LIB_DIR"/brokk-*.jar &>/dev/null; then
+  echo "Error: No brokk-*.jar found in $LIB_DIR" >&2
   exit 1
 fi
 
-# Use the most recently modified brokk*.jar as the classpath
-CLASSPATH="$(ls -t "$LIB_DIR"/brokk*.jar | head -n 1)"
+# Use the most recently modified brokk-*.jar as the classpath
+CLASSPATH="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
 
 # Launch BrokkCli.
 # We use PGC because it's more space-efficient than the default G1,

@@ -11,7 +11,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
@@ -411,7 +410,6 @@ public class FileSelectionTree extends JTree {
         private volatile boolean childrenLoaded = false; // volatile for visibility across threads
 
         public FileTreeNode(File file) {
-            Objects.requireNonNull(file, "File cannot be null for FileTreeNode");
             this.file = file;
         }
 

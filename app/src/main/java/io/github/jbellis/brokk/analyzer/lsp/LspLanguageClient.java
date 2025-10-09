@@ -5,6 +5,8 @@ import io.github.jbellis.brokk.analyzer.LintResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -75,7 +77,7 @@ public abstract class LspLanguageClient implements LanguageClient {
 
     protected void alertUser(String message) {
         if (io != null) {
-            io.systemOutput(message);
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         } else {
             accumulatedErrors.add(message);
         }
@@ -117,20 +119,16 @@ public abstract class LspLanguageClient implements LanguageClient {
 
     /** Clears diagnostics for the specified files. */
     public void clearDiagnosticsForFiles(List<ProjectFile> files) {
-        files.stream()
-                .map(ProjectFile::absPath)
-                .map(this::safeResolvePath)
-                .map(Path::toString)
-                .forEach(fileDiagnostics::remove);
+        files.stream().map(ProjectFile::absPath).map(this::normalizeForKey).forEach(fileDiagnostics::remove);
     }
 
-    protected Path safeResolvePath(Path path) {
+    protected String normalizeForKey(Path path) {
         try {
-            return path.toRealPath();
+            // Use real path when possible (resolves symlinks); fallback to absolute normalized when file may not exist.
+            return path.toRealPath().toString();
         } catch (IOException e) {
-            logger.error("Cannot resolve path {}", path, e);
+            return path.toAbsolutePath().normalize().toString();
         }
-        return path;
     }
 
     @Override
@@ -177,10 +175,32 @@ public abstract class LspLanguageClient implements LanguageClient {
 
     protected String uriToFilePath(String uri) {
         try {
-            return Paths.get(URI.create(uri)).toRealPath().toString();
+            var u = URI.create(uri);
+            if (!"file".equalsIgnoreCase(u.getScheme())) {
+                return uri; // Non-file URIs are returned as-is
+            }
+            var path = Paths.get(u);
+            return normalizeForKey(path);
         } catch (Exception e) {
             logger.warn("Failed to convert URI to file path: {}", uri, e);
-            return uri;
+            // Lossy fallback: strip scheme and decode to get a best-effort local path that won't contain "file:///"
+            try {
+                var raw = uri;
+                if (raw.startsWith("file://")) {
+                    raw = raw.substring("file://".length());
+                    // file:///C:/... -> C:/... (Windows)
+                    if (raw.startsWith("/")
+                            && raw.length() >= 3
+                            && Character.isLetter(raw.charAt(1))
+                            && raw.charAt(2) == ':') {
+                        raw = raw.substring(1);
+                    }
+                }
+                var decoded = URLDecoder.decode(raw, StandardCharsets.UTF_8);
+                return normalizeForKey(Paths.get(decoded));
+            } catch (Exception ignored) {
+                return uri; // absolute last resort
+            }
         }
     }
 
@@ -188,9 +208,8 @@ public abstract class LspLanguageClient implements LanguageClient {
     public List<LintResult.LintDiagnostic> getDiagnosticsForFiles(List<ProjectFile> files) {
         return files.stream()
                 .map(ProjectFile::absPath)
-                .map(this::safeResolvePath)
-                .map(Path::toString)
-                .flatMap(filePath -> fileDiagnostics.getOrDefault(filePath, List.of()).stream())
+                .map(this::normalizeForKey)
+                .flatMap(key -> fileDiagnostics.getOrDefault(key, List.of()).stream())
                 .toList();
     }
 
@@ -201,7 +220,7 @@ public abstract class LspLanguageClient implements LanguageClient {
     public CompletableFuture<Void> waitForDiagnosticsToSettle() {
         try {
             // We need to give diagnostics a moment to start
-            Thread.sleep(500);
+            Thread.sleep(1500);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for diagnostics to settle");
         }
