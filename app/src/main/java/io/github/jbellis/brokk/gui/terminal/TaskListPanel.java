@@ -384,7 +384,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             // Top toolbar (below title, above list): left group + separator + play all/clear completed
-            JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
             topToolbar.setOpaque(false);
 
             // Left group: remaining buttons
