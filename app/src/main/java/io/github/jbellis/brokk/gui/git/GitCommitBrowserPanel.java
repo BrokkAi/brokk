@@ -1017,8 +1017,18 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    handleSingleFileSingleCommitAction((cid, fp) ->
-                            GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp)));
+                    var paths = changesTree.getSelectionPaths();
+                    int[] selRows = commitsTable.getSelectedRows();
+                    if (paths != null
+                            && paths.length == 1
+                            && selRows.length == 1
+                            && TreeNodeInfo.fromPath(paths[0], changesRootNode).isFile()) {
+                        var filePath =
+                                TreeNodeInfo.fromPath(paths[0], changesRootNode).filePath();
+                        if (filePath == null) return;
+                        var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ);
+                        GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo, filePath);
+                    }
                 }
             }
         });
