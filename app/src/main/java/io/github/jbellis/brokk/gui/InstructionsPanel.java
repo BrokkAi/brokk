@@ -110,8 +110,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Card panel that holds the two mutually-exclusive checkboxes so they occupy the same slot.
     private @Nullable JPanel optionsPanel;
-    private static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
-    private static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
+    public static final String OPTIONS_CARD_CODE = "OPTIONS_CODE";
+    public static final String OPTIONS_CARD_ASK = "OPTIONS_ASK";
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
@@ -311,6 +311,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize model selector and branch button (must be done before building bottom panel)
         initializeModelAndBranchSelectors();
+
+        // Initialize options panel before building bottom panel
+        optionsPanel = new JPanel(new CardLayout());
+
+        // Create CODE card
+        JPanel codeOptionsPanel = new JPanel();
+        codeOptionsPanel.setOpaque(false);
+        codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
+        codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
+        optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -1127,99 +1139,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private JPanel buildBottomPanel() {
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-
-        // Code/Ask toggle moved to Top Bar.
-
-        // Dynamic options depending on toggle selection — use a CardLayout so the checkbox occupies a stable slot.
-        optionsPanel = new JPanel(new CardLayout());
-
-        // Create a CODE card (no additional options after removing Plan First).
-        JPanel codeOptionsPanel = new JPanel();
-        codeOptionsPanel.setOpaque(false);
-        codeOptionsPanel.setLayout(new BoxLayout(codeOptionsPanel, BoxLayout.LINE_AXIS));
-        codeOptionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // (Plan First checkbox removed)
-
-        optionsPanel.add(codeOptionsPanel, OPTIONS_CARD_CODE);
-        optionsPanel.add(searchProjectCheckBox, OPTIONS_CARD_ASK);
-
-        // Group the card panel so it stays aligned with other toolbar controls.
-        Box optionGroup = Box.createHorizontalBox();
-        optionGroup.setOpaque(false);
-        optionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
-        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        int planFixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
-
-        // Ensure the card panel has enough width for its widest child (e.g., "Search") and allow horizontal growth.
-        int optWidth = Math.max(optionsPanel.getPreferredSize().width, searchProjectCheckBox.getPreferredSize().width);
-        if (optWidth <= 0) {
-            optWidth = searchProjectCheckBox.getPreferredSize().width + H_GAP;
-        }
-        optionsPanel.setPreferredSize(new Dimension(optWidth, planFixedHeight));
-        optionsPanel.setMinimumSize(new Dimension(optWidth, planFixedHeight));
-        optionsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, planFixedHeight));
-        optionsPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Add the composite card panel; the PLAN button lives inside the CODE card now.
-        optionGroup.add(optionsPanel);
-
-        bottomPanel.add(optionGroup);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        // Ensure the initial visible card matches the current mode
-        if (optionsPanel != null) {
-            ((CardLayout) optionsPanel.getLayout())
-                    .show(optionsPanel, modeSwitch.isSelected() ? OPTIONS_CARD_ASK : OPTIONS_CARD_CODE);
-        }
-
-        // Flexible space between action controls and Go/Stop
-        bottomPanel.add(Box.createHorizontalGlue());
-
-        // Add branch button and model selector
-        var branchButton = requireNonNull(branchSplitButton);
-        branchButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(branchButton);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        var modelComp = modelSelector.getComponent();
-        modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(modelComp);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        // Action button (Go/Stop toggle) on the right
-        actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // Make the action button slightly smaller while keeping a fixed minimum height
-        int fixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
-        var prefSize = new Dimension(64, fixedHeight);
-        actionButton.setPreferredSize(prefSize);
-        actionButton.setMinimumSize(prefSize);
-        actionButton.setMaximumSize(prefSize);
-        actionButton.setMargin(new Insets(4, 10, 4, 10));
-
-        bottomPanel.add(actionButton);
-
-        // Repaint when focus changes so focus border is visible
-        actionButton.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
-                actionButton.repaint();
-            }
-
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                actionButton.repaint();
-            }
-        });
-
-        // Lock bottom toolbar height so BorderLayout keeps it visible
-        Dimension bottomPref = bottomPanel.getPreferredSize();
-        bottomPanel.setMinimumSize(new Dimension(0, bottomPref.height));
-
-        return bottomPanel;
+        return InstructionsTasksTabbedPanel.buildSharedBottomPanel(
+                actionButton,
+                modelSelector,
+                requireNonNull(branchSplitButton),
+                modeSwitch,
+                requireNonNull(optionsPanel),
+                searchProjectCheckBox);
     }
 
     /** Opens the Plan Options: ensures the correct card is visible and focuses the primary control. */
