@@ -637,12 +637,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         micButton.setMinimumSize(micDim);
         micButton.setMaximumSize(micDim);
 
+        wandButton.setPreferredSize(micDim);
+        wandButton.setMinimumSize(micDim);
+        wandButton.setMaximumSize(micDim);
+        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+
         actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
         rightPanel.add(actionGroupPanel);
         rightPanel.add(Box.createHorizontalStrut(H_GAP));
         rightPanel.add(historyDropdown);
         rightPanel.add(Box.createHorizontalStrut(H_GAP));
         rightPanel.add(micButton);
+        rightPanel.add(Box.createHorizontalStrut(H_GAP));
+        rightPanel.add(wandButton);
 
         topBarPanel.add(rightPanel, BorderLayout.EAST);
 
@@ -1183,12 +1190,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(modelComp);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-        // Wand button (Magic Ask) on the right
-        wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        // Size set after fixedHeight is computed below
-        bottomPanel.add(wandButton);
-        bottomPanel.add(Box.createHorizontalStrut(4));
-
         // Action button (Go/Stop toggle) on the right
         actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         // Make the action button slightly smaller while keeping a fixed minimum height
@@ -1198,6 +1199,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setMinimumSize(prefSize);
         actionButton.setMaximumSize(prefSize);
         actionButton.setMargin(new Insets(4, 10, 4, 10));
+
+        bottomPanel.add(actionButton);
 
         // Repaint when focus changes so focus border is visible
         actionButton.addFocusListener(new java.awt.event.FocusAdapter() {
@@ -1211,14 +1214,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.repaint();
             }
         });
-
-        // Size the wand button to match height of action button
-        var iconButtonSize = new Dimension(fixedHeight, fixedHeight);
-        wandButton.setPreferredSize(iconButtonSize);
-        wandButton.setMinimumSize(iconButtonSize);
-        wandButton.setMaximumSize(iconButtonSize);
-
-        bottomPanel.add(actionButton);
 
         // Lock bottom toolbar height so BorderLayout keeps it visible
         Dimension bottomPref = bottomPanel.getPreferredSize();
