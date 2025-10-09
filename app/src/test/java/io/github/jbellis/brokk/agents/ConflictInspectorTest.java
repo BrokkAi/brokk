@@ -98,6 +98,11 @@ class ConflictInspectorTest {
         }
 
         @Override
+        public Path getMasterRootPathForConfig() {
+            return root;
+        }
+
+        @Override
         public IGitRepo getRepo() {
             return repo;
         }

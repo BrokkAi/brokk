@@ -1286,6 +1286,11 @@ public class TreeSitterRepoRunner {
         }
 
         @Override
+        public Path getMasterRootPathForConfig() {
+            return root;
+        }
+
+        @Override
         public Set<Language> getAnalyzerLanguages() {
             return Set.of(language);
         }

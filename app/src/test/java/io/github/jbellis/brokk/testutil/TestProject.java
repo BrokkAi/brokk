@@ -100,6 +100,11 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public Path getMasterRootPathForConfig() {
+        return root;
+    }
+
+    @Override
     public IGitRepo getRepo() {
         throw new UnsupportedOperationException();
     }
