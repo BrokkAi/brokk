@@ -1156,6 +1156,45 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 searchProjectCheckBox);
     }
 
+    /** Removes the bottom panel from this InstructionsPanel. Called by parent when managing a shared toolbar. */
+    public void removeBottomPanel() {
+        SwingUtilities.invokeLater(() -> {
+            for (Component comp : getComponents()) {
+                Object constraints = ((BorderLayout) getLayout()).getConstraints(comp);
+                if (BorderLayout.SOUTH.equals(constraints)) {
+                    remove(comp);
+                    revalidate();
+                    repaint();
+                    return;
+                }
+            }
+        });
+    }
+
+    public JComponent getActionButton() {
+        return actionButton;
+    }
+
+    public ModelSelector getModelSelector() {
+        return modelSelector;
+    }
+
+    public JCheckBox getModeSwitch() {
+        return modeSwitch;
+    }
+
+    public SplitButton getBranchSplitButton() {
+        return requireNonNull(branchSplitButton);
+    }
+
+    public JPanel getOptionsPanel() {
+        return requireNonNull(optionsPanel);
+    }
+
+    public JCheckBox getSearchProjectCheckBox() {
+        return searchProjectCheckBox;
+    }
+
     /** Opens the Plan Options: ensures the correct card is visible and focuses the primary control. */
     public void openPlanOptions() {
         SwingUtilities.invokeLater(() -> {

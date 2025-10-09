@@ -40,14 +40,48 @@ public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
         super(new BorderLayout());
         this.instructionsPanel = instructionsPanel;
 
+        // Remove the temporary bottom panel from InstructionsPanel
+        instructionsPanel.removeBottomPanel();
+
+        // Retrieve the component instances from InstructionsPanel
+        JComponent actionButton = instructionsPanel.getActionButton();
+        ModelSelector modelSelector = instructionsPanel.getModelSelector();
+        SplitButton branchSplitButton = instructionsPanel.getBranchSplitButton();
+        JCheckBox modeSwitch = instructionsPanel.getModeSwitch();
+        JPanel optionsPanel = instructionsPanel.getOptionsPanel();
+        JCheckBox searchProjectCheckBox = instructionsPanel.getSearchProjectCheckBox();
+
+        // Build the shared bottom toolbar
+        JPanel sharedBottomToolbar = buildSharedBottomPanel(
+                actionButton,
+                modelSelector,
+                branchSplitButton,
+                modeSwitch,
+                optionsPanel,
+                searchProjectCheckBox);
+
+        // Create TaskListPanel without a toolbar (it will not add its own)
         this.tabbedPane = new JTabbedPane();
-        this.taskListPanel = new TaskListPanel(chrome);
+        this.taskListPanel = new TaskListPanel(chrome, null);
 
         // Tabs
         tabbedPane.addTab("Instructions", this.instructionsPanel);
         tabbedPane.addTab("Tasks", this.taskListPanel);
 
         add(tabbedPane, BorderLayout.CENTER);
+
+        // Add the shared toolbar to this panel's SOUTH region
+        add(sharedBottomToolbar, BorderLayout.SOUTH);
+
+        // Rewire the action button to call the routing method
+        if (actionButton instanceof javax.swing.AbstractButton button) {
+            // Remove existing action listeners
+            for (var listener : button.getActionListeners()) {
+                button.removeActionListener(listener);
+            }
+            // Add new listener that routes to the appropriate panel
+            button.addActionListener(e -> onActionButtonPressed());
+        }
     }
 
     @Override
