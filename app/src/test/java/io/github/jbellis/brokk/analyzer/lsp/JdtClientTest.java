@@ -64,7 +64,11 @@ public class JdtClientTest {
     @AfterAll
     public static void teardown() {
         if (client != null) {
-            client.close();
+            try {
+                client.close();
+            } catch (Exception e) {
+                logger.error("Unable to close JDT LSP client", e);
+            }
         }
         try {
             testProject.close();
