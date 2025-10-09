@@ -983,7 +983,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
-        
+
         // Handle empty context case
         if (ctx == null || ctx.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
