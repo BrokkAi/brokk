@@ -38,7 +38,8 @@ public class InstructionsTasksTabbedPanel extends JPanel implements ThemeAware {
 
   @Override
   public void applyTheme(GuiTheme guiTheme) {
-    // InstructionsPanel does not require applyTheme here
+    // Forward theme updates to both tabs
+    instructionsPanel.applyTheme(guiTheme);
     taskListPanel.applyTheme(guiTheme);
   }
 

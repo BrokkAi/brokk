@@ -64,7 +64,7 @@ import org.jetbrains.annotations.Nullable;
  * action buttons. It also includes the system messages and command result areas. All initialization and action code
  * related to these components has been moved here.
  */
-public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
+public class InstructionsPanel extends JPanel implements IContextManager.ContextListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
 
     public static final String ACTION_ARCHITECT = "Architect";
@@ -2402,6 +2402,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private static class ModelUnavailableException extends RuntimeException {
         public ModelUnavailableException() {
             super("Model is unavailable. Usually this indicates a networking problem.");
+        }
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        // Update internal visuals that depend on theme
+        updateModeLabels();
+        refreshModeIndicator();
+
+        // Re-apply theme to workspace chips area (non-null by contract)
+        workspaceItemsChipPanel.applyTheme(guiTheme);
+
+        // Update action button background based on running state and theme colors
+        if (actionButton instanceof ThemeAware ta) {
+            ta.applyTheme(guiTheme);
         }
     }
 
