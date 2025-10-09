@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.ImageIcon;
+import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -451,6 +452,50 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
     }
 
+    private Icon buildCloseIcon() {
+        // Always fetch the current UI icon to respect the active theme
+        var uiIcon = UIManager.getIcon("Brokk.close");
+        if (uiIcon == null) {
+            uiIcon = Icons.CLOSE;
+        }
+        int targetW = 10;
+        int targetH = 10;
+
+        Icon source = uiIcon;
+        Image scaled;
+        if (source instanceof ImageIcon ii) {
+            scaled = ii.getImage().getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+        } else {
+            int w = Math.max(1, source.getIconWidth());
+            int h = Math.max(1, source.getIconHeight());
+            BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = buf.createGraphics();
+            try {
+                source.paintIcon(null, g2, 0, 0);
+            } finally {
+                g2.dispose();
+            }
+            scaled = buf.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+        }
+
+        if (scaled == null) {
+            // Robust fallback: draw a simple X
+            BufferedImage fallback = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = fallback.createGraphics();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(Color.GRAY);
+                g2.drawLine(1, 1, targetW - 2, targetH - 2);
+                g2.drawLine(1, targetH - 2, targetW - 2, 1);
+            } finally {
+                g2.dispose();
+            }
+            return new ImageIcon(fallback);
+        }
+
+        return new ImageIcon(scaled);
+    }
+
     private Component createChip(ContextFragment fragment) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -487,32 +532,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             }
         });
 
-        var originalIcon = Icons.CLOSE;
-
-        Image image;
-        if (originalIcon instanceof ImageIcon ii) {
-            // If it's already an ImageIcon, scale its image directly
-            image = ii.getImage().getScaledInstance(10, 10, Image.SCALE_SMOOTH);
-        } else {
-            // Otherwise paint the Icon into a BufferedImage and scale that.
-            int w = originalIcon.getIconWidth();
-            int h = originalIcon.getIconHeight();
-            if (w <= 0) w = 16;
-            if (h <= 0) h = 16;
-            BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2 = buf.createGraphics();
-            try {
-                originalIcon.paintIcon(null, g2, 0, 0);
-            } finally {
-                g2.dispose();
-            }
-            image = buf.getScaledInstance(10, 10, Image.SCALE_SMOOTH);
-        }
-
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label and set the icon explicitly.
         var close = new MaterialButton("");
-        close.setIcon(new ImageIcon(image));
+        close.setIcon(buildCloseIcon());
         close.setFocusable(false);
         // keep the icon-only styling but keep hit area reasonable
         close.setOpaque(false);
@@ -557,8 +580,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.add(close);
 
-        // Keep a handle to the fragment so theme changes can restyle accurately
+        // Keep a handle to the fragment and close button so theme changes can restyle accurately
         chip.putClientProperty("brokk.fragment", fragment);
+        chip.putClientProperty("brokk.chip.closeButton", close);
         styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
 
         chip.addMouseListener(new MouseAdapter() {
@@ -599,23 +623,35 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
         SwingUtilities.invokeLater(() -> {
             boolean isDark = guiTheme.isDarkTheme();
-            for (var component : getComponents()) {
-                if (component instanceof JPanel chip) {
-                    JLabel label = null;
-                    for (var child : chip.getComponents()) {
-                        if (child instanceof JLabel jLabel) {
-                            label = jLabel;
-                            break;
-                        }
-                    }
-                    if (label != null) {
-                        var fragObj = chip.getClientProperty("brokk.fragment");
-                        ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
-                        styleChip(chip, label, isDark, fragment);
+            restyleAllChips(isDark);
+            // Defer a second pass to catch any late UIManager icon changes after LAF/theme switch
+            SwingUtilities.invokeLater(() -> restyleAllChips(isDark));
+        });
+    }
+
+    private void restyleAllChips(boolean isDark) {
+        for (var component : getComponents()) {
+            if (component instanceof JPanel chip) {
+                JLabel label = null;
+                for (var child : chip.getComponents()) {
+                    if (child instanceof JLabel jLabel) {
+                        label = jLabel;
+                        break;
                     }
                 }
+                if (label != null) {
+                    var fragObj = chip.getClientProperty("brokk.fragment");
+                    ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
+                    styleChip(chip, label, isDark, fragment);
+                }
+                var closeObj = chip.getClientProperty("brokk.chip.closeButton");
+                if (closeObj instanceof MaterialButton b) {
+                    b.setIcon(buildCloseIcon());
+                    b.revalidate();
+                    b.repaint();
+                }
             }
-        });
+        }
     }
 
     private boolean isAnalyzerReady() {
