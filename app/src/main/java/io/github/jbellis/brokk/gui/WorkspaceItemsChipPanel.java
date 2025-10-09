@@ -48,9 +48,9 @@ import javax.swing.UIManager;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
+import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.commons.text.StringEscapeUtils;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -378,8 +378,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (d == null) d = "";
 
         // Preserve existing newlines as line breaks for readability
-        String descriptionHtml =
-                StringEscapeUtils.escapeHtml4(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
+        String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .replace("\n", "<br/>");
 
         StringBuilder body = new StringBuilder();
 
@@ -393,6 +395,22 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         body.append("<br/><br/><i>Click to preview contents</i>");
 
         return wrapTooltipHtml(body.toString(), 420);
+    }
+
+    // Capitalize only the first character of the given string; leaves the rest unchanged.
+    private static String capitalizeFirst(String s) {
+        if (s.isEmpty()) {
+            return s;
+        }
+        int first = s.codePointAt(0);
+        int upper = Character.toUpperCase(first);
+        if (upper == first) {
+            return s;
+        }
+        StringBuilder sb = new StringBuilder(s.length());
+        sb.appendCodePoint(upper);
+        sb.append(s.substring(Character.charCount(first)));
+        return sb.toString();
     }
 
     private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
@@ -514,8 +532,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
         ChipKind kindForLabel = classify(fragment);
-        String labelText =
-                (kindForLabel == ChipKind.SUMMARY) ? buildSummaryLabel(fragment) : fragment.shortDescription();
+        String labelText;
+        if (kindForLabel == ChipKind.SUMMARY) {
+            labelText = buildSummaryLabel(fragment);
+        } else if (kindForLabel == ChipKind.OTHER) {
+            labelText = capitalizeFirst(fragment.shortDescription());
+        } else {
+            labelText = fragment.shortDescription();
+        }
         var label = new JLabel(labelText);
 
         // Improve discoverability and accessibility with wrapped HTML tooltips
