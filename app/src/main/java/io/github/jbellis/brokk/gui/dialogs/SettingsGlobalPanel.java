@@ -71,7 +71,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
-    private JCheckBox showGeminiLiteCostNotificationsCheckbox = new JCheckBox("Show free internal LLM calls");
+    private JCheckBox showFreeInternalLLMCheckbox = new JCheckBox("Show free internal LLM calls");
     private JCheckBox showErrorNotificationsCheckbox = new JCheckBox("Show error notifications");
     private JCheckBox showConfirmNotificationsCheckbox = new JCheckBox("Show confirmation notifications");
     private JCheckBox showInfoNotificationsCheckbox = new JCheckBox("Show info notifications");
@@ -982,12 +982,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(showCostNotificationsCheckbox, gbc);
 
-        // Gemini Flash Lite cost (applies to gemini-2.0-flash-lite and gemini-2.5-flash-light)
+        // Free internal LLM call cost (applies to gemini-2.0-flash and gemini-2.0-flash-light)
         gbc.gridx = 0;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(showGeminiLiteCostNotificationsCheckbox, gbc);
+        panel.add(showFreeInternalLLMCheckbox, gbc);
 
         // Filler
         gbc.gridx = 0;
@@ -1071,7 +1071,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
         }
         showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
-        showGeminiLiteCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowGeminiLiteCostNotifications());
+        showFreeInternalLLMCheckbox.setSelected(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
         showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
         showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
         showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
@@ -1207,7 +1207,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Save notification preferences
         GlobalUiSettings.saveShowCostNotifications(showCostNotificationsCheckbox.isSelected());
-        GlobalUiSettings.saveShowGeminiLiteCostNotifications(showGeminiLiteCostNotificationsCheckbox.isSelected());
+        GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(showFreeInternalLLMCheckbox.isSelected());
         GlobalUiSettings.saveShowErrorNotifications(showErrorNotificationsCheckbox.isSelected());
         GlobalUiSettings.saveShowConfirmNotifications(showConfirmNotificationsCheckbox.isSelected());
         GlobalUiSettings.saveShowInfoNotifications(showInfoNotificationsCheckbox.isSelected());
