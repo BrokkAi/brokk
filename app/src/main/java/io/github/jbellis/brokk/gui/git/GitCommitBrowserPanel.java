@@ -1478,37 +1478,61 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
     }
 
     private void handlePullAction(String branchName) {
+        pullButton.setEnabled(false);
         contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.pull(branchName);
                 SwingUtil.runOnEdt(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                    refreshCurrentViewAfterGitOp();
+                    refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                     chrome.updateCommitPanel(); // For uncommitted changes
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pulling {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage()));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Pull error for " + branchName + ": " + ex.getMessage());
+                    pullButton.setEnabled(true);
+                });
+            } catch (Exception ex) {
+                logger.error("Unexpected error pulling {}: {}", branchName, ex.getMessage(), ex);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Unexpected error pulling " + branchName + ": " + ex.getMessage());
+                    pullButton.setEnabled(true);
+                });
             }
         });
     }
 
     private void handlePushAction(String branchName) {
+        pushButton.setEnabled(false);
         contextManager.submitExclusiveAction(() -> {
             try {
                 String msg = gitWorkflow.push(branchName);
                 SwingUtil.runOnEdt(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                    refreshCurrentViewAfterGitOp();
+                    refreshCurrentViewAfterGitOp(); // This will re-evaluate button states
                 });
             } catch (GitRepo.GitPushRejectedException ex) {
                 logger.warn("Push rejected for {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError(
-                        "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: " + ex.getMessage(),
-                        "Push Rejected"));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError(
+                            "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: "
+                                    + ex.getMessage(),
+                            "Push Rejected");
+                    pushButton.setEnabled(true);
+                });
             } catch (GitAPIException ex) {
                 logger.error("Error pushing {}: {}", branchName, ex.getMessage());
-                SwingUtil.runOnEdt(() -> chrome.toolError("Push error for " + branchName + ": " + ex.getMessage()));
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Push error for " + branchName + ": " + ex.getMessage());
+                    pushButton.setEnabled(true);
+                });
+            } catch (Exception ex) {
+                logger.error("Unexpected error pushing {}: {}", branchName, ex.getMessage(), ex);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.toolError("Unexpected error pushing " + branchName + ": " + ex.getMessage());
+                    pushButton.setEnabled(true);
+                });
             }
         });
     }

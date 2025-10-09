@@ -650,7 +650,8 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.debug("Pushing branch {} to origin", branchName);
         var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", branchName, branchName));
 
-        var pushCommand = git.push().setRemote("origin").setRefSpecs(refSpec);
+        var pushCommand = git.push().setRemote("origin").setRefSpecs(refSpec).setTimeout((int)
+                Environment.GIT_NETWORK_TIMEOUT.toSeconds());
         applyGitHubAuthentication(pushCommand, getRemoteUrl("origin"));
         Iterable<PushResult> results = pushCommand.call();
         List<String> rejectionMessages = new ArrayList<>();
@@ -705,7 +706,8 @@ public class GitRepo implements Closeable, IGitRepo {
         var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", localBranchName, remoteBranchName));
 
         // 1. Push the branch
-        var pushCommand = git.push().setRemote(remoteName).setRefSpecs(refSpec);
+        var pushCommand = git.push().setRemote(remoteName).setRefSpecs(refSpec).setTimeout((int)
+                Environment.GIT_NETWORK_TIMEOUT.toSeconds());
         var remoteUrl = getRemoteUrl(remoteName);
 
         Iterable<PushResult> results = performPushWithAuthentication(pushCommand, remoteUrl);
@@ -815,7 +817,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /** Pull changes from the remote repository for the current branch */
     public void pull() throws GitAPIException {
-        var pullCommand = git.pull();
+        var pullCommand = git.pull().setTimeout((int) Environment.GIT_NETWORK_TIMEOUT.toSeconds());
         applyGitHubAuthentication(pullCommand, getRemoteUrl("origin"));
         pullCommand.call();
     }
