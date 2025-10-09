@@ -48,7 +48,6 @@ import javax.swing.UIManager;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
-
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -346,9 +345,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } else {
             body.append("<ul style='margin:0;padding-left:16px'>");
             for (var f : files) {
-                body.append("<li>")
-                        .append(StringEscapeUtils.escapeHtml4(f))
-                        .append("</li>");
+                body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
             }
             body.append("</ul>");
         }
