@@ -50,6 +50,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.commons.text.StringEscapeUtils;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -280,10 +281,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Tooltip helpers
     private static String htmlEscape(String s) {
-        String out = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        // Normalize whitespace a bit for readability
-        out = out.replace("\t", "    ");
-        return out;
+        // Normalize tabs for readability, then escape using Apache Commons Text
+        return StringEscapeUtils.escapeHtml4(s.replace("\t", "    "));
     }
 
     private static String wrapTooltipHtml(String innerHtml, int maxWidthPx) {
