@@ -120,9 +120,18 @@ class MutableSettingsProvider extends DefaultSettingsProvider {
 }
 
 /**
- * JediTerm-backed terminal panel. - Spawns the system shell in a PTY and connects it to a JediTerm terminal emulator. -
- * Properly handles ANSI/VT sequences, backspace, cursor movement, and colors. - Provides a simple header with a Close
- * button that triggers the supplied callback.
+ * JediTerm-backed terminal panel.
+ *
+ * Responsibilities:
+ * - Spawns the system shell in a PTY and connects it to a JediTerm terminal emulator.
+ * - Properly handles ANSI/VT sequences, backspace, cursor movement, and colors.
+ * - Provides a simple optional header with a Close button that triggers the supplied callback.
+ * - Applies theme colors at runtime; honors project-configured terminal font size.
+ *
+ * UI composition summary:
+ * - Typically instantiated by TerminalDrawerPanel inside the right-side developer drawer.
+ * - Chrome (the main window) acts as the IConsoleIO owner and wires theme settings and project context.
+ * - InstructionsPanel is created by Chrome in the main content area; TaskListPanel is created lazily by TerminalDrawerPanel.
  */
 public class TerminalPanel extends JPanel implements ThemeAware {
 

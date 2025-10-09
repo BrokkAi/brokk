@@ -22,8 +22,17 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A drawer panel that can host development tools like terminals and task lists. Uses a right-side JTabbedPane
- * (icon-only tabs) to switch between tools. The drawer collapses to the tab strip when no tool content is displayed.
+ * Developer drawer panel that hosts development tools (TerminalPanel and TaskListPanel) on the right side.
+ *
+ * UI composition summary:
+ * - Chrome is the main window/root container. Chrome constructs an InstructionsPanel for the main input area.
+ * - Chrome also constructs a TerminalDrawerPanel (this class) and mounts it as the right component of a JSplitPane.
+ * - TaskListPanel is not part of the main area; it lives inside this drawer and is created lazily in openTaskList().
+ *
+ * Behavior:
+ * - Uses a vertical icon button bar (simulating icon-only tabs) to toggle between tools.
+ * - Persists last open/closed state, selected tool, and divider proportion (per-project or globally via GlobalUiSettings).
+ * - Collapses to the icon strip when no tool is active, restoring the previous split when reopened.
  */
 public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TerminalDrawerPanel.class);
