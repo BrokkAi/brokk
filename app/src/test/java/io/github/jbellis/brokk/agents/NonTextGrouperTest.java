@@ -10,18 +10,13 @@ public class NonTextGrouperTest {
 
     // Helper method to create a FileConflict for testing
     private MergeAgent.FileConflict createFileConflict(String ourFile, String theirFile, String baseFile) {
+        var root = java.nio.file.Path.of("").toAbsolutePath().getRoot();
         return new MergeAgent.FileConflict(
-                ourFile != null
-                        ? new io.github.jbellis.brokk.analyzer.ProjectFile(java.nio.file.Path.of("/"), ourFile)
-                        : null,
+                ourFile != null ? new io.github.jbellis.brokk.analyzer.ProjectFile(root, ourFile) : null,
                 null,
-                theirFile != null
-                        ? new io.github.jbellis.brokk.analyzer.ProjectFile(java.nio.file.Path.of("/"), theirFile)
-                        : null,
+                theirFile != null ? new io.github.jbellis.brokk.analyzer.ProjectFile(root, theirFile) : null,
                 null,
-                baseFile != null
-                        ? new io.github.jbellis.brokk.analyzer.ProjectFile(java.nio.file.Path.of("/"), baseFile)
-                        : null,
+                baseFile != null ? new io.github.jbellis.brokk.analyzer.ProjectFile(root, baseFile) : null,
                 null);
     }
 

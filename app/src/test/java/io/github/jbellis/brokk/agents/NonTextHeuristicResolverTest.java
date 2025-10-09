@@ -100,7 +100,8 @@ public class NonTextHeuristicResolverTest {
         // 9) Assert working tree contains the modified file (heuristic chooses the side with content)
         assertTrue(Files.exists(file.absPath()), "a.txt should exist after resolving DELETE_MODIFY");
         String resolved = Files.readString(file.absPath());
-        assertEquals("feature change\n", resolved);
+        // Normalize line endings for cross-platform compatibility
+        assertEquals("feature change\n", resolved.replaceAll("\\r\\n", "\n"));
     }
 
     @Test

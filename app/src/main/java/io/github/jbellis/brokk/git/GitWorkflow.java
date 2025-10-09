@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import io.github.jbellis.brokk.prompts.MergePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.util.Messages;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -312,11 +313,12 @@ public final class GitWorkflow {
             // Always explain a single commit relative to its parent (or empty tree)
             diff = repo.showDiff(revision, parentOrEmptyTree(revision));
         } catch (GitAPIException e) {
-            logger.error("Failed to compute diff for commit {}", revision, e);
             throw new RuntimeException("Failed to produce diff for commit " + revision, e);
         }
 
-        var preprocessedDiff = CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT);
+        var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
+                ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)
+                : diff;
         if (preprocessedDiff.isBlank()) {
             return "No changes detected for %s.".formatted(revision);
         }
