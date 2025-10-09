@@ -194,6 +194,15 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return isDarkColor(bg) ? Color.WHITE : Color.BLACK;
     }
 
+    // Lighten a color by blending it towards white by the given fraction (0..1)
+    private static Color lighten(Color c, float fraction) {
+        fraction = Math.max(0f, Math.min(1f, fraction));
+        int r = c.getRed() + Math.round((255 - c.getRed()) * fraction);
+        int g = c.getGreen() + Math.round((255 - c.getGreen()) * fraction);
+        int b = c.getBlue() + Math.round((255 - c.getBlue()) * fraction);
+        return new Color(Math.min(255, r), Math.min(255, g), Math.min(255, b), c.getAlpha());
+    }
+
     // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane
     @Override
     public boolean getScrollableTracksViewportWidth() {
@@ -400,11 +409,18 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         switch (kind) {
             case EDIT -> {
-                // Use linkColor as requested
-                bg = UIManager.getColor("Component.linkColor");
+                // Use accent color for EDIT chips; fall back to linkColor, then to a reasonable theme color
+                bg = UIManager.getColor("Component.accentColor");
+                if (bg == null) {
+                    bg = UIManager.getColor("Component.linkColor");
+                }
                 if (bg == null) {
                     // Robust fallback if theme key is missing
                     bg = ThemeColors.getColor(isDark, "git_badge_background");
+                }
+                // In light mode, make the accent background lighter for a softer look
+                if (!isDark) {
+                    bg = lighten(bg, 0.7f); // blend 70% towards white
                 }
                 fg = contrastingText(bg);
                 border = UIManager.getColor("Component.borderColor");
