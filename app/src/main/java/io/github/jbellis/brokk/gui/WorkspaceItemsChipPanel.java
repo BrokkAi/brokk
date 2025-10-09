@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -21,6 +22,8 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -31,15 +34,21 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
+import javax.swing.UIManager;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
+import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -48,7 +57,7 @@ import org.jetbrains.annotations.Nullable;
  * Displays current workspace items as "chips" with a close button to remove them from the workspace. Listens to context
  * changes and updates itself accordingly.
  */
-public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
+public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrollable {
     private static final Logger logger = LogManager.getLogger(WorkspaceItemsChipPanel.class);
 
     private final Chrome chrome;
@@ -91,9 +100,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         repaint();
 
         // Also nudge ancestors so containers like BoxLayout recompute heights
-        java.awt.Container p = getParent();
+        Container p = getParent();
         while (p != null) {
-            if (p instanceof javax.swing.JComponent jc) {
+            if (p instanceof JComponent jc) {
                 jc.revalidate();
                 jc.repaint();
             }
@@ -125,8 +134,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
-                g2.setRenderingHint(
-                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 Color bg = getBackground();
                 if (bg == null) {
                     bg = getParent() != null ? getParent().getBackground() : Color.LIGHT_GRAY;
@@ -187,35 +195,96 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         return isDarkColor(bg) ? Color.WHITE : Color.BLACK;
     }
 
-    // Tooltip helpers
-    private static String htmlEscape(String s) {
-        String out = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-        // Normalize whitespace a bit for readability
-        out = out.replace("\t", "    ");
-        return out;
+    // Lighten a color by blending it towards white by the given fraction (0..1)
+    private static Color lighten(Color c, float fraction) {
+        fraction = Math.max(0f, Math.min(1f, fraction));
+        int r = c.getRed() + Math.round((255 - c.getRed()) * fraction);
+        int g = c.getGreen() + Math.round((255 - c.getGreen()) * fraction);
+        int b = c.getBlue() + Math.round((255 - c.getBlue()) * fraction);
+        return new Color(Math.min(255, r), Math.min(255, g), Math.min(255, b), c.getAlpha());
     }
+
+    // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane
+    @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return true;
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportHeight() {
+        return false;
+    }
+
+    @Override
+    public Dimension getPreferredScrollableViewportSize() {
+        return getPreferredSize();
+    }
+
+    @Override
+    public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+        int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
+        return Math.max(12, rowH / 2);
+    }
+
+    @Override
+    public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+        int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
+        return Math.max(rowH, visibleRect.height - rowH);
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        // Track viewport width to compute wrapped height
+        int width;
+        var parent = getParent();
+        if (parent instanceof JViewport vp) {
+            width = vp.getWidth();
+        } else {
+            width = getWidth();
+        }
+
+        if (width <= 0) {
+            return super.getPreferredSize();
+        }
+
+        Insets in = getInsets();
+        int contentWidth = width - (in == null ? 0 : in.left + in.right);
+        if (contentWidth <= 0) {
+            return super.getPreferredSize();
+        }
+
+        int hgap = 6;
+        int vgap = 4;
+        if (getLayout() instanceof FlowLayout fl) {
+            hgap = fl.getHgap();
+            vgap = fl.getVgap();
+        }
+
+        int lineWidth = 0;
+        int rows = 1;
+        for (var comp : getComponents()) {
+            if (!comp.isVisible()) continue;
+            int w = comp.getPreferredSize().width;
+            int next = (lineWidth == 0 ? w : lineWidth + hgap + w);
+            if (next <= contentWidth) {
+                lineWidth = next;
+            } else {
+                rows++;
+                lineWidth = w;
+            }
+        }
+
+        int rowH = Math.max(24, getFontMetrics(getFont()).getHeight() + 8);
+        int height = (rows * rowH) + (rows > 1 ? (rows - 1) * vgap : 0);
+        return new Dimension(width, Math.max(height, rowH));
+    }
+
+    // Tooltip helpers
 
     private static String wrapTooltipHtml(String innerHtml, int maxWidthPx) {
         // Use Swing's HTML renderer with a width style to enable wrapping.
         // The BasicHTML engine respects width on body in practice.
         return "<html><body style='width: " + maxWidthPx + "px'>" + innerHtml + "</body></html>";
-    }
-
-    private static String[] summaryLinesFrom(ContextFragment fragment) {
-        String desc;
-        try {
-            desc = fragment.description();
-        } catch (Exception e) {
-            desc = fragment.shortDescription();
-        }
-        if (desc == null) desc = "";
-        // Split on CRLF/CR/LF
-        String[] raw = desc.split("\\R");
-        // Trim lines but keep empty filtering decisions for counting and display
-        for (int i = 0; i < raw.length; i++) {
-            raw[i] = raw[i].trim();
-        }
-        return raw;
     }
 
     private static String buildSummaryLabel(ContextFragment fragment) {
@@ -245,7 +314,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
     }
 
     private static String buildSummaryTooltip(ContextFragment fragment) {
-        String[] lines = summaryLinesFrom(fragment);
+        var files = fragment.files().stream()
+                .map(f -> f.toString())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+
         StringBuilder body = new StringBuilder();
 
         // Prepend metrics (LOC + tokens) if available
@@ -254,15 +328,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             body.append(metrics);
         }
 
-        boolean first = true;
-        for (String s : lines) {
-            if (s.isBlank()) continue;
-            if (!first) body.append("<br/>");
-            body.append(htmlEscape(s));
-            first = false;
-        }
-        if (first) { // no non-blank lines were appended
-            // Fallback to any available description
+        // Header and divider
+        body.append("<div><b>Summaries</b></div>");
+        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+
+        if (files.isEmpty()) {
+            // Fallback: if no files are available, show any description as a last resort
             String d;
             try {
                 d = fragment.description();
@@ -270,15 +341,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
                 d = fragment.shortDescription();
             }
             if (d == null) d = "";
-            body.append(htmlEscape(d));
+            body.append(StringEscapeUtils.escapeHtml4(d));
+        } else {
+            body.append("<ul style='margin:0;padding-left:16px'>");
+            for (var f : files) {
+                body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
+            }
+            body.append("</ul>");
         }
 
-        // Add preview hint
-        if (body.length() > 0) {
-            body.append("<br/><br/><i>Click to preview contents</i>");
-        } else {
-            body.append("<i>Click to preview contents</i>");
-        }
+        body.append("<br/><i>Click to preview contents</i>");
         return wrapTooltipHtml(body.toString(), 420);
     }
 
@@ -292,8 +364,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         if (d == null) d = "";
 
         // Preserve existing newlines as line breaks for readability
-        String descriptionHtml =
-                htmlEscape(d).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br/>");
+        String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .replace("\n", "<br/>");
 
         StringBuilder body = new StringBuilder();
 
@@ -309,6 +383,22 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         return wrapTooltipHtml(body.toString(), 420);
     }
 
+    // Capitalize only the first character of the given string; leaves the rest unchanged.
+    private static String capitalizeFirst(String s) {
+        if (s.isEmpty()) {
+            return s;
+        }
+        int first = s.codePointAt(0);
+        int upper = Character.toUpperCase(first);
+        if (upper == first) {
+            return s;
+        }
+        StringBuilder sb = new StringBuilder(s.length());
+        sb.appendCodePoint(upper);
+        sb.append(s.substring(Character.charCount(first)));
+        return sb.toString();
+    }
+
     private void styleChip(JPanel chip, JLabel label, boolean isDark, @Nullable ContextFragment fragment) {
         ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
 
@@ -318,14 +408,21 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
 
         switch (kind) {
             case EDIT -> {
-                // Use linkColor as requested
-                bg = javax.swing.UIManager.getColor("Component.linkColor");
+                // Use accent color for EDIT chips; fall back to linkColor, then to a reasonable theme color
+                bg = UIManager.getColor("Component.accentColor");
+                if (bg == null) {
+                    bg = UIManager.getColor("Component.linkColor");
+                }
                 if (bg == null) {
                     // Robust fallback if theme key is missing
                     bg = ThemeColors.getColor(isDark, "git_badge_background");
                 }
+                // In light mode, make the accent background lighter for a softer look
+                if (!isDark) {
+                    bg = lighten(bg, 0.7f); // blend 70% towards white
+                }
                 fg = contrastingText(bg);
-                border = javax.swing.UIManager.getColor("Component.borderColor");
+                border = UIManager.getColor("Component.borderColor");
                 if (border == null) {
                     border = Color.GRAY;
                 }
@@ -370,6 +467,50 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
         }
     }
 
+    private Icon buildCloseIcon() {
+        // Always fetch the current UI icon to respect the active theme
+        var uiIcon = UIManager.getIcon("Brokk.close");
+        if (uiIcon == null) {
+            uiIcon = Icons.CLOSE;
+        }
+        int targetW = 10;
+        int targetH = 10;
+
+        Icon source = uiIcon;
+        Image scaled;
+        if (source instanceof ImageIcon ii) {
+            scaled = ii.getImage().getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+        } else {
+            int w = Math.max(1, source.getIconWidth());
+            int h = Math.max(1, source.getIconHeight());
+            BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = buf.createGraphics();
+            try {
+                source.paintIcon(null, g2, 0, 0);
+            } finally {
+                g2.dispose();
+            }
+            scaled = buf.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+        }
+
+        if (scaled == null) {
+            // Robust fallback: draw a simple X
+            BufferedImage fallback = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = fallback.createGraphics();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(Color.GRAY);
+                g2.drawLine(1, 1, targetW - 2, targetH - 2);
+                g2.drawLine(1, targetH - 2, targetW - 2, 1);
+            } finally {
+                g2.dispose();
+            }
+            return new ImageIcon(fallback);
+        }
+
+        return new ImageIcon(scaled);
+    }
+
     private Component createChip(ContextFragment fragment) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -377,8 +518,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
 
         // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
         ChipKind kindForLabel = classify(fragment);
-        String labelText =
-                (kindForLabel == ChipKind.SUMMARY) ? buildSummaryLabel(fragment) : fragment.shortDescription();
+        String labelText;
+        if (kindForLabel == ChipKind.SUMMARY) {
+            labelText = buildSummaryLabel(fragment);
+        } else if (kindForLabel == ChipKind.OTHER) {
+            labelText = capitalizeFirst(fragment.shortDescription());
+        } else {
+            labelText = fragment.shortDescription();
+        }
         var label = new JLabel(labelText);
 
         // Improve discoverability and accessibility with wrapped HTML tooltips
@@ -406,32 +553,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
             }
         });
 
-        var originalIcon = Icons.CLOSE;
-
-        Image image;
-        if (originalIcon instanceof ImageIcon ii) {
-            // If it's already an ImageIcon, scale its image directly
-            image = ii.getImage().getScaledInstance(10, 10, Image.SCALE_SMOOTH);
-        } else {
-            // Otherwise paint the Icon into a BufferedImage and scale that.
-            int w = originalIcon.getIconWidth();
-            int h = originalIcon.getIconHeight();
-            if (w <= 0) w = 16;
-            if (h <= 0) h = 16;
-            BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2 = buf.createGraphics();
-            try {
-                originalIcon.paintIcon(null, g2, 0, 0);
-            } finally {
-                g2.dispose();
-            }
-            image = buf.getScaledInstance(10, 10, Image.SCALE_SMOOTH);
-        }
-
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label and set the icon explicitly.
         var close = new MaterialButton("");
-        close.setIcon(new ImageIcon(image));
+        close.setIcon(buildCloseIcon());
         close.setFocusable(false);
         // keep the icon-only styling but keep hit area reasonable
         close.setOpaque(false);
@@ -476,8 +601,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
 
         chip.add(close);
 
-        // Keep a handle to the fragment so theme changes can restyle accurately
+        // Keep a handle to the fragment and close button so theme changes can restyle accurately
         chip.putClientProperty("brokk.fragment", fragment);
+        chip.putClientProperty("brokk.chip.closeButton", close);
         styleChip(chip, label, chrome.getTheme().isDarkTheme(), fragment);
 
         chip.addMouseListener(new MouseAdapter() {
@@ -518,23 +644,35 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
         SwingUtilities.invokeLater(() -> {
             boolean isDark = guiTheme.isDarkTheme();
-            for (var component : getComponents()) {
-                if (component instanceof JPanel chip) {
-                    JLabel label = null;
-                    for (var child : chip.getComponents()) {
-                        if (child instanceof JLabel jLabel) {
-                            label = jLabel;
-                            break;
-                        }
-                    }
-                    if (label != null) {
-                        var fragObj = chip.getClientProperty("brokk.fragment");
-                        ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
-                        styleChip(chip, label, isDark, fragment);
+            restyleAllChips(isDark);
+            // Defer a second pass to catch any late UIManager icon changes after LAF/theme switch
+            SwingUtilities.invokeLater(() -> restyleAllChips(isDark));
+        });
+    }
+
+    private void restyleAllChips(boolean isDark) {
+        for (var component : getComponents()) {
+            if (component instanceof JPanel chip) {
+                JLabel label = null;
+                for (var child : chip.getComponents()) {
+                    if (child instanceof JLabel jLabel) {
+                        label = jLabel;
+                        break;
                     }
                 }
+                if (label != null) {
+                    var fragObj = chip.getClientProperty("brokk.fragment");
+                    ContextFragment fragment = (fragObj instanceof ContextFragment f) ? f : null;
+                    styleChip(chip, label, isDark, fragment);
+                }
+                var closeObj = chip.getClientProperty("brokk.chip.closeButton");
+                if (closeObj instanceof MaterialButton b) {
+                    b.setIcon(buildCloseIcon());
+                    b.revalidate();
+                    b.repaint();
+                }
             }
-        });
+        }
     }
 
     private boolean isAnalyzerReady() {

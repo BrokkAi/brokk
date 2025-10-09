@@ -55,7 +55,6 @@ public class GitCommitTab extends JPanel {
     private MaterialButton commitButton;
     private MaterialButton stashButton;
     private JPanel buttonPanel;
-    private JTextArea customInstructionsArea;
 
     @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
@@ -288,27 +287,7 @@ public class GitCommitTab extends JPanel {
         titledPanel.add(fileStatusPane, BorderLayout.CENTER);
         titledPanel.add(buttonPanel, BorderLayout.SOUTH);
 
-        // Custom Instructions panel
-        customInstructionsArea = new JTextArea(3, 20);
-        customInstructionsArea.setLineWrap(true);
-        customInstructionsArea.setWrapStyleWord(true);
-        customInstructionsArea.setText(
-                """
-                Resolve ALL conflicts with the minimal change that preserves the
-                semantics of the changes made in both "theirs" and "ours."
-                """
-                        .stripIndent()
-                        .trim());
-        var customScroll = new JScrollPane(customInstructionsArea);
-        customScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        customScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-
-        var customPanel = new JPanel(new BorderLayout());
-        customPanel.setBorder(BorderFactory.createTitledBorder("Custom Instructions"));
-        customPanel.add(customScroll, BorderLayout.CENTER);
-
         add(titledPanel, BorderLayout.CENTER);
-        add(customPanel, BorderLayout.SOUTH);
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -824,26 +803,74 @@ public class GitCommitTab extends JPanel {
                         .stripIndent()
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
-        var options = new Object[] {"Resolve with Merge Agent", "Dismiss"};
-        var choice = JOptionPane.showOptionDialog(
-                chrome.getFrame(),
-                message,
-                "Merge Conflicts Detected",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE,
-                null,
-                options,
-                options[0]);
+        // Create custom dialog with instructions textarea
+        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
+        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
 
-        if (choice == JOptionPane.YES_OPTION) {
-            runAiMerge(conflict);
+        // Message panel
+        var messageArea = new JTextArea(message);
+        messageArea.setEditable(false);
+        messageArea.setOpaque(false);
+        messageArea.setFont(UIManager.getFont("Label.font"));
+        var messagePanel = new JPanel(new BorderLayout());
+        messagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        messagePanel.add(messageArea, BorderLayout.CENTER);
+
+        // Custom instructions panel
+        var customInstructionsArea = new JTextArea(3, 40);
+        customInstructionsArea.setLineWrap(true);
+        customInstructionsArea.setWrapStyleWord(true);
+        customInstructionsArea.setText(MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+        var customScroll = new JScrollPane(customInstructionsArea);
+        customScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        customScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        var customPanel = new JPanel(new BorderLayout());
+        customPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(0, 10, 10, 10),
+                BorderFactory.createTitledBorder("Custom Instructions")));
+        customPanel.add(customScroll, BorderLayout.CENTER);
+
+        // Button panel with right-aligned buttons (platform standard for dialogs)
+        var dialogButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
+        dialogButtonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+
+        var resolveButton = new MaterialButton("Resolve with Merge Agent");
+        SwingUtil.applyPrimaryButtonStyle(resolveButton);
+        var cancelButton = new MaterialButton("Dismiss");
+
+        var dialogResult = new boolean[] {false};
+
+        resolveButton.addActionListener(e -> {
+            dialogResult[0] = true;
+            dialog.dispose();
+        });
+
+        cancelButton.addActionListener(e -> {
+            dialogResult[0] = false;
+            dialog.dispose();
+        });
+
+        dialogButtonPanel.add(resolveButton);
+        dialogButtonPanel.add(cancelButton);
+
+        // Layout
+        dialog.add(messagePanel, BorderLayout.NORTH);
+        dialog.add(customPanel, BorderLayout.CENTER);
+        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(chrome.getFrame());
+        dialog.setVisible(true);
+
+        if (dialogResult[0]) {
+            runAiMerge(conflict, customInstructionsArea.getText());
         }
     }
 
     /** Run MergeAgent using the InstructionsPanel-selected planning model and GPT-5-mini as code model. */
-    private void runAiMerge(MergeAgent.MergeConflict conflict) {
+    private void runAiMerge(MergeAgent.MergeConflict conflict, String customInstructions) {
         assert SwingUtilities.isEventDispatchThread();
-        final String customInstructions = customInstructionsArea.getText();
 
         contextManager.submitExclusiveAction(() -> {
             var service = contextManager.getService();

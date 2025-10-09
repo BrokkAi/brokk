@@ -772,7 +772,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         };
         chipsSizer.setOpaque(false);
-        chipsSizer.add(workspaceItemsChipPanel, BorderLayout.CENTER);
+        var chipsScrollPane = new JScrollPane(workspaceItemsChipPanel);
+        chipsScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        chipsScrollPane.setOpaque(false);
+        chipsScrollPane.getViewport().setOpaque(false);
+        chipsScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        chipsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        chipsSizer.add(chipsScrollPane, BorderLayout.CENTER);
 
         container.add(chipsSizer, BorderLayout.CENTER);
 

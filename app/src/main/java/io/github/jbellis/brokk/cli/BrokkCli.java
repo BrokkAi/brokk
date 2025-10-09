@@ -397,7 +397,8 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                     var conflict = conflictOpt.get();
                     System.out.println(conflict);
-                    MergeAgent mergeAgent = new MergeAgent(cm, planningModel, codeModel, conflict, scope);
+                    MergeAgent mergeAgent = new MergeAgent(
+                            cm, planningModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
                     try {
                         result = mergeAgent.execute();
                         scope.append(result);

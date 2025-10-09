@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.util.TokenAware;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -95,7 +96,7 @@ public final class BlitzForge {
      * Execute a set of per-file tasks in parallel, using AdaptiveExecutor token-aware scheduling when possible. The
      * provided processor should be thread-safe.
      */
-    public TaskResult executeParallel(List<ProjectFile> files, Function<ProjectFile, FileResult> processor) {
+    public TaskResult executeParallel(Collection<ProjectFile> files, Function<ProjectFile, FileResult> processor) {
         listener.onStart(files.size());
 
         if (files.isEmpty()) {
@@ -113,7 +114,7 @@ public final class BlitzForge {
 
         // Sort by on-disk size ascending (smallest first)
         var sortedFiles = files.stream()
-                .sorted(Comparator.comparingLong((ProjectFile f) -> fileSize(f)))
+                .sorted(Comparator.comparingLong(BlitzForge::fileSize))
                 .toList();
         // Notify listener of the initial queue ordering
         listener.onQueued(sortedFiles);
@@ -224,8 +225,10 @@ public final class BlitzForge {
         }
 
         // Aggregate results
-        var changedFiles =
-                results.stream().filter(FileResult::edited).map(r -> r.file()).collect(Collectors.toSet());
+        var changedFiles = results.stream()
+                .filter(FileResult::edited)
+                .map(FileResult::file)
+                .collect(Collectors.toSet());
 
         // Build output according to the configured ParallelOutputMode
         var outputStream = results.stream()
@@ -275,7 +278,7 @@ public final class BlitzForge {
         }
     }
 
-    private TaskResult interruptedResult(int processed, List<ProjectFile> files) {
+    private TaskResult interruptedResult(int processed, Collection<ProjectFile> files) {
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
         var ctx = (cm != null) ? cm : new IContextManager() {};
         var tr = new TaskResult(ctx, config.instructions(), List.of(), Set.of(), sd);

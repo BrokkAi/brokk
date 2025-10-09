@@ -959,17 +959,8 @@ public class HistoryOutputPanel extends JPanel {
         for (var al : compressButton.getActionListeners()) {
             compressButton.removeActionListener(al);
         }
-        compressButton.addActionListener(e -> {
-            int choice = chrome.showConfirmDialog(
-                    HistoryOutputPanel.this,
-                    "This will summarize your conversation history into shorter entries. Continue?",
-                    "Compress conversation history",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.QUESTION_MESSAGE);
-            if (choice == JOptionPane.YES_OPTION) {
-                contextManager.compressHistoryAsync();
-            }
-        });
+        // Invoke compression immediately without asking for confirmation.
+        compressButton.addActionListener(e -> contextManager.compressHistoryAsync());
         buttonsPanel.add(compressButton);
 
         // Notifications button
