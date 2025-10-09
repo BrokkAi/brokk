@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -22,6 +23,7 @@ import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -33,6 +35,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.ImageIcon;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -40,6 +43,7 @@ import javax.swing.JViewport;
 import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
+import javax.swing.UIManager;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.MatteBorder;
@@ -94,9 +98,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         repaint();
 
         // Also nudge ancestors so containers like BoxLayout recompute heights
-        java.awt.Container p = getParent();
+        Container p = getParent();
         while (p != null) {
-            if (p instanceof javax.swing.JComponent jc) {
+            if (p instanceof JComponent jc) {
                 jc.revalidate();
                 jc.repaint();
             }
@@ -129,7 +133,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(
-                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                        RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 Color bg = getBackground();
                 if (bg == null) {
                     bg = getParent() != null ? getParent().getBackground() : Color.LIGHT_GRAY;
@@ -397,13 +401,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         switch (kind) {
             case EDIT -> {
                 // Use linkColor as requested
-                bg = javax.swing.UIManager.getColor("Component.linkColor");
+                bg = UIManager.getColor("Component.linkColor");
                 if (bg == null) {
                     // Robust fallback if theme key is missing
                     bg = ThemeColors.getColor(isDark, "git_badge_background");
                 }
                 fg = contrastingText(bg);
-                border = javax.swing.UIManager.getColor("Component.borderColor");
+                border = UIManager.getColor("Component.borderColor");
                 if (border == null) {
                     border = Color.GRAY;
                 }
