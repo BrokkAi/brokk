@@ -252,4 +252,9 @@ public final class WorktreeProject extends AbstractProject {
     public void setMcpConfig(McpConfig config) {
         parent.setMcpConfig(config);
     }
+
+    @Override
+    public String getRemoteProjectName() {
+        return parent.getRemoteProjectName();
+    }
 }
