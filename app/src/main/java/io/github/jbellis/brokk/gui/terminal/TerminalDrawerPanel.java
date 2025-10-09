@@ -78,7 +78,8 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
         buttonBar.setBorder(BorderFactory.createEmptyBorder());
         buttonBar.setPreferredSize(new Dimension(40, 0));
 
-        terminalToggle = new MaterialToggleButton(Icons.TERMINAL);
+        terminalToggle = new MaterialToggleButton();
+        SwingUtilities.invokeLater(() -> terminalToggle.setIcon(Icons.TERMINAL));
         terminalToggle.setToolTipText("Terminal");
         terminalToggle.setFocusPainted(false);
         terminalToggle.setBorderHighlightOnly(true);

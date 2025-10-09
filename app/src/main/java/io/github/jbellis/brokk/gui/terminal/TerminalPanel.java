@@ -210,7 +210,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         tabPanel.setBackground(UIManager.getColor("Panel.background"));
 
         var shellName = Path.of(shellCommand).getFileName().toString();
-        var label = new JLabel(shellName, Icons.TERMINAL, SwingConstants.LEFT);
+        var label = new JLabel(shellName, SwingConstants.LEFT);
+        SwingUtilities.invokeLater(() -> label.setIcon(Icons.TERMINAL));
         label.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 
         var closeButton = new MaterialButton("×");
@@ -250,7 +251,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
 
         // Capture button: capture selected text or entire terminal buffer into workspace
         var captureButton = new MaterialButton();
-        captureButton.setIcon(Icons.CONTENT_CAPTURE);
+        SwingUtilities.invokeLater(() -> captureButton.setIcon(Icons.CONTENT_CAPTURE));
         captureButton.setPreferredSize(new Dimension(60, 24));
         captureButton.setMargin(new Insets(0, 0, 0, 0));
         captureButton.setToolTipText(
