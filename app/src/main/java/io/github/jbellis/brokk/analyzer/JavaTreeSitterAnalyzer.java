@@ -2,13 +2,15 @@ package io.github.jbellis.brokk.analyzer;
 
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
-import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
@@ -339,85 +341,236 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Java-specific implementation to compute direct supertypes by parsing the class header signature. Preserves Java's
-     * meaningful order: superclass (if any) first, then implemented interfaces in source order. Only returns supertypes
-     * that can be resolved to known CodeUnits in the project.
+     * Java-specific implementation to compute direct supertypes by traversing the cached Tree-sitter AST. Preserves
+     * Java order: superclass (if any) first, then implemented interfaces in source order. Attempts to resolve names
+     * using file imports, then package-local names, then global search.
      */
     @Override
     protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        var sigs = signaturesOf(cu);
-        if (sigs.isEmpty()) return List.of();
+        // Obtain the cached parse tree for this file
+        TSTree tree = getCachedTree(cu.source());
+        if (tree == null) {
+            return List.of();
+        }
+        TSNode root = tree.getRootNode();
 
-        // Use the first signature line (class header)
-        String header = sigs.getFirst();
-        if (header.isBlank()) return List.of();
-
-        // Work on the first line only; strip trailing class body opener if present
-        String line = header.lines().findFirst().orElse(header);
-        int brace = line.indexOf('{');
-        if (brace >= 0) {
-            line = line.substring(0, brace).trim();
+        // Load source text for slice operations
+        final String src;
+        try {
+            src = Files.readString(cu.source().absPath());
+        } catch (Exception e) {
+            return List.of();
         }
 
-        String lower = line.toLowerCase(Locale.ROOT);
-        int extendsIdx = lower.indexOf(" extends ");
-        int implementsIdx = lower.indexOf(" implements ");
+        // Find the class-like node that matches this CodeUnit's class chain (Outer.Inner...)
+        final String targetChain = cu.fqName();
+        TSNode targetNode = null;
 
-        String extendsPart = null;
-        String implementsPart = null;
+        ArrayDeque<TSNode> stack = new ArrayDeque<>();
+        stack.push(root);
+        while (!stack.isEmpty()) {
+            TSNode n = stack.pop();
 
-        if (extendsIdx >= 0) {
-            int start = extendsIdx + " extends ".length();
-            int end = implementsIdx >= 0 ? implementsIdx : line.length();
-            extendsPart = line.substring(start, end).trim();
-        }
-        if (implementsIdx >= 0) {
-            int start = implementsIdx + " implements ".length();
-            implementsPart = line.substring(start).trim();
-        }
+            if (isClassLike(n)) {
+                List<String> names = new ArrayList<>();
+                TSNode cur = n;
+                while (cur != null && !cur.isNull()) {
+                    if (isClassLike(cur)) {
+                        TSNode nameNode = cur.getChildByFieldName("name");
+                        if (nameNode != null && !nameNode.isNull()) {
+                            String name = textSlice(nameNode, src).strip();
+                            if (!name.isEmpty()) {
+                                names.add(name);
+                            }
+                        }
+                    }
+                    cur = cur.getParent();
+                }
+                Collections.reverse(names);
+                String chain = String.join(".", names);
+                if (targetChain.equals(chain)) {
+                    targetNode = n;
+                    break;
+                }
+            }
 
-        List<String> candidates = new ArrayList<>();
-        if (extendsPart != null && !extendsPart.isEmpty()) {
-            candidates.add(extendsPart);
-        }
-        if (implementsPart != null && !implementsPart.isEmpty()) {
-            for (String iface : Splitter.on(",").split(implementsPart)) {
-                String t = iface.trim();
-                if (!t.isEmpty()) candidates.add(t);
+            for (int i = n.getChildCount() - 1; i >= 0; i--) {
+                TSNode c = n.getChild(i);
+                if (c != null && !c.isNull()) {
+                    stack.push(c);
+                }
             }
         }
 
-        if (candidates.isEmpty()) return List.of();
+        if (targetNode == null) {
+            return List.of();
+        }
 
-        List<CodeUnit> resolved = new ArrayList<>(candidates.size());
-        for (String raw : candidates) {
+        // Helper to strip leading keywords and generic args
+        Function<String, String> cleanTypeText = (String s) -> {
+            String cleaned = s.strip();
+            if (cleaned.startsWith("extends "))
+                cleaned = cleaned.substring("extends ".length()).strip();
+            if (cleaned.startsWith("implements "))
+                cleaned = cleaned.substring("implements ".length()).strip();
+            cleaned = stripGenericTypeArguments(cleaned);
+            return cleaned.strip();
+        };
+
+        // Helper to split a list of types on commas, ignoring commas inside generics
+        Function<String, List<String>> splitTopLevelCommas = (String s) -> {
+            List<String> parts = new ArrayList<>();
+            int depth = 0;
+            StringBuilder cur = new StringBuilder();
+            for (int i = 0; i < s.length(); i++) {
+                char ch = s.charAt(i);
+                if (ch == '<') {
+                    depth++;
+                    cur.append(ch);
+                } else if (ch == '>') {
+                    if (depth > 0) depth--;
+                    cur.append(ch);
+                } else if (ch == ',' && depth == 0) {
+                    String p = cur.toString().trim();
+                    if (!p.isEmpty()) parts.add(p);
+                    cur.setLength(0);
+                } else {
+                    cur.append(ch);
+                }
+            }
+            String last = cur.toString().trim();
+            if (!last.isEmpty()) parts.add(last);
+            return parts;
+        };
+
+        // Extract super class and interfaces in Java order
+        List<String> rawNames = new ArrayList<>();
+
+        TSNode superclassNode = targetNode.getChildByFieldName("superclass");
+        if (superclassNode != null && !superclassNode.isNull()) {
+            String t = cleanTypeText.apply(textSlice(superclassNode, src));
+            if (!t.isEmpty()) rawNames.add(t);
+        }
+
+        TSNode interfacesNode = targetNode.getChildByFieldName("interfaces");
+        if (interfacesNode == null || interfacesNode.isNull()) {
+            interfacesNode = targetNode.getChildByFieldName("super_interfaces");
+        }
+        if (interfacesNode == null || interfacesNode.isNull()) {
+            interfacesNode = targetNode.getChildByFieldName("extends_interfaces");
+        }
+
+        if (interfacesNode != null && !interfacesNode.isNull()) {
+            String seg = cleanTypeText.apply(textSlice(interfacesNode, src));
+            if (!seg.isEmpty()) {
+                for (String part : splitTopLevelCommas.apply(seg)) {
+                    String p = cleanTypeText.apply(part);
+                    if (!p.isEmpty()) rawNames.add(p);
+                }
+            }
+        }
+
+        if (rawNames.isEmpty()) {
+            return List.of();
+        }
+
+        // Parse import statements from this file for resolution assistance.
+        List<String> importLines = importStatementsOf(cu.source());
+        // explicit imports: simpleName -> fully.qualified.Name
+        Map<String, String> explicitImports = new LinkedHashMap<>();
+        // wildcard packages: a.b.c
+        List<String> wildcardPackages = new ArrayList<>();
+        for (String line : importLines) {
+            if (line == null || line.isBlank()) continue;
+            String t = line.strip();
+            if (!t.startsWith("import ")) continue; // be defensive across grammars
+            // ignore static imports for type resolution
+            if (t.startsWith("import static ")) continue;
+
+            if (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
+            // strip "import "
+            t = t.substring("import ".length()).trim();
+
+            if (t.endsWith(".*")) {
+                String pkg = t.substring(0, t.length() - 2).trim();
+                if (!pkg.isEmpty()) wildcardPackages.add(pkg);
+                continue;
+            }
+
+            // Non-wildcard explicit import
+            if (!t.isEmpty()) {
+                String fq = t;
+                int lastDot = fq.lastIndexOf('.');
+                if (lastDot > 0 && lastDot < fq.length() - 1) {
+                    String simple = fq.substring(lastDot + 1);
+                    explicitImports.putIfAbsent(simple, fq);
+                }
+            }
+        }
+
+        // Resolve collected raw names to known CodeUnits using imports/package/search
+        List<CodeUnit> resolved = new ArrayList<>(rawNames.size());
+        for (String raw : rawNames) {
             if (raw.isEmpty()) continue;
 
-            // Strip generic arguments, normalize nesting separators
-            String stripped = stripGenericTypeArguments(raw).trim();
-            String normalized = normalizeFullName(stripped).trim();
+            String normalized = normalizeFullName(raw).trim();
+            String simpleName =
+                    normalized.contains(".") ? normalized.substring(normalized.lastIndexOf('.') + 1) : normalized;
 
-            // Try fully qualified lookup first if it appears qualified, else try package+name then simple name
-            List<String> fqCandidates = new ArrayList<>(3);
+            // Ordered candidate FQNs to try
+            LinkedHashSet<String> candidates = new LinkedHashSet<>();
+
+            // 1) If already fully-qualified, try it directly first
             if (normalized.contains(".")) {
-                fqCandidates.add(normalized);
-            } else {
-                if (!cu.packageName().isEmpty()) {
-                    fqCandidates.add(cu.packageName() + "." + normalized);
-                }
-                fqCandidates.add(normalized);
+                candidates.add(normalized);
             }
 
+            // 2) Explicit imports that match simpleName
+            String explicit = explicitImports.get(simpleName);
+            if (explicit != null && !explicit.isBlank()) {
+                candidates.add(explicit);
+            }
+
+            // 3) Wildcard imports: package.* -> package.simpleName
+            for (String wp : wildcardPackages) {
+                candidates.add(wp + "." + simpleName);
+            }
+
+            // 4) Same package resolution for simple names
+            if (!cu.packageName().isEmpty()) {
+                candidates.add(cu.packageName() + "." + simpleName);
+            }
+
+            // 5) As a last simple candidate, try the simple name itself
+            candidates.add(simpleName);
+
             CodeUnit match = null;
-            for (String fq : fqCandidates) {
+            for (String fq : candidates) {
                 var def = getDefinition(fq);
                 if (def.isPresent() && def.get().isClass()) {
                     match = def.get();
                     break;
                 }
             }
+
+            // 6) Fallback: global search by simple name suffix
+            if (match == null) {
+                String pattern = ".*\\." + Pattern.quote(simpleName) + "$";
+                var options = searchDefinitions(pattern).stream()
+                        .filter(CodeUnit::isClass)
+                        .toList();
+
+                if (!options.isEmpty()) {
+                    // Prefer same-package first, else first match
+                    Optional<CodeUnit> samePkg = options.stream()
+                            .filter(o -> o.packageName().equals(cu.packageName()))
+                            .findFirst();
+                    match = samePkg.orElse(options.getFirst());
+                }
+            }
+
             if (match != null) {
                 resolved.add(match);
             }
