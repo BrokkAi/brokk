@@ -39,6 +39,7 @@ public final class GlobalUiSettings {
     private static final String KEY_DIFF_UNIFIED_VIEW = "diff.unifiedView";
     private static final String KEY_DIFF_SHOW_BLANK_LINES = "diff.showBlankLines";
     private static final String KEY_DIFF_SHOW_ALL_LINES = "diff.showAllLines";
+    private static final String KEY_DIFF_SHOW_BLAME = "diff.showBlame";
     private static final String KEYBIND_PREFIX = "keybinding.";
     private static final String KEY_SHOW_COST_NOTIFICATIONS = "notifications.cost.enabled";
     private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
@@ -268,6 +269,14 @@ public final class GlobalUiSettings {
 
     public static void saveDiffShowAllLines(boolean show) {
         setBoolean(KEY_DIFF_SHOW_ALL_LINES, show);
+    }
+
+    public static boolean isDiffShowBlame() {
+        return getBoolean(KEY_DIFF_SHOW_BLAME, false);
+    }
+
+    public static void saveDiffShowBlame(boolean show) {
+        setBoolean(KEY_DIFF_SHOW_BLAME, show);
     }
 
     // Cost notifications preference (default: true)

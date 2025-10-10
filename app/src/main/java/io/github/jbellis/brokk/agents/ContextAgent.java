@@ -288,24 +288,25 @@ public class ContextAgent {
             boolean allowSkipPruning)
             throws InterruptedException, ContextTooLargeException {
 
-        // Partition: analyzable vs not-analyzable using analyzer.languages()
-        var langs = analyzer.languages();
-        var analyzableCandidates = langs.isEmpty()
-                ? List.<ProjectFile>of()
-                : filesToConsider.stream()
-                        .filter(f -> langs.stream().anyMatch(l -> l.isAnalyzed(cm.getProject(), f.absPath())))
-                        .toList();
-
-        // Build summaries for analyzable candidates (if provider present)
-        Map<CodeUnit, String> summaries = Map.of();
-        var skpOpt = analyzer.as(SkeletonProvider.class);
-        if (!analyzableCandidates.isEmpty() && skpOpt.isPresent()) {
-            var skp = skpOpt.get();
-            summaries = analyzableCandidates.stream()
-                    .parallel()
-                    .flatMap(f -> skp.getSkeletons(f).entrySet().stream())
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+        List<ProjectFile> candidates;
+        if (!existingFiles.isEmpty()) {
+            var seeds = existingFiles.stream().collect(Collectors.toMap(f -> f, f -> 1.0, (v1, v2) -> v1));
+            candidates = AnalyzerUtil.combinedRankingFor(cm.getProject(), seeds).stream()
+                    .filter(f -> !existingFiles.contains(f))
+                    .toList();
+            debug("Non-empty workspace; using Git-based distance candidates (target FQNs: {})", candidates);
+        } else {
+            // Scan all the files
+            candidates = filesToConsider;
         }
+        Map<CodeUnit, String> summaries = analyzer.as(SkeletonProvider.class)
+                .map(skp -> candidates.parallelStream()
+                        .map(skp::getSkeletons)
+                        .map(Map::entrySet)
+                        .flatMap(Set::stream)
+                        .filter(e -> !e.getValue().isEmpty())
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1)))
+                .orElseGet(Map::of);
 
         // Any file without a produced summary becomes non-analyzable for content purposes
         var summarizedFiles = summaries.keySet().stream().map(CodeUnit::source).collect(Collectors.toSet());

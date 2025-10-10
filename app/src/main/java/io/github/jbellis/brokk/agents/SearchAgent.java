@@ -362,6 +362,22 @@ public class SearchAgent {
 
         String finalsStr = finals.stream().collect(Collectors.joining("\n"));
 
+        String testsGuidance = "";
+        if (allowedTerminals.contains(Terminal.WORKSPACE)) {
+            var analyzerWrapper = cm.getAnalyzerWrapper();
+            var toolHint = analyzerWrapper.providesInterproceduralAnalysis()
+                    ? "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods."
+                    : "- To locate tests, use searchSubstrings to find test classes, @Test methods, and references to key symbols.";
+            testsGuidance =
+                    """
+                    Tests:
+                      - Code Agent will run the tests in the Workspace to validate its changes. These can be full files, if it also needs to edit or understand test implementation details, or simple summaries if they just need to be run for validation.
+                      %s
+                    """
+                            .stripIndent()
+                            .formatted(toolHint);
+        }
+
         String directive =
                 """
                         <goal>
@@ -376,6 +392,8 @@ public class SearchAgent {
                           - Replace full text with concise, goal-focused summaries and drop the originals.
                           - Expand the Workspace only after pruning; avoid re-adding irrelevant content.
 
+                        %s
+
                         Finalization options:
                         %s
 
@@ -386,7 +404,7 @@ public class SearchAgent {
                         %s
                         """
                         .stripIndent()
-                        .formatted(goal, finalsStr, warning);
+                        .formatted(goal, testsGuidance, finalsStr, warning);
 
         // Beast mode directive
         if (beastMode) {

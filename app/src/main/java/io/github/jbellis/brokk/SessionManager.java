@@ -220,7 +220,7 @@ public class SessionManager implements AutoCloseable {
                 // Exercise migrations and quarantine if history read fails.
                 try {
                     loadHistoryOrQuarantine(sessionId, contextManager);
-                } catch (IOException e) {
+                } catch (Exception e) {
                     quarantinedIds.add(sessionId);
                     moved++;
                     continue;
@@ -339,12 +339,12 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws IOException {
+    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws Exception {
         try {
             return loadHistoryInternal(sessionId, contextManager);
-        } catch (IOException e) {
+        } catch (Exception | StackOverflowError e) {
             moveSessionToUnreadable(sessionId);
-            throw e;
+            throw new Exception("Cannot read session history.", e);
         }
     }
 

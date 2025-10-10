@@ -983,9 +983,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     private void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
+
+        // Handle empty context case
         if (ctx == null || ctx.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
-                tokenUsageBar.setVisible(false);
+                try {
+                    var service = chrome.getContextManager().getService();
+                    Service.ModelConfig config = getSelectedModel();
+                    var model = service.getModel(config);
+                    if (model == null || model instanceof Service.UnavailableStreamingModel) {
+                        tokenUsageBar.setVisible(false);
+                        return;
+                    }
+
+                    int maxTokens = service.getMaxInputTokens(model);
+                    if (maxTokens <= 0) {
+                        maxTokens = 128_000;
+                    }
+
+                    tokenUsageBar.setTokens(0, maxTokens);
+                    String modelName = config.name();
+                    String tooltipHtml = buildTokenUsageTooltip(modelName, maxTokens, "$0.00");
+                    tokenUsageBar.setTooltip(tooltipHtml);
+                    tokenUsageBar.setVisible(true);
+                } catch (Exception ex) {
+                    logger.debug("Failed to update token usage bar for empty context", ex);
+                    tokenUsageBar.setVisible(false);
+                }
             });
             return;
         }

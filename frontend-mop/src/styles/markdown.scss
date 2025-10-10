@@ -213,6 +213,7 @@ li > p {
 pre > code {
   font-size: 0.9em;
   white-space: inherit;
+  font-weight: var(--code-block-font-weight);
 }
 
 pre {

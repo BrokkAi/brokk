@@ -614,13 +614,17 @@ public class AttachContextDialog extends JDialog {
             var pattern = getAlreadyEnteredText(tc).trim();
             if (pattern.isEmpty() || !cm.getProject().hasGit()) return List.of();
 
-            // Collect unique folder paths from all project files
+            // Collect unique folder paths from all project files, including all ancestors up to project root.
             Set<ProjectFile> files = cm.getProject().getAllFiles();
-            var folders = files.stream()
-                    .map(pf -> pf.getRelPath().getParent())
-                    .filter(Objects::nonNull)
-                    .map(Path::toString)
-                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+            var folders = new LinkedHashSet<String>();
+            for (var pf : files) {
+                Path parent = pf.getRelPath().getParent();
+                while (parent != null) {
+                    String s = parent.toString().replace('\\', '/'); // normalize separators for consistency
+                    folders.add(s);
+                    parent = parent.getParent();
+                }
+            }
 
             var scored = io.github.jbellis.brokk.Completions.scoreShortAndLong(
                     pattern,

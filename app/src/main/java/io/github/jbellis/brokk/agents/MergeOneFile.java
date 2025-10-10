@@ -264,7 +264,8 @@ public final class MergeOneFile {
             "Explain a single commit by summarizing its diff vs its parent. Use this to understand intent behind changes.")
     public String explainCommit(
             @P("Commit id (or revision)") String revision,
-            @P("Why you need this explanation (optional).") @Nullable String reasoning) {
+            @P("Why you need this explanation (optional).") @Nullable String reasoning)
+            throws InterruptedException {
         logger.debug("explainCommit {} reason={}", revision, reasoning);
         return explainCommitCached((ContextManager) cm, revision);
     }
@@ -298,7 +299,7 @@ public final class MergeOneFile {
     // The previous in-memory EXPLAIN_CACHE has been removed.
 
     /** Explain a single commit with caching on the project's DiskLruCache (best-effort). */
-    public static String explainCommitCached(IContextManager cm, String revision) {
+    public static String explainCommitCached(IContextManager cm, String revision) throws InterruptedException {
         var shortHash = ((GitRepo) cm.getProject().getRepo()).shortHash(revision);
         var key = "explain-" + shortHash;
 
@@ -318,7 +319,12 @@ public final class MergeOneFile {
         // Compute explanation
         var gw = new GitWorkflow(cm);
         var model = requireNonNull(cm.getService().getModel(Service.GPT_5_MINI));
-        var explanation = gw.explainCommit(model, shortHash);
+        String explanation = null;
+        try {
+            explanation = gw.explainCommit(model, shortHash);
+        } catch (GitAPIException e) {
+            throw new RuntimeException(e);
+        }
 
         // Try to write into cache (best-effort)
         DiskLruCache.Editor editor = null;

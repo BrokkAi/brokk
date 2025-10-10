@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.Desktop;
 import java.awt.desktop.PreferencesHandler;
+import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.File;
@@ -102,7 +103,7 @@ public class MenuBar {
             im.put(ks, "open-settings");
             am.put("open-settings", new AbstractAction() {
                 @Override
-                public void actionPerformed(java.awt.event.ActionEvent e) {
+                public void actionPerformed(ActionEvent e) {
                     SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
                 }
             });
