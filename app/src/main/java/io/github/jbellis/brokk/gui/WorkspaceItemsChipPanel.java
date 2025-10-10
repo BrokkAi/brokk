@@ -473,6 +473,22 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
     }
 
+    private void executeCloseChip(ContextFragment fragment) {
+        // Perform the removal via the ContextManager task queue to avoid
+        // listener eentrancy and ensure proper processing of the drop.
+        chrome.getContextManager().submitContextTask(() -> {
+            // Guard against interfering with an ongoing LLM task
+            if (contextManager.isLlmTaskInProgress()) {
+                return;
+            }
+            if (onRemoveFragment != null) {
+                onRemoveFragment.accept(fragment);
+            } else {
+                contextManager.drop(Collections.singletonList(fragment));
+            }
+        });
+    }
+
     private Component createChip(ContextFragment fragment) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -504,16 +520,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             // Defensive: avoid issues if any accessor fails
         }
 
-        // Make label clickable to open preview
-        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         label.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     chrome.openFragmentPreview(fragment);
                 }
             }
         });
+
+        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label and set the icon explicitly.
@@ -533,21 +550,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } catch (Exception ignored) {
             // best-effort accessibility improvements
         }
-        close.addActionListener(e -> {
-            // Guard against interfering with an ongoing LLM task
-            if (contextManager.isLlmTaskInProgress()) {
-                return;
+        close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                executeCloseChip(fragment);
             }
-
-            // Perform the removal via the ContextManager task queue to avoid
-            // listener reentrancy and ensure proper processing of the drop.
-            chrome.getContextManager().submitContextTask(() -> {
-                if (onRemoveFragment != null) {
-                    onRemoveFragment.accept(fragment);
-                } else {
-                    contextManager.drop(Collections.singletonList(fragment));
-                }
-            });
         });
 
         chip.add(label);
@@ -581,9 +588,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
             @Override
             public void mouseClicked(MouseEvent e) {
-                // Open preview on left-click anywhere on the chip (excluding close button which handles its own events)
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    chrome.openFragmentPreview(fragment);
+                int clickX = e.getX();
+                int separatorEndX = sep.getX() + sep.getWidth();
+                if (clickX > separatorEndX) {
+                    executeCloseChip(fragment);
+                } else {
+                    // Open preview on left-click anywhere on the chip (excluding close button which handles its own
+                    // events)
+                    if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                        chrome.openFragmentPreview(fragment);
+                    }
                 }
             }
 
