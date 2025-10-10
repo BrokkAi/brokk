@@ -26,6 +26,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -143,13 +145,17 @@ public class SearchAgent {
             var allowedToolNames = calculateAllowedToolNames();
             var toolSpecs = new ArrayList<>(toolRegistry.getRegisteredTools(allowedToolNames));
 
-            // Agent-owned terminal tools (instance methods)
+            // Agent-owned tools (instance methods)
             var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
                 agentTerminalTools.add("answer");
             }
             if (allowedTerminals.contains(Terminal.WORKSPACE)) {
                 agentTerminalTools.add("workspaceComplete");
+            }
+            // Non-terminal human-in-the-loop tool (only when GUI is available)
+            if (io instanceof Chrome) {
+                agentTerminalTools.add("askHuman");
             }
             // Always allow abort
             agentTerminalTools.add("abortSearch");
@@ -518,6 +524,7 @@ public class SearchAgent {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
             case "addTextToWorkspace", "appendNote" -> 2;
+            case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
             case "getRelatedClasses" -> 5;
@@ -593,6 +600,20 @@ public class SearchAgent {
         logger.debug("abortSearch selected with explanation length {}", explanation.length());
         io.llmOutput(explanation, ChatMessageType.AI);
         return explanation;
+    }
+
+    @Tool("Ask a human for clarification or missing information. Use this sparingly when you are unsure and need input to proceed. This tool does not generate code.")
+    public String askHuman(
+            @P("A clear, concise question for the human. Do not include code to implement; ask only for information you need.") String question
+    ) {
+        if (!(io instanceof Chrome chrome)) {
+            return "Cannot ask a human: GUI is not available in this environment.";
+        }
+        var answer = AskHumanDialog.ask(chrome, question);
+        if (answer == null || answer.isBlank()) {
+            return "No human input provided (canceled or empty). Proceeding without it.";
+        }
+        return answer;
     }
 
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
