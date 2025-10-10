@@ -20,6 +20,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.TaskResult.StopDetails;
 import io.github.jbellis.brokk.TaskResult.StopReason;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -346,15 +347,25 @@ public class ArchitectAgent {
 
                 toolSpecs.addAll(toolRegistry.getRegisteredTools(
                         allowedWorkspaceModTools.stream().distinct().toList()));
+
+                // UI-scoped tool
+                if (io instanceof Chrome) {
+                    toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("askHuman")));
+                }
             } else {
                 // Default tool population logic
-                var workspaceTools = List.of(
+                var workspaceTools = new ArrayList<>(List.of(
                         "addFilesToWorkspace",
                         "addFileSummariesToWorkspace",
                         "addUrlContentsToWorkspace",
                         "addTextToWorkspace",
-                        "dropWorkspaceFragments");
+                        "dropWorkspaceFragments"));
                 toolSpecs.addAll(toolRegistry.getRegisteredTools(workspaceTools));
+
+                // UI-scoped tool
+                if (io instanceof Chrome) {
+                    toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("askHuman")));
+                }
 
                 // Always allow Code Agent
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("callCodeAgent")));
@@ -553,9 +564,9 @@ public class ArchitectAgent {
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "addFilesToWorkspace" -> 2;
-            case "addFileSummariesToWorkspace" -> 3;
-            case "addTextToWorkspace" -> 4;
+            case "addTextToWorkspace", "askHuman" -> 2;
+            case "addFilesToWorkspace" -> 3;
+            case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;
             default -> 7; // all other tools have lowest priority
         };
