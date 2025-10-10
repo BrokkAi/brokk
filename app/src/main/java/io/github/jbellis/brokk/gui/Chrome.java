@@ -389,9 +389,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
 
-            // Initial refreshes
-            updateGitRepo();
-            projectFilesPanel.updatePanel();
+            // Initial refreshes are now done in the background
+            contextManager.submitBackgroundTask("Loading project state", () -> {
+                updateGitRepo();
+                projectFilesPanel.updatePanel();
+                return null;
+            });
         } else {
             gitCommitTab = null;
             gitLogTab = null;
