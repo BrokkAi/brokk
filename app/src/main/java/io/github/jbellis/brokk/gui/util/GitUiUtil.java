@@ -128,8 +128,9 @@ public final class GitUiUtil {
 
                 SwingUtilities.invokeLater(() -> {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
-                            .leftSource(new BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
-                            .rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString()))
+                            .leftSource(new BufferSource.StringSource(
+                                    parentContent, parentCommitId, file.toString(), parentCommitId))
+                            .rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString(), commitId))
                             .build();
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
@@ -330,12 +331,13 @@ public final class GitUiUtil {
                 // 4) Create panel on Swing thread
                 String finalOldContent = oldContent; // effectively final for lambda
                 String finalBaseCommitTitle = baseCommitTitle;
+                String finalBaseCommitId = baseCommitId; // effectively final for lambda
                 String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
 
                 SwingUtilities.invokeLater(() -> {
                     // Check if we already have a window showing this diff
-                    var leftSource =
-                            new BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString());
+                    var leftSource = new BufferSource.StringSource(
+                            finalOldContent, finalBaseCommitTitle, file.toString(), finalBaseCommitId);
                     var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.toString());
 
                     if (DiffWindowManager.tryRaiseExistingWindow(List.of(leftSource), List.of(rightSource))) {
@@ -486,8 +488,9 @@ public final class GitUiUtil {
                     var oldContent = getFileContentOrEmpty(repo, parentId, file);
                     var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
 
-                    leftSources.add(new BufferSource.StringSource(oldContent, parentId, file.toString()));
-                    rightSources.add(new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
+                    leftSources.add(new BufferSource.StringSource(oldContent, parentId, file.toString(), parentId));
+                    rightSources.add(
+                            new BufferSource.StringSource(newContent, commitInfo.id(), file.toString(), commitInfo.id()));
                 }
 
                 String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
@@ -546,8 +549,9 @@ public final class GitUiUtil {
                     }
 
                     builder.addComparison(
-                            new BufferSource.StringSource(oldContent, parentId, file.toString()),
-                            new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
+                            new BufferSource.StringSource(oldContent, parentId, file.toString(), parentId),
+                            new BufferSource.StringSource(
+                                    newContent, commitInfo.id(), file.toString(), commitInfo.id()));
                     currentIndex++;
                 }
 
@@ -591,7 +595,8 @@ public final class GitUiUtil {
 
                 for (var file : changedFiles) {
                     String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
-                    leftSources.add(new BufferSource.StringSource(commitContent, shortId, file.toString()));
+                    leftSources.add(
+                            new BufferSource.StringSource(commitContent, shortId, file.toString(), commitInfo.id()));
                     rightSources.add(new BufferSource.FileSource(file.absPath().toFile(), file.toString()));
                 }
 
@@ -890,18 +895,18 @@ public final class GitUiUtil {
 
                     if ("deleted".equals(status)) {
                         leftSource = new BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
-                        rightSource =
-                                new BufferSource.StringSource("", prHeadSha + " (Deleted)", projectFile.toString());
-                    } else if ("new".equals(status)) {
-                        leftSource = new BufferSource.StringSource("", prBaseSha + " (New)", projectFile.toString());
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString(), prBaseSha);
                         rightSource = new BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                                "", prHeadSha + " (Deleted)", projectFile.toString(), null);
+                    } else if ("new".equals(status)) {
+                        leftSource = new BufferSource.StringSource("", prBaseSha + " (New)", projectFile.toString(), null);
+                        rightSource = new BufferSource.StringSource(
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString(), prHeadSha);
                     } else { // modified
                         leftSource = new BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString(), prBaseSha);
                         rightSource = new BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString(), prHeadSha);
                     }
 
                     // Check if this is the target file
