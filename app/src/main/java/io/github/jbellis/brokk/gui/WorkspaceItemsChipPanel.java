@@ -555,13 +555,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             // Perform the removal via the ContextManager task queue to avoid
             // listener reentrancy and ensure proper processing of the drop.
             chrome.getContextManager().submitContextTask(() -> {
-                if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-                    // Always clear history for HISTORY fragments; ignore onRemoveFragment override for this case
-                    contextManager.clearHistory();
-                } else if (onRemoveFragment != null) {
-                    onRemoveFragment.accept(fragment);
+                if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
+                    // Centralized HISTORY-aware semantics
+                    contextManager.dropWithHistorySemantics(List.of(fragment));
                 } else {
-                    contextManager.drop(List.of(fragment));
+                    // Allow custom removal logic for non-history when provided
+                    onRemoveFragment.accept(fragment);
                 }
             });
         });
