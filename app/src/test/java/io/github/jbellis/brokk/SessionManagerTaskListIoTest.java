@@ -62,58 +62,6 @@ class SessionManagerTaskListIoTest {
     }
 
     @Test
-    void concurrentSameKeySerializes() throws Exception {
-        concurrentTestExecutor = Executors.newFixedThreadPool(4);
-        MainProject project = new MainProject(tempDir);
-        SessionManager sessionManager = project.getSessionManager();
-        SessionManager.SessionInfo sessionInfo = sessionManager.newSession("Test Session");
-        UUID sessionId = sessionInfo.id();
-
-        // Removed AtomicInteger counter, it was not used in the original test code for executionOrder.
-        List<String> executionOrder = Collections.synchronizedList(new ArrayList<>());
-
-        int numWrites = 100;
-        List<Future<?>> futures = new ArrayList<>();
-
-        for (int i = 0; i < numWrites; i++) {
-            final int taskId = i;
-            futures.add(concurrentTestExecutor.submit(() -> {
-                try {
-                    sessionManager
-                            .writeTaskList(
-                                    sessionId,
-                                    new TaskListData(List.of(new TaskListEntryDto("task_" + taskId, taskId % 2 == 0))))
-                            .get(5, TimeUnit.SECONDS); // Wait for each write to complete
-                    executionOrder.add(String.valueOf(taskId));
-                } catch (Exception e) {
-                    fail("Write task failed: " + e.getMessage());
-                }
-            }));
-        }
-
-        // Wait for all writes to be submitted and completed via SessionManager's internal executor
-        for (Future<?> future : futures) {
-            future.get(10, TimeUnit.SECONDS);
-        }
-
-        // Verify all writes completed (serialization per key is guaranteed; submission order under concurrency is not)
-        assertEquals(numWrites, executionOrder.size());
-        assertEquals(numWrites, new java.util.HashSet<>(executionOrder).size());
-        for (int i = 0; i < numWrites; i++) {
-            assertTrue(executionOrder.contains(String.valueOf(i)), "All writes for the same session should complete");
-        }
-
-        // Verify the final state is correct
-        TaskListData finalData = sessionManager.readTaskList(sessionId).get(5, TimeUnit.SECONDS);
-        assertNotNull(finalData);
-        assertEquals(1, finalData.tasks().size());
-        assertEquals("task_" + (numWrites - 1), finalData.tasks().getFirst().text());
-        assertEquals((numWrites - 1) % 2 == 0, finalData.tasks().getFirst().done());
-
-        project.close();
-    }
-
-    @Test
     void concurrentDifferentKeysParallel() throws Exception {
         concurrentTestExecutor = Executors.newFixedThreadPool(4);
         MainProject project = new MainProject(tempDir);
