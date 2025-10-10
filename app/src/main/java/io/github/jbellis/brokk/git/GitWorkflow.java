@@ -228,9 +228,11 @@ public final class GitWorkflow {
         var toolSpecs = contextManager.getToolRegistry().getTools(this, List.of("suggestPrDetails"));
         var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
 
-        var llm = contextManager.getLlm(modelToUse, "PR-description", true);
+        var llm = contextManager.getLlm(new Llm.Options(modelToUse, "PR-description")
+                .withPartialResponses()
+                .withEcho());
         llm.setOutput(streamingOutput);
-        var result = llm.sendRequest(messages, toolContext, true);
+        var result = llm.sendRequest(messages, toolContext);
 
         if (result.error() != null) {
             throw new RuntimeException("LLM error while generating PR details", result.error());
@@ -240,7 +242,7 @@ public final class GitWorkflow {
             throw new RuntimeException("LLM did not call the suggestPrDetails tool");
         }
 
-        contextManager.getToolRegistry().executeTool(this, result.toolRequests().get(0));
+        contextManager.getToolRegistry().executeTool(this, result.toolRequests().getFirst());
 
         String title = prTitle;
         String description = prDescription;

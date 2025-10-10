@@ -479,6 +479,27 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
     }
 
+    private void executeCloseChip(ContextFragment fragment) {
+        // Enforce latest-context gating (read-only when viewing historical context)
+        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        if (!onLatest) {
+            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Perform the removal via the ContextManager task queue to avoid
+        // listener reentrancy and ensure proper processing of the drop.
+        chrome.getContextManager().submitContextTask(() -> {
+            if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
+                // Centralized HISTORY-aware semantics
+                contextManager.dropWithHistorySemantics(List.of(fragment));
+            } else {
+                // Allow custom removal logic for non-history when provided
+                onRemoveFragment.accept(fragment);
+            }
+        });
+    }
+
     private Component createChip(ContextFragment fragment) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -510,16 +531,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             // Defensive: avoid issues if any accessor fails
         }
 
-        // Make label clickable to open preview
-        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         label.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     chrome.openFragmentPreview(fragment);
                 }
             }
         });
+
+        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label and set the icon explicitly.
@@ -539,30 +561,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } catch (Exception ignored) {
             // best-effort accessibility improvements
         }
-        close.addActionListener(e -> {
-            // Guard against interfering with an ongoing LLM task
-            if (contextManager.isLlmTaskInProgress()) {
-                return;
+        close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                executeCloseChip(fragment);
             }
 
-            // Enforce latest-context gating (read-only when viewing historical context)
-            boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
-            if (!onLatest) {
-                chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-
-            // Perform the removal via the ContextManager task queue to avoid
-            // listener reentrancy and ensure proper processing of the drop.
-            chrome.getContextManager().submitContextTask(() -> {
-                if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
-                    // Centralized HISTORY-aware semantics
-                    contextManager.dropWithHistorySemantics(List.of(fragment));
-                } else {
-                    // Allow custom removal logic for non-history when provided
-                    onRemoveFragment.accept(fragment);
-                }
-            });
         });
 
         chip.add(label);
@@ -586,9 +590,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                // Open preview on left-click anywhere on the chip (excluding close button which handles its own events)
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    chrome.openFragmentPreview(fragment);
+                int clickX = e.getX();
+                int separatorEndX = sep.getX() + sep.getWidth();
+                if (clickX > separatorEndX) {
+                    executeCloseChip(fragment);
+                } else {
+                    // Open preview on left-click anywhere on the chip (excluding close button which handles its own
+                    // events)
+                    if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                        chrome.openFragmentPreview(fragment);
+                    }
                 }
             }
         });

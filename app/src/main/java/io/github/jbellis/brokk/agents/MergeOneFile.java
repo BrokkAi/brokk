@@ -96,7 +96,9 @@ public final class MergeOneFile {
     public Outcome merge() {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
-        var llm = cm.getLlm(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file));
+        var llm =
+                cm.getLlm(new Llm.Options(planningModel, "Merge %s: %s".formatted(repo.shortHash(otherCommitId), file))
+                        .withEcho());
         llm.setOutput(io);
 
         // refine the progress bar total to reflect merge complexity
@@ -171,9 +173,7 @@ public final class MergeOneFile {
             Llm.StreamingResult result;
             try {
                 result = llm.sendRequest(
-                        List.copyOf(currentSessionMessages),
-                        new ToolContext(toolSpecs, ToolChoice.REQUIRED, this),
-                        true);
+                        List.copyOf(currentSessionMessages), new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 continue;

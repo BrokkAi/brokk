@@ -1525,7 +1525,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
-        var llm = cm.getLlm(model, "Answer: " + question);
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
 
         return executeAskCommand(llm, messages, cm, question);
     }
@@ -1536,7 +1536,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
         try {
-            response = llm.sendRequest(messages, true);
+            response = llm.sendRequest(messages);
         } catch (InterruptedException e) {
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
@@ -1659,7 +1659,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .sourceContextForSession(cm.topContext())
                         .open()
                         .thenAccept(success -> {
-                            if (Boolean.TRUE.equals(success)) {
+                            if (success) {
                                 chrome.showNotification(
                                         IConsoleIO.NotificationRole.INFO, "New worktree opened for Architect");
                             } else {

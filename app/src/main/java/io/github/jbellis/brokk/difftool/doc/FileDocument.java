@@ -48,7 +48,11 @@ public class FileDocument extends AbstractBufferDocument {
     public Reader getReader() {
         try {
             if (!file.exists() || !file.canRead()) {
-                logger.warn("File does not exist or cannot be read: " + file.getAbsolutePath());
+                logger.warn(
+                        "FileDocument.getReader: File does not exist or cannot be read: {} (exists={}, canRead={})",
+                        file.getAbsolutePath(),
+                        file.exists(),
+                        file.canRead());
                 // Return a reader for an empty string if file is inaccessible
                 return new BufferedReader(new InputStreamReader(
                         new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8));
