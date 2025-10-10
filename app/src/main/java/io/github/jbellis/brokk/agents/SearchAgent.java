@@ -23,10 +23,10 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
-import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -604,7 +604,6 @@ public class SearchAgent {
         io.llmOutput(explanation, ChatMessageType.AI);
         return explanation;
     }
-
 
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
     public String callMcpTool(
