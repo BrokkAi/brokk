@@ -27,7 +27,6 @@ import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.tools.UiTools;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -91,10 +90,7 @@ public class SearchAgent {
         this.llm = contextManager.getLlm(model, "Search: " + goal);
         this.llm.setOutput(io);
 
-        // Register UI-scoped tools when GUI is available
-        if (io instanceof Chrome chrome) {
-            this.toolRegistry.register(new UiTools(chrome));
-        }
+        // UI-scoped tools (e.g., askHuman) are registered during GUI initialization.
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);

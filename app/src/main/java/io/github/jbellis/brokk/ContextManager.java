@@ -20,6 +20,7 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.tools.UiTools;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
@@ -349,6 +350,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         assert SwingUtilities.isEventDispatchThread();
 
         this.io = new Chrome(this);
+        this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
