@@ -27,7 +27,7 @@ import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
+import io.github.jbellis.brokk.gui.tools.UiTools;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -91,6 +91,11 @@ public class SearchAgent {
         this.llm = contextManager.getLlm(model, "Search: " + goal);
         this.llm.setOutput(io);
 
+        // Register UI-scoped tools when GUI is available
+        if (io instanceof Chrome chrome) {
+            this.toolRegistry.register(new UiTools(chrome));
+        }
+
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
 
@@ -153,10 +158,7 @@ public class SearchAgent {
             if (allowedTerminals.contains(Terminal.WORKSPACE)) {
                 agentTerminalTools.add("workspaceComplete");
             }
-            // Non-terminal human-in-the-loop tool (only when GUI is available)
-            if (io instanceof Chrome) {
-                agentTerminalTools.add("askHuman");
-            }
+            // Non-terminal human-in-the-loop tool is registered globally via UiTools and included in allowed tools.
             // Always allow abort
             agentTerminalTools.add("abortSearch");
             toolSpecs.addAll(toolRegistry.getTools(this, agentTerminalTools));
@@ -478,6 +480,11 @@ public class SearchAgent {
         names.add("appendNote");
         names.add("dropWorkspaceFragments");
 
+        // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
+        if (io instanceof Chrome) {
+            names.add("askHuman");
+        }
+
         if (!mcpTools.isEmpty()) {
             names.add("callMcpTool");
         }
@@ -602,19 +609,6 @@ public class SearchAgent {
         return explanation;
     }
 
-    @Tool("Ask a human for clarification or missing information. Use this sparingly when you are unsure and need input to proceed. This tool does not generate code.")
-    public String askHuman(
-            @P("A clear, concise question for the human. Do not include code to implement; ask only for information you need.") String question
-    ) {
-        if (!(io instanceof Chrome chrome)) {
-            return "Cannot ask a human: GUI is not available in this environment.";
-        }
-        var answer = AskHumanDialog.ask(chrome, question);
-        if (answer == null || answer.isBlank()) {
-            return "No human input provided (canceled or empty). Proceeding without it.";
-        }
-        return answer;
-    }
 
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
     public String callMcpTool(
