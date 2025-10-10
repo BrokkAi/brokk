@@ -566,7 +566,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             public void mouseClicked(MouseEvent e) {
                 executeCloseChip(fragment);
             }
-
         });
 
         chip.add(label);

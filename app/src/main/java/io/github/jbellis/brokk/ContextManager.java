@@ -738,10 +738,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Drops fragments with HISTORY-aware semantics:
-     * - If selection is empty: drop all and reset selected context to the latest (top) context.
-     * - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments.
-     * - Else: drop the selected fragments as-is.
+     * Drops fragments with HISTORY-aware semantics: - If selection is empty: drop all and reset selected context to the
+     * latest (top) context. - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments. -
+     * Else: drop the selected fragments as-is.
      */
     public void dropWithHistorySemantics(java.util.Collection<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
@@ -753,8 +752,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        boolean hasHistory = selectedFragments.stream()
-                .anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
+        boolean hasHistory =
+                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
 
         if (hasHistory) {
             clearHistory();
