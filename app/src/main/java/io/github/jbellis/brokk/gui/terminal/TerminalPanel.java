@@ -298,7 +298,10 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 }
 
                 String cwd = (initialCwd != null) ? initialCwd.toString() : System.getProperty("user.dir");
-                var newProcess = new PtyProcessBuilder(cmd).setDirectory(cwd).setEnvironment(env).start();
+                var newProcess = new PtyProcessBuilder(cmd)
+                        .setDirectory(cwd)
+                        .setEnvironment(env)
+                        .start();
                 var newConnector = new PtyProcessTtyConnector(newProcess, StandardCharsets.UTF_8);
 
                 // Update fields and UI on EDT
