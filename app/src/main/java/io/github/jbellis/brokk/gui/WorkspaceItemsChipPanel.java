@@ -267,6 +267,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return "Summary" + (n > 0 ? " (" + n + ")" : "");
     }
 
+    private static String formatCount(int count) {
+        if (count < 1000) {
+            return String.format("%,d", count);
+        }
+        return String.format("%.1fk", count / 1000.0);
+    }
+
     /**
      * Builds an HTML snippet showing approximate size metrics (LOC and tokens) for the fragment. Returns an empty
      * string if metrics are not applicable (e.g., non-text/image fragments).
@@ -278,8 +285,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 String text = fragment.text();
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
-                return "<div>" + String.format("%,d", loc) + " LOC \u2022 ~" + String.format("%,d", tokens)
-                        + " tokens</div><br/>";
+                return "<div>" + formatCount(loc) + " LOC \u2022 ~" + formatCount(tokens) + " tokens</div><br/>";
             }
         } catch (Exception ignored) {
             // Best effort; if anything goes wrong, just return no metrics
@@ -677,7 +683,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         return false;
                     }
 
-                    var projectRoot = contextManager
+                    Path projectRoot = contextManager
                             .getProject()
                             .getRoot()
                             .toAbsolutePath()
