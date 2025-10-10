@@ -162,7 +162,7 @@ public class BuildAgent {
             // Make the LLM request
             Llm.StreamingResult result;
             try {
-                result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, this), false);
+                result = llm.sendRequest(messages, new ToolContext(tools, ToolChoice.REQUIRED, this));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Unexpected request cancellation in build agent");

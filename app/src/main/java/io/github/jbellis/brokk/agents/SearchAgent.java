@@ -66,6 +66,7 @@ public class SearchAgent {
     private final ContextManager cm;
     private final StreamingChatModel model;
     private final Llm llm;
+    private final Llm summarizer;
     private final ToolRegistry toolRegistry;
     private final IConsoleIO io;
     private final String goal;
@@ -86,8 +87,9 @@ public class SearchAgent {
         this.toolRegistry = contextManager.getToolRegistry();
 
         this.io = contextManager.getIo();
-        this.llm = contextManager.getLlm(model, "Search: " + goal);
+        this.llm = contextManager.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
         this.llm.setOutput(io);
+        this.summarizer = contextManager.getLlm(cm.getService().getScanModel(), "Summarizer: " + goal);
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
@@ -162,7 +164,7 @@ public class SearchAgent {
 
             // Decide next action(s)
             io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
             if (result.error() != null || result.isEmpty()) {
                 var details =
                         result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
@@ -708,7 +710,7 @@ public class SearchAgent {
                         """
                         .stripIndent()
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
-        Llm.StreamingResult sr = llm.sendRequest(List.of(sys, user));
+        Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
         if (sr.error() != null) {
             return rawResult; // fallback to raw
         }

@@ -61,10 +61,14 @@ public class ContextAgent {
             throws InterruptedException {
         this.cm = contextManager;
         this.llm = contextManager.getLlm(model, "ContextAgent (%s): %s".formatted(deepScan ? "Deep" : "Quick", goal));
-        this.filesLlm = contextManager.getLlm(new Llm.Options(
+        var options = new Llm.Options(
                         contextManager.getService().quickestModel(),
                         "ContextAgent Files (%s): %s".formatted(deepScan ? "Deep" : "Quick", goal))
-                .withForceReasoningEcho());
+                .withForceReasoningEcho();
+        if (deepScan) {
+            options = options.withEcho();
+        }
+        this.filesLlm = contextManager.getLlm(options);
         this.goal = goal;
         this.analyzer = contextManager.getAnalyzer();
         this.deepScan = deepScan;
@@ -477,7 +481,7 @@ public class ContextAgent {
                 .toList();
         int promptTokens = Messages.getApproximateMessageTokens(messages);
         debug("Invoking LLM to prune filenames (prompt size ~{} tokens)", promptTokens);
-        var result = filesLlm.sendRequest(messages, deepScan);
+        var result = filesLlm.sendRequest(messages);
         if (result.error() != null) {
             var error = result.error();
             boolean contextError = error != null
@@ -663,7 +667,7 @@ public class ContextAgent {
         int promptTokens = Messages.getApproximateMessageTokens(messages);
         debug("Invoking LLM to recommend context via tool call (prompt size ~{} tokens)", promptTokens);
 
-        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, contextTool), deepScan);
+        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, contextTool));
         var tokenUsage = result.tokenUsage();
         if (result.error() != null) {
             var error = result.error();
@@ -817,7 +821,7 @@ public class ContextAgent {
                 "Invoking LLM (Quick) to select relevant {} (prompt size ~{} tokens)",
                 inputType.itemTypePlural,
                 promptTokens);
-        var result = llm.sendRequest(messages, deepScan);
+        var result = llm.sendRequest(messages);
 
         if (result.error() != null) {
             logger.warn(

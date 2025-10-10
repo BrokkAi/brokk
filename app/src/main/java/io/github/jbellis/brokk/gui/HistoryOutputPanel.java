@@ -1833,7 +1833,7 @@ public class HistoryOutputPanel extends JPanel {
         contextManager.submitLlmAction(() -> {
             try {
                 var model = contextManager.getService().quickModel();
-                var llm = new Llm(model, "Create Task List", contextManager, false, false);
+                var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List"));
                 llm.setOutput(chrome);
 
                 var system = new SystemMessage(
@@ -1867,7 +1867,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
 
                 var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
-                var result = llm.sendRequest(List.of(system, user), toolContext, false);
+                var result = llm.sendRequest(List.of(system, user), toolContext);
                 if (result.error() != null || result.isEmpty()) {
                     var msg = result.error() != null
                             ? String.valueOf(result.error().getMessage())
