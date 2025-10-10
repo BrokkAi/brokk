@@ -736,6 +736,38 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Drops fragments with HISTORY-aware semantics:
+     * - If selection is empty: drop all and reset selected context to the latest (top) context.
+     * - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments.
+     * - Else: drop the selected fragments as-is.
+     */
+    public void dropWithHistorySemantics(java.util.Collection<? extends ContextFragment> selectedFragments) {
+        if (selectedFragments.isEmpty()) {
+            if (topContext().isEmpty()) {
+                return;
+            }
+            dropAll();
+            setSelectedContext(topContext());
+            return;
+        }
+
+        boolean hasHistory = selectedFragments.stream()
+                .anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
+
+        if (hasHistory) {
+            clearHistory();
+            var nonHistory = selectedFragments.stream()
+                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                    .toList();
+            if (!nonHistory.isEmpty()) {
+                drop(nonHistory);
+            }
+        } else {
+            drop(selectedFragments);
+        }
+    }
+
+    /**
      * Drops a single history entry by its sequence number. If the sequence is not found in the current top context's
      * history, this is a no-op.
      *

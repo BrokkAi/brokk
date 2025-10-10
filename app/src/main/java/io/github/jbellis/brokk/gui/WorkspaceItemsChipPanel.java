@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -20,6 +19,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -545,13 +545,20 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 return;
             }
 
+            // Enforce latest-context gating (read-only when viewing historical context)
+            boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+            if (!onLatest) {
+                chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
             // Perform the removal via the ContextManager task queue to avoid
             // listener reentrancy and ensure proper processing of the drop.
             chrome.getContextManager().submitContextTask(() -> {
                 if (onRemoveFragment != null) {
                     onRemoveFragment.accept(fragment);
                 } else {
-                    contextManager.drop(Collections.singletonList(fragment));
+                    contextManager.dropWithHistorySemantics(List.of(fragment));
                 }
             });
         });
@@ -576,26 +583,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
-            public void mousePressed(MouseEvent e) {
-                maybeShowPopup(e);
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                maybeShowPopup(e);
-            }
-
-            @Override
             public void mouseClicked(MouseEvent e) {
                 // Open preview on left-click anywhere on the chip (excluding close button which handles its own events)
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     chrome.openFragmentPreview(fragment);
-                }
-            }
-
-            private void maybeShowPopup(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    ContextMenuUtils.showContextFragmentMenu(chip, e.getX(), e.getY(), fragment, chrome);
                 }
             }
         });
