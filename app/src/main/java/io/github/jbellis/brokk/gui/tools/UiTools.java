@@ -4,12 +4,16 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * GUI-scoped tools available when Chrome (GUI) is present.
  * Registered during agent initialization when GUI exists.
  */
 public final class UiTools {
+
+    private static final Logger logger = LogManager.getLogger(UiTools.class);
 
     private final Chrome chrome;
 
@@ -25,9 +29,16 @@ Ask a human for clarification or missing information. Use this sparingly when yo
             String question) {
 
         var answer = AskHumanDialog.ask(chrome, question);
-        if (answer == null || answer.isBlank()) {
-            return "No human input provided (canceled or empty). Proceeding without it.";
+        if (answer == null) {
+            logger.debug("askHuman canceled or dialog closed by user");
+            return "";
         }
-        return answer;
+        var trimmed = answer.trim();
+        if (trimmed.isEmpty()) {
+            logger.debug("askHuman received empty input");
+            return "";
+        }
+        logger.debug("askHuman received input ({} chars)", trimmed.length());
+        return trimmed;
     }
 }
