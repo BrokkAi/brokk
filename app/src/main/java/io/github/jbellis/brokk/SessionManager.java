@@ -41,6 +41,9 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
+
+    public static final String UNREADABLE_SESSIONS_DIR = "unreadable";
+
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SessionInfo(UUID id, String name, long created, long modified) {
@@ -170,7 +173,7 @@ public class SessionManager implements AutoCloseable {
         sessionsCache.remove(sessionId);
         var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
-            Path unreadableDir = sessionsDir.resolve("unreadable");
+            Path unreadableDir = sessionsDir.resolve(UNREADABLE_SESSIONS_DIR);
             try {
                 Files.createDirectories(unreadableDir);
                 Path targetPath = unreadableDir.resolve(historyZipPath.getFileName());
@@ -328,7 +331,7 @@ public class SessionManager implements AutoCloseable {
 
     private void moveZipToUnreadable(Path zipPath) {
         var future = sessionExecutorByKey.submit(zipPath.toString(), () -> {
-            Path unreadableDir = sessionsDir.resolve("unreadable");
+            Path unreadableDir = sessionsDir.resolve(UNREADABLE_SESSIONS_DIR);
             try {
                 Files.createDirectories(unreadableDir);
                 Path targetPath = unreadableDir.resolve(zipPath.getFileName());
@@ -673,6 +676,10 @@ public class SessionManager implements AutoCloseable {
     }
 
     private boolean shouldDownloadRemoteSession(@Nullable SessionInfo localInfo, RemoteSessionMeta meta) {
+        Path unreadablePath = sessionsDir.resolve(UNREADABLE_SESSIONS_DIR).resolve(meta.id() + ".zip");
+        if (Files.exists(unreadablePath)) {
+            return false;
+        }
         if (meta.deletedAt() != null) {
             return false;
         }
