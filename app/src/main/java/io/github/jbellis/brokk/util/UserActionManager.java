@@ -1,11 +1,10 @@
 package io.github.jbellis.brokk.util;
 
-import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.TaskResult;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -90,56 +89,35 @@ public class UserActionManager {
 
     // ---------- Cancelable (interruptible) ----------
 
-    /** Caller is responsible for handling interruption of `task`. */
-    public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
-        return userExecutor.submit(() -> {
-            cancelableThread.set(Thread.currentThread());
-            io.disableActionButtons();
-
-            try {
-                task.run();
-            } catch (InterruptedException ie) {
-                logger.error("LLM task did not handle interruption correctly", ie);
-                throw new CancellationException(ie.getMessage());
-            } catch (CancellationException cex) {
-                logger.error("LLM task did not handle interruption correctly", cex);
-                throw cex;
-            } finally {
-                cancelableThread.set(null);
-                // Clear interrupt status so subsequent exclusive actions are unaffected
-                Thread.interrupted();
-                io.actionComplete();
-                io.enableActionButtons();
-            }
-        });
-    }
-
     /**
-     * Will send a "canceled" message to llmOutput on StopReason.INTERRUPTED, and log on unexpected errors, but but
-     * further exception handling is up to the caller.
+     * Runs the given task on userExecutor and returns a CompletableFuture<Void>. InterruptedException is translated to
+     * CancellationException; other exceptions complete the future exceptionally.
      */
-    public CompletableFuture<TaskResult> submitLlmAction(String description, Callable<TaskResult> task) {
-        return userExecutor.submit(() -> {
-            cancelableThread.set(Thread.currentThread());
-            io.disableActionButtons();
-
-            try {
-                var result = task.call();
-                if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                    io.llmOutput(description + " canceled", ChatMessageType.CUSTOM, true, false);
-                }
-                return result;
-            } catch (InterruptedException | CancellationException cex) {
-                logger.error("LLM task did not handle interruption correctly", cex);
-                throw cex;
-            } finally {
-                cancelableThread.set(null);
-                // Clear interrupt status so subsequent exclusive actions are unaffected
-                Thread.interrupted();
-                io.actionComplete();
-                io.enableActionButtons();
-            }
-        });
+    public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
+        return CompletableFuture.runAsync(
+                () -> {
+                    cancelableThread.set(Thread.currentThread());
+                    io.disableActionButtons();
+                    try {
+                        task.run();
+                    } catch (InterruptedException ie) {
+                        logger.error("LLM task did not handle interruption correctly", ie);
+                        throw new CancellationException(ie.getMessage());
+                    } catch (CancellationException cex) {
+                        logger.error("LLM task did not handle interruption correctly", cex);
+                        throw cex; // propagates as exceptional completion
+                    } catch (Exception ex) {
+                        logger.error("Internal error running LLM task", ex);
+                        throw new CompletionException(ex);
+                    } finally {
+                        cancelableThread.set(null);
+                        // Clear interrupt status so subsequent exclusive actions are unaffected
+                        Thread.interrupted();
+                        io.actionComplete();
+                        io.enableActionButtons();
+                    }
+                },
+                userExecutor);
     }
 
     // ---------- helpers ----------
@@ -168,6 +146,6 @@ public class UserActionManager {
 
     @FunctionalInterface
     public interface ThrowingRunnable {
-        void run() throws InterruptedException;
+        void run() throws Exception;
     }
 }

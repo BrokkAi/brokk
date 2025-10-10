@@ -959,17 +959,8 @@ public class HistoryOutputPanel extends JPanel {
         for (var al : compressButton.getActionListeners()) {
             compressButton.removeActionListener(al);
         }
-        compressButton.addActionListener(e -> {
-            int choice = chrome.showConfirmDialog(
-                    HistoryOutputPanel.this,
-                    "This will summarize your conversation history into shorter entries. Continue?",
-                    "Compress conversation history",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.QUESTION_MESSAGE);
-            if (choice == JOptionPane.YES_OPTION) {
-                contextManager.compressHistoryAsync();
-            }
-        });
+        // Invoke compression immediately without asking for confirmation.
+        compressButton.addActionListener(e -> contextManager.compressHistoryAsync());
         buttonsPanel.add(compressButton);
 
         // Notifications button
@@ -1512,6 +1503,15 @@ public class HistoryOutputPanel extends JPanel {
                 leftPanel.add(msgLabel);
                 card.add(leftPanel, BorderLayout.CENTER);
 
+                // Clicking on the message area opens a detail view
+                leftPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                leftPanel.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseClicked(MouseEvent e) {
+                        showFullNotificationMessage(n);
+                    }
+                });
+
                 // Right: close button (half size)
                 var actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
                 actions.setOpaque(false);
@@ -1559,6 +1559,37 @@ public class HistoryOutputPanel extends JPanel {
         }
         listPanel.revalidate();
         listPanel.repaint();
+    }
+
+    private void showFullNotificationMessage(NotificationEntry notification) {
+        var dialog = new JDialog(notificationsDialog, "Notification Details", true);
+        dialog.setLayout(new BorderLayout());
+
+        var textArea = new JTextArea(notification.message);
+        textArea.setWrapStyleWord(true);
+        textArea.setLineWrap(true);
+        textArea.setEditable(false);
+        textArea.setOpaque(false);
+        textArea.setBorder(new EmptyBorder(10, 10, 10, 10));
+        textArea.setFont(UIManager.getFont("Label.font"));
+
+        var scrollPane = new JScrollPane(textArea);
+        scrollPane.setBorder(null);
+        scrollPane.setPreferredSize(new Dimension(500, 300));
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var okButton = new MaterialButton("OK");
+        okButton.addActionListener(e -> dialog.dispose());
+        SwingUtil.applyPrimaryButtonStyle(okButton);
+        buttonPanel.add(okButton);
+        buttonPanel.setBorder(new EmptyBorder(5, 10, 5, 10));
+
+        dialog.add(scrollPane, BorderLayout.CENTER);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(notificationsDialog);
+        dialog.setVisible(true);
     }
 
     // Simple container for notifications

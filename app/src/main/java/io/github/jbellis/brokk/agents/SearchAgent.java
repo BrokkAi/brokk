@@ -130,7 +130,7 @@ public class SearchAgent {
             var inputLimit = cm.getService().getMaxInputTokens(model);
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
-            var workspaceTokens = Messages.getApproximateTokens(workspaceMessages);
+            var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,
@@ -161,7 +161,7 @@ public class SearchAgent {
             }
 
             // Decide next action(s)
-            io.llmOutput("\n# Planning", ChatMessageType.AI, true, false);
+            io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
             if (result.error() != null || result.isEmpty()) {
                 var details =
@@ -187,30 +187,15 @@ public class SearchAgent {
                 continue;
             }
 
-            // If the first is an immediate finalizing action (answer/abort), execute it alone and finalize
-            var first = next.getFirst();
-            if (first.name().equals("answer") || first.name().equals("abortSearch")) {
-                // Enforce singularity
-                if (next.size() > 1) {
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Final action returned with other tools; ignoring others and finalizing.");
-                }
-                var exec = toolRegistry.executeTool(this, first);
-                sessionMessages.add(ToolExecutionResultMessage.from(first, exec.resultText()));
-                if (first.name().equals("answer")) {
-                    return createResult();
-                } else {
-                    var explain = exec.resultText().isBlank() ? "No explanation provided by agent." : exec.resultText();
-                    return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explain));
-                }
-            }
+            // Deferred-final behavior: do not short-circuit for final tools; they will be executed after non-final
+            // tools.
 
             // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
             var sortedCalls = next.stream()
                     .sorted(Comparator.comparingInt(req -> priority(req.name())))
                     .toList();
-            boolean executedDeferredTerminal = false;
+            String executedFinalTool = null;
+            String executedFinalText = "";
             for (var req : sortedCalls) {
                 ToolExecutionResult exec;
                 try {
@@ -234,15 +219,24 @@ public class SearchAgent {
                 // Write to visible transcript and to Context history
                 sessionMessages.add(ToolExecutionResultMessage.from(req, display));
 
-                // Track if we executed a deferred terminal
-                if (req.name().equals("createTaskList") || req.name().equals("workspaceComplete")) {
-                    executedDeferredTerminal = true;
+                // Track if we executed a final tool; finalize after the loop
+                if (req.name().equals("answer")
+                        || req.name().equals("createTaskList")
+                        || req.name().equals("workspaceComplete")
+                        || req.name().equals("abortSearch")) {
+                    executedFinalTool = req.name();
+                    executedFinalText = display;
                 }
             }
 
-            // If we executed a deferred terminal, finalize
-            if (executedDeferredTerminal) {
-                return createResult();
+            // If we executed a final tool, finalize appropriately
+            if (executedFinalTool != null) {
+                if (executedFinalTool.equals("abortSearch")) {
+                    var explain = executedFinalText.isBlank() ? "No explanation provided by agent." : executedFinalText;
+                    return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explain));
+                } else {
+                    return createResult();
+                }
             }
         }
     }
@@ -385,8 +379,8 @@ public class SearchAgent {
                         Finalization options:
                         %s
 
-                        You can call multiple tools in a single turn. To do so, provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
-                        Do NOT invoke multiple final actions. Do NOT write code.
+                        You can call multiple tools in a single turn. Provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
+                        You may include at most one final action. The final action will be executed after all non-final tools in the same turn. Do NOT write code.
 
 
                         %s
@@ -473,19 +467,32 @@ public class SearchAgent {
             return List.of();
         }
 
-        // Isolate terminator tools BEFORE any other handling.
-        var firstFinal = response.toolExecutionRequests().stream()
-                .filter(r -> r.name().equals("answer")
-                        || r.name().equals("createTaskList")
-                        || r.name().equals("workspaceComplete")
-                        || r.name().equals("abortSearch"))
-                .findFirst();
-        if (firstFinal.isPresent()) {
-            return List.of(firstFinal.get());
+        // Allow mixed plans: keep all non-terminals; keep only the FIRST final
+        ToolExecutionRequest firstFinal = null;
+        var nonTerminals = new ArrayList<ToolExecutionRequest>();
+        for (var r : response.toolExecutionRequests()) {
+            var name = r.name();
+            boolean isFinal = name.equals("answer")
+                    || name.equals("createTaskList")
+                    || name.equals("workspaceComplete")
+                    || name.equals("abortSearch");
+            if (isFinal) {
+                if (firstFinal == null) {
+                    firstFinal = r; // take the first final; ignore subsequent finals
+                }
+                continue;
+            }
+            nonTerminals.add(r);
         }
 
-        // No dedupe/forging: return all non-terminal tool requests in the order provided
-        return response.toolExecutionRequests();
+        if (firstFinal != null) {
+            var combined = new ArrayList<ToolExecutionRequest>(nonTerminals);
+            combined.add(firstFinal); // ensure the final runs after non-terminals
+            return combined;
+        }
+
+        // No final: return all non-terminal tool requests in the order provided
+        return nonTerminals;
     }
 
     private int priority(String toolName) {
@@ -499,6 +506,7 @@ public class SearchAgent {
             case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
+            case "answer", "createTaskList", "workspaceComplete", "abortSearch" -> 100;
             default -> 9;
         };
     }
@@ -509,14 +517,15 @@ public class SearchAgent {
 
     private void addInitialContextToWorkspace() throws InterruptedException {
         var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal, true);
-        io.llmOutput("\nPerforming initial project scan", ChatMessageType.CUSTOM);
+        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(true);
         if (!recommendation.reasoning().isEmpty()) {
-            io.llmOutput("\n\nReasoning for recommendations: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
+            io.llmOutput(
+                    "\n\nReasoning for contextual insights: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
         }
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
-            io.llmOutput("\n\nNo additional recommended context found", ChatMessageType.CUSTOM);
+            io.llmOutput("\n\nNo additional context insights found", ChatMessageType.CUSTOM);
             return;
         }
 
@@ -534,7 +543,9 @@ public class SearchAgent {
                             .syntaxStyle()));
         } else {
             WorkspaceTools.addToWorkspace(cm, recommendation);
-            io.llmOutput("\n\nScan complete; added recommendations to the Workspace.", ChatMessageType.CUSTOM);
+            io.llmOutput(
+                    "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.",
+                    ChatMessageType.CUSTOM);
         }
     }
 

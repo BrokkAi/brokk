@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.Desktop;
 import java.awt.desktop.PreferencesHandler;
+import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.File;
@@ -102,7 +103,7 @@ public class MenuBar {
             im.put(ks, "open-settings");
             am.put("open-settings", new AbstractAction() {
                 @Override
-                public void actionPerformed(java.awt.event.ActionEvent e) {
+                public void actionPerformed(ActionEvent e) {
                     SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
                 }
             });
@@ -343,15 +344,6 @@ public class MenuBar {
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
 
-        var scanProjectItem = new JMenuItem("Scan Project");
-        scanProjectItem.addActionListener(e -> runWithRefocus(chrome, () -> {
-            // Delegate to InstructionsPanel's scan flow which handles model selection, validation,
-            // and submission to ContextManager.
-            chrome.getInstructionsPanel().runScanProjectCommand();
-        }));
-        scanProjectItem.setEnabled(true);
-        toolsMenu.add(scanProjectItem);
-
         var upgradeAgentItem = new JMenuItem("BlitzForge...");
         upgradeAgentItem.addActionListener(e -> {
             SwingUtilities.invokeLater(() -> {
@@ -364,7 +356,7 @@ public class MenuBar {
 
         // Let Chrome manage this item’s enabled state during long-running actions
         chrome.setBlitzForgeMenuItem(upgradeAgentItem);
-        if (toolsMenu.getItemCount() > 0) {
+        if (toolsMenu.getItemCount() > 0) { // Should always be true since BlitzForge is present.
             menuBar.add(toolsMenu);
         }
 

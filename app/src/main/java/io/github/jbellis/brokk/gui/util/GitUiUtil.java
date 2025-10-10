@@ -43,13 +43,13 @@ public final class GitUiUtil {
 
     private GitUiUtil() {}
 
-    /** Capture uncommitted diffs for the specified files, adding the result to the context. */
+    /**
+     * Capture uncommitted diffs for the specified files, adding the result to the context. `selectedFiles` must not be
+     * empty.
+     */
     public static void captureUncommittedDiff(
             ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles) {
-        if (selectedFiles.isEmpty()) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files selected to capture diff");
-            return;
-        }
+        assert !selectedFiles.isEmpty();
         var repo = contextManager.getProject().getRepo();
 
         contextManager.submitContextTask(() -> {
@@ -144,7 +144,7 @@ public final class GitUiUtil {
     public static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitExclusiveAction(() -> {
+        cm.submitBackgroundTask("View file at revision", () -> {
             var file = new ProjectFile(cm.getRoot(), filePath);
             try {
                 final String content = repo.getFileContent(commitId, file);
@@ -576,7 +576,7 @@ public final class GitUiUtil {
     }
 
     public static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
-        contextManager.submitExclusiveAction(() -> {
+        contextManager.submitBackgroundTask("Comparing commit to local", () -> {
             try {
                 var changedFiles = commitInfo.changedFiles();
                 if (changedFiles.isEmpty()) {
@@ -696,6 +696,19 @@ public final class GitUiUtil {
         return files.size() <= 3
                 ? files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "))
                 : files.size() + " files";
+    }
+
+    /**
+     * Filters a list of modified files to include only text files (excludes binary files like images, PDFs, etc.).
+     *
+     * @param modifiedFiles The list of modified files to filter.
+     * @return A list containing only the text files.
+     */
+    public static List<ProjectFile> filterTextFiles(List<GitRepo.ModifiedFile> modifiedFiles) {
+        return modifiedFiles.stream()
+                .map(GitRepo.ModifiedFile::file)
+                .filter(io.github.jbellis.brokk.analyzer.BrokkFile::isText)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -826,7 +839,7 @@ public final class GitUiUtil {
             ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
         String targetFilePath = extractFilePathFromDisplay(targetFileName);
 
-        contextManager.submitExclusiveAction(() -> {
+        contextManager.submitBackgroundTask("Opening PR diff", () -> {
             try {
                 var repo = (GitRepo) contextManager.getProject().getRepo();
 
