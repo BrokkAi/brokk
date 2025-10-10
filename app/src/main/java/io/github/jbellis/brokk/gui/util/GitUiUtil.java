@@ -130,7 +130,8 @@ public final class GitUiUtil {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(new BufferSource.StringSource(
                                     parentContent, parentCommitId, file.toString(), parentCommitId))
-                            .rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString(), commitId))
+                            .rightSource(
+                                    new BufferSource.StringSource(commitContent, commitId, file.toString(), commitId))
                             .build();
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
@@ -489,8 +490,8 @@ public final class GitUiUtil {
                     var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
 
                     leftSources.add(new BufferSource.StringSource(oldContent, parentId, file.toString(), parentId));
-                    rightSources.add(
-                            new BufferSource.StringSource(newContent, commitInfo.id(), file.toString(), commitInfo.id()));
+                    rightSources.add(new BufferSource.StringSource(
+                            newContent, commitInfo.id(), file.toString(), commitInfo.id()));
                 }
 
                 String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
@@ -895,18 +896,31 @@ public final class GitUiUtil {
 
                     if ("deleted".equals(status)) {
                         leftSource = new BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString(), prBaseSha);
+                                repo.getFileContent(prBaseSha, projectFile),
+                                prBaseSha,
+                                projectFile.toString(),
+                                prBaseSha);
                         rightSource = new BufferSource.StringSource(
                                 "", prHeadSha + " (Deleted)", projectFile.toString(), null);
                     } else if ("new".equals(status)) {
-                        leftSource = new BufferSource.StringSource("", prBaseSha + " (New)", projectFile.toString(), null);
+                        leftSource =
+                                new BufferSource.StringSource("", prBaseSha + " (New)", projectFile.toString(), null);
                         rightSource = new BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString(), prHeadSha);
+                                repo.getFileContent(prHeadSha, projectFile),
+                                prHeadSha,
+                                projectFile.toString(),
+                                prHeadSha);
                     } else { // modified
                         leftSource = new BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString(), prBaseSha);
+                                repo.getFileContent(prBaseSha, projectFile),
+                                prBaseSha,
+                                projectFile.toString(),
+                                prBaseSha);
                         rightSource = new BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString(), prHeadSha);
+                                repo.getFileContent(prHeadSha, projectFile),
+                                prHeadSha,
+                                projectFile.toString(),
+                                prHeadSha);
                     }
 
                     // Check if this is the target file

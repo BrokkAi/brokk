@@ -849,7 +849,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
                     hasRevisionMetadata = true;
                 }
-                if (comparison.rightSource instanceof BufferSource.StringSource rightSS && rightSS.revisionSha() != null) {
+                if (comparison.rightSource instanceof BufferSource.StringSource rightSS
+                        && rightSS.revisionSha() != null) {
                     hasRevisionMetadata = true;
                 }
             }
@@ -1278,9 +1279,26 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // IMPORTANT: Sync blame state with menu BEFORE any layout-triggering operations
         // This must happen before applyTheme() and diff() which can trigger layout calculations
         // Note: Always set state explicitly to sync cached panels with current menu state
-        // Blame is only supported for working tree diffs with valid file paths
-        boolean canShowBlame = isWorkingTreeDiff(cachedPanel) && resolveTargetPath(cachedPanel) != null;
+        // Blame is supported for both working tree diffs and commit diffs with revision metadata
+        boolean isWorkingTree = isWorkingTreeDiff(cachedPanel);
+        boolean hasRevisionMetadata = false;
+        if (fileIndex >= 0 && fileIndex < fileComparisons.size()) {
+            var comparison = fileComparisons.get(fileIndex);
+            if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
+                hasRevisionMetadata = true;
+            }
+            if (comparison.rightSource instanceof BufferSource.StringSource rightSS && rightSS.revisionSha() != null) {
+                hasRevisionMetadata = true;
+            }
+        }
+        boolean canShowBlame = (isWorkingTree || hasRevisionMetadata) && resolveTargetPath(cachedPanel) != null;
         boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
+        logger.debug(
+                "displayCachedFile: isWorkingTree={}, hasRevisionMetadata={}, canShowBlame={}, shouldShowBlame={}",
+                isWorkingTree,
+                hasRevisionMetadata,
+                canShowBlame,
+                shouldShowBlame);
         if (cachedPanel instanceof BufferDiffPanel bp) {
             var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
             if (right != null) {

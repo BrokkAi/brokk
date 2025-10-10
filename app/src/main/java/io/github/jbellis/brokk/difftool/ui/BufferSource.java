@@ -16,8 +16,7 @@ public sealed interface BufferSource {
      * @param filename The file path (relative or absolute)
      * @param revisionSha Optional Git revision SHA for blame lookups
      */
-    record StringSource(
-            String content, String title, @Nullable String filename, @Nullable String revisionSha)
+    record StringSource(String content, String title, @Nullable String filename, @Nullable String revisionSha)
             implements BufferSource {
 
         public StringSource(String content, String title) {
