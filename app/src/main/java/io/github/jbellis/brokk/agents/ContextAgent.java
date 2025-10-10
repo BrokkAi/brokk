@@ -61,9 +61,10 @@ public class ContextAgent {
             throws InterruptedException {
         this.cm = contextManager;
         this.llm = contextManager.getLlm(model, "ContextAgent (%s): %s".formatted(deepScan ? "Deep" : "Quick", goal));
-        this.filesLlm = contextManager.getLlm(
-                contextManager.getService().quickestModel(),
-                "ContextAgent Files (%s): %s".formatted(deepScan ? "Deep" : "Quick", goal));
+        this.filesLlm = contextManager.getLlm(new Llm.Options(
+                        contextManager.getService().quickestModel(),
+                        "ContextAgent Files (%s): %s".formatted(deepScan ? "Deep" : "Quick", goal))
+                .withForceReasoningEcho());
         this.goal = goal;
         this.analyzer = contextManager.getAnalyzer();
         this.deepScan = deepScan;
@@ -476,7 +477,7 @@ public class ContextAgent {
                 .toList();
         int promptTokens = Messages.getApproximateMessageTokens(messages);
         debug("Invoking LLM to prune filenames (prompt size ~{} tokens)", promptTokens);
-        var result = filesLlm.sendRequest(messages, deepScan, true);
+        var result = filesLlm.sendRequest(messages, deepScan);
         if (result.error() != null) {
             var error = result.error();
             boolean contextError = error != null
@@ -816,7 +817,7 @@ public class ContextAgent {
                 "Invoking LLM (Quick) to select relevant {} (prompt size ~{} tokens)",
                 inputType.itemTypePlural,
                 promptTokens);
-        var result = llm.sendRequest(messages, deepScan, true);
+        var result = llm.sendRequest(messages, deepScan);
 
         if (result.error() != null) {
             logger.warn(

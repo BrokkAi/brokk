@@ -74,12 +74,48 @@ public class Llm {
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
 
+    public static Llm create(Options options, IContextManager cm, boolean tagRetain) {
+        return new Llm(
+                options.model, options.task, cm, options.allowPartialResponses, options.forceReasoningEcho, tagRetain);
+    }
+
+    /**
+     * Builder-like options for creating Llm instances. Mandatory: model and task. Optional toggles via fluent methods.
+     */
+    public static class Options {
+        private final StreamingChatModel model;
+        private final String task;
+        private boolean allowPartialResponses;
+        // FIXME this is a hack to keep ContextAgent's file scan from living permanently (until compression)
+        // in the message history. This causes surprising behavior, because
+        // what the caller gets in StreamingResult (which has response tokens in AiMessage::text) does not
+        // match what we put in the TaskResult (which rebuilds it in AiMessage::reasoningContent from what we echo to
+        // MOP).
+        private boolean forceReasoningEcho;
+
+        public Options(StreamingChatModel model, String task) {
+            this.model = model;
+            this.task = task;
+        }
+
+        public Options withPartialResponses() {
+            this.allowPartialResponses = true;
+            return this;
+        }
+
+        public Options withForceReasoningEcho() {
+            this.forceReasoningEcho = true;
+            return this;
+        }
+    }
+
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
     private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
+    private final boolean forceReasoningEcho;
     private final boolean tagRetain;
 
     // Monotonically increasing sequence for emulated tool request IDs
@@ -92,10 +128,21 @@ public class Llm {
             IContextManager contextManager,
             boolean allowPartialResponses,
             boolean tagRetain) {
+        this(model, taskDescription, contextManager, allowPartialResponses, false, tagRetain);
+    }
+
+    public Llm(
+            StreamingChatModel model,
+            String taskDescription,
+            IContextManager contextManager,
+            boolean allowPartialResponses,
+            boolean forceReasoningEcho,
+            boolean tagRetain) {
         this.model = model;
         this.contextManager = contextManager;
         this.io = contextManager.getIo();
         this.allowPartialResponses = allowPartialResponses;
+        this.forceReasoningEcho = forceReasoningEcho;
         this.tagRetain = tagRetain;
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
@@ -159,12 +206,11 @@ public class Llm {
      * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
      * 'echo' is true, partial tokens go to console.
      */
-    private StreamingResult doSingleStreamingCall(
-            ChatRequest request, boolean echo, boolean addJsonFence, boolean forceReasoningEcho)
+    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo, boolean addJsonFence)
             throws InterruptedException {
         StreamingResult result;
         try {
-            result = doSingleStreamingCallInternal(request, echo, addJsonFence, forceReasoningEcho);
+            result = doSingleStreamingCallInternal(request, echo, addJsonFence);
         } catch (InterruptedException e) {
             logResult(model, request, null);
             throw e;
@@ -173,8 +219,7 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(
-            ChatRequest request, boolean echo, boolean addJsonFence, boolean forceReasoningEcho)
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo, boolean addJsonFence)
             throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
@@ -224,10 +269,14 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
-                            io.llmOutput("\n```json\n", ChatMessageType.AI, false, forceReasoningEcho);
+                            io.llmOutput("\n```json\n", ChatMessageType.AI);
                             fenceOpen.set(true);
                         }
-                        io.llmOutput(token, ChatMessageType.AI, false, forceReasoningEcho);
+                        if (forceReasoningEcho) {
+                            io.llmOutput(out, ChatMessageType.AI, false, true);
+                        } else {
+                            io.llmOutput(token, ChatMessageType.AI);
+                        }
                     }
                 });
             }
@@ -268,7 +317,7 @@ public class Llm {
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput("\n```", ChatMessageType.AI);
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -286,7 +335,7 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(th);
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                        io.llmOutput("\n```", ChatMessageType.AI);
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -310,7 +359,7 @@ public class Llm {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
                 if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+                    io.llmOutput("\n```", ChatMessageType.AI);
                     fenceOpen.set(false);
                 }
                 completed.set(true);
@@ -347,7 +396,7 @@ public class Llm {
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
-            io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput("\n```", ChatMessageType.AI);
             fenceOpen.set(false);
         }
 
@@ -375,7 +424,7 @@ public class Llm {
         var response = completedChatResponse.get(); // Will be null if an error occurred or onComplete got null
         assert response != null : "If no error, completedChatResponse must be set by onCompleteResponse";
         if (echo) {
-            io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput("\n", ChatMessageType.AI);
         }
         return StreamingResult.fromResponse(response, null);
     }
@@ -427,22 +476,16 @@ public class Llm {
                         : "%,d".formatted(outputDetails.reasoningTokens()));
     }
 
-    public StreamingResult sendRequest(List<ChatMessage> messages, boolean echo) throws InterruptedException {
-        return sendRequest(messages, echo, false);
-    }
-
     /**
      * Sends a user query to the LLM with streaming. Tools are not used. Writes to conversation history. Optionally
      * echoes partial tokens to the console.
      *
      * @param messages The messages to send
      * @param echo Whether to echo LLM responses to the console as they stream
-     * @param forceReasoningEcho if true, echoes the response to the "reasoning" channel instead of the main one
      * @return The final response from the LLM as a record containing ChatResponse, errors, etc.
      */
-    public StreamingResult sendRequest(List<ChatMessage> messages, boolean echo, boolean forceReasoningEcho)
-            throws InterruptedException {
-        return sendMessageWithRetry(messages, ToolContext.empty(), echo, MAX_ATTEMPTS, forceReasoningEcho);
+    public StreamingResult sendRequest(List<ChatMessage> messages, boolean echo) throws InterruptedException {
+        return sendMessageWithRetry(messages, ToolContext.empty(), echo, MAX_ATTEMPTS);
     }
 
     /** Sends messages to a given model, no tools, no streaming echo. */
@@ -454,7 +497,7 @@ public class Llm {
     public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext, boolean echo)
             throws InterruptedException {
 
-        var result = sendMessageWithRetry(messages, toolContext, echo, MAX_ATTEMPTS, false);
+        var result = sendMessageWithRetry(messages, toolContext, echo, MAX_ATTEMPTS);
         var cr = result.chatResponse();
 
         // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
@@ -471,7 +514,7 @@ public class Llm {
             extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
             extraMessages.add(new UserMessage("At least one tool execution request is REQUIRED. Please call a tool."));
 
-            result = sendMessageWithRetry(extraMessages, toolContext, echo, MAX_ATTEMPTS, false);
+            result = sendMessageWithRetry(extraMessages, toolContext, echo, MAX_ATTEMPTS);
             cr = result.chatResponse();
         }
 
@@ -483,11 +526,7 @@ public class Llm {
      * Responsible for writeToHistory.
      */
     private StreamingResult sendMessageWithRetry(
-            List<ChatMessage> rawMessages,
-            ToolContext toolContext,
-            boolean echo,
-            int maxAttempts,
-            boolean forceReasoningEcho)
+            List<ChatMessage> rawMessages, ToolContext toolContext, boolean echo, int maxAttempts)
             throws InterruptedException {
         Throwable lastError = null;
         int attempt = 0;
@@ -502,7 +541,7 @@ public class Llm {
                     attempt,
                     LogDescription.getShortDescription(description, 12));
 
-            response = doSingleSendMessage(model, messages, toolContext, echo, forceReasoningEcho);
+            response = doSingleSendMessage(model, messages, toolContext, echo);
             lastError = response.error;
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
@@ -566,11 +605,7 @@ public class Llm {
      * history file.
      */
     private StreamingResult doSingleSendMessage(
-            StreamingChatModel model,
-            List<ChatMessage> messages,
-            ToolContext toolContext,
-            boolean echo,
-            boolean forceReasoningEcho)
+            StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext, boolean echo)
             throws InterruptedException {
         // Note: writeRequestToHistory is now called *within* this method,
         // right before doSingleStreamingCall, to ensure it uses the final `messagesToSend`.
@@ -608,19 +643,18 @@ public class Llm {
         }
 
         var request = requestBuilder.build();
-        var sr = doSingleStreamingCall(request, echo, false, forceReasoningEcho);
+        var sr = doSingleStreamingCall(request, echo, false);
 
         // Pretty-print native tool calls when echo is enabled
         // (For emulated calls, echo means we get the raw json in the response which is not ideal but
         // there's no reason to add a second print of it)
         if (echo && !tools.isEmpty() && !contextManager.getService().requiresEmulatedTools(model)) {
-            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests(), forceReasoningEcho);
+            prettyPrintToolCalls(toolContext.toolOwner(), sr.toolRequests());
         }
         return sr;
     }
 
-    private void prettyPrintToolCalls(
-            Object toolOwner, List<ToolExecutionRequest> requests, boolean forceReasoningEcho) {
+    private void prettyPrintToolCalls(Object toolOwner, List<ToolExecutionRequest> requests) {
         if (requests.isEmpty()) {
             return;
         }
@@ -630,7 +664,7 @@ public class Llm {
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI, false, forceReasoningEcho);
+            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI);
         }
     }
 
@@ -693,7 +727,7 @@ public class Llm {
 
             // Perform the request for THIS attempt
             lastRequest = requestBuilder.apply(attemptMessages);
-            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo, true, false);
+            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo, true);
 
             // Fast-fail on transport / HTTP errors (no retry)
             if (rawResult.error() != null) {
