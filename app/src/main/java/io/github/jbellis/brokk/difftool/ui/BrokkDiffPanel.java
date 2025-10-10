@@ -2098,6 +2098,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
             gutter.revalidate();
             gutter.repaint();
+            // Ensure parent container (scroll pane) recalculates layout for new gutter width
+            var parent = gutter.getParent();
+            if (parent != null) {
+                parent.revalidate();
+            }
         } catch (Exception ex) {
             logger.debug("Could not apply font to gutter", ex);
         }
@@ -2128,6 +2133,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             filePanel.invalidateViewportCache();
         } catch (Exception ignored) {
             // Best-effort: ignore cache invalidation errors
+        }
+
+        // Ensure scroll pane recalculates layout for new gutter width
+        try {
+            filePanel.getScrollPane().revalidate();
+        } catch (Exception ignored) {
+            // Best-effort: ignore scroll pane revalidation errors
         }
     }
 
