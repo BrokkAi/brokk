@@ -924,6 +924,7 @@ public class GitWorktreeTab extends JPanel {
             throws GitRepo.WorktreeNeedsForceException, GitRepo.GitRepoException {
         try {
             repo.removeWorktree(worktreePath, force);
+            contextManager.getProject().getSessionRegistry().release(worktreePath);
 
             chrome.showNotification(
                     IConsoleIO.NotificationRole.INFO,

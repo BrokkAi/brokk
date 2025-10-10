@@ -343,6 +343,10 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default SessionRegistry getSessionRegistry() {
+        throw new UnsupportedOperationException();
+    }
+
     default void sessionsListChanged() {
         throw new UnsupportedOperationException();
     }

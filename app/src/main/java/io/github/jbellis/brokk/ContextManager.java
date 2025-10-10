@@ -2148,7 +2148,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var potentialEmptySessions = project.getSessionManager().listSessions().stream()
                 .filter(session -> session.name().equals(name))
                 .filter(session -> !session.isSessionModified())
-                .filter(session -> !SessionRegistry.isSessionActiveElsewhere(project.getRoot(), session.id()))
+                .filter(session ->
+                        !project.getSessionRegistry().isSessionActiveElsewhere(project.getRoot(), session.id()))
                 .sorted(Comparator.comparingLong(SessionInfo::created).reversed()) // Newest first
                 .toList();
 
@@ -2168,7 +2169,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public void updateActiveSession(UUID sessionId) {
         currentSessionId = sessionId;
-        SessionRegistry.update(project.getRoot(), sessionId);
+        project.getSessionRegistry().update(project.getRoot(), sessionId);
         project.setLastActiveSession(sessionId);
     }
 
@@ -2244,7 +2245,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> switchSessionAsync(UUID sessionId) {
         var sessionManager = project.getSessionManager();
-        var otherWorktreeOpt = SessionRegistry.findAnotherWorktreeWithActiveSession(project.getRoot(), sessionId);
+        var otherWorktreeOpt =
+                project.getSessionRegistry().findAnotherWorktreeWithActiveSession(project.getRoot(), sessionId);
         if (otherWorktreeOpt.isPresent()) {
             var otherWorktree = otherWorktreeOpt.get();
             String sessionName = sessionManager.listSessions().stream()

@@ -204,6 +204,11 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    public SessionRegistry getSessionRegistry() {
+        return parent.getSessionRegistry();
+    }
+
+    @Override
     public SessionManager getSessionManager() {
         return parent.getSessionManager();
     }

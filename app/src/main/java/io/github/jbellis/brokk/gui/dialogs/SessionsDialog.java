@@ -4,8 +4,8 @@ import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
@@ -480,6 +480,7 @@ public class SessionsDialog extends JDialog {
         JPopupMenu popup = new JPopupMenu();
 
         /* ---------- single-selection items ---------- */
+        AbstractProject project = contextManager.getProject();
         if (selectedSessions.size() == 1) {
             var sessionInfo = selectedSessions.getFirst();
 
@@ -488,7 +489,7 @@ public class SessionsDialog extends JDialog {
             setActiveItem.addActionListener(
                     ev -> contextManager.switchSessionAsync(sessionInfo.id()).thenRun(() -> {
                         SwingUtilities.invokeLater(this::refreshSessionsTable);
-                        contextManager.getProject().getMainProject().sessionsListChanged();
+                        project.getMainProject().sessionsListChanged();
                     }));
             popup.add(setActiveItem);
             popup.addSeparator();
@@ -509,8 +510,8 @@ public class SessionsDialog extends JDialog {
                     JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 var partitionedSessions = selectedSessions.stream()
-                        .collect(Collectors.partitioningBy(s -> SessionRegistry.isSessionActiveElsewhere(
-                                contextManager.getProject().getRoot(), s.id())));
+                        .collect(Collectors.partitioningBy(
+                                s -> project.getSessionRegistry().isSessionActiveElsewhere(project.getRoot(), s.id())));
                 // partitioning by boolean always returns mappings for both true and false keys
                 var activeSessions = castNonNull(partitionedSessions.get(true));
                 var deletableSessions = castNonNull(partitionedSessions.get(false));
@@ -534,7 +535,7 @@ public class SessionsDialog extends JDialog {
                                 futures.toArray(new java.util.concurrent.CompletableFuture[0]))
                         .whenComplete((Void v, @Nullable Throwable t) -> {
                             SwingUtilities.invokeLater(this::refreshSessionsTable);
-                            contextManager.getProject().getMainProject().sessionsListChanged();
+                            project.getMainProject().sessionsListChanged();
                             if (t != null) {
                                 chrome.toolError("Error deleting session:\n" + t.getMessage());
                             }
@@ -553,7 +554,7 @@ public class SessionsDialog extends JDialog {
             java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]))
                     .thenRun(() -> {
                         SwingUtilities.invokeLater(this::refreshSessionsTable);
-                        contextManager.getProject().getMainProject().sessionsListChanged();
+                        project.getMainProject().sessionsListChanged();
                     });
         });
         popup.add(dupItem);
