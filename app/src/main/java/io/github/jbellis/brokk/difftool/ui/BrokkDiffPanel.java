@@ -1293,12 +1293,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
         boolean canShowBlame = (isWorkingTree || hasRevisionMetadata) && resolveTargetPath(cachedPanel) != null;
         boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
-        logger.debug(
-                "displayCachedFile: isWorkingTree={}, hasRevisionMetadata={}, canShowBlame={}, shouldShowBlame={}",
-                isWorkingTree,
-                hasRevisionMetadata,
-                canShowBlame,
-                shouldShowBlame);
         if (cachedPanel instanceof BufferDiffPanel bp) {
             var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
             if (right != null) {
@@ -2106,11 +2100,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void updateBlameForPanel(IDiffPanel panel, boolean show) {
-        logger.debug(
-                "updateBlameForPanel called: panel={}, show={}",
-                panel.getClass().getSimpleName(),
-                show);
-
         if (!show) {
             if (panel instanceof BufferDiffPanel bp) {
                 var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);

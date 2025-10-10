@@ -895,16 +895,20 @@ public final class GitUiUtil {
                     BufferSource leftSource, rightSource;
 
                     if ("deleted".equals(status)) {
+                        // Deleted: left side has content from base, right side is empty (but still track head SHA for
+                        // context)
                         leftSource = new BufferSource.StringSource(
                                 repo.getFileContent(prBaseSha, projectFile),
                                 prBaseSha,
                                 projectFile.toString(),
                                 prBaseSha);
                         rightSource = new BufferSource.StringSource(
-                                "", prHeadSha + " (Deleted)", projectFile.toString(), null);
+                                "", prHeadSha + " (Deleted)", projectFile.toString(), prHeadSha);
                     } else if ("new".equals(status)) {
-                        leftSource =
-                                new BufferSource.StringSource("", prBaseSha + " (New)", projectFile.toString(), null);
+                        // New: left side is empty (but still track base SHA for context), right side has content from
+                        // head
+                        leftSource = new BufferSource.StringSource(
+                                "", prBaseSha + " (New)", projectFile.toString(), prBaseSha);
                         rightSource = new BufferSource.StringSource(
                                 repo.getFileContent(prHeadSha, projectFile),
                                 prHeadSha,
