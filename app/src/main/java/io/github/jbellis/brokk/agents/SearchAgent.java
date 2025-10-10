@@ -90,8 +90,6 @@ public class SearchAgent {
         this.llm = contextManager.getLlm(model, "Search: " + goal);
         this.llm.setOutput(io);
 
-        // UI-scoped tools (e.g., askHuman) are registered during GUI initialization.
-
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
 
@@ -154,7 +152,6 @@ public class SearchAgent {
             if (allowedTerminals.contains(Terminal.WORKSPACE)) {
                 agentTerminalTools.add("workspaceComplete");
             }
-            // Non-terminal human-in-the-loop tool is registered globally via UiTools and included in allowed tools.
             // Always allow abort
             agentTerminalTools.add("abortSearch");
             toolSpecs.addAll(toolRegistry.getTools(this, agentTerminalTools));
