@@ -74,13 +74,62 @@ public class Llm {
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
 
+    public static Llm create(Options options, IContextManager cm, boolean tagRetain) {
+        return new Llm(
+                options.model,
+                options.task,
+                cm,
+                options.allowPartialResponses,
+                options.forceReasoningEcho,
+                tagRetain,
+                options.echo);
+    }
+
+    /**
+     * Builder-like options for creating Llm instances. Mandatory: model and task. Optional toggles via fluent methods.
+     */
+    public static class Options {
+        private final StreamingChatModel model;
+        private final String task;
+        private boolean allowPartialResponses;
+        private boolean echo;
+        // FIXME this is a hack to keep ContextAgent's file scan from living permanently (until compression)
+        // in the message history. This causes surprising behavior, because
+        // what the caller gets in StreamingResult (which has response tokens in AiMessage::text) does not
+        // match what we put in the TaskResult (which rebuilds it in AiMessage::reasoningContent from what we echo to
+        // MOP).
+        private boolean forceReasoningEcho;
+
+        public Options(StreamingChatModel model, String task) {
+            this.model = model;
+            this.task = task;
+        }
+
+        public Options withPartialResponses() {
+            this.allowPartialResponses = true;
+            return this;
+        }
+
+        public Options withForceReasoningEcho() {
+            this.forceReasoningEcho = true;
+            return this;
+        }
+
+        public Options withEcho() { // New method to set echo option
+            this.echo = true;
+            return this;
+        }
+    }
+
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
     private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
+    private final boolean forceReasoningEcho;
     private final boolean tagRetain;
+    private final boolean echo; // New class field
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -91,12 +140,16 @@ public class Llm {
             String taskDescription,
             IContextManager contextManager,
             boolean allowPartialResponses,
-            boolean tagRetain) {
+            boolean forceReasoningEcho,
+            boolean tagRetain,
+            boolean echo) {
         this.model = model;
         this.contextManager = contextManager;
         this.io = contextManager.getIo();
         this.allowPartialResponses = allowPartialResponses;
+        this.forceReasoningEcho = forceReasoningEcho;
         this.tagRetain = tagRetain;
+        this.echo = echo;
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
         // Create task directory name for this specific LLM interaction
@@ -156,14 +209,14 @@ public class Llm {
     }
 
     /**
-     * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
-     * 'echo' is true, partial tokens go to console.
+     * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. Partial
+     * tokens go to console if the `echo` field is true.
      */
-    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo, boolean addJsonFence)
+    private StreamingResult doSingleStreamingCall(ChatRequest request, boolean addJsonFence)
             throws InterruptedException {
         StreamingResult result;
         try {
-            result = doSingleStreamingCallInternal(request, echo, addJsonFence);
+            result = doSingleStreamingCallInternal(request, addJsonFence);
         } catch (InterruptedException e) {
             logResult(model, request, null);
             throw e;
@@ -172,7 +225,7 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo, boolean addJsonFence)
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean addJsonFence)
             throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
@@ -225,7 +278,11 @@ public class Llm {
                             io.llmOutput("\n```json\n", ChatMessageType.AI);
                             fenceOpen.set(true);
                         }
-                        io.llmOutput(token, ChatMessageType.AI);
+                        if (forceReasoningEcho) {
+                            io.llmOutput(accumulatedTextBuilder.toString(), ChatMessageType.AI, false, true);
+                        } else {
+                            io.llmOutput(token, ChatMessageType.AI);
+                        }
                     }
                 });
             }
@@ -426,27 +483,21 @@ public class Llm {
     }
 
     /**
-     * Sends a user query to the LLM with streaming. Tools are not used. Writes to conversation history. Optionally
-     * echoes partial tokens to the console.
+     * Sends a user query to the LLM with streaming. Tools are not used. Writes to conversation history. Responses are
+     * echoed to the console if the `echo` field is set to true.
      *
      * @param messages The messages to send
-     * @param echo Whether to echo LLM responses to the console as they stream
      * @return The final response from the LLM as a record containing ChatResponse, errors, etc.
      */
-    public StreamingResult sendRequest(List<ChatMessage> messages, boolean echo) throws InterruptedException {
-        return sendMessageWithRetry(messages, ToolContext.empty(), echo, MAX_ATTEMPTS);
-    }
-
-    /** Sends messages to a given model, no tools, no streaming echo. */
     public StreamingResult sendRequest(List<ChatMessage> messages) throws InterruptedException {
-        return sendRequest(messages, false);
+        return sendMessageWithRetry(messages, ToolContext.empty(), MAX_ATTEMPTS);
     }
 
     /** Sends messages to a model with possible tools and a chosen tool usage policy. */
-    public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext, boolean echo)
+    public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext)
             throws InterruptedException {
 
-        var result = sendMessageWithRetry(messages, toolContext, echo, MAX_ATTEMPTS);
+        var result = sendMessageWithRetry(messages, toolContext, MAX_ATTEMPTS);
         var cr = result.chatResponse();
 
         // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
@@ -463,7 +514,7 @@ public class Llm {
             extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
             extraMessages.add(new UserMessage("At least one tool execution request is REQUIRED. Please call a tool."));
 
-            result = sendMessageWithRetry(extraMessages, toolContext, echo, MAX_ATTEMPTS);
+            result = sendMessageWithRetry(extraMessages, toolContext, MAX_ATTEMPTS);
             cr = result.chatResponse();
         }
 
@@ -475,8 +526,7 @@ public class Llm {
      * Responsible for writeToHistory.
      */
     private StreamingResult sendMessageWithRetry(
-            List<ChatMessage> rawMessages, ToolContext toolContext, boolean echo, int maxAttempts)
-            throws InterruptedException {
+            List<ChatMessage> rawMessages, ToolContext toolContext, int maxAttempts) throws InterruptedException {
         Throwable lastError = null;
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
@@ -490,7 +540,7 @@ public class Llm {
                     attempt,
                     LogDescription.getShortDescription(description, 12));
 
-            response = doSingleSendMessage(model, messages, toolContext, echo);
+            response = doSingleSendMessage(model, messages, toolContext);
             lastError = response.error;
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
@@ -554,8 +604,7 @@ public class Llm {
      * history file.
      */
     private StreamingResult doSingleSendMessage(
-            StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext, boolean echo)
-            throws InterruptedException {
+            StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext) throws InterruptedException {
         // Note: writeRequestToHistory is now called *within* this method,
         // right before doSingleStreamingCall, to ensure it uses the final `messagesToSend`.
 
@@ -573,7 +622,7 @@ public class Llm {
 
         if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
             // Emulation handles its own preprocessing and needs the toolContext to validate owner
-            return emulateTools(model, messagesToSend, toolContext, echo);
+            return emulateTools(model, messagesToSend, toolContext);
         }
 
         // If native tools are used, or no tools, send the (potentially preprocessed if tools were empty) messages.
@@ -592,7 +641,7 @@ public class Llm {
         }
 
         var request = requestBuilder.build();
-        var sr = doSingleStreamingCall(request, echo, false);
+        var sr = doSingleStreamingCall(request, false);
 
         // Pretty-print native tool calls when echo is enabled
         // (For emulated calls, echo means we get the raw json in the response which is not ideal but
@@ -636,16 +685,15 @@ public class Llm {
      * models that support JSON schema in response_format 2. Text-based: For models without schema support, using text
      * instructions
      */
-    private StreamingResult emulateTools(
-            StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext, boolean echo)
+    private StreamingResult emulateTools(StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext)
             throws InterruptedException {
         var tools = toolContext.toolSpecifications();
         var enhancedTools = ensureThinkToolPresent(tools);
         var toolChoice = toolContext.toolChoice();
         if (contextManager.getService().supportsJsonSchema(model)) {
-            return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, echo, toolContext);
+            return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, toolContext);
         } else {
-            return emulateToolsUsingJsonObject(messages, enhancedTools, toolChoice, echo, toolContext);
+            return emulateToolsUsingJsonObject(messages, enhancedTools, toolChoice, toolContext);
         }
     }
 
@@ -654,7 +702,6 @@ public class Llm {
             List<ChatMessage> messages,
             List<ToolSpecification> tools,
             ToolChoice toolChoice,
-            boolean echo,
             Function<List<ChatMessage>, ChatRequest> requestBuilder,
             Function<Throwable, String> retryInstructionsProvider,
             ToolContext toolContext)
@@ -676,7 +723,7 @@ public class Llm {
 
             // Perform the request for THIS attempt
             lastRequest = requestBuilder.apply(attemptMessages);
-            StreamingResult rawResult = doSingleStreamingCall(lastRequest, echo, true);
+            StreamingResult rawResult = doSingleStreamingCall(lastRequest, true);
 
             // Fast-fail on transport / HTTP errors (no retry)
             if (rawResult.error() != null) {
@@ -873,11 +920,7 @@ public class Llm {
 
     /** Emulates function calling for models that support structured output with JSON schema */
     private StreamingResult emulateToolsUsingJsonSchema(
-            List<ChatMessage> messages,
-            List<ToolSpecification> tools,
-            ToolChoice toolChoice,
-            boolean echo,
-            ToolContext toolContext)
+            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, ToolContext toolContext)
             throws InterruptedException {
         // Build a top-level JSON schema with "tool_calls" as an array of objects
         var toolNames = tools.stream().map(ToolSpecification::name).distinct().toList();
@@ -926,16 +969,12 @@ public class Llm {
                 .build();
 
         return emulateToolsCommon(
-                initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider, toolContext);
+                initialMessages, tools, toolChoice, requestBuilder, retryInstructionsProvider, toolContext);
     }
 
     /** Emulates function calling for models that don't support schema but can output JSON based on text instructions */
     private StreamingResult emulateToolsUsingJsonObject(
-            List<ChatMessage> messages,
-            List<ToolSpecification> tools,
-            ToolChoice toolChoice,
-            boolean echo,
-            ToolContext toolContext)
+            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, ToolContext toolContext)
             throws InterruptedException {
         Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) ->
                 """
@@ -998,7 +1037,7 @@ public class Llm {
                 .build();
 
         return emulateToolsCommon(
-                initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider, toolContext);
+                initialMessages, tools, toolChoice, requestBuilder, retryInstructionsProvider, toolContext);
     }
 
     /**
@@ -1309,11 +1348,13 @@ public class Llm {
                 if (usage != null) {
                     var service = contextManager.getService();
                     var modelName = service.nameOf(model);
-                    // Filter out cost notifications for Gemini Flash Lite unless explicitly enabled
-                    boolean isGeminiLite =
-                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.5-flash-lite".equals(modelName);
-                    if (isGeminiLite && !GlobalUiSettings.isShowGeminiLiteCostNotifications()) {
-                        logger.debug("Skipping cost notification for {} (user preference for Gemini Lite)", modelName);
+                    // Filter out cost notifications for 2.0 flash and flash-lite unless explicitly enabled
+                    boolean isFreeInternalLLM =
+                            "gemini-2.0-flash-lite".equals(modelName) || "gemini-2.0-flash".equals(modelName);
+                    if (isFreeInternalLLM && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
+                        logger.debug(
+                                "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
+                                modelName);
                         return;
                     }
                     // Respect user preference for cost notifications

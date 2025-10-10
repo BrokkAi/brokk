@@ -43,6 +43,11 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
+        return Collections.emptyList();
+    }
+
+    @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return List.of();
     }

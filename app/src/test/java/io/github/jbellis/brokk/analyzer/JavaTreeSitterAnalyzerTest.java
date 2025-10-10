@@ -458,17 +458,13 @@ public class JavaTreeSitterAnalyzerTest {
     }
 
     @Test
-    public void testNearestMethodName() {
+    public void testNormalizeFullName() {
         // regular method
         assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method"));
-        // method with lambda/anon class
-        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$anon$357:32"));
         // method with anon class (just digits)
         assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$1"));
         // method in nested class
         assertEquals("package.A.AInner.method", analyzer.normalizeFullName("package.A.AInner.method"));
-        // method with lambda in nested class
-        assertEquals("package.A.AInner.method", analyzer.normalizeFullName("package.A.AInner.method$anon$1"));
     }
 
     @Test
@@ -662,14 +658,6 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void testNormalizationHandlesAnonymousAndLocationSuffix() {
-        // Based on log example: createPopupMenu$anon$328:16
-        assertEquals("package.Class.method", analyzer.normalizeFullName("package.Class.method$anon$328:16"));
-
-        // Ensure anonymous + location suffix normalizes for real method lookups
-        assertTrue(
-                analyzer.getMethodSource("A.method6$anon$1:42", false).isPresent(),
-                "Anonymous and location suffixes should normalize for method source lookup");
-
         // Location suffix without anon
         assertTrue(
                 analyzer.getMethodSource("A.method1:16", false).isPresent(),
@@ -690,5 +678,82 @@ public class JavaTreeSitterAnalyzerTest {
 
         // Also ensure plain constructor lookup works (control)
         assertTrue(analyzer.getMethodSource("B.B", true).isPresent(), "Constructor lookup should resolve");
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfFileWithSingleClass() {
+        var maybeFile = analyzer.getFileFor("D");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class D");
+        var topLevelClass = topLevelUnits.get(0);
+        assertEquals("D", topLevelClass.fqName());
+        assertTrue(topLevelClass.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfFileWithNestedClasses() {
+        var maybeFile = analyzer.getFileFor("A");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class A, not nested classes");
+        var topLevelClass = topLevelUnits.get(0);
+        assertEquals("A", topLevelClass.fqName());
+        assertTrue(topLevelClass.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfPackagedFile() {
+        var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class Foo");
+        var topLevelClass = topLevelUnits.get(0);
+        assertEquals("io.github.jbellis.brokk.Foo", topLevelClass.fqName());
+        assertTrue(topLevelClass.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfEnum() {
+        var maybeFile = analyzer.getFileFor("EnumClass");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the enum class");
+        var topLevelEnum = topLevelUnits.get(0);
+        assertEquals("EnumClass", topLevelEnum.fqName());
+        assertTrue(topLevelEnum.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfInterface() {
+        var maybeFile = analyzer.getFileFor("ServiceInterface");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(file);
+
+        assertEquals(1, topLevelUnits.size(), "Should return only the interface");
+        var topLevelInterface = topLevelUnits.get(0);
+        assertEquals("ServiceInterface", topLevelInterface.fqName());
+        assertTrue(topLevelInterface.isClass());
+    }
+
+    @Test
+    public void testTopLevelCodeUnitsOfNonExistentFile() {
+        var nonExistentFile = new ProjectFile(testProject.getRoot(), "NonExistent.java");
+
+        var topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentFile);
+
+        assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
     }
 }

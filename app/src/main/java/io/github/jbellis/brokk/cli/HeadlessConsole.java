@@ -1,15 +1,9 @@
 package io.github.jbellis.brokk.cli;
 
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.CustomMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.util.Messages;
-import java.util.ArrayList;
-import java.util.List;
+import io.github.jbellis.brokk.agents.BlitzForge;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressHeadless;
 import javax.swing.*;
 
 /**
@@ -17,62 +11,24 @@ import javax.swing.*;
  * errors to {@code System.err}. All other {@code IConsoleIO} methods inherit their default no-op behaviour, which is
  * sufficient for a command-line environment with no GUI.
  */
-public final class HeadlessConsole implements IConsoleIO {
-    List<ChatMessage> messages = new ArrayList<>();
-
+public final class HeadlessConsole extends MemoryConsole {
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-        if (isNewMessage || messages.isEmpty() || messages.getLast().type() != type) {
+    public void llmOutput(String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
+        super.llmOutput(token, type, explicitNewMessage, isReasoning);
+        if (isNewMessage(type, explicitNewMessage)) {
             System.out.printf("# %s%n%n", type);
-            messages.add(createMessage(type, token));
-        } else {
-            var lastMessage = messages.getLast();
-            var newText = Messages.getText(lastMessage) + token;
-            messages.set(messages.size() - 1, updateMessage(lastMessage, newText));
         }
         System.out.print(token);
     }
 
-    private ChatMessage updateMessage(ChatMessage original, String newText) {
-        return switch (original) {
-            case SystemMessage sm -> SystemMessage.from(newText);
-            case AiMessage am -> new AiMessage(newText, am.toolExecutionRequests());
-            case UserMessage um -> UserMessage.from(newText);
-            case CustomMessage cm -> {
-                var attributes = new java.util.HashMap<>(cm.attributes());
-                attributes.put("text", newText);
-                yield new CustomMessage(attributes);
-            }
-            default -> throw new IllegalStateException("Unsupported message type for update: " + original.getClass());
-        };
-    }
-
-    private ChatMessage createMessage(ChatMessageType type, String text) {
-        return switch (type) {
-            case SYSTEM -> SystemMessage.from(text);
-            case USER -> UserMessage.from(text);
-            case AI -> AiMessage.from(text);
-            case CUSTOM -> Messages.customSystem(text);
-            default -> throw new IllegalArgumentException("Unsupported message type for creation: " + type);
-        };
-    }
-
     @Override
     public void toolError(String msg, String title) {
-        // Prefix the message with the title to make it clear in the console
-        // which error type we encountered.
         System.err.println("[" + title + "] " + msg);
     }
 
     @Override
     public void showNotification(NotificationRole role, String message) {
-        String prefix =
-                switch (role) {
-                    case ERROR -> "[ERROR] ";
-                    case CONFIRM -> "[CONFIRM] ";
-                    case COST -> "[COST] ";
-                    case INFO -> "[INFO] ";
-                };
+        String prefix = "[%s]".formatted(role.toString());
         if (role == IConsoleIO.NotificationRole.ERROR) {
             System.err.println(prefix + message);
         } else {
@@ -81,13 +37,12 @@ public final class HeadlessConsole implements IConsoleIO {
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages() {
-        return List.copyOf(messages);
+    public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        return JOptionPane.NO_OPTION;
     }
 
     @Override
-    public int showConfirmDialog(String message, String title, int optionType, int messageType) {
-        // for "Do you want to compact history" dialog
-        return JOptionPane.NO_OPTION;
+    public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
+        return new BlitzForgeProgressHeadless(this);
     }
 }

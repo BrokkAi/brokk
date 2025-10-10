@@ -45,7 +45,8 @@ public class Service {
 
     public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
-    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
+    // we tried setting this to 60s but the transition from thinking to final response can get long
+    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
 
     public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
 

@@ -1,17 +1,22 @@
 package io.github.jbellis.brokk.git;
 
-import com.google.common.base.Splitter;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import io.github.jbellis.brokk.ContextManager;
+import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.exception.LlmException;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import io.github.jbellis.brokk.prompts.MergePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.util.Messages;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -26,6 +31,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class GitWorkflow {
     private static final Logger logger = LogManager.getLogger(GitWorkflow.class);
+    private static final int EXPLAIN_COMMIT_FILE_LIMIT = 50;
 
     public record CommitResult(String commitId, String firstLine) {}
 
@@ -37,6 +43,13 @@ public final class GitWorkflow {
 
     private final IContextManager contextManager;
     private final GitRepo repo;
+
+    // Fields for tool calling results
+    @Nullable
+    private String prTitle;
+
+    @Nullable
+    private String prDescription;
 
     public GitWorkflow(IContextManager contextManager) {
         this.contextManager = contextManager;
@@ -176,56 +189,67 @@ public final class GitWorkflow {
         return new BranchDiff(commits, files, merge);
     }
 
-    private static void throwIfInterrupted() throws InterruptedException {
-        if (Thread.currentThread().isInterrupted()) {
-            throw new InterruptedException("Operation cancelled by interrupt");
-        }
+    @Tool("Suggest pull request title and description based on the changes")
+    public void suggestPrDetails(
+            @P("Brief PR title (12 words or fewer)") String title,
+            @P("PR description in markdown (75-150 words, focus on intent and key changes)") String description) {
+        this.prTitle = title;
+        this.prDescription = description;
     }
 
     /**
-     * Suggests pull request title and description. Blocks; caller should off-load to a background thread (SwingWorker,
-     * etc.). This method is designed to be responsive to thread interruption.
+     * Suggests pull request title and description with streaming output using tool calling. Blocks; caller should
+     * off-load to a background thread (SwingWorker, etc.). Interruption is detected during LLM request and propagates
+     * as InterruptedException.
      *
-     * @throws InterruptedException if the calling thread is interrupted during processing.
+     * @param source The source branch name
+     * @param target The target branch name
+     * @param streamingOutput IConsoleIO for streaming output
+     * @throws GitAPIException if git operations fail
+     * @throws InterruptedException if the calling thread is interrupted during LLM request
      */
-    public PrSuggestion suggestPullRequestDetails(String source, String target) throws Exception {
-        throwIfInterrupted(); // Check at the beginning
-
-        // 1. Compute merge base & diff text
+    public PrSuggestion suggestPullRequestDetails(String source, String target, IConsoleIO streamingOutput)
+            throws GitAPIException, InterruptedException {
         var mergeBase = repo.getMergeBase(source, target);
-        throwIfInterrupted(); // Check after potential Git operation
         String diff = (mergeBase != null) ? repo.showDiff(source, mergeBase) : "";
-        throwIfInterrupted(); // Check after potential Git operation
 
-        // 2. Decide “too big?” heuristic
         var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI);
         var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
 
-        // 3. Build messages
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
             var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
-            throwIfInterrupted();
-            messages = SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMessagesContent);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
-            messages = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
+            messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
         }
-        throwIfInterrupted(); // Check before LLM call, after messages are prepared
 
-        // 4. Call LLM
-        // modelToUse is guaranteed non-null from the logic above
-        var llm = contextManager.getLlm(modelToUse, "PR-description");
-        var response = llm.sendRequest(messages);
-        throwIfInterrupted(); // Check after LLM call
-        String description = response.text().trim();
+        var toolSpecs = contextManager.getToolRegistry().getTools(this, List.of("suggestPrDetails"));
+        var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
 
-        // 5. Title summarisation (12-word budget)
-        throwIfInterrupted(); // Check before starting/blocking on title summarization
-        ContextManager.SummarizeWorker titleWorker =
-                new ContextManager.SummarizeWorker(this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
-        titleWorker.execute(); // Schedule the worker
-        String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
+        var llm = contextManager.getLlm(new Llm.Options(modelToUse, "PR-description")
+                .withPartialResponses()
+                .withEcho());
+        llm.setOutput(streamingOutput);
+        var result = llm.sendRequest(messages, toolContext);
+
+        if (result.error() != null) {
+            throw new RuntimeException("LLM error while generating PR details", result.error());
+        }
+
+        if (result.toolRequests().isEmpty()) {
+            throw new RuntimeException("LLM did not call the suggestPrDetails tool");
+        }
+
+        contextManager.getToolRegistry().executeTool(this, result.toolRequests().getFirst());
+
+        String title = prTitle;
+        String description = prDescription;
+
+        if (title == null || title.isEmpty() || description == null || description.isEmpty()) {
+            throw new RuntimeException("LLM provided empty title or description");
+        }
 
         return new PrSuggestion(title, description, diff.length() / 3.0 > service.getMaxInputTokens(modelToUse) * 0.9);
     }
@@ -281,91 +305,28 @@ public final class GitWorkflow {
      * @param revision The commit id (or any rev resolvable to a single commit).
      * @return Markdown-formatted explanation text from the LLM (may be empty if an error occurs).
      */
-    public String explainCommit(StreamingChatModel model, String revision) {
-        if (revision.isBlank()) {
-            throw new IllegalArgumentException("revision must be non-blank");
-        }
+    public String explainCommit(StreamingChatModel model, String revision)
+            throws GitAPIException, InterruptedException {
+        assert !revision.isBlank();
 
-        String diff;
-        try {
-            // Always explain a single commit relative to its parent (or empty tree)
-            diff = repo.showDiff(revision, parentOrEmptyTree(revision));
-        } catch (GitAPIException e) {
-            logger.error("Failed to compute diff for commit {}", revision, e);
-            throw new RuntimeException("Failed to produce diff for commit " + revision, e);
-        }
+        String diff = repo.showDiff(revision, parentOrEmptyTree(revision));
 
-        var messages = MergePrompts.instance.collectMessages(diff, revision, revision);
-        if (messages.isEmpty()) {
+        var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
+                ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)
+                : diff;
+        if (preprocessedDiff.isBlank()) {
             return "No changes detected for %s.".formatted(revision);
         }
+        var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
 
-        try {
-            var shortId = repo.shortHash(revision);
-            var llm = contextManager.getLlm(model, "Explain commit %s".formatted(shortId));
-            Llm.StreamingResult response = llm.sendRequest(messages);
+        var shortId = repo.shortHash(revision);
+        var llm = contextManager.getLlm(model, "Explain commit %s".formatted(shortId));
+        Llm.StreamingResult response = llm.sendRequest(messages);
 
-            if (response.error() != null) {
-                logger.warn("LLM returned an error while explaining {}: {}", revision, response.error());
-
-                // 1) Obtain the full commit message if possible
-                var commitMessage = "";
-                try {
-                    var commits = repo.listCommitsDetailed(revision);
-                    commitMessage = commits.isEmpty() ? "" : commits.getFirst().message();
-                } catch (Exception e) {
-                    logger.debug("Could not retrieve commit message for {}", revision, e);
-                }
-
-                // 2) Extract file list + statuses from the unified diff
-                var entries = parseFileStatuses(diff);
-                var filesText = entries.isEmpty() ? "(no files detected in diff)" : String.join("\n", entries);
-
-                // 3) Compose fallback output
-                var header = commitMessage.isBlank() ? "Commit %s".formatted(revision) : commitMessage.trim();
-
-                return """
-                       %s
-
-                       Modified files:
-                       %s
-                       """
-                        .formatted(header, filesText)
-                        .trim();
-            }
-
-            return response.text().trim();
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Commit explanation was interrupted", ie);
+        if (response.error() != null) {
+            throw new LlmException("LLM error while explaining commit %s".formatted(shortId), response.error());
         }
-    }
 
-    private static List<String> parseFileStatuses(String diffText) {
-        var entries = new java.util.ArrayList<String>();
-        String currentFile = null;
-        String currentStatus = "M";
-        for (var line : Splitter.on('\n').split(diffText)) {
-            if (line.startsWith("diff --git ")) {
-                if (currentFile != null) {
-                    entries.add(currentStatus + " " + currentFile);
-                }
-                currentFile = null;
-                currentStatus = "M";
-                var parts = Splitter.on(' ').splitToList(line);
-                if (parts.size() >= 4) {
-                    var bpath = parts.get(3);
-                    currentFile = bpath.startsWith("b/") ? bpath.substring(2) : bpath;
-                }
-            } else if (line.startsWith("new file mode")) {
-                currentStatus = "A";
-            } else if (line.startsWith("deleted file mode")) {
-                currentStatus = "D";
-            }
-        }
-        if (currentFile != null) {
-            entries.add(currentStatus + " " + currentFile);
-        }
-        return List.copyOf(entries);
+        return response.text().trim();
     }
 }

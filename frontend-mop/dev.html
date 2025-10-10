@@ -200,7 +200,7 @@
 
         // Auto-generate title/body if blank
         if (title == null || title.isBlank() || body == null || body.isBlank()) {
-          var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch);
+          var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch, io);
           if (title == null || title.isBlank()) title = suggestion.title();
           if (body  == null || body.isBlank())  body  = suggestion.description();
         }

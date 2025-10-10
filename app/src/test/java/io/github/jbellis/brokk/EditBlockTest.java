@@ -837,6 +837,34 @@ class EditBlockTest {
         assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
     }
 
+    @Test
+    void testTrailingNewlinePreservation(@TempDir Path tempDir) throws IOException, InterruptedException {
+        TestConsoleIO io = new TestConsoleIO();
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("file1.txt", "file2.txt"));
+
+        // Part 1: File without trailing newline
+        Path file1 = tempDir.resolve("file1.txt");
+        String originalContent1 = "line1\nline2"; // No trailing newline
+        Files.writeString(file1, originalContent1);
+
+        // Part 2: File with trailing newline
+        Path file2 = tempDir.resolve("file2.txt");
+        String originalContent2 = "lineA\nlineB\n"; // With trailing newline
+        Files.writeString(file2, originalContent2);
+
+        var block1 = new EditBlock.SearchReplaceBlock("file1.txt", "line2\n", "line two\n");
+        var block2 = new EditBlock.SearchReplaceBlock("file2.txt", "lineB\n", "line B\n");
+        EditBlock.apply(ctx, io, List.of(block1, block2));
+
+        String updatedContent1 = Files.readString(file1);
+        assertEquals("line1\nline two", updatedContent1);
+        assertFalse(updatedContent1.endsWith("\n"));
+
+        String updatedContent2 = Files.readString(file2);
+        assertEquals("lineA\nline B\n", updatedContent2);
+        assertTrue(updatedContent2.endsWith("\n"));
+    }
+
     // ----------------------------------------------------
     // Helper methods
     // ----------------------------------------------------

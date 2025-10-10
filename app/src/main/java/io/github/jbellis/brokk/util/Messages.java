@@ -155,8 +155,14 @@ public class Messages {
         return tokenCountEstimator.encode(text).size();
     }
 
-    public static int getApproximateTokens(Collection<ChatMessage> messages) {
-        return getApproximateTokens(messages.stream().map(Messages::getText).collect(Collectors.joining("\n")));
+    public static int getApproximateTokens(Collection<String> texts) {
+        return texts.parallelStream().mapToInt(Messages::getApproximateTokens).sum();
+    }
+
+    public static int getApproximateMessageTokens(Collection<ChatMessage> messages) {
+        return messages.parallelStream()
+                .mapToInt(m -> getApproximateTokens(getText(m)))
+                .sum();
     }
 
     public static boolean isReasoningMessage(ChatMessage message) {

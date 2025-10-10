@@ -9,6 +9,9 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument;
+import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
+import io.github.jbellis.brokk.difftool.doc.FileDocument;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.unified.UnifiedDiffDocument;
@@ -39,12 +42,15 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.JToggleButton;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
@@ -61,9 +67,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private boolean started;
     private final JLabel loadingLabel = createLoadingLabel();
     private final GuiTheme theme;
-    private final JCheckBox showBlankLineDiffsCheckBox = new JCheckBox("Show blank-lines");
-    private final JCheckBox showAllLinesCheckBox = new JCheckBox("Show all lines");
     private final JToggleButton viewModeToggle = new JToggleButton("Unified View");
+
+    // Tools menu items
+    private final JCheckBoxMenuItem menuShowBlame = new JCheckBoxMenuItem("Show Git Blame");
+    private final JCheckBoxMenuItem menuShowAllLines = new JCheckBoxMenuItem("Show All Lines");
+    private final JCheckBoxMenuItem menuShowBlankLineDiffs = new JCheckBoxMenuItem("Show Empty Line Diffs");
 
     // Global preferences loaded from GlobalUiSettings
     private boolean globalShowAllLinesInUnified = GlobalUiSettings.isDiffShowAllLines();
@@ -141,6 +150,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
         this.initialFileIndex = builder.initialFileIndex;
 
+        // Initialize blame service if we have a git repo
+        if (contextManager.getProject().getRepo() instanceof GitRepo gitRepo) {
+            this.blameService = new BlameService(gitRepo.getGit());
+        } else {
+            this.blameService = null;
+        }
+
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
         assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
@@ -192,19 +208,19 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             public void ancestorRemoved(AncestorEvent event) {}
         });
 
-        showBlankLineDiffsCheckBox.setSelected(GlobalUiSettings.isDiffShowBlankLines());
+        // Set up menu items
+        menuShowBlankLineDiffs.setSelected(GlobalUiSettings.isDiffShowBlankLines());
         JMDiffNode.setIgnoreBlankLineDiffs(!GlobalUiSettings.isDiffShowBlankLines());
-        showBlankLineDiffsCheckBox.addActionListener(e -> {
-            boolean show = showBlankLineDiffsCheckBox.isSelected();
+        menuShowBlankLineDiffs.addActionListener(e -> {
+            boolean show = menuShowBlankLineDiffs.isSelected();
             GlobalUiSettings.saveDiffShowBlankLines(show);
             JMDiffNode.setIgnoreBlankLineDiffs(!show);
             refreshAllDiffPanels();
         });
 
-        // Set up context mode toggle for unified view
-        showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
-        showAllLinesCheckBox.addActionListener(e -> {
-            boolean showAll = showAllLinesCheckBox.isSelected();
+        menuShowAllLines.setSelected(globalShowAllLinesInUnified);
+        menuShowAllLines.addActionListener(e -> {
+            boolean showAll = menuShowAllLines.isSelected();
             globalShowAllLinesInUnified = showAll;
             GlobalUiSettings.saveDiffShowAllLines(showAll);
             var targetMode = showAll
@@ -212,14 +228,31 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
             // Apply to the current panel if it's a unified panel
-            // (The checkbox should only be visible in unified view mode)
             if (currentDiffPanel instanceof UnifiedDiffPanel unifiedPanel) {
                 unifiedPanel.setContextMode(targetMode);
             }
         });
 
-        // Set up view mode toggle with icons
+        boolean initialBlameState = GlobalUiSettings.isDiffShowBlame();
+        boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
+        menuShowBlame.setSelected(initialBlameState && isGitRepo);
+        menuShowBlame.setEnabled(isGitRepo);
+        menuShowBlame.addActionListener(e -> {
+            var panel = getCurrentContentPanel();
+            boolean show = menuShowBlame.isSelected();
+
+            GlobalUiSettings.saveDiffShowBlame(show);
+
+            if (panel instanceof AbstractDiffPanel adp) {
+                adp.setShowGutterBlame(show);
+                updateBlameForPanel(adp, show);
+            } else if (panel instanceof IDiffPanel idp) {
+                updateBlameForPanel(idp, show);
+            }
+        });
+
         viewModeToggle.setSelected(isUnifiedView); // Load from global preference
+        // Set up view mode toggle with icons
         viewModeToggle.setIcon(Icons.VIEW_UNIFIED); // Show unified icon when in side-by-side mode
         viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE); // Show side-by-side icon when in unified mode
         viewModeToggle.setText(null); // Remove text, use icon only
@@ -350,6 +383,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
     private final MaterialButton btnNextFile = new MaterialButton();
+    private final MaterialButton btnTools = new MaterialButton();
+
+    // Blame service (null if not a git repo)
+    private final @Nullable BlameService blameService;
+    private boolean blameErrorNotified = false;
 
     // Flag to track when layout hierarchy needs reset after navigation
     private volatile boolean needsLayoutReset = false;
@@ -374,6 +412,30 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     @Nullable
     private UnifiedDiffPanel getUnifiedDiffPanel() {
         return currentDiffPanel instanceof UnifiedDiffPanel ? (UnifiedDiffPanel) currentDiffPanel : null;
+    }
+
+    /**
+     * Check if the given panel represents a working tree diff (vs a historical commit diff). Working tree diffs have
+     * FileDocument on the right side, while commit diffs have StringDocument.
+     */
+    private boolean isWorkingTreeDiff(IDiffPanel panel) {
+        if (panel instanceof BufferDiffPanel bp) {
+            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+            if (right != null) {
+                var bd = right.getBufferDocument();
+                return bd instanceof FileDocument;
+            }
+        } else if (panel instanceof UnifiedDiffPanel up) {
+            var dn = up.getDiffNode();
+            if (dn != null) {
+                var rightNode = dn.getBufferNodeRight();
+                if (rightNode != null) {
+                    var doc = rightNode.getDocument();
+                    return doc instanceof FileDocument;
+                }
+            }
+        }
+        return false;
     }
 
     /** Get content string from BufferSource, handling both FileSource and StringSource. */
@@ -480,17 +542,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Show/hide controls based on current view mode
+        // Show/hide menu items based on current view mode
         if (isUnifiedView) {
-            // In unified view: show context mode checkbox, hide blank lines checkbox
-            showAllLinesCheckBox.setVisible(true);
-            showBlankLineDiffsCheckBox.setVisible(false);
-            // Ensure checkbox state matches global preference
-            showAllLinesCheckBox.setSelected(globalShowAllLinesInUnified);
+            // In unified view: show "Show All Lines", hide "Show Empty Line Diffs"
+            menuShowAllLines.setVisible(true);
+            menuShowBlankLineDiffs.setVisible(false);
         } else {
-            // In side-by-side view: show blank lines checkbox, hide context mode checkbox
-            showBlankLineDiffsCheckBox.setVisible(true);
-            showAllLinesCheckBox.setVisible(false);
+            // In side-by-side view: show "Show Empty Line Diffs", hide "Show All Lines"
+            menuShowAllLines.setVisible(false);
+            menuShowBlankLineDiffs.setVisible(true);
         }
 
         toolBar.revalidate();
@@ -717,14 +777,21 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.addSeparator();
         toolBar.add(Box.createHorizontalStrut(10));
 
-        // Add view mode toggle
+        // Add tools button with popup menu
+        btnTools.setIcon(Icons.DIFF_TOOLS);
+        btnTools.setToolTipText("View Options");
+        btnTools.setText(null); // Icon-only button
+        btnTools.setBorderPainted(false);
+        btnTools.setContentAreaFilled(false);
+        btnTools.setFocusPainted(false);
+        var toolsMenu = new JPopupMenu();
+        toolsMenu.add(menuShowBlame);
+        toolsMenu.add(menuShowAllLines);
+        toolsMenu.add(menuShowBlankLineDiffs);
+        btnTools.addActionListener(e -> toolsMenu.show(btnTools, 0, btnTools.getHeight()));
         toolBar.add(viewModeToggle);
         toolBar.add(Box.createHorizontalStrut(10));
-
-        // Add view mode controls
-        toolBar.add(showBlankLineDiffsCheckBox);
-        toolBar.add(Box.createHorizontalStrut(5));
-        toolBar.add(showAllLinesCheckBox);
+        toolBar.add(btnTools);
 
         // Update control enable/disable state based on view mode
         updateToolbarForViewMode();
@@ -765,6 +832,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Capture diff button should always be enabled
         captureDiffButton.setEnabled(true);
+
+        // Update blame menu item enabled state
+        // Blame is only available for working tree diffs in git repos (not for historical commit diffs)
+        // Note: We don't modify isSelected() here - that represents user preference and should persist across file
+        // changes
+        boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
+        boolean isWorkingTree = currentDiffPanel != null && isWorkingTreeDiff(currentDiffPanel);
+        menuShowBlame.setEnabled(isGitRepo && isWorkingTree);
 
         // Update save button text, enable state, and visibility
         // Compute the exact number of panels that would be saved by saveAll():
@@ -987,7 +1062,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     TaskResult.StopReason.SUCCESS);
 
             // Add a single history entry for the whole batch
-            try (var scope = contextManager.beginTask("", false)) {
+            try (var scope = contextManager.beginTask(actionDescription, false)) {
                 scope.append(result);
             }
             logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
@@ -999,6 +1074,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         .succeeded();
                 p.finalizeAfterSaveAggregation(saved);
                 refreshTabTitle(p);
+            }
+
+            // Refresh blame for successfully saved files
+            for (String filename : successfulFiles) {
+                try {
+                    refreshBlameAfterSave(Paths.get(filename));
+                } catch (Exception ex) {
+                    logger.debug("Failed to refresh blame for {}: {}", filename, ex.getMessage());
+                }
             }
 
             // If some files failed, notify the user after successful saves
@@ -1175,6 +1259,20 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel.getComponent());
         this.currentDiffPanel = cachedPanel;
 
+        // IMPORTANT: Sync blame state with menu BEFORE any layout-triggering operations
+        // This must happen before applyTheme() and diff() which can trigger layout calculations
+        // Note: Always set state explicitly to sync cached panels with current menu state
+        // Blame is only supported for working tree diffs with valid file paths
+        boolean canShowBlame = isWorkingTreeDiff(cachedPanel) && resolveTargetPath(cachedPanel) != null;
+        boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
+        if (cachedPanel instanceof BufferDiffPanel bp) {
+            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+            if (right != null) {
+                right.getGutterComponent().setShowBlame(shouldShowBlame);
+            }
+        } else if (cachedPanel instanceof UnifiedDiffPanel up) {
+            up.setShowGutterBlame(shouldShowBlame);
+        }
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
 
@@ -1196,6 +1294,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Apply diff highlights immediately after theme to prevent timing issues
         cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
+
+        // Start async blame loading (gutter state already synced above)
+        if (shouldShowBlame) {
+            updateBlameForPanel(cachedPanel, true);
+        }
 
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
@@ -1727,7 +1830,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         var leftBufferNode = diffNode.getBufferNodeLeft();
         if (leftBufferNode != null) {
             var leftDoc = leftBufferNode.getDocument();
-            if (leftDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
+            if (leftDoc instanceof AbstractBufferDocument abd) {
                 abd.recheckChangedState();
             }
         }
@@ -1735,7 +1838,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         var rightBufferNode = diffNode.getBufferNodeRight();
         if (rightBufferNode != null) {
             var rightDoc = rightBufferNode.getDocument();
-            if (rightDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
+            if (rightDoc instanceof AbstractBufferDocument abd) {
                 abd.recheckChangedState();
             }
         }
@@ -1845,6 +1948,252 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         return false;
+    }
+
+    /** Converts technical error messages to user-friendly descriptions. */
+    private String formatBlameErrorMessage(String errorMsg) {
+        if (errorMsg.contains("File not found")) {
+            return "file not found";
+        }
+        if (errorMsg.contains("Git command failed")) {
+            return "git command failed";
+        }
+        if (errorMsg.toLowerCase(Locale.ROOT).contains("not a git repository")) {
+            return "not a git repository";
+        }
+        // Return simplified version of original message
+        return errorMsg.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Resolves file path from panel for blame, converting relative paths to absolute. Returns null if path unavailable.
+     */
+    private @Nullable java.nio.file.Path resolveTargetPath(IDiffPanel panel) {
+        java.nio.file.Path targetPath = null;
+
+        try {
+            if (panel instanceof BufferDiffPanel bp) {
+                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                if (right != null) {
+                    var bd = right.getBufferDocument();
+                    if (bd != null) {
+                        String name = bd.getName();
+                        if (!name.isBlank()) {
+                            targetPath = java.nio.file.Paths.get(name);
+                        } else {
+                            logger.debug("Document has no name/path for blame");
+                            return null;
+                        }
+                    }
+                }
+            } else if (panel instanceof UnifiedDiffPanel up) {
+                var dn = up.getDiffNode();
+                if (dn != null) {
+                    var rightNode = dn.getBufferNodeRight();
+                    if (rightNode != null) {
+                        var doc = rightNode.getDocument();
+                        String name = doc.getName();
+                        if (!name.isBlank()) {
+                            targetPath = java.nio.file.Paths.get(name);
+                        } else {
+                            logger.debug("Document has no name/path for blame");
+                            return null;
+                        }
+                    }
+                }
+            }
+
+            if (targetPath == null) {
+                logger.debug("No file path found for blame");
+                return null;
+            }
+
+            if (!targetPath.isAbsolute()) {
+                var repo = contextManager.getProject().getRepo();
+                if (repo instanceof GitRepo gitRepo) {
+                    targetPath = gitRepo.getGitTopLevel().resolve(targetPath).normalize();
+                } else {
+                    targetPath = targetPath.toAbsolutePath().normalize();
+                }
+            }
+        } catch (Exception ex) {
+            logger.warn("Failed to resolve target path for blame: {}", ex.getMessage());
+            return null;
+        }
+
+        return targetPath;
+    }
+
+    /** Applies blame to gutter. Side-by-side: right gutter only. Unified: both left (HEAD) and right (working tree). */
+    private void applyBlameMapsToPanel(
+            IDiffPanel panel,
+            Map<Integer, BlameService.BlameInfo> leftMap,
+            Map<Integer, BlameService.BlameInfo> rightMap) {
+        if (panel instanceof BufferDiffPanel bp) {
+            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+            if (right != null) {
+                right.getGutterComponent().setBlameLines(rightMap);
+                right.getGutterComponent().setShowBlame(true);
+                if (bp.hasUnsavedChanges()) {
+                    right.getGutterComponent().markBlameStale();
+                }
+            }
+            var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+            if (left != null) {
+                left.getGutterComponent().setShowBlame(false);
+            }
+        } else if (panel instanceof UnifiedDiffPanel up) {
+            up.setGutterBlameData(rightMap);
+            up.setGutterLeftBlameData(leftMap);
+            up.setShowGutterBlame(true);
+        }
+    }
+
+    /**
+     * Shows one-time error dialog and updates menu text. Prioritizes right over left errors. Doesn't auto-disable
+     * blame.
+     */
+    private void handleBlameError(@Nullable String rightError, @Nullable String leftError) {
+        String errorMsg = (rightError != null) ? rightError : leftError;
+
+        if (errorMsg != null && !blameErrorNotified) {
+            var userMessage = formatBlameErrorMessage(errorMsg);
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(
+                        BrokkDiffPanel.this, userMessage, "Git Blame Unavailable", JOptionPane.WARNING_MESSAGE);
+                menuShowBlame.setText("Show Git Blame (unavailable: " + userMessage + ")");
+            });
+            blameErrorNotified = true;
+        } else if (errorMsg != null) {
+            SwingUtilities.invokeLater(() -> {
+                menuShowBlame.setText("Show Git Blame (unavailable: " + formatBlameErrorMessage(errorMsg) + ")");
+            });
+        }
+    }
+
+    private void updateBlameForPanel(IDiffPanel panel, boolean show) {
+        logger.debug(
+                "updateBlameForPanel called: panel={}, show={}",
+                panel.getClass().getSimpleName(),
+                show);
+
+        if (!show) {
+            if (panel instanceof BufferDiffPanel bp) {
+                var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                if (left != null) left.getGutterComponent().clearBlame();
+                if (right != null) right.getGutterComponent().clearBlame();
+            } else if (panel instanceof UnifiedDiffPanel up) {
+                up.setShowGutterBlame(false);
+            }
+            return;
+        }
+
+        var targetPath = resolveTargetPath(panel);
+        if (targetPath == null) {
+            return;
+        }
+
+        if (blameService == null) {
+            logger.warn("Blame service not available (not a git repo)");
+            return;
+        }
+
+        final java.nio.file.Path finalTargetPath = targetPath;
+        var rightBlameFuture = blameService.requestBlame(targetPath);
+
+        CompletableFuture<Map<Integer, BlameService.BlameInfo>> leftBlameFuture;
+        if (blameService.fileExistsInRevision(targetPath, "HEAD")) {
+            leftBlameFuture = blameService.requestBlameForRevision(targetPath, "HEAD");
+        } else {
+            leftBlameFuture = CompletableFuture.completedFuture(Map.of());
+        }
+
+        CompletableFuture.allOf(rightBlameFuture, leftBlameFuture).whenComplete((v, exc) -> {
+            var rightMap = rightBlameFuture.join();
+            var leftMap = leftBlameFuture.join();
+
+            logger.debug(
+                    "Blame returned {} right entries, {} left entries for: {}",
+                    rightMap.size(),
+                    leftMap.size(),
+                    finalTargetPath);
+
+            if (rightMap.isEmpty() && leftMap.isEmpty()) {
+                String rightError = blameService.getLastError(finalTargetPath);
+                String leftError = blameService.getLastErrorForRevision(finalTargetPath, "HEAD");
+                if (rightError != null || leftError != null) {
+                    handleBlameError(rightError, leftError);
+                }
+            } else {
+                blameErrorNotified = false;
+            }
+
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (!rightMap.isEmpty() || !leftMap.isEmpty()) {
+                    menuShowBlame.setText("Show Git Blame");
+                }
+                applyBlameMapsToPanel(panel, leftMap, rightMap);
+            });
+        });
+    }
+
+    /** Marks blame as stale after document edit. Blame refreshes automatically on save. */
+    public void invalidateBlameForDocument(BufferDocumentIF bufferDocument) {
+        if (blameService == null) {
+            return;
+        }
+
+        if (currentDiffPanel instanceof BufferDiffPanel bp) {
+            var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+
+            SwingUtilities.invokeLater(() -> {
+                if (left != null && left.getBufferDocument() == bufferDocument) {
+                    left.getGutterComponent().markBlameStale();
+                }
+                if (right != null && right.getBufferDocument() == bufferDocument) {
+                    right.getGutterComponent().markBlameStale();
+                }
+            });
+        }
+    }
+
+    /** Clears cache and refreshes blame after file save. */
+    public void refreshBlameAfterSave(java.nio.file.Path filePath) {
+        var service = blameService;
+        if (service == null) {
+            return;
+        }
+
+        service.clearCacheFor(filePath);
+
+        if (currentDiffPanel instanceof BufferDiffPanel bp) {
+            var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+
+            if (left != null) {
+                var leftDoc = left.getBufferDocument();
+                if (leftDoc != null && filePath.toString().equals(leftDoc.getName())) {
+                    refreshBlamePanelAsync(service, left, filePath);
+                }
+            }
+
+            if (right != null) {
+                var rightDoc = right.getBufferDocument();
+                if (rightDoc != null && filePath.toString().equals(rightDoc.getName())) {
+                    refreshBlamePanelAsync(service, right, filePath);
+                }
+            }
+        }
+    }
+
+    private void refreshBlamePanelAsync(BlameService service, FilePanel panel, java.nio.file.Path filePath) {
+        service.requestBlame(filePath).thenAccept(blameMap -> {
+            SwingUtilities.invokeLater(() -> {
+                panel.getGutterComponent().setBlameLines(blameMap);
+            });
+        });
     }
 
     /** Returns true if currently in unified view mode, false for side-by-side. */

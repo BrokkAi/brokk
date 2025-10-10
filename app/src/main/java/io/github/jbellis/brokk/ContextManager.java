@@ -9,6 +9,7 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
+import io.github.jbellis.brokk.agents.NonTextResolutionMode;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
@@ -24,6 +25,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.tools.UiTools;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import io.github.jbellis.brokk.util.UserActionManager.ThrowingRunnable;
@@ -348,6 +350,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         assert SwingUtilities.isEventDispatchThread();
 
         this.io = new Chrome(this);
+        this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
@@ -676,10 +679,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
         return userActions.submitLlmAction(task);
-    }
-
-    public CompletableFuture<TaskResult> submitLlmAction(String description, Callable<TaskResult> task) {
-        return userActions.submitLlmAction(description, task);
     }
 
     // TODO should we just merge ContextTask w/ BackgroundTask?
@@ -1870,32 +1869,43 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TaskEntry.fromCompressed(entry.sequence(), summary);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics. */
-    public TaskScope beginTask(String input, boolean compressAtCommit) {
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
+    public TaskScope beginTask(String input, boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
         // Kick off UI transcript (streaming) immediately and seed MOP with a mode marker as the first message.
         var messages = List.<ChatMessage>of(new UserMessage(input));
         var currentTaskFragment = new ContextFragment.TaskFragment(this, messages, input);
         var history = topContext().getTaskHistory();
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, currentTaskFragment, null));
 
-        return new TaskScope(compressAtCommit);
+        return new TaskScope(compressAtCommit, nonTextMode);
+    }
+
+    /** Backwards-compatible overload: defaults non-text handling to OFF. */
+    public TaskScope beginTask(String input, boolean compressAtCommit) {
+        return beginTask(input, compressAtCommit, NonTextResolutionMode.OFF);
     }
 
     /** Aggregating scope that collects messages/files and commits once. */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressAtCommit;
+        private final NonTextResolutionMode nonTextMode;
         private final ArrayList<TaskResult> results;
         private boolean closed = false;
 
-        private TaskScope(boolean compressAtCommit) {
+        private TaskScope(boolean compressAtCommit, NonTextResolutionMode nonTextMode) {
             io.blockLlmOutput(true);
             this.compressAtCommit = compressAtCommit;
+            this.nonTextMode = nonTextMode;
             this.results = new ArrayList<>();
         }
 
         public void append(TaskResult result) {
             assert !closed : "TaskScope already closed";
             results.add(result);
+        }
+
+        public NonTextResolutionMode nonTextMode() {
+            return nonTextMode;
         }
 
         @Override
@@ -2262,8 +2272,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager().renameSession(sessionId, newName);
                 logger.debug("Renamed session {} to {}", sessionId, newName);
             } catch (Exception e) {
-                logger.error("Error renaming Session {}", sessionId, e);
-                throw new RuntimeException(e);
+                logger.warn("Error renaming Session {}", sessionId, e);
             }
         });
     }

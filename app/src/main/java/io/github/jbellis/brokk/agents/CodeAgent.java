@@ -95,7 +95,8 @@ public class CodeAgent {
 
         // Create Coder instance with the user's input as the task description
         var io = contextManager.getIo();
-        var coder = contextManager.getLlm(model, "Code: " + userInput, true);
+        var coder = contextManager.getLlm(
+                new Llm.Options(model, "Code: " + userInput).withEcho().withPartialResponses());
         coder.setOutput(io);
 
         // Track changed files
@@ -155,7 +156,7 @@ public class CodeAgent {
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         es.changedFiles());
                 var llmStartNanos = System.nanoTime();
-                streamingResult = coder.sendRequest(allMessagesForLlm, true);
+                streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
                     metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
                     Optional.ofNullable(streamingResult.tokenUsage()).ifPresent(metrics::addTokens);
@@ -347,7 +348,7 @@ public class CodeAgent {
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
             try {
-                streamingResult = coder.sendRequest(llmMessages, true);
+                streamingResult = coder.sendRequest(llmMessages);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
@@ -593,7 +594,7 @@ public class CodeAgent {
         pendingHistory.add(new UserMessage(instructionsMsg));
 
         // No echo for Quick Edit, use instance quickModel
-        var result = coder.sendRequest(messages, false);
+        var result = coder.sendRequest(messages);
 
         // Determine stop reason based on LLM response
         TaskResult.StopDetails stopDetails;
@@ -641,10 +642,6 @@ public class CodeAgent {
         public EditStopException(TaskResult.StopDetails stopDetails) {
             super(stopDetails.reason().name() + ": " + stopDetails.explanation());
             this.stopDetails = stopDetails;
-        }
-
-        public EditStopException(TaskResult.StopReason stopReason) {
-            this(new TaskResult.StopDetails(stopReason));
         }
     }
 
@@ -1048,7 +1045,7 @@ public class CodeAgent {
                     continue;
                 }
 
-                var description = formatJdtProblem(absPath, cu, prob);
+                var description = formatJdtProblem(absPath, cu, prob, src);
                 diags.add(new JavaDiagnostic(id, catId, description));
             }
 
@@ -1090,12 +1087,64 @@ public class CodeAgent {
         return new Step.Retry(nextCs, nextEs);
     }
 
-    private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob) {
+    private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {
         int start = Math.max(0, prob.getSourceStart());
         long line = Math.max(1, cu.getLineNumber(start));
         long col = Math.max(1, cu.getColumnNumber(start));
         var message = Objects.toString(prob.getMessage(), "Problem");
-        return "%s:%d:%d: %s".formatted(absPath.toString(), line, col, message);
+
+        String lineText = extractLine(src, (int) line);
+        String pointer = lineText.isEmpty() ? "" : caretIndicator(lineText, (int) col);
+
+        return """
+                %s:%d:%d: %s
+                > %s
+                  %s
+                """
+                .stripIndent()
+                .formatted(absPath.toString(), line, col, message, lineText, pointer);
+    }
+
+    private static String extractLine(String src, int oneBasedLine) {
+        if (src.isEmpty() || oneBasedLine < 1) return "";
+        int len = src.length();
+        int current = 1;
+        int i = 0;
+        int lineStart = 0;
+
+        // Advance to the requested line start
+        while (i < len && current < oneBasedLine) {
+            char c = src.charAt(i++);
+            if (c == '\n') {
+                current++;
+                lineStart = i;
+            } else if (c == '\r') {
+                // handle CRLF or lone CR
+                if (i < len && src.charAt(i) == '\n') i++;
+                current++;
+                lineStart = i;
+            }
+        }
+
+        if (current != oneBasedLine) {
+            // Line beyond EOF
+            return "";
+        }
+
+        // Find end of line
+        int j = lineStart;
+        while (j < len) {
+            char c = src.charAt(j);
+            if (c == '\n' || c == '\r') break;
+            j++;
+        }
+        return src.substring(lineStart, j);
+    }
+
+    private static String caretIndicator(String lineText, int oneBasedCol) {
+        if (lineText.isEmpty()) return "";
+        int idx = Math.max(0, Math.min(oneBasedCol - 1, Math.max(0, lineText.length() - 1)));
+        return " ".repeat(idx) + "^";
     }
 
     /** next FSM state */

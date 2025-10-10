@@ -1347,4 +1347,166 @@ public class TypescriptAnalyzerTest {
                     "User interface should include interface and member annotations");
         }
     }
+
+    @Test
+    void testTopLevelCodeUnitsOfHelloTs() {
+        ProjectFile helloTsFile = new ProjectFile(project.getRoot(), "Hello.ts");
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(helloTsFile);
+
+        assertFalse(topLevelUnits.isEmpty(), "Hello.ts should have top-level code units");
+
+        var topLevelNames = topLevelUnits.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Should include top-level declarations
+        assertTrue(topLevelNames.contains("Greeter"), "Should include Greeter class");
+        assertTrue(topLevelNames.contains("globalFunc"), "Should include globalFunc function");
+        assertTrue(topLevelNames.contains("_module_.PI"), "Should include PI constant");
+        assertTrue(topLevelNames.contains("Point"), "Should include Point interface");
+        assertTrue(topLevelNames.contains("Color"), "Should include Color enum");
+        assertTrue(topLevelNames.contains("_module_.StringOrNumber"), "Should include StringOrNumber type alias");
+        assertTrue(topLevelNames.contains("_module_.LocalDetails"), "Should include LocalDetails type alias");
+
+        // Should NOT include nested declarations (members of Greeter, Point, Color, etc.)
+        assertFalse(topLevelNames.contains("Greeter.greeting"), "Should not include nested class members");
+        assertFalse(topLevelNames.contains("Greeter.constructor"), "Should not include nested constructors");
+        assertFalse(topLevelNames.contains("Greeter.greet"), "Should not include nested methods");
+        assertFalse(topLevelNames.contains("Point.x"), "Should not include interface properties");
+        assertFalse(topLevelNames.contains("Color.Red"), "Should not include enum members");
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfModuleTs() {
+        ProjectFile moduleTsFile = new ProjectFile(project.getRoot(), "Module.ts");
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(moduleTsFile);
+
+        assertFalse(topLevelUnits.isEmpty(), "Module.ts should have top-level code units");
+
+        var topLevelNames = topLevelUnits.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Should include top-level declarations
+        assertTrue(topLevelNames.contains("MyModule"), "Should include MyModule namespace");
+        assertTrue(topLevelNames.contains("AnotherClass"), "Should include AnotherClass");
+        assertTrue(topLevelNames.contains("topLevelArrow"), "Should include topLevelArrow function");
+        assertTrue(topLevelNames.contains("_module_.TopLevelGenericAlias"), "Should include TopLevelGenericAlias type");
+
+        // Should NOT include nested declarations inside MyModule namespace
+        assertFalse(topLevelNames.contains("MyModule.InnerClass"), "Should not include nested namespace members");
+        assertFalse(topLevelNames.contains("MyModule.innerFunc"), "Should not include nested functions");
+        assertFalse(topLevelNames.contains("MyModule.NestedNamespace"), "Should not include nested nested namespaces");
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfAdvancedTs() {
+        ProjectFile advancedTsFile = new ProjectFile(project.getRoot(), "Advanced.ts");
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(advancedTsFile);
+
+        assertFalse(topLevelUnits.isEmpty(), "Advanced.ts should have top-level code units");
+
+        var topLevelNames = topLevelUnits.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Should include top-level class declarations
+        assertTrue(topLevelNames.contains("DecoratedClass"), "Should include DecoratedClass");
+        assertTrue(topLevelNames.contains("GenericInterface"), "Should include GenericInterface");
+        assertTrue(topLevelNames.contains("AbstractBase"), "Should include AbstractBase");
+        assertTrue(topLevelNames.contains("FieldTest"), "Should include FieldTest");
+        assertTrue(topLevelNames.contains("Point"), "Should include Point interface");
+
+        // Should include top-level functions
+        assertTrue(topLevelNames.contains("asyncArrowFunc"), "Should include asyncArrowFunc");
+        assertTrue(topLevelNames.contains("asyncNamedFunc"), "Should include asyncNamedFunc");
+        assertTrue(topLevelNames.contains("processInput"), "Should include processInput overloaded function");
+
+        // Should include type aliases
+        assertTrue(topLevelNames.contains("_module_.Pointy"), "Should include Pointy type alias");
+
+        // Should include ambient declarations
+        assertTrue(topLevelNames.contains("_module_.$"), "Should include ambient $ variable");
+        assertTrue(topLevelNames.contains("fetch"), "Should include ambient fetch function");
+        assertTrue(topLevelNames.contains("ThirdPartyLib"), "Should include ambient ThirdPartyLib namespace");
+
+        // Should NOT include nested members
+        assertFalse(topLevelNames.contains("DecoratedClass.decoratedProperty"), "Should not include class properties");
+        assertFalse(topLevelNames.contains("FieldTest.name"), "Should not include field members");
+        assertFalse(
+                topLevelNames.contains("ThirdPartyLib.doWork"), "Should not include nested namespace function members");
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfVarsTs() {
+        ProjectFile varsTsFile = new ProjectFile(project.getRoot(), "Vars.ts");
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(varsTsFile);
+
+        assertFalse(topLevelUnits.isEmpty(), "Vars.ts should have top-level code units");
+
+        var topLevelNames = topLevelUnits.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Should include top-level variable declarations
+        assertTrue(topLevelNames.contains("_module_.MAX_USERS"), "Should include MAX_USERS constant");
+        assertTrue(topLevelNames.contains("_module_.currentUser"), "Should include currentUser variable");
+        assertTrue(topLevelNames.contains("_module_.config"), "Should include config object");
+        assertTrue(topLevelNames.contains("anArrowFunc"), "Should include anArrowFunc");
+        assertTrue(topLevelNames.contains("_module_.legacyVar"), "Should include legacyVar");
+        assertTrue(topLevelNames.contains("localHelper"), "Should include localHelper function");
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfDefaultExportTs() {
+        ProjectFile defaultExportFile = new ProjectFile(project.getRoot(), "DefaultExport.ts");
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(defaultExportFile);
+
+        assertFalse(topLevelUnits.isEmpty(), "DefaultExport.ts should have top-level code units");
+
+        var topLevelNames = topLevelUnits.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Should include default exports
+        assertTrue(topLevelNames.contains("MyDefaultClass"), "Should include MyDefaultClass default export");
+        assertTrue(topLevelNames.contains("myDefaultFunction"), "Should include myDefaultFunction default export");
+        assertTrue(topLevelNames.contains("_module_.DefaultAlias"), "Should include DefaultAlias default type");
+
+        // Should include named exports
+        assertTrue(topLevelNames.contains("AnotherNamedClass"), "Should include AnotherNamedClass");
+        assertTrue(topLevelNames.contains("_module_.utilityRate"), "Should include utilityRate constant");
+
+        // Should NOT include nested members
+        assertFalse(topLevelNames.contains("MyDefaultClass.doSomething"), "Should not include class methods");
+        assertFalse(topLevelNames.contains("AnotherNamedClass.name"), "Should not include class properties");
+    }
+
+    @Test
+    void testTopLevelCodeUnitsOfNonExistentFile() {
+        ProjectFile nonExistentFile = new ProjectFile(project.getRoot(), "NonExistent.ts");
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(nonExistentFile);
+
+        assertTrue(topLevelUnits.isEmpty(), "Non-existent file should return empty list");
+    }
+
+    @Test
+    void testTopLevelCodeUnitsExcludesNested() {
+        ProjectFile helloTsFile = new ProjectFile(project.getRoot(), "Hello.ts");
+        List<CodeUnit> topLevelUnits = analyzer.topLevelCodeUnitsOf(helloTsFile);
+
+        // Get all declarations including nested ones
+        Set<CodeUnit> allDeclarations = analyzer.getDeclarationsInFile(helloTsFile);
+
+        // Top-level units should be a subset of all declarations
+        assertTrue(allDeclarations.containsAll(topLevelUnits), "All top-level units should be present in declarations");
+
+        // But top-level units should be smaller than all declarations (due to nested members)
+        assertTrue(
+                topLevelUnits.size() < allDeclarations.size(),
+                "Top-level units should exclude nested members. Found "
+                        + topLevelUnits.size()
+                        + " top-level, "
+                        + allDeclarations.size()
+                        + " total");
+
+        // Verify specific top-level vs nested distinction
+        boolean hasGreeterClass =
+                topLevelUnits.stream().anyMatch(cu -> cu.fqName().equals("Greeter"));
+        boolean hasGreeterGreet =
+                topLevelUnits.stream().anyMatch(cu -> cu.fqName().equals("Greeter.greet"));
+
+        assertTrue(hasGreeterClass, "Should include Greeter class at top level");
+        assertFalse(hasGreeterGreet, "Should not include Greeter.greet method at top level");
+    }
 }

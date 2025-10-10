@@ -185,7 +185,7 @@ public class EditBlock {
                 var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
-                    replaceMostSimilarChunk(contextManager, originalContent, block.afterText, "");
+                    replaceMostSimilarChunk(contextManager, originalContent, block.afterText(), "");
                     commentary =
                             """
                                  The replacement text is already present in the file. If we no longer need to apply
@@ -420,13 +420,14 @@ public class EditBlock {
         String[] originalLinesArray = originalCL.lines().toArray(String[]::new);
         String[] targetLinesArray = targetCl.lines().toArray(String[]::new);
         String[] replaceLinesArray = replaceCL.lines().toArray(String[]::new);
-        String attempt = perfectOrWhitespace(originalLinesArray, targetLinesArray, replaceLinesArray);
+        String attempt = perfectOrWhitespace(
+                originalLinesArray, targetLinesArray, replaceLinesArray, originalCL.originalEndsWithNewline());
         if (attempt != null) {
             return attempt;
         }
 
         try {
-            attempt = tryDotdotdots(content, target, replace);
+            attempt = tryDotdotdots(content, target, replace, originalCL.originalEndsWithNewline());
             if (attempt != null) {
                 return attempt;
             }
@@ -446,12 +447,17 @@ public class EditBlock {
             String[] splicedTargetArray = splicedTargetList.toArray(String[]::new);
             String[] splicedReplaceArray = splicedReplaceList.toArray(String[]::new);
 
-            attempt = perfectOrWhitespace(originalLinesArray, splicedTargetArray, splicedReplaceArray);
+            attempt = perfectOrWhitespace(
+                    originalLinesArray, splicedTargetArray, splicedReplaceArray, originalCL.originalEndsWithNewline());
             if (attempt != null) {
                 return attempt;
             }
 
-            attempt = tryDotdotdots(content, String.join("", splicedTargetArray), String.join("", splicedReplaceArray));
+            attempt = tryDotdotdots(
+                    content,
+                    String.join("\n", splicedTargetArray),
+                    String.join("\n", splicedReplaceArray),
+                    originalCL.originalEndsWithNewline());
             if (attempt != null) {
                 return attempt;
             }
@@ -473,8 +479,13 @@ public class EditBlock {
         return c;
     }
 
-    /** If the search/replace has lines of "..." as placeholders, do naive partial replacements. */
-    public static @Nullable String tryDotdotdots(String whole, String target, String replace) throws NoMatchException {
+    /**
+     * If the search/replace has lines of "..." as placeholders, do naive partial replacements. The
+     * `originalEndsWithNewline` flag indicates if the `whole` string (original content) ended with a newline. The
+     * returned string will preserve this trailing newline status.
+     */
+    public static @Nullable String tryDotdotdots(
+            String whole, String target, String replace, boolean originalEndsWithNewline) throws NoMatchException {
         // If there's no "..." in target or whole, skip
         if (!target.contains("...") && !whole.contains("...")) {
             return null;
@@ -509,6 +520,19 @@ public class EditBlock {
                 result += rp;
             }
         }
+
+        // Adjust the final result to match the original trailing newline status
+        if (!result.isEmpty() && result.endsWith("\n")) {
+            if (!originalEndsWithNewline) {
+                // Result has trailing newline, but original didn't; strip it.
+                result = result.substring(0, result.length() - 1);
+            }
+        } else {
+            if (originalEndsWithNewline) {
+                // Result does not have trailing newline, but original did; add it.
+                result += "\n";
+            }
+        }
         return result;
     }
 
@@ -516,12 +540,13 @@ public class EditBlock {
      * Tries perfect replace first, then leading-whitespace-insensitive. Throws AmbiguousMatchException if more than one
      * match is found in either step, or NoMatchException if no matches are found
      */
-    static @Nullable String perfectOrWhitespace(String[] originalLines, String[] targetLines, String[] replaceLines)
+    static @Nullable String perfectOrWhitespace(
+            String[] originalLines, String[] targetLines, String[] replaceLines, boolean originalEndsWithNewline)
             throws AmbiguousMatchException, NoMatchException {
         try {
-            return perfectReplace(originalLines, targetLines, replaceLines);
+            return perfectReplace(originalLines, targetLines, replaceLines, originalEndsWithNewline);
         } catch (NoMatchException e) {
-            return replaceIgnoringWhitespace(originalLines, targetLines, replaceLines);
+            return replaceIgnoringWhitespace(originalLines, targetLines, replaceLines, originalEndsWithNewline);
         }
     }
 
@@ -529,7 +554,8 @@ public class EditBlock {
      * Tries exact line-by-line match. Returns the post-replacement lines on success. Throws AmbiguousMatchException if
      * multiple exact matches are found. Throws NoMatchException if no exact match is found.
      */
-    static @Nullable String perfectReplace(String[] originalLines, String[] targetLines, String[] replaceLines)
+    static @Nullable String perfectReplace(
+            String[] originalLines, String[] targetLines, String[] replaceLines, boolean originalEndsWithNewline)
             throws AmbiguousMatchException, NoMatchException {
         // Empty SEARCH is no longer a valid “replace entire file” signal.
         // Callers must use BRK_ENTIRE_FILE explicitly.
@@ -562,7 +588,15 @@ public class EditBlock {
         newLines.addAll(Arrays.asList(replaceLines));
         newLines.addAll(Arrays.asList(originalLines).subList(matchStart + targetLines.length, originalLines.length));
 
-        return String.join("", newLines);
+        // Reconstruct string: join raw lines with \n, then add a final \n if original had one.
+        if (newLines.isEmpty()) {
+            return originalEndsWithNewline ? "\n" : "";
+        }
+        String result = String.join("\n", newLines);
+        if (originalEndsWithNewline) {
+            result += "\n";
+        }
+        return result;
     }
 
     /**
@@ -572,14 +606,17 @@ public class EditBlock {
      * whitespace, or if the search block contained only whitespace.
      */
     static @Nullable String replaceIgnoringWhitespace(
-            String[] originalLines, String[] targetLines, String[] replaceLines)
+            String[] originalLines, String[] targetLines, String[] replaceLines, boolean originalEndsWithNewline)
             throws AmbiguousMatchException, NoMatchException {
         var truncatedTarget = removeLeadingTrailingEmptyLines(targetLines);
         var truncatedReplace = removeLeadingTrailingEmptyLines(replaceLines);
 
         if (truncatedTarget.length == 0) {
-            // Empty target is handled by perfectReplace -- this means we just had whitespace, so fail the edit
-            return null;
+            // If target had only whitespace (or was empty), it's not a valid search.
+            if (Arrays.stream(targetLines).allMatch(String::isBlank)) {
+                throw new NoMatchException("Search block consists only of whitespace and cannot be matched.");
+            }
+            return null; // Fall through to NoMatchException from the caller if this specific case wasn't caught.
         }
 
         List<Integer> matches = new ArrayList<>();
@@ -602,14 +639,27 @@ public class EditBlock {
         // Exactly one match
         int matchStart = matches.getFirst();
 
-        List<String> newLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
+        List<String> resultLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
-            var adjusted = getLeadingWhitespace(originalLines[matchStart]) + truncatedReplace[0].trim() + "\n";
-            newLines.add(adjusted);
-            newLines.addAll(Arrays.asList(truncatedReplace).subList(1, truncatedReplace.length));
+            String leadingWhitespace = getLeadingWhitespace(originalLines[matchStart]);
+            // Add the first replacement line with adjusted leading whitespace
+            resultLines.add(leadingWhitespace + truncatedReplace[0].stripLeading());
+            // Add subsequent replacement lines, also with adjusted leading whitespace
+            for (int i = 1; i < truncatedReplace.length; i++) {
+                resultLines.add(leadingWhitespace + truncatedReplace[i].stripLeading());
+            }
         }
-        newLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));
-        return String.join("", newLines);
+        resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));
+
+        // Reconstruct string: join raw lines with \n, then add a final \n if original had one.
+        if (resultLines.isEmpty()) {
+            return originalEndsWithNewline ? "\n" : "";
+        }
+        String result = String.join("\n", resultLines);
+        if (originalEndsWithNewline) {
+            result += "\n";
+        }
+        return result;
     }
 
     private static String[] removeLeadingTrailingEmptyLines(String[] targetLines) {
@@ -652,9 +702,8 @@ public class EditBlock {
 
     /** @return the whitespace prefix in this line. */
     static String getLeadingWhitespace(String line) {
-        assert line.endsWith("\n");
         int count = 0;
-        for (int i = 0; i < line.length() - 1; i++) { // -1 because we threw newline onto everything
+        for (int i = 0; i < line.length(); i++) {
             if (Character.isWhitespace(line.charAt(i))) {
                 count++;
             } else {
@@ -669,17 +718,12 @@ public class EditBlock {
      * it's not null.
      */
     private static ContentLines prep(String content) {
-        // ensure it ends with newline
-        if (!content.isEmpty() && !content.endsWith("\n")) {
-            content += "\n";
-        }
-        // Convert to list of lines, each ending with a newline
-        List<String> linesList = content.lines().map(line -> line + "\n").collect(Collectors.toList());
-        return new ContentLines(content, linesList);
+        boolean originalEndsWithNewline = !content.isEmpty() && content.endsWith("\n");
+        List<String> rawLines = content.lines().toList();
+        return new ContentLines(content, rawLines, originalEndsWithNewline);
     }
 
-    private record ContentLines(String original, List<String> lines) { // Ensures this matches the list type
-    }
+    private record ContentLines(String original, List<String> lines, boolean originalEndsWithNewline) {}
 
     /**
      * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets via the analyzer without mutating files. Returns null

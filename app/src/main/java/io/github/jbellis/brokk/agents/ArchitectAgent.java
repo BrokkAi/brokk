@@ -17,9 +17,11 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.TaskResult.StopDetails;
 import io.github.jbellis.brokk.TaskResult.StopReason;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -253,6 +255,30 @@ public class ArchitectAgent {
         }
     }
 
+    /**
+     * Execute Architect with a SearchAgent pass first.
+     *
+     * <p>ACHTUNG! Unlike bare execute(), executeWithSearch appends both results to the provided scope.
+     *
+     * <p>Returns the search result if it fails, otherwise returns the Architect result.
+     */
+    public TaskResult executeWithSearch(ContextManager.TaskScope scope) {
+        // Run Search first using the scan model (fast, token-friendly)
+        var scanModel = cm.getService().getScanModel();
+        var searchAgent = new SearchAgent(goal, cm, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE));
+        io.llmOutput("Search Agent engaged: " + goal, ChatMessageType.CUSTOM);
+        var searchResult = searchAgent.execute();
+        scope.append(searchResult);
+        if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            return searchResult;
+        }
+
+        // Run Architect proper and append its result to scope
+        var archResult = this.execute();
+        scope.append(archResult);
+        return archResult;
+    }
+
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
         try {
@@ -269,7 +295,7 @@ public class ArchitectAgent {
             return codeAgentSuccessResult();
         }
 
-        var llm = cm.getLlm(planningModel, "Architect: " + goal);
+        var llm = cm.getLlm(new Llm.Options(planningModel, "Architect: " + goal).withEcho());
         var modelsService = cm.getService();
 
         while (true) {
@@ -292,7 +318,7 @@ public class ArchitectAgent {
             // Calculate current workspace token size
             var workspaceContentMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
-            int workspaceTokenSize = Messages.getApproximateTokens(workspaceContentMessages);
+            int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
             var messages = buildPrompt(workspaceTokenSize, minInputTokenLimit, workspaceContentMessages);
@@ -322,15 +348,25 @@ public class ArchitectAgent {
 
                 toolSpecs.addAll(toolRegistry.getRegisteredTools(
                         allowedWorkspaceModTools.stream().distinct().toList()));
+
+                // UI-scoped tool
+                if (io instanceof Chrome) {
+                    toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("askHuman")));
+                }
             } else {
                 // Default tool population logic
-                var workspaceTools = List.of(
+                var workspaceTools = new ArrayList<>(List.of(
                         "addFilesToWorkspace",
                         "addFileSummariesToWorkspace",
                         "addUrlContentsToWorkspace",
                         "addTextToWorkspace",
-                        "dropWorkspaceFragments");
+                        "dropWorkspaceFragments"));
                 toolSpecs.addAll(toolRegistry.getRegisteredTools(workspaceTools));
+
+                // UI-scoped tool
+                if (io instanceof Chrome) {
+                    toolSpecs.addAll(toolRegistry.getRegisteredTools(List.of("askHuman")));
+                }
 
                 // Always allow Code Agent
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("callCodeAgent")));
@@ -346,7 +382,7 @@ public class ArchitectAgent {
             }
 
             // Ask the LLM for the next step
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
 
             if (result.error() != null) {
                 logger.debug(
@@ -529,9 +565,9 @@ public class ArchitectAgent {
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "addFilesToWorkspace" -> 2;
-            case "addFileSummariesToWorkspace" -> 3;
-            case "addTextToWorkspace" -> 4;
+            case "addTextToWorkspace", "askHuman" -> 2;
+            case "addFilesToWorkspace" -> 3;
+            case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;
             default -> 7; // all other tools have lowest priority
         };
