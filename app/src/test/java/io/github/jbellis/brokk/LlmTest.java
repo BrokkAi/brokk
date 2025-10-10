@@ -136,7 +136,7 @@ public class LlmTest {
                         var messages = new ArrayList<ChatMessage>();
                         messages.add(new UserMessage("What is the weather like in London?"));
                         var result = coder.sendRequest(
-                                messages, new ToolContext(toolSpecifications, ToolChoice.REQUIRED, weatherTool), false);
+                                messages, new ToolContext(toolSpecifications, ToolChoice.REQUIRED, weatherTool));
 
                         assertNotNull(result, "Result should not be null for model: " + modelName);
                         assertFalse(false, "Request should not be cancelled for model: " + modelName);

@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.McpPrompts;
@@ -66,6 +67,7 @@ public class SearchAgent {
     private final ContextManager cm;
     private final StreamingChatModel model;
     private final Llm llm;
+    private final Llm summarizer;
     private final ToolRegistry toolRegistry;
     private final IConsoleIO io;
     private final String goal;
@@ -86,8 +88,9 @@ public class SearchAgent {
         this.toolRegistry = contextManager.getToolRegistry();
 
         this.io = contextManager.getIo();
-        this.llm = contextManager.getLlm(model, "Search: " + goal);
+        this.llm = contextManager.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
         this.llm.setOutput(io);
+        this.summarizer = contextManager.getLlm(cm.getService().getScanModel(), "Summarizer: " + goal);
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
@@ -143,7 +146,7 @@ public class SearchAgent {
             var allowedToolNames = calculateAllowedToolNames();
             var toolSpecs = new ArrayList<>(toolRegistry.getRegisteredTools(allowedToolNames));
 
-            // Agent-owned terminal tools (instance methods)
+            // Agent-owned tools (instance methods)
             var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
                 agentTerminalTools.add("answer");
@@ -162,7 +165,7 @@ public class SearchAgent {
 
             // Decide next action(s)
             io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this), true);
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, this));
             if (result.error() != null || result.isEmpty()) {
                 var details =
                         result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
@@ -362,6 +365,22 @@ public class SearchAgent {
 
         String finalsStr = finals.stream().collect(Collectors.joining("\n"));
 
+        String testsGuidance = "";
+        if (allowedTerminals.contains(Terminal.WORKSPACE)) {
+            var analyzerWrapper = cm.getAnalyzerWrapper();
+            var toolHint = analyzerWrapper.providesInterproceduralAnalysis()
+                    ? "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods."
+                    : "- To locate tests, use searchSubstrings to find test classes, @Test methods, and references to key symbols.";
+            testsGuidance =
+                    """
+                    Tests:
+                      - Code Agent will run the tests in the Workspace to validate its changes. These can be full files, if it also needs to edit or understand test implementation details, or simple summaries if they just need to be run for validation.
+                      %s
+                    """
+                            .stripIndent()
+                            .formatted(toolHint);
+        }
+
         String directive =
                 """
                         <goal>
@@ -376,6 +395,8 @@ public class SearchAgent {
                           - Replace full text with concise, goal-focused summaries and drop the originals.
                           - Expand the Workspace only after pruning; avoid re-adding irrelevant content.
 
+                        %s
+
                         Finalization options:
                         %s
 
@@ -386,7 +407,7 @@ public class SearchAgent {
                         %s
                         """
                         .stripIndent()
-                        .formatted(goal, finalsStr, warning);
+                        .formatted(goal, testsGuidance, finalsStr, warning);
 
         // Beast mode directive
         if (beastMode) {
@@ -454,6 +475,11 @@ public class SearchAgent {
         names.add("appendNote");
         names.add("dropWorkspaceFragments");
 
+        // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
+        if (io instanceof Chrome) {
+            names.add("askHuman");
+        }
+
         if (!mcpTools.isEmpty()) {
             names.add("callMcpTool");
         }
@@ -500,6 +526,7 @@ public class SearchAgent {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
             case "addTextToWorkspace", "appendNote" -> 2;
+            case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
             case "getRelatedClasses" -> 5;
@@ -690,7 +717,7 @@ public class SearchAgent {
                         """
                         .stripIndent()
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
-        Llm.StreamingResult sr = llm.sendRequest(List.of(sys, user));
+        Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
         if (sr.error() != null) {
             return rawResult; // fallback to raw
         }

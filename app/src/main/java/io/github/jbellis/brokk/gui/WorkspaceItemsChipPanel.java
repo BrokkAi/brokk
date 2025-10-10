@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -20,6 +19,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -267,6 +267,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return "Summary" + (n > 0 ? " (" + n + ")" : "");
     }
 
+    private static String formatCount(int count) {
+        if (count < 1000) {
+            return String.format("%,d", count);
+        }
+        return String.format("%.1fk", count / 1000.0);
+    }
+
     /**
      * Builds an HTML snippet showing approximate size metrics (LOC and tokens) for the fragment. Returns an empty
      * string if metrics are not applicable (e.g., non-text/image fragments).
@@ -278,8 +285,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 String text = fragment.text();
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
-                return "<div>" + String.format("%,d", loc) + " LOC \u2022 ~" + String.format("%,d", tokens)
-                        + " tokens</div><br/>";
+                return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
             }
         } catch (Exception ignored) {
             // Best effort; if anything goes wrong, just return no metrics
@@ -473,6 +479,27 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         return new ImageIcon(scaled);
     }
 
+    private void executeCloseChip(ContextFragment fragment) {
+        // Enforce latest-context gating (read-only when viewing historical context)
+        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        if (!onLatest) {
+            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Perform the removal via the ContextManager task queue to avoid
+        // listener reentrancy and ensure proper processing of the drop.
+        chrome.getContextManager().submitContextTask(() -> {
+            if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
+                // Centralized HISTORY-aware semantics
+                contextManager.dropWithHistorySemantics(List.of(fragment));
+            } else {
+                // Allow custom removal logic for non-history when provided
+                onRemoveFragment.accept(fragment);
+            }
+        });
+    }
+
     private Component createChip(ContextFragment fragment) {
         var chip = new RoundedChipPanel();
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -504,16 +531,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             // Defensive: avoid issues if any accessor fails
         }
 
-        // Make label clickable to open preview
-        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         label.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     chrome.openFragmentPreview(fragment);
                 }
             }
         });
+
+        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label and set the icon explicitly.
@@ -533,21 +561,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } catch (Exception ignored) {
             // best-effort accessibility improvements
         }
-        close.addActionListener(e -> {
-            // Guard against interfering with an ongoing LLM task
-            if (contextManager.isLlmTaskInProgress()) {
-                return;
+        close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                executeCloseChip(fragment);
             }
-
-            // Perform the removal via the ContextManager task queue to avoid
-            // listener reentrancy and ensure proper processing of the drop.
-            chrome.getContextManager().submitContextTask(() -> {
-                if (onRemoveFragment != null) {
-                    onRemoveFragment.accept(fragment);
-                } else {
-                    contextManager.drop(Collections.singletonList(fragment));
-                }
-            });
         });
 
         chip.add(label);
@@ -570,26 +588,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.addMouseListener(new MouseAdapter() {
             @Override
-            public void mousePressed(MouseEvent e) {
-                maybeShowPopup(e);
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                maybeShowPopup(e);
-            }
-
-            @Override
             public void mouseClicked(MouseEvent e) {
-                // Open preview on left-click anywhere on the chip (excluding close button which handles its own events)
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    chrome.openFragmentPreview(fragment);
-                }
-            }
-
-            private void maybeShowPopup(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    ContextMenuUtils.showContextFragmentMenu(chip, e.getX(), e.getY(), fragment, chrome);
+                int clickX = e.getX();
+                int separatorEndX = sep.getX() + sep.getWidth();
+                if (clickX > separatorEndX) {
+                    executeCloseChip(fragment);
+                } else {
+                    // Open preview on left-click anywhere on the chip (excluding close button which handles its own
+                    // events)
+                    if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+                        chrome.openFragmentPreview(fragment);
+                    }
                 }
             }
         });
@@ -677,7 +686,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         return false;
                     }
 
-                    var projectRoot = contextManager
+                    Path projectRoot = contextManager
                             .getProject()
                             .getRoot()
                             .toAbsolutePath()

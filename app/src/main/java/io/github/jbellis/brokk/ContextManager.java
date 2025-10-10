@@ -25,6 +25,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.tools.UiTools;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import io.github.jbellis.brokk.util.UserActionManager.ThrowingRunnable;
@@ -349,6 +350,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         assert SwingUtilities.isEventDispatchThread();
 
         this.io = new Chrome(this);
+        this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
@@ -733,6 +735,37 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Clear conversation history. */
     public void clearHistory() {
         pushContext(Context::clearHistory);
+    }
+
+    /**
+     * Drops fragments with HISTORY-aware semantics: - If selection is empty: drop all and reset selected context to the
+     * latest (top) context. - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments. -
+     * Else: drop the selected fragments as-is.
+     */
+    public void dropWithHistorySemantics(java.util.Collection<? extends ContextFragment> selectedFragments) {
+        if (selectedFragments.isEmpty()) {
+            if (topContext().isEmpty()) {
+                return;
+            }
+            dropAll();
+            setSelectedContext(topContext());
+            return;
+        }
+
+        boolean hasHistory =
+                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
+
+        if (hasHistory) {
+            clearHistory();
+            var nonHistory = selectedFragments.stream()
+                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                    .toList();
+            if (!nonHistory.isEmpty()) {
+                drop(nonHistory);
+            }
+        } else {
+            drop(selectedFragments);
+        }
     }
 
     /**
@@ -2270,8 +2303,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager().renameSession(sessionId, newName);
                 logger.debug("Renamed session {} to {}", sessionId, newName);
             } catch (Exception e) {
-                logger.error("Error renaming Session {}", sessionId, e);
-                throw new RuntimeException(e);
+                logger.warn("Error renaming Session {}", sessionId, e);
             }
         });
     }
