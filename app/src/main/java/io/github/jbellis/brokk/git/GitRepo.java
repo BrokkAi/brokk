@@ -618,25 +618,24 @@ public class GitRepo implements Closeable, IGitRepo {
         var statusResult = git.status().call();
         var uncommittedFilesWithStatus = new HashSet<ModifiedFile>();
 
-        // Collect all unique paths from the statuses we are interested in
+        // Collect all unique paths from the statuses we are interested in, including conflicts
         var allRelevantPaths = new HashSet<String>();
         allRelevantPaths.addAll(statusResult.getAdded());
         allRelevantPaths.addAll(statusResult.getRemoved());
         allRelevantPaths.addAll(statusResult.getMissing());
         allRelevantPaths.addAll(statusResult.getModified());
         allRelevantPaths.addAll(statusResult.getChanged());
-        logger.trace("Raw modified files: {}", allRelevantPaths);
+        allRelevantPaths.addAll(statusResult.getConflicting());
+        logger.trace("Raw modified files (including conflicts): {}", allRelevantPaths);
 
         for (var path : allRelevantPaths) {
             var projectFile = toProjectFile(path);
             String determinedStatus;
 
-            // Determine status based on "git commit -a" behavior:
-            // 1. Added files are "new".
-            // 2. Files missing from working tree are "deleted".
-            // 3. Otherwise, any other change (modified in WT, changed in index,
-            //    or staged for removal but existing in WT) is "modified".
-            if (statusResult.getAdded().contains(path)) {
+            // Priority: conflicts first, then added/missing, then general modifications
+            if (statusResult.getConflicting().contains(path)) {
+                determinedStatus = "conflict";
+            } else if (statusResult.getAdded().contains(path)) {
                 determinedStatus = "new";
             } else if (statusResult.getMissing().contains(path)) {
                 determinedStatus = "deleted";

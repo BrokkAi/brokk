@@ -5,9 +5,6 @@ import java.awt.Container;
 import java.awt.Desktop;
 import java.awt.Frame;
 import java.awt.HeadlessException;
-import java.awt.desktop.QuitEvent;
-import java.awt.desktop.QuitHandler;
-import java.awt.desktop.QuitResponse;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
@@ -32,38 +29,35 @@ public final class AppQuitHandler {
             }
             Desktop desktop = Desktop.getDesktop();
             // setQuitHandler is available on Java 9+ (java.awt.desktop)
-            desktop.setQuitHandler(new QuitHandler() {
-                @Override
-                public void handleQuitRequestWith(QuitEvent e, QuitResponse response) {
-                    try {
-                        // Check if we're already on the EDT - quit events often are
-                        final AtomicBoolean allowQuit = new AtomicBoolean(true);
+            desktop.setQuitHandler((e, response) -> {
+                try {
+                    // Check if we're already on the EDT - quit events often are
+                    final AtomicBoolean allowQuit = new AtomicBoolean(true);
 
-                        if (SwingUtilities.isEventDispatchThread()) {
-                            // Already on EDT, execute directly
-                            handleQuitOnEdt(allowQuit);
-                        } else {
-                            // Not on EDT, use invokeAndWait to synchronously execute on EDT
-                            SwingUtilities.invokeAndWait(() -> handleQuitOnEdt(allowQuit));
-                        }
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        // Already on EDT, execute directly
+                        handleQuitOnEdt(allowQuit);
+                    } else {
+                        // Not on EDT, use invokeAndWait to synchronously execute on EDT
+                        SwingUtilities.invokeAndWait(() -> handleQuitOnEdt(allowQuit));
+                    }
 
-                        if (allowQuit.get()) {
-                            response.performQuit();
-                        } else {
-                            response.cancelQuit();
-                        }
-
-                    } catch (HeadlessException he) {
-                        logger.warn(
-                                "Headless environment - cannot perform interactive quit handling; proceeding with quit");
+                    if (allowQuit.get()) {
                         response.performQuit();
-                    } catch (Exception ex) {
-                        logger.error("Error during QuitHandler processing; cancelling quit", ex);
-                        try {
-                            response.cancelQuit();
-                        } catch (Exception e2) {
-                            logger.warn("Failed to cancel quit response: {}", e2.getMessage(), e2);
-                        }
+                    } else {
+                        response.cancelQuit();
+                    }
+
+                } catch (HeadlessException he) {
+                    logger.warn(
+                            "Headless environment - cannot perform interactive quit handling; proceeding with quit");
+                    response.performQuit();
+                } catch (Exception ex) {
+                    logger.error("Error during QuitHandler processing; cancelling quit", ex);
+                    try {
+                        response.cancelQuit();
+                    } catch (Exception e2) {
+                        logger.warn("Failed to cancel quit response: {}", e2.getMessage(), e2);
                     }
                 }
             });
@@ -103,7 +97,7 @@ public final class AppQuitHandler {
             // Scan all top-level frames for BrokkDiffPanel components
             Frame[] frames = Frame.getFrames();
             for (Frame f : frames) {
-                if (f == null || !f.isDisplayable()) continue;
+                if (!f.isDisplayable()) continue;
                 var brokkPanel = findBrokkDiffPanel(f);
                 if (brokkPanel != null) {
                     if (!brokkPanel.confirmClose(f)) {

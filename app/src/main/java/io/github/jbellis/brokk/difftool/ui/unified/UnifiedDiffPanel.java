@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.difftool.ui.unified;
 
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.ui.AbstractDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BlameService.BlameInfo;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
@@ -148,11 +149,19 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     /** Generate the unified diff content from JMDiffNode (preferred approach). */
     private void generateDiffFromDiffNode(JMDiffNode diffNode) {
+        // Compute the diff to populate the patch with deltas (if not already computed)
+        var patch = diffNode.getPatch();
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            diffNode.diff();
+        }
 
         // Generate the UnifiedDiffDocument (for line number metadata and display content)
         this.unifiedDocument = UnifiedDiffGenerator.generateFromDiffNode(diffNode, contextMode);
 
         if (unifiedDocument == null) {
+            logger.warn(
+                    "UnifiedDiffPanel.generateDiffFromDiffNode: Failed to generate diff content for {}",
+                    diffNode.getName());
             textArea.setText("ERROR: Failed to generate diff content for " + diffNode.getName());
             this.navigator = new UnifiedDiffNavigator("", textArea);
             return;
@@ -177,7 +186,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         String plainTextContent = textBuilder.toString();
-
         textArea.setText(plainTextContent);
 
         // Link the UnifiedDiffDocument to the custom line number list
@@ -645,6 +653,32 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Get the JMHighlighter for external access (similar to FilePanel). */
     public JMHighlighter getHighlighter() {
         return jmHighlighter;
+    }
+
+    /**
+     * Set gutter blame map for the unified line-number component. The map keys are 1-based document line numbers,
+     * values are BlameInfo-like records (author + sha).
+     */
+    public void setGutterBlameData(Map<Integer, BlameInfo> blameData) {
+        if (customLineNumberList != null) {
+            customLineNumberList.setBlameLines(blameData);
+        }
+    }
+
+    /** Set left/old file blame data for the gutter (used for deletions). */
+    public void setGutterLeftBlameData(Map<Integer, BlameInfo> blameData) {
+        if (customLineNumberList != null) {
+            customLineNumberList.setLeftBlameLines(blameData);
+        }
+    }
+
+    /** Show or hide gutter blame in this unified panel. */
+    @Override
+    public void setShowGutterBlame(boolean show) {
+        super.setShowGutterBlame(show);
+        if (customLineNumberList != null) {
+            customLineNumberList.setShowBlame(show);
+        }
     }
 
     /** Remove all diff highlights from the highlighter. */

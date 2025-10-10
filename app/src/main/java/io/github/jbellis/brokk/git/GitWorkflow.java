@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.git;
 
-import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -13,6 +12,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.exception.LlmException;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import io.github.jbellis.brokk.prompts.MergePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
@@ -228,9 +228,11 @@ public final class GitWorkflow {
         var toolSpecs = contextManager.getToolRegistry().getTools(this, List.of("suggestPrDetails"));
         var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, this);
 
-        var llm = contextManager.getLlm(modelToUse, "PR-description", true);
+        var llm = contextManager.getLlm(new Llm.Options(modelToUse, "PR-description")
+                .withPartialResponses()
+                .withEcho());
         llm.setOutput(streamingOutput);
-        var result = llm.sendRequest(messages, toolContext, true);
+        var result = llm.sendRequest(messages, toolContext);
 
         if (result.error() != null) {
             throw new RuntimeException("LLM error while generating PR details", result.error());
@@ -240,7 +242,7 @@ public final class GitWorkflow {
             throw new RuntimeException("LLM did not call the suggestPrDetails tool");
         }
 
-        contextManager.getToolRegistry().executeTool(this, result.toolRequests().get(0));
+        contextManager.getToolRegistry().executeTool(this, result.toolRequests().getFirst());
 
         String title = prTitle;
         String description = prDescription;
@@ -303,18 +305,11 @@ public final class GitWorkflow {
      * @param revision The commit id (or any rev resolvable to a single commit).
      * @return Markdown-formatted explanation text from the LLM (may be empty if an error occurs).
      */
-    public String explainCommit(StreamingChatModel model, String revision) {
-        if (revision.isBlank()) {
-            throw new IllegalArgumentException("revision must be non-blank");
-        }
+    public String explainCommit(StreamingChatModel model, String revision)
+            throws GitAPIException, InterruptedException {
+        assert !revision.isBlank();
 
-        String diff;
-        try {
-            // Always explain a single commit relative to its parent (or empty tree)
-            diff = repo.showDiff(revision, parentOrEmptyTree(revision));
-        } catch (GitAPIException e) {
-            throw new RuntimeException("Failed to produce diff for commit " + revision, e);
-        }
+        String diff = repo.showDiff(revision, parentOrEmptyTree(revision));
 
         var preprocessedDiff = Messages.getApproximateTokens(diff) > 100_000
                 ? CommitPrompts.instance.preprocessUnifiedDiff(diff, EXPLAIN_COMMIT_FILE_LIMIT)
@@ -324,72 +319,14 @@ public final class GitWorkflow {
         }
         var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
 
-        try {
-            var shortId = repo.shortHash(revision);
-            var llm = contextManager.getLlm(model, "Explain commit %s".formatted(shortId));
-            Llm.StreamingResult response = llm.sendRequest(messages);
+        var shortId = repo.shortHash(revision);
+        var llm = contextManager.getLlm(model, "Explain commit %s".formatted(shortId));
+        Llm.StreamingResult response = llm.sendRequest(messages);
 
-            if (response.error() != null) {
-                logger.warn("LLM returned an error while explaining {}: {}", revision, response.error());
-
-                // 1) Obtain the full commit message if possible
-                var commitMessage = "";
-                try {
-                    var commits = repo.listCommitsDetailed(revision);
-                    commitMessage = commits.isEmpty() ? "" : commits.getFirst().message();
-                } catch (Exception e) {
-                    logger.debug("Could not retrieve commit message for {}", revision, e);
-                }
-
-                // 2) Extract file list + statuses from the unified diff
-                var entries = parseFileStatuses(diff);
-                var filesText = entries.isEmpty() ? "(no files detected in diff)" : String.join("\n", entries);
-
-                // 3) Compose fallback output
-                var header = commitMessage.isBlank() ? "Commit %s".formatted(revision) : commitMessage.trim();
-
-                return """
-                       %s
-
-                       Modified files:
-                       %s
-                       """
-                        .formatted(header, filesText)
-                        .trim();
-            }
-
-            return response.text().trim();
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Commit explanation was interrupted", ie);
+        if (response.error() != null) {
+            throw new LlmException("LLM error while explaining commit %s".formatted(shortId), response.error());
         }
-    }
 
-    private static List<String> parseFileStatuses(String diffText) {
-        var entries = new java.util.ArrayList<String>();
-        String currentFile = null;
-        String currentStatus = "M";
-        for (var line : Splitter.on('\n').split(diffText)) {
-            if (line.startsWith("diff --git ")) {
-                if (currentFile != null) {
-                    entries.add(currentStatus + " " + currentFile);
-                }
-                currentFile = null;
-                currentStatus = "M";
-                var parts = Splitter.on(' ').splitToList(line);
-                if (parts.size() >= 4) {
-                    var bpath = parts.get(3);
-                    currentFile = bpath.startsWith("b/") ? bpath.substring(2) : bpath;
-                }
-            } else if (line.startsWith("new file mode")) {
-                currentStatus = "A";
-            } else if (line.startsWith("deleted file mode")) {
-                currentStatus = "D";
-            }
-        }
-        if (currentFile != null) {
-            entries.add(currentStatus + " " + currentFile);
-        }
-        return List.copyOf(entries);
+        return response.text().trim();
     }
 }

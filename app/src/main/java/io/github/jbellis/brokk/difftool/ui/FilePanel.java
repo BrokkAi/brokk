@@ -866,6 +866,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Record manual edit for history tracking
             if (bufferDocument != null) {
                 diffPanel.recordManualEdit(bufferDocument);
+                // Invalidate blame since edits make line numbers shift
+                diffPanel.invalidateBlameForEdit(bufferDocument);
             }
 
             boolean wasTyping = isActivelyTyping.getAndSet(true);

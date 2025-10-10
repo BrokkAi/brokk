@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -52,6 +53,7 @@ public class GitCommitTab extends JPanel {
     private FileStatusTable fileStatusPane;
     private MaterialButton commitButton;
     private MaterialButton stashButton;
+    private MaterialButton resolveConflictsButton;
     private JPanel buttonPanel;
 
     @Nullable
@@ -62,6 +64,10 @@ public class GitCommitTab extends JPanel {
 
     // Guard to avoid repeatedly offering AI merge while a conflict is active
     private volatile boolean mergeOfferShown = false;
+
+    // Track the current detected conflict for the Resolve Conflicts button
+    @Nullable
+    private MergeAgent.MergeConflict currentConflict = null;
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
@@ -272,6 +278,17 @@ public class GitCommitTab extends JPanel {
         });
         buttonPanel.add(stashButton);
 
+        // Resolve Conflicts Button
+        resolveConflictsButton = new MaterialButton("Resolve Conflicts...");
+        resolveConflictsButton.setToolTipText("Resolve merge conflicts with AI assistance");
+        resolveConflictsButton.setEnabled(false);
+        resolveConflictsButton.addActionListener(e -> {
+            if (currentConflict != null) {
+                openResolveConflictsDialog(currentConflict);
+            }
+        });
+        buttonPanel.add(resolveConflictsButton);
+
         // Table selection => update commit button text and enable/disable buttons
         uncommittedFilesTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -294,6 +311,7 @@ public class GitCommitTab extends JPanel {
         boolean hasChanges = uncommittedFilesTable.getRowCount() > 0;
         commitButton.setEnabled(hasChanges);
         stashButton.setEnabled(hasChanges);
+        resolveConflictsButton.setEnabled(fileStatusPane.hasConflicts());
     }
 
     /** Returns the current GitRepo from ContextManager. */
@@ -332,6 +350,25 @@ public class GitCommitTab extends JPanel {
             SwingUtilities.invokeLater(() -> {
                 // Convert Set to List to maintain an order for adding to table and restoring selection by index
                 var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
+
+                // Track conflict files for display in the table
+                if (detectedConflict.isPresent()) {
+                    var conflict = detectedConflict.get();
+                    currentConflict = conflict;
+                    var conflictProjectFiles = conflict.files().stream()
+                            .flatMap(fc -> {
+                                var files = new ArrayList<ProjectFile>();
+                                if (fc.ourFile() != null) files.add(fc.ourFile());
+                                if (fc.theirFile() != null) files.add(fc.theirFile());
+                                if (fc.baseFile() != null) files.add(fc.baseFile());
+                                return files.stream();
+                            })
+                            .collect(Collectors.toSet());
+                    fileStatusPane.setConflictFiles(conflictProjectFiles);
+                } else {
+                    currentConflict = null;
+                    fileStatusPane.setConflictFiles(Set.of());
+                }
 
                 // Populate the table via the reusable FileStatusTable widget
                 // This also populates the statusMap within FileStatusTable
@@ -750,11 +787,13 @@ public class GitCommitTab extends JPanel {
     public void disableButtons() {
         stashButton.setEnabled(false);
         commitButton.setEnabled(false);
+        resolveConflictsButton.setEnabled(false);
     }
 
     public void enableButtons() {
         stashButton.setEnabled(true);
         commitButton.setEnabled(true);
+        resolveConflictsButton.setEnabled(fileStatusPane.hasConflicts());
     }
 
     public int getThreadSafeCachedModifiedFileCount() {
@@ -858,12 +897,96 @@ public class GitCommitTab extends JPanel {
         }
     }
 
+    /** Opens the resolve conflicts dialog, allowing the user to provide custom instructions. */
+    private void openResolveConflictsDialog(MergeAgent.MergeConflict conflict) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var conflictCount = conflict.files().size();
+        var message =
+                """
+                Merge conflicts detected:
+                  - Mode: %s
+                  - Other: %s
+                  - Files with conflicts: %d
+
+                Would you like to resolve these conflicts with the Merge Agent?
+                """
+                        .stripIndent()
+                        .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
+
+        // Create custom dialog with instructions textarea
+        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
+        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+
+        // Message panel
+        var messageArea = new JTextArea(message);
+        messageArea.setEditable(false);
+        messageArea.setOpaque(false);
+        messageArea.setFont(UIManager.getFont("Label.font"));
+        var messagePanel = new JPanel(new BorderLayout());
+        messagePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        messagePanel.add(messageArea, BorderLayout.CENTER);
+
+        // Custom instructions panel
+        var customInstructionsArea = new JTextArea(3, 40);
+        customInstructionsArea.setLineWrap(true);
+        customInstructionsArea.setWrapStyleWord(true);
+        customInstructionsArea.setText(MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+        var customScroll = new JScrollPane(customInstructionsArea);
+        customScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        customScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        var customPanel = new JPanel(new BorderLayout());
+        customPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(0, 10, 10, 10),
+                BorderFactory.createTitledBorder("Custom Instructions")));
+        customPanel.add(customScroll, BorderLayout.CENTER);
+
+        // Button panel with right-aligned buttons (platform standard for dialogs)
+        var dialogButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
+        dialogButtonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+
+        var resolveButton = new MaterialButton("Resolve with Merge Agent");
+        SwingUtil.applyPrimaryButtonStyle(resolveButton);
+        var cancelButton = new MaterialButton("Cancel");
+
+        var dialogResult = new boolean[] {false};
+
+        resolveButton.addActionListener(e -> {
+            dialogResult[0] = true;
+            dialog.dispose();
+        });
+
+        cancelButton.addActionListener(e -> {
+            dialogResult[0] = false;
+            dialog.dispose();
+        });
+
+        dialogButtonPanel.add(resolveButton);
+        dialogButtonPanel.add(cancelButton);
+
+        // Layout
+        dialog.add(messagePanel, BorderLayout.NORTH);
+        dialog.add(customPanel, BorderLayout.CENTER);
+        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(chrome.getFrame());
+        dialog.setVisible(true);
+
+        if (dialogResult[0]) {
+            runAiMerge(conflict, customInstructionsArea.getText());
+        }
+    }
+
     /** Run MergeAgent using the InstructionsPanel-selected planning model and GPT-5-mini as code model. */
     private void runAiMerge(MergeAgent.MergeConflict conflict, String customInstructions) {
         assert SwingUtilities.isEventDispatchThread();
 
         // Create a new session for this merge, mirroring PR Review behavior
-        String sessionName = "Merge " + conflict.ourCommitId() + " and " + conflict.otherCommitId();
+        String sessionName = "Merge %s and %s"
+                .formatted(
+                        getRepo().shortHash(conflict.ourCommitId()), getRepo().shortHash(conflict.otherCommitId()));
         contextManager.createSessionAsync(sessionName).whenComplete((ignored, err) -> {
             if (err != null) {
                 logger.error("Failed to create merge session '{}'", sessionName, err);

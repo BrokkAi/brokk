@@ -229,6 +229,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
             String validationError = JdkSelector.validateJdkPath(jdkPath);
             if (validationError != null) {
+                logger.debug("Invalid JDK path: {}", validationError);
                 io.systemNotify(validationError, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
                 return;
             }

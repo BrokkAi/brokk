@@ -30,6 +30,7 @@ import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
@@ -940,7 +941,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var rootPane = frame.getRootPane();
 
         // Cmd/Ctrl+Z => undo (configurable)
-        KeyStroke undoKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke undoKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.undo",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -948,13 +949,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
         // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
-        KeyStroke redoKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.redo",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_Z,
                         Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         // For Windows/Linux, Ctrl+Y is also common for redo
-        KeyStroke redoYKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.redoY",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -964,7 +965,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("globalRedo", globalRedoAction);
 
         // Cmd/Ctrl+C => global copy
-        KeyStroke copyKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke copyKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.copy",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -972,7 +973,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("globalCopy", globalCopyAction);
 
         // Cmd/Ctrl+V => global paste
-        KeyStroke pasteKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke pasteKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.paste",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -980,14 +981,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getActionMap().put("globalPaste", globalPasteAction);
 
         // Cmd/Ctrl+L => toggle microphone
-        KeyStroke toggleMicKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.toggleMicrophone",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L));
+        KeyStroke toggleMicKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.toggleMicrophone", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L));
         bindKey(rootPane, toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
         // Submit action (configurable; default Cmd/Ctrl+Enter) - only when instructions area is focused
-        KeyStroke submitKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke submitKeyStroke = GlobalUiSettings.getKeybinding(
                 "instructions.submit",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -1010,9 +1010,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Cmd/Ctrl+M => toggle Code/Answer mode (configurable)
-        KeyStroke toggleModeKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "instructions.toggleMode",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+        KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
+                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
         bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
         rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
             @Override
@@ -1029,9 +1028,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Open Settings (configurable; default Cmd/Ctrl+,)
-        KeyStroke openSettingsKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.openSettings",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
+        KeyStroke openSettingsKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.openSettings", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
         bindKey(rootPane, openSettingsKeyStroke, "openSettings");
         rootPane.getActionMap().put("openSettings", new AbstractAction() {
             @Override
@@ -1041,13 +1039,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
-        KeyStroke closeWindowKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
-                "global.closeWindow",
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
-        if (closeWindowKeyStroke.getKeyCode() == KeyEvent.VK_ESCAPE && closeWindowKeyStroke.getModifiers() == 0) {
-            closeWindowKeyStroke =
-                    io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
-        }
+        KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.closeWindow", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
         bindKey(rootPane, closeWindowKeyStroke, "closeMainWindow");
         rootPane.getActionMap().put("closeMainWindow", new AbstractAction() {
             @Override
@@ -1064,7 +1057,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                         : KeyEvent.ALT_DOWN_MASK;
 
         // Alt/Cmd+1 for Project Files
-        KeyStroke switchToProjectFiles = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke switchToProjectFiles = GlobalUiSettings.getKeybinding(
                 "panel.switchToProjectFiles", KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
         bindKey(rootPane, switchToProjectFiles, "switchToProjectFiles");
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
@@ -1076,7 +1069,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+2 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
-            KeyStroke switchToChanges = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+            KeyStroke switchToChanges = GlobalUiSettings.getKeybinding(
                     "panel.switchToChanges", KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
             bindKey(rootPane, switchToChanges, "switchToChanges");
             rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
@@ -1090,7 +1083,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+3 for Worktrees
         if (gitWorktreeTab != null) {
-            KeyStroke switchToWorktrees = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+            KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
                     "panel.switchToWorktrees", KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
             bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
@@ -1104,7 +1097,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+4 for Log
         if (gitLogTab != null) {
-            KeyStroke switchToLog = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+            KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
                     "panel.switchToLog", KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
             bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
@@ -1118,7 +1111,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+5 for Pull Requests panel (if available)
         if (pullRequestsPanel != null) {
-            KeyStroke switchToPR = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+            KeyStroke switchToPR = GlobalUiSettings.getKeybinding(
                     "panel.switchToPullRequests", KeyStroke.getKeyStroke(KeyEvent.VK_5, modifier));
             bindKey(rootPane, switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
@@ -1132,7 +1125,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Alt/Cmd+6 for Issues panel (if available)
         if (issuesPanel != null) {
-            KeyStroke switchToIssues = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+            KeyStroke switchToIssues = GlobalUiSettings.getKeybinding(
                     "panel.switchToIssues", KeyStroke.getKeyStroke(KeyEvent.VK_6, modifier));
             bindKey(rootPane, switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
@@ -1146,7 +1139,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Drawer navigation shortcuts
         // Cmd/Ctrl+Shift+T => toggle terminal drawer
-        KeyStroke toggleTerminalDrawerKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke toggleTerminalDrawerKeyStroke = GlobalUiSettings.getKeybinding(
                 "drawer.toggleTerminal",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_T,
@@ -1160,7 +1153,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Cmd/Ctrl+Shift+D => toggle dependencies tab
-        KeyStroke toggleDependenciesTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke toggleDependenciesTabKeyStroke = GlobalUiSettings.getKeybinding(
                 "drawer.toggleDependencies",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_D,
@@ -1174,7 +1167,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Cmd/Ctrl+T => switch to terminal tab
-        KeyStroke switchToTerminalTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke switchToTerminalTabKeyStroke = GlobalUiSettings.getKeybinding(
                 "drawer.switchToTerminal",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_T, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -1187,7 +1180,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Cmd/Ctrl+K => switch to tasks tab
-        KeyStroke switchToTasksTabKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke switchToTasksTabKeyStroke = GlobalUiSettings.getKeybinding(
                 "drawer.switchToTasks",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_K, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -1200,19 +1193,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         // Zoom shortcuts: read from global settings (defaults preserved)
-        KeyStroke zoomInKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke zoomInKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.zoomIn",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_PLUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        KeyStroke zoomInEqualsKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke zoomInEqualsKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.zoomInAlt",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_EQUALS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        KeyStroke zoomOutKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke zoomOutKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.zoomOut",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_MINUS, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        KeyStroke resetZoomKeyStroke = io.github.jbellis.brokk.util.GlobalUiSettings.getKeybinding(
+        KeyStroke resetZoomKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.resetZoom",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_0, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));

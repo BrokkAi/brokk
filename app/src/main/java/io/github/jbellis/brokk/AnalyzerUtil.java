@@ -60,7 +60,7 @@ public class AnalyzerUtil {
                 results = GitDistance.getPMI(repo, weightedSeeds, k, false);
             }
         } catch (GitAPIException e) {
-            logger.warn("Unable to calculate GitDistance PMI Ranking");
+            logger.error("Unable to calculate GitDistance PMI Ranking");
             return List.of();
         }
 

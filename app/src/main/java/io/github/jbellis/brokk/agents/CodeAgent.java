@@ -95,7 +95,8 @@ public class CodeAgent {
 
         // Create Coder instance with the user's input as the task description
         var io = contextManager.getIo();
-        var coder = contextManager.getLlm(model, "Code: " + userInput, true);
+        var coder = contextManager.getLlm(
+                new Llm.Options(model, "Code: " + userInput).withEcho().withPartialResponses());
         coder.setOutput(io);
 
         // Track changed files
@@ -155,7 +156,7 @@ public class CodeAgent {
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         es.changedFiles());
                 var llmStartNanos = System.nanoTime();
-                streamingResult = coder.sendRequest(allMessagesForLlm, true);
+                streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
                     metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
                     Optional.ofNullable(streamingResult.tokenUsage()).ifPresent(metrics::addTokens);
@@ -347,7 +348,7 @@ public class CodeAgent {
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
             try {
-                streamingResult = coder.sendRequest(llmMessages, true);
+                streamingResult = coder.sendRequest(llmMessages);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
@@ -593,7 +594,7 @@ public class CodeAgent {
         pendingHistory.add(new UserMessage(instructionsMsg));
 
         // No echo for Quick Edit, use instance quickModel
-        var result = coder.sendRequest(messages, false);
+        var result = coder.sendRequest(messages);
 
         // Determine stop reason based on LLM response
         TaskResult.StopDetails stopDetails;
@@ -641,10 +642,6 @@ public class CodeAgent {
         public EditStopException(TaskResult.StopDetails stopDetails) {
             super(stopDetails.reason().name() + ": " + stopDetails.explanation());
             this.stopDetails = stopDetails;
-        }
-
-        public EditStopException(TaskResult.StopReason stopReason) {
-            this(new TaskResult.StopDetails(stopReason));
         }
     }
 

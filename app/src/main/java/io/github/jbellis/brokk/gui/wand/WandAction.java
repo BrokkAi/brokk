@@ -82,11 +82,11 @@ public class WandAction {
                                         contextManager.topContext().allFragments()),
                                 originalPrompt);
 
-        Llm llm = contextManager.getLlm(model, "Refine Prompt", false);
+        Llm llm = contextManager.getLlm(new Llm.Options(model, "Refine Prompt").withEcho());
         llm.setOutput(consoleIO);
         List<ChatMessage> req = List.of(
                 new SystemMessage("You are a Prompt Refiner for coding instructions."), new UserMessage(instruction));
-        Llm.StreamingResult res = llm.sendRequest(req, true);
+        Llm.StreamingResult res = llm.sendRequest(req);
 
         if (res.error() != null) {
             return null; // indicate error

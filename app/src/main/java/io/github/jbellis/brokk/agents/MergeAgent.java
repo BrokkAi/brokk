@@ -210,20 +210,10 @@ public class MergeAgent {
 
         // Kick off background explanations for our/their relevant commits discovered via blame.
         Future<String> oursFuture = cm.submitBackgroundTask("Explain relevant OUR commits", () -> {
-            try {
-                return buildCommitExplanations("Our relevant commits", unionOurCommits);
-            } catch (Exception e) {
-                logger.warn("Asynchronous OUR commit explanations failed: {}", e.toString(), e);
-                return "";
-            }
+            return buildCommitExplanations("Our relevant commits", unionOurCommits);
         });
         Future<String> theirsFuture = cm.submitBackgroundTask("Explain relevant THEIR commits", () -> {
-            try {
-                return buildCommitExplanations("Their relevant commits", unionTheirCommits);
-            } catch (Exception e) {
-                logger.warn("Asynchronous THEIR commit explanations failed: {}", e.toString(), e);
-                return "";
-            }
+            return buildCommitExplanations("Their relevant commits", unionTheirCommits);
         });
 
         // BlitzForge only works on ProjectFile inputs so map back to the ConflictFileCommits with this
@@ -361,18 +351,12 @@ public class MergeAgent {
      * Build a markdown document explaining each commit in {@code commitIds} (single-commit explanations). Returns empty
      * string if {@code commitIds} is empty.
      */
-    private String buildCommitExplanations(String title, Set<String> commitIds) {
+    private String buildCommitExplanations(String title, Set<String> commitIds) throws InterruptedException {
         if (commitIds.isEmpty()) return "";
         var sections = new ArrayList<String>();
         for (var id : commitIds) {
             var shortId = ((GitRepo) cm.getProject().getRepo()).shortHash(id);
-            String explanation;
-            try {
-                explanation = MergeOneFile.explainCommitCached(cm, id);
-            } catch (Exception e) {
-                logger.warn("explainCommit failed for {}: {}", id, e.toString());
-                explanation = "Unable to explain commit " + id + ": " + e.getMessage();
-            }
+            String explanation = MergeOneFile.explainCommitCached(cm, id);
             sections.add("## " + shortId + "\n\n" + explanation);
         }
         return "# " + title + "\n\n" + String.join("\n\n", sections);

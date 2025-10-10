@@ -1923,34 +1923,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
-        if (selectedFragments.isEmpty()) {
-            if (contextManager.topContext().isEmpty()) {
-                return;
-            }
-            contextManager.dropAll();
-            contextManager.setSelectedContext(contextManager.topContext());
-            return;
-        }
-
-        boolean hasHistory =
-                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
-
-        if (hasHistory) {
-            // 1) Clear task history if any HISTORY fragment is included
-            contextManager.clearHistory();
-
-            // 2) Drop only the non-HISTORY fragments, if any
-            var nonHistory = selectedFragments.stream()
-                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
-                    .toList();
-
-            if (!nonHistory.isEmpty()) {
-                contextManager.drop(nonHistory);
-            }
-        } else {
-            // 3) No HISTORY fragments in the selection: keep existing behavior
-            contextManager.drop(selectedFragments); // Use the new ID-based method
-        }
+        contextManager.dropWithHistorySemantics(selectedFragments);
     }
 
     private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) {
@@ -1985,17 +1958,25 @@ public class WorkspacePanel extends JPanel {
 
         if (result == null) return;
 
-        Set<ProjectFile> files = result.fragments();
+        Set<ContextFragment> fragments = result.fragments();
         boolean summarize = result.summarize();
 
         contextManager.submitContextTask(() -> {
-            if (files.isEmpty()) {
+            if (fragments.isEmpty()) {
                 return;
             }
-            if (summarize) {
-                contextManager.addSummaries(files, Collections.emptySet());
-            } else {
-                contextManager.addFiles(files);
+
+            for (var fragment : fragments) {
+                if (fragment instanceof ContextFragment.PathFragment pathFrag) {
+                    if (summarize) {
+                        var files = pathFrag.files();
+                        contextManager.addSummaries(files, Collections.emptySet());
+                    } else {
+                        contextManager.addPathFragmentAsync(pathFrag);
+                    }
+                } else {
+                    contextManager.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
+                }
             }
         });
     }

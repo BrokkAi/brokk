@@ -201,17 +201,22 @@ public interface IContextManager {
 
     /** Create a new LLM instance for the given model and description */
     default Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return getLlm(model, taskDescription, false);
+        return getLlm(new Llm.Options(model, taskDescription));
     }
 
     /** Create a new LLM instance for the given model and description */
     default Llm getLlm(StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
-        return new Llm(
-                model,
-                taskDescription,
-                this,
-                allowPartialResponses,
-                getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
+        var options = new Llm.Options(model, taskDescription);
+        if (allowPartialResponses) {
+            options.withPartialResponses();
+        }
+        return getLlm(options);
+    }
+
+    /** Create a new LLM instance using options */
+    default Llm getLlm(Llm.Options options) {
+        return Llm.create(
+                options, this, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
 
     default Set<CodePrompts.InstructionsFlags> instructionsFlags() {

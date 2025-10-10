@@ -764,9 +764,7 @@ public interface ContextFragment {
         @Override
         public String shortDescription() {
             assert !description().isEmpty();
-            // lowercase the first letter in description()
-            return description().substring(0, 1).toLowerCase(Locale.ROOT)
-                    + description().substring(1);
+            return description();
         }
 
         @Override
@@ -1384,6 +1382,11 @@ public interface ContextFragment {
         @Override
         public String description() {
             return "Source for " + unit.fqName();
+        }
+
+        @Override
+        public String shortDescription() {
+            return unit.shortName();
         }
 
         @Override
