@@ -397,6 +397,17 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final MaterialButton btnRedo = new MaterialButton();
     private final MaterialButton btnSaveAll = new MaterialButton();
     private final MaterialButton captureDiffButton = new MaterialButton();
+
+    // Font size adjustment buttons (added)
+    private final MaterialButton btnDecreaseFont = new MaterialButton("-");
+    private final MaterialButton btnIncreaseFont = new MaterialButton("+");
+
+    // Editor font size state with predefined sizes
+    private static final float[] FONT_SIZES = {8f, 10f, 11f, 12f, 13f, 14f, 16f, 18f, 20f, 22f, 24f, 28f, 32f};
+    private static final int DEFAULT_FONT_INDEX = 4; // 13f
+    private static final float DEFAULT_FALLBACK_FONT_SIZE = FONT_SIZES[DEFAULT_FONT_INDEX];
+    private int currentFontIndex = -1; // -1 = uninitialized
+
     private final MaterialButton btnNext = new MaterialButton();
     private final MaterialButton btnPrevious = new MaterialButton();
     private final MaterialButton btnPreviousFile = new MaterialButton();
@@ -1299,11 +1310,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
-        // Ensure editorFontSize is initialized (lazily) from the visible editor before applying it.
+        // Ensure currentFontIndex is initialized (lazily) from the visible editor before applying it.
         // This probes the panel's editor for a realistic starting font size (fallback handled internally).
         ensureEditorFontSizeInitialized(cachedPanel);
         // Apply current editor font size to the panel so theme application doesn't override it
-        applySizeToSinglePanel(cachedPanel, editorFontSize);
+        if (currentFontIndex >= 0) {
+            applySizeToSinglePanel(cachedPanel, FONT_SIZES[currentFontIndex]);
+        }
 
         // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
         // Theme application can trigger document events that incorrectly mark documents as dirty
@@ -1663,7 +1676,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
         // Ensure newly-created panel respects the current editor font size (if we've initialized it)
-        if (editorFontSize > 0) { applySizeToSinglePanel(panel, editorFontSize); }
+        if (currentFontIndex >= 0) {
+            applySizeToSinglePanel(panel, FONT_SIZES[currentFontIndex]);
+        }
 
         // Ensure creation context is set for debugging (only for BufferDiffPanel)
         if (panel instanceof BufferDiffPanel bufferPanel) {
@@ -1808,12 +1823,38 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Lazily initialize the editorFontSize from a panel or component if not initialized yet.
+     * Find the closest font size index for a given font size.
+     */
+    private static int findClosestFontIndex(float targetSize) {
+        int closestIndex = DEFAULT_FONT_INDEX;
+        float minDiff = Math.abs(FONT_SIZES[DEFAULT_FONT_INDEX] - targetSize);
+
+        for (int i = 0; i < FONT_SIZES.length; i++) {
+            float diff = Math.abs(FONT_SIZES[i] - targetSize);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestIndex = i;
+            }
+        }
+        return closestIndex;
+    }
+
+    /**
+     * Lazily initialize the currentFontIndex from saved zoom factor, then from a panel or component if not saved.
      * Accepts either an IDiffPanel (preferred) or any Component (e.g., AbstractContentPanel is a Component).
-     * If no editor can be found, fall back to DEFAULT_FALLBACK_FONT_SIZE.
+     * If no saved zoom and no editor can be found, fall back to DEFAULT_FALLBACK_FONT_SIZE.
      */
     private void ensureEditorFontSizeInitialized(@Nullable Object panelOrComponent) {
-        if (editorFontSize > 0f) return;
+        if (currentFontIndex >= 0) return;
+
+        // Try to load from saved zoom factor first
+        double savedZoom = GlobalUiSettings.getDiffZoom();
+        if (savedZoom != 1.0) {
+            float calculatedSize = (float) (DEFAULT_FALLBACK_FONT_SIZE * savedZoom);
+            currentFontIndex = findClosestFontIndex(calculatedSize);
+            return;
+        }
+
         float size = DEFAULT_FALLBACK_FONT_SIZE;
 
         Component comp = null;
@@ -1838,8 +1879,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             logger.debug("Failed to derive editor font size from component: {}", t.getMessage());
         }
 
-        // Clamp and set
-        editorFontSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, size));
+        // Find closest index
+        currentFontIndex = findClosestFontIndex(size);
     }
 
     /**
@@ -2063,17 +2104,21 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Apply a specific editor font size to every visible code editor and gutter (cached panels + visible panel).
+     * Apply font size from current index to every visible code editor and gutter (cached panels + visible panel).
      * This is the central helper for immediately applying font changes across all panels.
      */
-    private void applyEditorFontSize(float newSize) {
-        // Update stored size first
-        editorFontSize = newSize;
+    private void applyEditorFontSize() {
+        if (currentFontIndex < 0) return;
+
+        float fontSize = FONT_SIZES[currentFontIndex];
+        // Save as zoom factor relative to default base size
+        double zoomFactor = fontSize / DEFAULT_FALLBACK_FONT_SIZE;
+        GlobalUiSettings.saveDiffZoom(zoomFactor);
 
         // Apply to cached panels
         for (var p : panelCache.nonNullValues()) {
             try {
-                applySizeToSinglePanel(p, newSize);
+                applySizeToSinglePanel(p, fontSize);
             } catch (Throwable t) {
                 logger.debug("Failed applying font size to cached panel: {}", t.getMessage());
             }
@@ -2082,7 +2127,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Apply to currently visible panel too
         if (currentDiffPanel != null) {
             try {
-                applySizeToSinglePanel(currentDiffPanel, newSize);
+                applySizeToSinglePanel(currentDiffPanel, fontSize);
             } catch (Throwable t) {
                 logger.debug("Failed applying font size to current panel: {}", t.getMessage());
             }
@@ -2095,24 +2140,22 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Increase font size (multiplicative), clamp to maximum and apply to cached/current panels. */
+    /** Increase font size to next preset size and apply to cached/current panels. */
     private void increaseEditorFont() {
         var panel = getCurrentContentPanel();
         ensureEditorFontSizeInitialized(panel);
-        float newSize = (float) Math.min(MAX_FONT_SIZE, editorFontSize * FONT_SCALE_FACTOR);
-        if (Math.abs(newSize - editorFontSize) < 0.001f) return;
-        editorFontSize = newSize;
-        applyEditorFontSize(newSize);
+        if (currentFontIndex >= FONT_SIZES.length - 1) return; // Already at maximum
+        currentFontIndex++;
+        applyEditorFontSize();
     }
 
-    /** Decrease font size (multiplicative), clamp to minimum and apply to cached/current panels. */
+    /** Decrease font size to previous preset size and apply to cached/current panels. */
     private void decreaseEditorFont() {
         var panel = getCurrentContentPanel();
         ensureEditorFontSizeInitialized(panel);
-        float newSize = (float) Math.max(MIN_FONT_SIZE, editorFontSize / FONT_SCALE_FACTOR);
-        if (Math.abs(newSize - editorFontSize) < 0.001f) return;
-        editorFontSize = newSize;
-        applyEditorFontSize(newSize);
+        if (currentFontIndex <= 0) return; // Already at minimum
+        currentFontIndex--;
+        applyEditorFontSize();
     }
 
     /**
