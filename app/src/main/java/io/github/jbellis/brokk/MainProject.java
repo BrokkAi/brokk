@@ -1866,16 +1866,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void sessionsListChanged() {
-        var mainChrome = Brokk.findOpenProjectWindow(getRoot());
-        var worktreeChromes = Brokk.getWorktreeChromes(this);
-
-        var allChromes = new ArrayList<Chrome>();
-        if (mainChrome != null) {
-            allChromes.add(mainChrome);
-        }
-        allChromes.addAll(worktreeChromes);
-
-        for (var chrome : allChromes) {
+        for (var chrome : Brokk.getProjectAndWorktreeChromes(this)) {
             SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
         }
     }

@@ -582,7 +582,7 @@ public class SessionManager implements AutoCloseable {
                 var remoteMeta = entry.getValue();
                 var localInfo = localSessions.get(id);
 
-                var cmOpt = Brokk.getOpenProjectWindows().values().stream()
+                var cmOpt = Brokk.getProjectAndWorktreeChromes(project).stream()
                         .map(Chrome::getContextManager)
                         .filter(cm -> cm.getCurrentSessionId().equals(id))
                         .findFirst();
