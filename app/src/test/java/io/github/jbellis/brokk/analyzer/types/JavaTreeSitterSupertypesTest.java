@@ -5,18 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
-import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzerTest;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.testutil.TestProject;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.stream.Collectors;
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -120,8 +117,9 @@ public class JavaTreeSitterSupertypesTest {
         assertTrue(maybeDeep.isPresent(), "Definition for DeepExtendsX should be present");
         CodeUnit deep = maybeDeep.get();
 
-        List<String> ancestorNames =
-                transitiveAncestors(analyzer, deep).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+        List<String> ancestorNames = transitiveAncestors(analyzer, deep).stream()
+                .map(CodeUnit::fqName)
+                .collect(Collectors.toList());
         assertEquals(
                 List.of("XExtendsY", "BaseClass"),
                 ancestorNames,
