@@ -476,7 +476,7 @@ public class ContextAgent {
                 .toList();
         int promptTokens = Messages.getApproximateMessageTokens(messages);
         debug("Invoking LLM to prune filenames (prompt size ~{} tokens)", promptTokens);
-        var result = filesLlm.sendRequest(messages, deepScan);
+        var result = filesLlm.sendRequest(messages, deepScan, true);
         if (result.error() != null) {
             var error = result.error();
             boolean contextError = error != null
@@ -816,7 +816,7 @@ public class ContextAgent {
                 "Invoking LLM (Quick) to select relevant {} (prompt size ~{} tokens)",
                 inputType.itemTypePlural,
                 promptTokens);
-        var result = llm.sendRequest(messages, deepScan);
+        var result = llm.sendRequest(messages, deepScan, true);
 
         if (result.error() != null) {
             logger.warn(
