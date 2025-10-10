@@ -656,16 +656,16 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     }
 
     /**
-     * Expose the underlying RSyntaxTextArea for external callers (BrokkDiffPanel needs to adjust its font).
-     * This is a simple getter that returns the primary text area used by the unified diff view.
+     * Expose the underlying RSyntaxTextArea for external callers (BrokkDiffPanel needs to adjust its font). This is a
+     * simple getter that returns the primary text area used by the unified diff view.
      */
     public org.fife.ui.rsyntaxtextarea.RSyntaxTextArea getTextArea() {
         return textArea;
     }
 
     /**
-     * Expose the gutter (line number component) used by the unified view so callers can adjust gutter fonts/blame fonts.
-     * Returns null if the gutter wasn't created for some reason.
+     * Expose the gutter (line number component) used by the unified view so callers can adjust gutter fonts/blame
+     * fonts. Returns null if the gutter wasn't created for some reason.
      */
     @Nullable
     public DiffGutterComponent getGutterComponent() {
