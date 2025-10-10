@@ -285,7 +285,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 String text = fragment.text();
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
-                return "<div>" + formatCount(loc) + " LOC \u2022 ~" + formatCount(tokens) + " tokens</div><br/>";
+                return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
             }
         } catch (Exception ignored) {
             // Best effort; if anything goes wrong, just return no metrics
