@@ -298,14 +298,31 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         } else {
             openTarget = getTargetDirectoryFromSelection();
         }
-        openInItem.addActionListener(ev -> contextManager.submitBackgroundTask(getOpenInLabel(), () -> {
-            try {
-                FileManagerUtil.revealPath(openTarget);
-            } catch (IOException | UnsupportedOperationException ex) {
-                SwingUtilities.invokeLater(() ->
-                        chrome.toolError("Failed to open file manager: " + ex.getMessage()));
+        final Path finalOpenTarget = openTarget;
+        openInItem.addActionListener(ev -> {
+            if (finalOpenTarget == null || !Files.exists(finalOpenTarget)) {
+                chrome.toolError("Selected path no longer exists: "
+                        + (finalOpenTarget == null ? "<unknown>" : finalOpenTarget.toAbsolutePath()));
+                return;
             }
-        }));
+            SwingWorker<Void, Void> worker = new SwingWorker<>() {
+                @Override
+                protected Void doInBackground() throws Exception {
+                    FileManagerUtil.revealPath(finalOpenTarget);
+                    return null;
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        get(); // propagate any exception from doInBackground
+                    } catch (Exception ex) {
+                        chrome.toolError("Failed to open file manager: " + ex.getMessage());
+                    }
+                }
+            };
+            worker.execute();
+        });
         contextMenu.add(openInItem);
 
         contextMenu.addSeparator();
