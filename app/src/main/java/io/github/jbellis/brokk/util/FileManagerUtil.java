@@ -29,6 +29,81 @@ public final class FileManagerUtil {
     }
 
     /**
+     * Build the Windows explorer command for the given path.
+     * Package-private for unit testing.
+     */
+    static List<String> buildWindowsCommand(Path path) throws IOException {
+        var absolute = path.toAbsolutePath();
+        var pathString = absolute.toString();
+        var command = new ArrayList<String>();
+        command.add("explorer");
+        if (Files.isRegularFile(absolute)) {
+            command.add("/select," + pathString);
+        } else if (Files.isDirectory(absolute)) {
+            command.add(pathString);
+        } else {
+            var msg = "Windows: Unsupported path type for file manager operation: " + pathString;
+            logger.warn(msg);
+            throw new IOException(msg);
+        }
+        logger.debug("Built Windows command: {}", String.join(" ", command));
+        return command;
+    }
+
+    /**
+     * Build the macOS 'open' command for the given path.
+     * Package-private for unit testing.
+     */
+    static List<String> buildMacOsCommand(Path path) throws IOException {
+        var absolute = path.toAbsolutePath();
+        var pathString = absolute.toString();
+        var command = new ArrayList<String>();
+        command.add("open");
+        if (Files.isRegularFile(absolute)) {
+            command.add("-R");
+            command.add(pathString);
+        } else if (Files.isDirectory(absolute)) {
+            command.add(pathString);
+        } else {
+            var msg = "macOS: Unsupported path type for file manager operation: " + pathString;
+            logger.warn(msg);
+            throw new IOException(msg);
+        }
+        logger.debug("Built macOS command: {}", String.join(" ", command));
+        return command;
+    }
+
+    /**
+     * Resolve the target directory to open on Linux.
+     * If a file is given, returns its parent; if a directory is given, returns the directory itself.
+     * Package-private for unit testing.
+     */
+    static Path resolveLinuxTargetPath(Path path) throws IOException {
+        var absolute = path.toAbsolutePath();
+        if (Files.isDirectory(absolute)) {
+            return absolute;
+        } else if (Files.isRegularFile(absolute)) {
+            var parent = absolute.getParent();
+            return parent != null ? parent : absolute;
+        } else {
+            var msg = "Linux: Unsupported path type for file manager operation: " + absolute;
+            logger.warn(msg);
+            throw new IOException(msg);
+        }
+    }
+
+    /**
+     * Build the Linux xdg-open command for the given path.
+     * Package-private for unit testing.
+     */
+    static List<String> buildLinuxXdgOpenCommand(Path path) throws IOException {
+        var target = resolveLinuxTargetPath(path);
+        var command = List.of("xdg-open", target.toString());
+        logger.debug("Built Linux command (xdg-open): {}", String.join(" ", command));
+        return command;
+    }
+
+    /**
      * Opens the operating system's file manager to reveal the given path.
      *
      * @param path The path to reveal in the file manager. Must exist.
@@ -44,49 +119,51 @@ public final class FileManagerUtil {
 
         var absolute = path.toAbsolutePath();
         var pathString = absolute.toString();
-        ProcessBuilder pb = null;
 
         if (Environment.isWindows()) {
-            var command = new ArrayList<String>();
-            command.add("explorer");
-            if (Files.isRegularFile(absolute)) {
-                command.add("/select," + pathString);
-            } else if (Files.isDirectory(absolute)) {
-                command.add(pathString);
-            } else {
-                var msg = "Windows: Unsupported path type for file manager operation: " + pathString;
-                logger.warn(msg);
-                throw new IOException(msg);
+            var command = buildWindowsCommand(absolute);
+            var pb = new ProcessBuilder(command);
+            try {
+                pb.redirectErrorStream(true);
+                pb.start();
+                logger.info("Successfully launched file manager for path: {}", pathString);
+            } catch (IOException e) {
+                var errorMessage = "Failed to launch file manager for path "
+                        + pathString
+                        + ". Command: "
+                        + String.join(" ", pb.command())
+                        + ". Error: "
+                        + e.getMessage();
+                logger.error(errorMessage, e);
+                throw new IOException(errorMessage, e);
             }
-            pb = new ProcessBuilder(command);
-            logger.debug("Executing Windows command: {}", String.join(" ", command));
+            return;
         } else if (Environment.isMacOs()) {
-            var command = new ArrayList<String>();
-            command.add("open");
-            if (Files.isRegularFile(absolute)) {
-                command.add("-R");
-                command.add(pathString);
-            } else if (Files.isDirectory(absolute)) {
-                command.add(pathString);
-            } else {
-                var msg = "macOS: Unsupported path type for file manager operation: " + pathString;
-                logger.warn(msg);
-                throw new IOException(msg);
+            var command = buildMacOsCommand(absolute);
+            var pb = new ProcessBuilder(command);
+            try {
+                pb.redirectErrorStream(true);
+                pb.start();
+                logger.info("Successfully launched file manager for path: {}", pathString);
+            } catch (IOException e) {
+                var errorMessage = "Failed to launch file manager for path "
+                        + pathString
+                        + ". Command: "
+                        + String.join(" ", pb.command())
+                        + ". Error: "
+                        + e.getMessage();
+                logger.error(errorMessage, e);
+                throw new IOException(errorMessage, e);
             }
-            pb = new ProcessBuilder(command);
-            logger.debug("Executing macOS command: {}", String.join(" ", command));
+            return;
         } else if (Environment.isLinux()) {
-            // For Linux, there is no standard "reveal" highlight. Best effort:
-            // - For files: open the containing directory
-            // - For directories: open the directory
-            var openTarget = Files.isDirectory(absolute)
-                    ? absolute
-                    : absolute.getParent() != null ? absolute.getParent() : absolute;
+            var openTarget = resolveLinuxTargetPath(absolute);
 
             // Try xdg-open first
             try {
-                pb = new ProcessBuilder("xdg-open", openTarget.toString());
-                logger.debug("Executing Linux command (xdg-open): xdg-open {}", openTarget);
+                var command = buildLinuxXdgOpenCommand(openTarget);
+                var pb = new ProcessBuilder(command);
+                logger.debug("Executing Linux command (xdg-open): {}", String.join(" ", command));
                 var p = pb.start();
                 int exitCode = p.waitFor();
                 if (exitCode == 0) {
@@ -129,22 +206,6 @@ public final class FileManagerUtil {
             var errorMessage = "Unsupported operating system for revealing path: " + System.getProperty("os.name");
             logger.error(errorMessage);
             throw new UnsupportedOperationException(errorMessage);
-        }
-
-        // For Windows and macOS, start the prepared ProcessBuilder
-        try {
-            pb.redirectErrorStream(true);
-            pb.start();
-            logger.info("Successfully launched file manager for path: {}", pathString);
-        } catch (IOException e) {
-            var errorMessage = "Failed to launch file manager for path "
-                    + pathString
-                    + ". Command: "
-                    + String.join(" ", pb.command())
-                    + ". Error: "
-                    + e.getMessage();
-            logger.error(errorMessage, e);
-            throw new IOException(errorMessage, e);
         }
     }
 
