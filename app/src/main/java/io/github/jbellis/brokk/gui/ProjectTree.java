@@ -7,6 +7,8 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.FileManagerUtil;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -16,6 +18,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -287,6 +290,23 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             });
             contextMenu.add(summarizeItem);
         }
+
+        var openInItem = new JMenuItem(getOpenInLabel());
+        Path openTarget;
+        if (!bulk && targetFiles.size() == 1) {
+            openTarget = targetFiles.getFirst().absPath();
+        } else {
+            openTarget = getTargetDirectoryFromSelection();
+        }
+        openInItem.addActionListener(ev -> contextManager.submitBackgroundTask(getOpenInLabel(), () -> {
+            try {
+                FileManagerUtil.revealPath(openTarget);
+            } catch (IOException | UnsupportedOperationException ex) {
+                SwingUtilities.invokeLater(() ->
+                        chrome.toolError("Failed to open file manager: " + ex.getMessage()));
+            }
+        }));
+        contextMenu.add(openInItem);
 
         contextMenu.addSeparator();
 
@@ -761,6 +781,12 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 .flatMap(lang -> lang.getExtensions().stream())
                 .collect(Collectors.toSet());
         return files.stream().anyMatch(pf -> exts.contains(pf.extension()));
+    }
+
+    private static String getOpenInLabel() {
+        if (Environment.isWindows()) return "Open in Explorer";
+        if (Environment.isMacOs()) return "Reveal in Finder";
+        return "Open in File Manager";
     }
 
     /**

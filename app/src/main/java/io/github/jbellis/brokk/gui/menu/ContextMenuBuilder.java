@@ -18,11 +18,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.io.IOException;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.FileManagerUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -216,6 +219,10 @@ public class ContextMenuBuilder {
         summarizeItem.addActionListener(e -> summarizeFiles(fileContext));
         menu.add(summarizeItem);
 
+        var openInItem = new JMenuItem(getOpenInLabel());
+        openInItem.addActionListener(e -> openInFileManager(fileContext));
+        menu.add(openInItem);
+
         // Run Tests (only show if all files are test files)
         boolean hasTestFiles = files.stream().allMatch(ContextManager::isTestFile);
         if (hasTestFiles) {
@@ -322,6 +329,10 @@ public class ContextMenuBuilder {
         summarizeItem.setEnabled(analyzerReady);
         summarizeItem.addActionListener(e -> summarizeFiles(singleFileContext));
         parent.add(summarizeItem);
+
+        var openInItem = new JMenuItem(getOpenInLabel());
+        openInItem.addActionListener(e -> openInFileManager(singleFileContext));
+        parent.add(openInItem);
 
         // Run Tests (only if this file is a test file)
         if (isTestFile) {
@@ -580,6 +591,39 @@ public class ContextMenuBuilder {
                                     "Capture Class Source",
                                     JOptionPane.WARNING_MESSAGE);
                 });
+            }
+        });
+    }
+
+    private static String getOpenInLabel() {
+        if (Environment.isWindows()) return "Open in Explorer";
+        if (Environment.isMacOs()) return "Reveal in Finder";
+        return "Open in File Manager";
+    }
+
+    private void openInFileManager(FileMenuContext context) {
+        var files = context.files();
+        if (files.isEmpty()) {
+            return;
+        }
+
+        java.nio.file.Path target;
+        if (files.size() == 1) {
+            target = files.getFirst().absPath();
+        } else {
+            var first = files.getFirst().absPath();
+            var parent = first.getParent();
+            target = parent != null ? parent : first;
+        }
+
+        var taskLabel = getOpenInLabel();
+        context.contextManager().submitBackgroundTask(taskLabel, () -> {
+            try {
+                FileManagerUtil.revealPath(target);
+            } catch (IOException | UnsupportedOperationException ex) {
+                logger.warn("Failed to open file manager for {}: {}", target, ex.getMessage());
+                SwingUtilities.invokeLater(() ->
+                        context.chrome().toolError("Failed to open file manager: " + ex.getMessage(), "Open in File Manager"));
             }
         });
     }
