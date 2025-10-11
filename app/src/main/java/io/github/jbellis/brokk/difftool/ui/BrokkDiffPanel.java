@@ -834,12 +834,29 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         captureDiffButton.setEnabled(true);
 
         // Update blame menu item enabled state
-        // Blame is only available for working tree diffs in git repos (not for historical commit diffs)
+        // Blame is available for working tree diffs and for StringSource-based diffs with revision metadata
         // Note: We don't modify isSelected() here - that represents user preference and should persist across file
         // changes
         boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
-        boolean isWorkingTree = currentDiffPanel != null && isWorkingTreeDiff(currentDiffPanel);
-        menuShowBlame.setEnabled(isGitRepo && isWorkingTree);
+        boolean canShowBlame = false;
+        if (isGitRepo && currentDiffPanel != null) {
+            // Check if it's a working tree diff
+            boolean isWorkingTree = isWorkingTreeDiff(currentDiffPanel);
+            // Check if current file has revision metadata for blame
+            boolean hasRevisionMetadata = false;
+            if (currentFileIndex >= 0 && currentFileIndex < fileComparisons.size()) {
+                var comparison = fileComparisons.get(currentFileIndex);
+                if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
+                    hasRevisionMetadata = true;
+                }
+                if (comparison.rightSource instanceof BufferSource.StringSource rightSS
+                        && rightSS.revisionSha() != null) {
+                    hasRevisionMetadata = true;
+                }
+            }
+            canShowBlame = isWorkingTree || hasRevisionMetadata;
+        }
+        menuShowBlame.setEnabled(canShowBlame);
 
         // Update save button text, enable state, and visibility
         // Compute the exact number of panels that would be saved by saveAll():
@@ -1262,8 +1279,19 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // IMPORTANT: Sync blame state with menu BEFORE any layout-triggering operations
         // This must happen before applyTheme() and diff() which can trigger layout calculations
         // Note: Always set state explicitly to sync cached panels with current menu state
-        // Blame is only supported for working tree diffs with valid file paths
-        boolean canShowBlame = isWorkingTreeDiff(cachedPanel) && resolveTargetPath(cachedPanel) != null;
+        // Blame is supported for both working tree diffs and commit diffs with revision metadata
+        boolean isWorkingTree = isWorkingTreeDiff(cachedPanel);
+        boolean hasRevisionMetadata = false;
+        if (fileIndex >= 0 && fileIndex < fileComparisons.size()) {
+            var comparison = fileComparisons.get(fileIndex);
+            if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
+                hasRevisionMetadata = true;
+            }
+            if (comparison.rightSource instanceof BufferSource.StringSource rightSS && rightSS.revisionSha() != null) {
+                hasRevisionMetadata = true;
+            }
+        }
+        boolean canShowBlame = (isWorkingTree || hasRevisionMetadata) && resolveTargetPath(cachedPanel) != null;
         boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
         if (cachedPanel instanceof BufferDiffPanel bp) {
             var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
@@ -2072,11 +2100,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void updateBlameForPanel(IDiffPanel panel, boolean show) {
-        logger.debug(
-                "updateBlameForPanel called: panel={}, show={}",
-                panel.getClass().getSimpleName(),
-                show);
-
         if (!show) {
             if (panel instanceof BufferDiffPanel bp) {
                 var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
@@ -2099,11 +2122,35 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        final java.nio.file.Path finalTargetPath = targetPath;
-        var rightBlameFuture = blameService.requestBlame(targetPath);
+        // Get current file comparison to extract revision metadata
+        var currentComparison = fileComparisons.get(currentFileIndex);
 
+        // Extract revision information from BufferSources
+        String leftRevision = null;
+        String rightRevision = null;
+
+        if (currentComparison.leftSource instanceof BufferSource.StringSource leftStringSource) {
+            leftRevision = leftStringSource.revisionSha();
+        }
+        if (currentComparison.rightSource instanceof BufferSource.StringSource rightStringSource) {
+            rightRevision = rightStringSource.revisionSha();
+        }
+
+        final java.nio.file.Path finalTargetPath = targetPath;
+
+        // Request blame for right side (use revision if available, otherwise working tree)
+        CompletableFuture<Map<Integer, BlameService.BlameInfo>> rightBlameFuture;
+        if (rightRevision != null) {
+            rightBlameFuture = blameService.requestBlameForRevision(targetPath, rightRevision);
+        } else {
+            rightBlameFuture = blameService.requestBlame(targetPath);
+        }
+
+        // Request blame for left side (use revision if available, otherwise HEAD or empty)
         CompletableFuture<Map<Integer, BlameService.BlameInfo>> leftBlameFuture;
-        if (blameService.fileExistsInRevision(targetPath, "HEAD")) {
+        if (leftRevision != null) {
+            leftBlameFuture = blameService.requestBlameForRevision(targetPath, leftRevision);
+        } else if (blameService.fileExistsInRevision(targetPath, "HEAD")) {
             leftBlameFuture = blameService.requestBlameForRevision(targetPath, "HEAD");
         } else {
             leftBlameFuture = CompletableFuture.completedFuture(Map.of());

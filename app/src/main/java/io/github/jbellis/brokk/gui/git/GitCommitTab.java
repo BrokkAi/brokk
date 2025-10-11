@@ -590,7 +590,7 @@ public class GitCommitTab extends JPanel {
                         headContent = "";
                     }
 
-                    var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.getFileName());
+                    var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.toString(), "HEAD");
                     builder.addComparison(leftSource, rightSource);
                 }
 
@@ -613,7 +613,7 @@ public class GitCommitTab extends JPanel {
                         } catch (Exception ex) {
                             headContent = "";
                         }
-                        var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.getFileName());
+                        var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.toString(), "HEAD");
                         leftSources.add(leftSource);
                         rightSources.add(rightSource);
                     }
