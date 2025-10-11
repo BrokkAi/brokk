@@ -299,6 +299,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             openTarget = getTargetDirectoryFromSelection();
         }
         final Path finalOpenTarget = openTarget;
+        openInItem.setEnabled(finalOpenTarget != null && Files.exists(finalOpenTarget));
         openInItem.addActionListener(ev -> {
             if (finalOpenTarget == null || !Files.exists(finalOpenTarget)) {
                 chrome.toolError("Selected path no longer exists: "

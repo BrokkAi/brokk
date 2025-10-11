@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.io.IOException;
+import java.nio.file.Files;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -220,6 +221,15 @@ public class ContextMenuBuilder {
 
         var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
         openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
+        java.nio.file.Path target;
+        if (files.size() == 1) {
+            target = files.getFirst().absPath();
+        } else {
+            var first = files.getFirst().absPath();
+            var parent = first.getParent();
+            target = parent != null ? parent : first;
+        }
+        openInItem.setEnabled(Files.exists(target));
         openInItem.addActionListener(e -> openInFileManager(fileContext));
         menu.add(openInItem);
 
@@ -332,6 +342,8 @@ public class ContextMenuBuilder {
 
         var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
         openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
+        var singleTarget = file.absPath();
+        openInItem.setEnabled(Files.exists(singleTarget));
         openInItem.addActionListener(e -> openInFileManager(singleFileContext));
         parent.add(openInItem);
 
