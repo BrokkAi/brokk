@@ -29,4 +29,22 @@ Brokk uses Gradle with Scala support. To build Brokk,
 
 The frontend uses **pnpm** for package management. Gradle automatically handles pnpm installation and dependency management during builds.
 
+## Increasing JVM heap when running via Gradle
+
+When running Brokk from source with Gradle, increase the application JVM heap using standard `-Xmx` flags. The recommended approach is to set `JAVA_TOOL_OPTIONS` so the setting is inherited by the forked application JVM.
+
+Examples:
+- macOS/Linux:
+  - `JAVA_TOOL_OPTIONS="-Xmx8G" ./gradlew run`
+  - Or:
+    - `export JAVA_TOOL_OPTIONS="-Xmx8G"`
+    - `./gradlew run`
+- Windows (PowerShell):
+  - `$env:JAVA_TOOL_OPTIONS="-Xmx8G"; ./gradlew run`
+- Windows (cmd.exe):
+  - `set JAVA_TOOL_OPTIONS=-Xmx8G && gradlew run`
+
+Notes:
+- Do not use `-Dorg.gradle.jvmargs` or `GRADLE_OPTS` for application memory. These configure Gradle's own JVM and do not affect the forked application JVM.
+
 There are documents on specific aspects of the code in [development.md](https://github.com/BrokkAi/brokk/tree/master/app/src/main/development.md).

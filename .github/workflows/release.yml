@@ -80,3 +80,4 @@ jobs:
         uses: shannah/jdeploy@master
         with:
           github_token: ${{ github.token }}
+          jdeploy_version: "5.2.1"
