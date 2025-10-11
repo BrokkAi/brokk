@@ -23,7 +23,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -211,15 +210,6 @@ public class Context {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
 
-        return buildAutoContextFragment(contextManager, analyzer, weightedSeeds, ineligibleSources, topK);
-    }
-
-    public static SkeletonFragment buildAutoContextFragment(
-            IContextManager contextManager,
-            IAnalyzer analyzer,
-            Map<ProjectFile, Double> weightedSeeds,
-            Set<ProjectFile> ineligibleSources,
-            int topK) {
         var pagerankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
 
         List<String> targetFqns = new ArrayList<>();

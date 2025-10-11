@@ -275,14 +275,10 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         if (addJsonFence && !fenceOpen.get()) {
-                            io.llmOutput("\n```json\n", ChatMessageType.AI);
+                            io.llmOutput("\n```json\n", ChatMessageType.AI, false, forceReasoningEcho);
                             fenceOpen.set(true);
                         }
-                        if (forceReasoningEcho) {
-                            io.llmOutput(accumulatedTextBuilder.toString(), ChatMessageType.AI, false, true);
-                        } else {
-                            io.llmOutput(token, ChatMessageType.AI);
-                        }
+                        io.llmOutput(token, ChatMessageType.AI, false, forceReasoningEcho);
                     }
                 });
             }
@@ -323,7 +319,7 @@ public class Llm {
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI);
+                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -341,7 +337,7 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     errorRef.set(th);
                     if (echo && addJsonFence && fenceOpen.get()) {
-                        io.llmOutput("\n```", ChatMessageType.AI);
+                        io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
                         fenceOpen.set(false);
                     }
                     completed.set(true);
@@ -365,7 +361,7 @@ public class Llm {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
                 if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput("\n```", ChatMessageType.AI);
+                    io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
                     fenceOpen.set(false);
                 }
                 completed.set(true);
@@ -402,7 +398,7 @@ public class Llm {
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
-            io.llmOutput("\n```", ChatMessageType.AI);
+            io.llmOutput("\n```", ChatMessageType.AI, false, forceReasoningEcho);
             fenceOpen.set(false);
         }
 
@@ -430,7 +426,7 @@ public class Llm {
         var response = completedChatResponse.get(); // Will be null if an error occurred or onComplete got null
         assert response != null : "If no error, completedChatResponse must be set by onCompleteResponse";
         if (echo) {
-            io.llmOutput("\n", ChatMessageType.AI);
+            io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
         }
         return StreamingResult.fromResponse(response, null);
     }
@@ -662,7 +658,7 @@ public class Llm {
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI);
+            io.llmOutput("\nPlanned tool calls:\n" + rendered, ChatMessageType.AI, false, forceReasoningEcho);
         }
     }
 
@@ -773,7 +769,9 @@ public class Llm {
                     if (echo) {
                         io.llmOutput(
                                 "\nTool call validation errors:\n- " + String.join("\n- ", validationErrors),
-                                ChatMessageType.CUSTOM);
+                                ChatMessageType.CUSTOM,
+                                false,
+                                forceReasoningEcho);
                     }
                     attemptMessages.add(new AiMessage(rawResult.text()));
                     attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(new IllegalArgumentException(
@@ -796,7 +794,9 @@ public class Llm {
                 io.llmOutput(
                         "\nRetry " + attempt + "/" + (maxTries - 1)
                                 + ": invalid JSON response; requesting proper format.",
-                        ChatMessageType.CUSTOM);
+                        ChatMessageType.CUSTOM,
+                        false,
+                        forceReasoningEcho);
                 var txt = rawResult.text();
                 attemptMessages.add(new AiMessage(txt));
                 attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(parseError)));

@@ -543,7 +543,7 @@ public class SearchAgent {
     // =======================
 
     private void addInitialContextToWorkspace() throws InterruptedException {
-        var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal, true);
+        var contextAgent = new ContextAgent(cm, cm.getService().getScanModel(), goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(true);

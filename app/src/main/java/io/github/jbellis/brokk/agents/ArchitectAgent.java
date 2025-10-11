@@ -299,7 +299,7 @@ public class ArchitectAgent {
         var modelsService = cm.getService();
 
         while (true) {
-            io.llmOutput("\n# Planning", ChatMessageType.AI, true, false);
+            io.llmOutput("\n**Brokk** is preparing the next actions…", ChatMessageType.AI, true, false);
 
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatModel>();

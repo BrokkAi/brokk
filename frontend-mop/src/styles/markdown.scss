@@ -147,7 +147,7 @@ li > p {
   cursor: default; /* Remove pointer cursor from entire element */
   contain: style;
   color: var(--link-color-hex); /* Match the base symbol-exists color */
-  font-weight: normal;
+  font-weight: var(--code-block-font-weight);
 }
 
 :not(pre) > code.symbol-exists.partial-match::after {
@@ -186,12 +186,13 @@ li > p {
   text-decoration-color: var(--link-color-hex);
   cursor: pointer; /* Ensure partial match highlights are clickable */
   color: var(--link-color-hex); /* Match exact match color */
-  font-weight: normal; /* Match exact match base font weight */
+  font-weight: var(--code-block-font-weight); /* Match exact match base font weight */
 }
 
 /* Ensure non-highlighted spans have no interactive hover effects but inherit base styling */
 .symbol-non-highlight {
   cursor: default;
+  font-weight: var(--code-block-font-weight);
 }
 
 .symbol-non-highlight:hover {

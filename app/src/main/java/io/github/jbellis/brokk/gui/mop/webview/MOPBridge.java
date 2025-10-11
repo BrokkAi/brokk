@@ -616,6 +616,11 @@ public final class MOPBridge {
         boolean ready = contextManager != null && contextManager.isAnalyzerReady();
         sendEnvironmentInfo(ready);
 
+        // If analyzer is already ready when bridge initializes, trigger symbol lookup for existing content
+        if (ready) {
+            onAnalyzerReadyResponse(getContextCacheId());
+        }
+
         if (hostComponent instanceof MOPWebViewHost host) {
             host.onBridgeReady();
         }

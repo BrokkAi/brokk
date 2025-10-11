@@ -164,7 +164,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
-    private final List<Runnable> modelReloadListeners = new CopyOnWriteArrayList<>();
+    private final List<Runnable> serviceReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     // balance-notification state
@@ -174,8 +174,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
 
-    // Model reload state to prevent concurrent reloads
-    private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
+    // Service reload state to prevent concurrent reloads
+    private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -206,13 +206,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Register a Runnable to be invoked when the Service (models / STT) is reinitialized. The Runnable is executed on
      * the EDT to allow UI updates.
      */
-    public void addModelReloadListener(Runnable listener) {
-        modelReloadListeners.add(listener);
+    public void addServiceReloadListener(Runnable listener) {
+        serviceReloadListeners.add(listener);
     }
 
-    /** Remove a previously registered model reload listener. */
-    public void removeModelReloadListener(Runnable listener) {
-        modelReloadListeners.remove(listener);
+    /** Remove a previously registered service reload listener. */
+    public void removeServiceReloadListener(Runnable listener) {
+        serviceReloadListeners.remove(listener);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -1699,29 +1699,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    public void reloadModelsAsync() {
-        if (isReloadingModels.compareAndSet(false, true)) {
+    public void reloadService() {
+        if (isReloadingService.compareAndSet(false, true)) {
             // Run reinit in the background so callers don't block; notify UI listeners when finished.
-            submitBackgroundTask("Reloading models", () -> {
+            submitBackgroundTask("Reloading service", () -> {
                 try {
                     service.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
                     SwingUtilities.invokeLater(() -> {
-                        for (var l : modelReloadListeners) {
+                        for (var l : serviceReloadListeners) {
                             try {
                                 l.run();
                             } catch (Exception e) {
-                                logger.warn("Model reload listener threw exception", e);
+                                logger.warn("Service reload listener threw exception", e);
                             }
                         }
                     });
                 } finally {
-                    isReloadingModels.set(false);
+                    isReloadingService.set(false);
                 }
                 return null;
             });
         } else {
-            logger.debug("Model reload already in progress, skipping request.");
+            logger.debug("Service reload already in progress, skipping request.");
         }
     }
 
@@ -2471,7 +2471,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 if (balance < Service.MINIMUM_PAID_BALANCE) {
                     // Free-tier: reload models and warn once
-                    reloadModelsAsync();
+                    reloadService();
                     if (!freeTierNotified) {
                         freeTierNotified = true;
                         lowBalanceNotified = false; // reset low-balance flag

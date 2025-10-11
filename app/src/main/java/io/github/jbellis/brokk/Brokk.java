@@ -3,10 +3,6 @@ package io.github.jbellis.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import com.github.tjake.jlama.model.AbstractModel;
-import com.github.tjake.jlama.model.ModelSupport;
-import com.github.tjake.jlama.safetensors.DType;
-import com.github.tjake.jlama.safetensors.SafeTensorSupport;
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
@@ -23,9 +19,7 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.WindowEvent;
-import java.io.File;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Security;
@@ -74,7 +68,6 @@ public class Brokk {
     private static final ConcurrentHashMap<Path, Chrome> openProjectWindows = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<IProject, List<Chrome>> mainToWorktreeChromes = new ConcurrentHashMap<>();
     private static final Set<Path> reOpeningProjects = ConcurrentHashMap.newKeySet();
-    public static final CompletableFuture<@Nullable AbstractModel> embeddingModelFuture;
 
     public static final String ICON_RESOURCE = "/brokk-icon.png";
     private static final SystemScaleProvider systemScaleProvider = new SystemScaleProviderImpl();
@@ -95,32 +88,7 @@ public class Brokk {
         }
     }
 
-    // start loading embeddings model immediately
-    static {
-        embeddingModelFuture = CompletableFuture.supplyAsync(() -> {
-            logger.info("Loading embedding model asynchronously...");
-            var modelName = "sentence-transformers/all-MiniLM-L6-v2";
-            File localModelPath;
-            try {
-                var cacheDir = System.getProperty("user.home") + "/.cache/brokk";
-                if (!Files.exists(Path.of(cacheDir)) && !new File(cacheDir).mkdirs()) {
-                    throw new IOException("Unable to create model-cache directory at " + cacheDir);
-                }
-                localModelPath = SafeTensorSupport.maybeDownloadModel(cacheDir, modelName);
-            } catch (IOException e) {
-                // InstructionsPanel will catch ExecutionException
-                throw new UncheckedIOException(e);
-            }
-            // Assuming loadEmbeddingModel returns BertEmbeddingModel or a compatible type
-            var model = ModelSupport.loadEmbeddingModel(localModelPath, DType.F32, DType.I8);
-            logger.info("Embedding model loading complete.");
-            // Cast to the specific type expected by the Future if necessary
-            return model;
-        });
-    }
-
     private static void setupSystemPropertiesAndIcon() {
-
         if (!Environment.isMacOs()) {
             var existing = System.getProperty("sun.java2d.uiScale");
             if (existing != null) {
