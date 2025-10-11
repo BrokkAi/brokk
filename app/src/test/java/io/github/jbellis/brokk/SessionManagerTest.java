@@ -391,7 +391,7 @@ public class SessionManagerTest {
         List<SessionInfo> sessions = sessionManager.listSessions();
         assertEquals(1, sessions.size());
         assertEquals(session2.id(), sessions.get(0).id());
-        assertFalse(Files.exists(historyFileToDelete));
+        assertEventually(() -> assertFalse(Files.exists(historyFileToDelete)));
 
         // Test deleting non-existent, should not throw
         sessionManager.deleteSession(SessionManager.newSessionId());

@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
@@ -51,6 +50,7 @@ public final class MainProject extends AbstractProject {
     private final Path styleGuidePath;
     private final Path reviewGuidePath;
     private final SessionManager sessionManager;
+    private final SessionRegistry sessionRegistry = new SessionRegistry();
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
@@ -173,7 +173,7 @@ public final class MainProject extends AbstractProject {
         this.styleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(STYLE_GUIDE_FILE);
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
-        this.sessionManager = new SessionManager(sessionsDir);
+        this.sessionManager = new SessionManager(this, sessionsDir);
 
         this.projectProps = new Properties();
 
@@ -1786,7 +1786,7 @@ public final class MainProject extends AbstractProject {
                     String sessionIdStr = props.getProperty("lastActiveSession");
                     if (sessionIdStr != null && !sessionIdStr.isBlank()) {
                         UUID sessionId = UUID.fromString(sessionIdStr.trim());
-                        if (SessionRegistry.claim(wtPath, sessionId)) {
+                        if (sessionRegistry.claim(wtPath, sessionId)) {
                             logger.info(
                                     "Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
                         } else {
@@ -1865,18 +1865,26 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
+    public SessionRegistry getSessionRegistry() {
+        return sessionRegistry;
+    }
+
+    @Override
     public void sessionsListChanged() {
-        var mainChrome = Brokk.findOpenProjectWindow(getRoot());
-        var worktreeChromes = Brokk.getWorktreeChromes(this);
-
-        var allChromes = new ArrayList<Chrome>();
-        if (mainChrome != null) {
-            allChromes.add(mainChrome);
-        }
-        allChromes.addAll(worktreeChromes);
-
-        for (var chrome : allChromes) {
+        for (var chrome : Brokk.getProjectAndWorktreeChromes(this)) {
             SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
         }
+    }
+
+    @Override
+    public String getRemoteProjectName() {
+        String result = null;
+        if (hasGit()) {
+            result = getRepo().getRemoteUrl();
+        }
+        if (result == null) {
+            result = getRoot().getFileName().toString();
+        }
+        return result;
     }
 }

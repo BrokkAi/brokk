@@ -343,6 +343,10 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default SessionRegistry getSessionRegistry() {
+        throw new UnsupportedOperationException();
+    }
+
     default void sessionsListChanged() {
         throw new UnsupportedOperationException();
     }
@@ -352,6 +356,10 @@ public interface IProject extends AutoCloseable {
     }
 
     default IConsoleIO getConsoleIO() {
+        throw new UnsupportedOperationException();
+    }
+
+    default String getRemoteProjectName() {
         throw new UnsupportedOperationException();
     }
 
