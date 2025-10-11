@@ -1,6 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 public class DisabledAnalyzer implements IAnalyzer {
 
@@ -42,5 +45,15 @@ public class DisabledAnalyzer implements IAnalyzer {
     @Override
     public List<CodeUnit> topLevelCodeUnitsOf(ProjectFile file) {
         return Collections.emptyList();
+    }
+
+    @Override
+    public List<String> importStatementsOf(ProjectFile file) {
+        return List.of();
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        return Optional.empty();
     }
 }

@@ -400,3 +400,42 @@ unset BRK_NO_LSP
 export BRK_NO_LSP=""
 export BRK_NO_LSP="maybe"  # logs warning, disables LSP
 ```
+
+### BRK_USAGE_BOOL
+
+Controls whether usage relevance classification is requested/handled as a boolean (yes/no) or as the default real-number score.
+
+- Name: BRK_USAGE_BOOL
+- Type: Boolean (case-insensitive)
+- Recognized truthy values: 1, true, t, yes, y, on
+- Recognized falsy values: 0, false, f, no, n, off
+- Empty string: treated as true (enables boolean mode)
+- Unrecognized values: defaults to false (numeric score mode) and logs a warning
+- Unset: treated as false (numeric score mode)
+
+Behavior:
+- When true, the analyzer requests boolean relevance from the model and maps results to UsageHit.confidence:
+  - true → confidence = 1.0
+  - false → confidence = 0.0
+- When false/unset, the analyzer requests a real-valued relevance score in [0.0, 1.0] (existing behavior).
+
+APIs:
+- Java:
+  - io.github.jbellis.brokk.analyzer.usages.UsageConfig.isBooleanUsageMode() — returns boolean mode snapshot.
+  - io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceBooleanBatch(...) — batch boolean relevance.
+  - Existing io.github.jbellis.brokk.agents.RelevanceClassifier.relevanceScoreBatch(...) remains unchanged.
+- Prompting:
+  - io.github.jbellis.brokk.analyzer.usages.UsagePromptBuilder builds prompts that include a <candidates> section of other plausible CodeUnits (excluding the target). The filter description adapts to boolean vs numeric mode accordingly.
+
+Examples:
+```bash
+# Enable boolean relevance classification
+export BRK_USAGE_BOOL=true
+
+# Disable boolean classification (use numeric score)
+export BRK_USAGE_BOOL=false
+
+# Empty/invalid values
+export BRK_USAGE_BOOL=""        # treated as true
+export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
+```

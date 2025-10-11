@@ -44,12 +44,7 @@ public class JavaLanguage implements Language {
 
     @Override
     public IAnalyzer createAnalyzer(IProject project) {
-        if (shouldDisableLsp()) {
-            logger.info("BRK_NO_LSP disables JDT LSP; TSA-only mode.");
-            return new JavaTreeSitterAnalyzer(project);
-        } else {
-            return JavaAnalyzer.create(project);
-        }
+        return new JavaTreeSitterAnalyzer(project);
     }
 
     @Override

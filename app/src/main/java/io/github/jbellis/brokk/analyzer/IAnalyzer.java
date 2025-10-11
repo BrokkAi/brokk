@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -51,6 +52,11 @@ public interface IAnalyzer {
     }
 
     // Summarization
+
+    /** The project this analyzer targets */
+    default IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
 
     default List<CodeUnit> getMembersInClass(String fqClass) {
         throw new UnsupportedOperationException();
@@ -292,5 +298,28 @@ public interface IAnalyzer {
      */
     default Optional<String> extractClassName(String reference) {
         return Optional.empty();
+    }
+
+    /** @return the import snippets for the given file where other code units may be referred to by. */
+    default List<String> importStatementsOf(ProjectFile file) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
+     *     invalid.
+     */
+    default Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        throw new UnsupportedOperationException();
+    }
+
+    record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
+        public boolean isEmpty() {
+            return startLine == endLine && startByte == endByte;
+        }
+
+        public boolean isContainedWithin(Range other) {
+            return startByte >= other.startByte && endByte <= other.endByte;
+        }
     }
 }
