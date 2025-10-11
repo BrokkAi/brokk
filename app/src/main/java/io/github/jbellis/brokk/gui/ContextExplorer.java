@@ -67,7 +67,7 @@ public final class ContextExplorer extends JFrame {
         super("Brokk Context Explorer");
         this.sessionsDir = sessionsDir;
         this.contextManager = new MinimalContextManager();
-        this.sessionManager = new SessionManager(sessionsDir);
+        this.sessionManager = new SessionManager(contextManager.getProject(), sessionsDir);
 
         buildUi();
         loadSessions();
@@ -890,6 +890,11 @@ public final class ContextExplorer extends JFrame {
             @Override
             public void close() {
                 // nothing to do
+            }
+
+            @Override
+            public String getRemoteProjectName() {
+                return getRoot().getFileName().toString();
             }
         }
     }
