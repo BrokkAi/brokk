@@ -29,6 +29,27 @@ public final class FileManagerUtil {
     }
 
     /**
+     * Returns an OS-aware label for opening a path in the system file manager.
+     * - Windows: "Open in Explorer"
+     * - macOS: "Reveal in Finder"
+     * - Linux: "Open in File Manager"
+     */
+    public static String fileManagerActionLabel() {
+        if (Environment.isWindows()) return "Open in Explorer";
+        if (Environment.isMacOs()) return "Reveal in Finder";
+        return "Open in File Manager";
+    }
+
+    /**
+     * Returns an OS-aware tooltip for opening a path in the system file manager.
+     */
+    public static String fileManagerActionTooltip() {
+        if (Environment.isWindows()) return "Open in Windows Explorer";
+        if (Environment.isMacOs()) return "Reveal in Finder";
+        return "Open in your system file manager";
+    }
+
+    /**
      * Build the Windows explorer command for the given path.
      * Package-private for unit testing.
      */

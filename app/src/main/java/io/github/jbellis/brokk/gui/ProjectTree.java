@@ -7,7 +7,6 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
-import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.FileManagerUtil;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
@@ -291,7 +290,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             contextMenu.add(summarizeItem);
         }
 
-        var openInItem = new JMenuItem(getOpenInLabel());
+        var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
+        openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
         Path openTarget;
         if (!bulk && targetFiles.size() == 1) {
             openTarget = targetFiles.getFirst().absPath();
@@ -800,11 +800,6 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         return files.stream().anyMatch(pf -> exts.contains(pf.extension()));
     }
 
-    private static String getOpenInLabel() {
-        if (Environment.isWindows()) return "Open in Explorer";
-        if (Environment.isMacOs()) return "Reveal in Finder";
-        return "Open in File Manager";
-    }
 
     /**
      * Checks if the system clipboard contains files that can be pasted.

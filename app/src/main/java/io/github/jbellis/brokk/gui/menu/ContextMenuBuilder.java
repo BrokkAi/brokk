@@ -24,7 +24,6 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
-import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.FileManagerUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -219,7 +218,8 @@ public class ContextMenuBuilder {
         summarizeItem.addActionListener(e -> summarizeFiles(fileContext));
         menu.add(summarizeItem);
 
-        var openInItem = new JMenuItem(getOpenInLabel());
+        var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
+        openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
         openInItem.addActionListener(e -> openInFileManager(fileContext));
         menu.add(openInItem);
 
@@ -330,7 +330,8 @@ public class ContextMenuBuilder {
         summarizeItem.addActionListener(e -> summarizeFiles(singleFileContext));
         parent.add(summarizeItem);
 
-        var openInItem = new JMenuItem(getOpenInLabel());
+        var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
+        openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
         openInItem.addActionListener(e -> openInFileManager(singleFileContext));
         parent.add(openInItem);
 
@@ -595,11 +596,6 @@ public class ContextMenuBuilder {
         });
     }
 
-    private static String getOpenInLabel() {
-        if (Environment.isWindows()) return "Open in Explorer";
-        if (Environment.isMacOs()) return "Reveal in Finder";
-        return "Open in File Manager";
-    }
 
     private void openInFileManager(FileMenuContext context) {
         var files = context.files();
@@ -616,7 +612,7 @@ public class ContextMenuBuilder {
             target = parent != null ? parent : first;
         }
 
-        var taskLabel = getOpenInLabel();
+        var taskLabel = FileManagerUtil.fileManagerActionLabel();
         context.contextManager().submitBackgroundTask(taskLabel, () -> {
             try {
                 FileManagerUtil.revealPath(target);
