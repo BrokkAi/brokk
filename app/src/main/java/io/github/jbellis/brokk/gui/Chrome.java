@@ -2461,9 +2461,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /** Append tasks to the Task List panel, if present. Tasks are appended to the current session's list. */
     public void appendTasksToTaskList(List<String> tasks) {
+        // First update the domain model and persist via ContextManager
+        contextManager.appendTasksToTaskList(tasks);
+
+        // Then ensure the UI is visible on the EDT
         SwingUtilities.invokeLater(() -> {
-            var taskPanel = terminalDrawer.openTaskList();
-            taskPanel.appendTasks(tasks);
+            terminalDrawer.openTaskList();
         });
     }
 

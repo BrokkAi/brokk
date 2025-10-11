@@ -10,6 +10,10 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.agents.NonTextResolutionMode;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
@@ -23,6 +27,8 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
+import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.UiTools;
@@ -157,6 +163,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Current session tracking
     private UUID currentSessionId;
+
+    // Domain model task list for the current session (non-null)
+    private volatile TaskList.TaskListData taskList = new TaskList.TaskListData(List.of());
 
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
@@ -298,6 +307,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // make it official
         updateActiveSession(currentSessionId);
+
+        // Load task list for the current session
+        loadTaskListForSession(currentSessionId);
 
         // Notify listeners and UI on EDT
         SwingUtilities.invokeLater(() -> {
@@ -1404,6 +1416,217 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return topContext().fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
     }
 
+    /** Returns the current session's domain-model task list. Always non-null. */
+    public TaskList.TaskListData getTaskList() {
+        return taskList;
+    }
+
+    /**
+     * Appends the given tasks (non-blank lines) to the current session's task list and persists it.
+     * Each appended task is created with done=false.
+     */
+    public void appendTasksToTaskList(List<String> tasks) {
+        var additions = tasks.stream()
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .map(s -> new TaskList.TaskItem(s, false))
+                .collect(Collectors.toList());
+        if (additions.isEmpty()) {
+            return;
+        }
+
+        var combined = new java.util.ArrayList<TaskList.TaskItem>();
+        combined.addAll(taskList.tasks());
+        combined.addAll(additions);
+
+        var newData = new TaskList.TaskListData(List.copyOf(combined));
+        this.taskList = newData;
+
+        // Persist via existing SessionManager API (UI DTO)
+        project.getSessionManager().writeTaskList(currentSessionId, toUiTaskList(newData));
+    }
+
+    /**
+     * Replace the current session's task list and persist it via SessionManager.
+     * This is the single entry-point UI code should call after modifying the task list.
+     */
+    public void setTaskList(TaskList.TaskListData data) {
+        this.taskList = data;
+        project.getSessionManager()
+                .writeTaskList(currentSessionId, toUiTaskList(data))
+                .exceptionally(ex -> {
+                    logger.warn("Failed to persist updated task list for session {}: {}", currentSessionId, ex.getMessage());
+                    return null;
+                });
+    }
+
+    // Convert UI DTO -> domain model
+    private static TaskList.TaskListData fromUiTaskList(TaskListPanel.TaskListData dto) {
+        var items = dto.tasks().stream()
+                .map(it -> new TaskList.TaskItem(it.text(), it.done()))
+                .toList();
+        return new TaskList.TaskListData(List.copyOf(items));
+    }
+
+    // Convert domain model -> UI DTO
+    private static TaskListPanel.TaskListData toUiTaskList(TaskList.TaskListData data) {
+        var items = data.tasks().stream()
+                .map(it -> new TaskListPanel.TaskItem(it.text(), it.done()))
+                .toList();
+        return new TaskListPanel.TaskListData(List.copyOf(items));
+    }
+
+    // Load and cache the task list for a specific session ID; on error, set to empty
+    private void loadTaskListForSession(UUID sessionId) {
+        try {
+            var dto = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
+            this.taskList = fromUiTaskList(dto);
+        } catch (Exception e) {
+            logger.warn("Unable to load task list for session {}", sessionId, e);
+            this.taskList = new TaskList.TaskListData(List.of());
+        }
+    }
+
+    /**
+     * Execute a single task using ArchitectAgent, optionally auto-committing and compressing history on success.
+     * The TaskList entry is marked done and persisted when the run succeeds.
+     *
+     * @param task Task to execute (non-blank text).
+     * @return TaskResult from ArchitectAgent execution.
+     */
+    public TaskResult executeTask(TaskList.TaskItem task) {
+        // Default behavior: no auto-commit, but respect global history auto-compression setting
+        boolean compress = MainProject.getHistoryAutoCompress();
+        return executeTask(task, false, compress);
+    }
+
+    /**
+     * Execute a single task using ArchitectAgent with explicit options.
+     *
+     * @param task Task to execute (non-blank text).
+     * @param autoCommit whether to commit any modified files after a successful run
+     * @param compressHistoryAfter whether to compress conversation history after a successful run
+     * @return TaskResult from ArchitectAgent execution.
+     */
+    public TaskResult executeTask(TaskList.TaskItem task, boolean autoCommit, boolean compressHistoryAfter) {
+        var prompt = task.text().strip();
+        if (prompt.isEmpty()) {
+            throw new IllegalArgumentException("Task text must be non-blank");
+        }
+
+        TaskResult result;
+        try (var scope = beginTask(prompt, false)) {
+            var planningModel = requireNonNull(getService().getModel(Service.GEMINI_2_5_PRO));
+            var codeModel = getCodeModel();
+            var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
+            result = agent.executeWithSearch(scope);
+        } catch (RuntimeException re) {
+            // propagate as-is
+            throw re;
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed executing task: " + ex.getMessage(), ex);
+        } finally {
+            // mirror panel behavior
+            checkBalanceAndNotify();
+        }
+
+        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+            if (autoCommit) {
+                try {
+                    performAutoCommit(prompt);
+                } catch (Exception e) {
+                    logger.warn("Auto-commit failed after task success: {}", e.getMessage());
+                    io.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error");
+                }
+            }
+            if (compressHistoryAfter) {
+                try {
+                    compressHistory(); // synchronous
+                } catch (Exception e) {
+                    logger.warn("History compression failed after task success: {}", e.getMessage());
+                }
+            }
+            // Mark the task as done and persist the updated list
+            markTaskDoneAndPersist(task);
+        }
+
+        return result;
+    }
+
+    /** Auto-commit any modified files with a message that incorporates the task description. */
+    private void performAutoCommit(String taskDescription) {
+        var repo = project.getRepo();
+        java.util.Set<GitRepo.ModifiedFile> modified;
+        try {
+            modified = repo.getModifiedFiles();
+        } catch (Exception e) {
+            io.toolError("Unable to determine modified files: " + e.getMessage(), "Commit Error");
+            return;
+        }
+        if (modified.isEmpty()) {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "No changes to commit for task: " + taskDescription);
+            return;
+        }
+
+        var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+        var workflow = new GitWorkflow(this);
+
+        String suggested = workflow.suggestCommitMessage(filesToCommit);
+        String message;
+        if (suggested.isBlank()) {
+            message = taskDescription;
+        } else if (!taskDescription.isBlank()
+                && !suggested.toLowerCase(Locale.ROOT).contains(taskDescription.toLowerCase(Locale.ROOT))) {
+            message = suggested + " - " + taskDescription;
+        } else {
+            message = suggested;
+        }
+
+        try {
+            var commitResult = workflow.commit(filesToCommit, message);
+
+            // Friendly notification; include short hash where possible
+            if (repo instanceof GitRepo gitRepo) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
+            } else {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Committed: " + commitResult.commitId() + " " + commitResult.firstLine());
+            }
+            io.updateCommitPanel();
+        } catch (GitAPIException e) {
+            io.toolError("Auto-commit failed: " + e.getMessage(), "Commit Error");
+            return;
+        }
+    }
+
+    /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
+    private void markTaskDoneAndPersist(TaskList.TaskItem task) {
+        var existing = new ArrayList<>(taskList.tasks());
+        int idx = existing.indexOf(task);
+        if (idx < 0) {
+            // Fallback: find first matching by text (not done) if equals() does not match
+            for (int i = 0; i < existing.size(); i++) {
+                var it = existing.get(i);
+                if (!it.done() && it.text().equals(task.text())) {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+        if (idx >= 0) {
+            existing.set(idx, new TaskList.TaskItem(task.text(), true));
+            this.taskList = new TaskList.TaskListData(List.copyOf(existing));
+            project.getSessionManager().writeTaskList(currentSessionId, toUiTaskList(this.taskList))
+                    .exceptionally(ex -> {
+                        logger.warn("Failed to persist updated task list for session {}: {}", currentSessionId, ex.getMessage());
+                        return null;
+                    });
+        }
+    }
+
     private void captureGitState(Context frozenContext) {
         if (!project.hasGit()) {
             return;
@@ -2128,6 +2351,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 
+            // initialize empty task list and persist
+            this.taskList = new TaskList.TaskListData(List.of());
+            project.getSessionManager().writeTaskList(currentSessionId, toUiTaskList(this.taskList));
+
             // notifications
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(topContext());
@@ -2171,6 +2398,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // later
         var ch = new ContextHistory(ctx);
         sessionManager.saveHistory(ch, newSessionInfo.id());
+        // Initialize empty task list for the new session and persist
+        this.taskList = new TaskList.TaskListData(List.of());
+        sessionManager.writeTaskList(newSessionInfo.id(), toUiTaskList(this.taskList));
     }
 
     /**
@@ -2207,6 +2437,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 5. Save the new session's history (which now contains one entry).
                     sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
+
+                    // Initialize empty task list for the new session and persist
+                    this.taskList = new TaskList.TaskListData(List.of());
+                    sessionManager.writeTaskList(this.currentSessionId, toUiTaskList(this.taskList));
 
                     // 6. Notify UI about the context change.
                     notifyContextListeners(topContext());
@@ -2284,6 +2518,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } else {
             updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
+
+            // Load task list for the switched session
+            loadTaskListForSession(sessionId);
         }
         notifyContextListeners(topContext());
         io.updateContextHistoryTable(topContext());

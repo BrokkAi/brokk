@@ -9,6 +9,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+
+import io.github.jbellis.brokk.gui.terminal.TaskListPanel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,8 +46,8 @@ class SessionManagerTaskListLifecycleTest {
         SessionManager sm = project.getSessionManager();
 
         // Prepare a canonical task list payload
-        TaskListData data =
-                new TaskListData(List.of(new TaskListEntryDto("do A", false), new TaskListEntryDto("do B", true)));
+        TaskListPanel.TaskListData data =
+                new TaskListPanel.TaskListData(List.of(new TaskListPanel.TaskItem("do A", false), new TaskListPanel.TaskItem("do B", true)));
 
         // 1) Create original session and write a tasklist.json inside its zip
         SessionManager.SessionInfo s1 = sm.newSession("Origin");
@@ -53,7 +55,7 @@ class SessionManagerTaskListLifecycleTest {
         sm.writeTaskList(s1Id, data).get(5, TimeUnit.SECONDS);
 
         // Sanity: can read it back from the SessionManager API
-        TaskListData readS1 = sm.readTaskList(s1Id).get(5, TimeUnit.SECONDS);
+        TaskListPanel.TaskListData readS1 = sm.readTaskList(s1Id).get(5, TimeUnit.SECONDS);
         assertEquals(data.tasks().size(), readS1.tasks().size());
         assertEquals(data.tasks().get(0).text(), readS1.tasks().get(0).text());
         assertEquals(data.tasks().get(1).done(), readS1.tasks().get(1).done());
@@ -71,7 +73,7 @@ class SessionManagerTaskListLifecycleTest {
         assertEventually(() -> assertTrue(Files.exists(s2Zip), "Copied session zip should exist"));
 
         // Read via API and verify content equals
-        TaskListData readS2 = sm.readTaskList(s2Id).get(5, TimeUnit.SECONDS);
+        TaskListPanel.TaskListData readS2 = sm.readTaskList(s2Id).get(5, TimeUnit.SECONDS);
         assertEquals(data.tasks().size(), readS2.tasks().size());
         for (int i = 0; i < data.tasks().size(); i++) {
             assertEquals(data.tasks().get(i).text(), readS2.tasks().get(i).text());
@@ -84,7 +86,7 @@ class SessionManagerTaskListLifecycleTest {
         // Deletion happens on executor; wait until zip is gone
         assertEventually(() -> assertFalse(Files.exists(s1Zip), "Original session zip should be deleted"));
         // API should now return empty task list since the zip is gone
-        TaskListData afterDelete = sm.readTaskList(s1Id).get(5, TimeUnit.SECONDS);
+        TaskListPanel.TaskListData afterDelete = sm.readTaskList(s1Id).get(5, TimeUnit.SECONDS);
         assertTrue(afterDelete.tasks().isEmpty(), "Reading deleted session should return empty task list");
 
         // 4) moveSessionToUnreadable: move the copied session and verify tasklist.json moved intact
@@ -98,7 +100,7 @@ class SessionManagerTaskListLifecycleTest {
         assertFalse(Files.exists(s2Zip), "Copied session zip should be moved out of sessions root");
 
         // Manually open moved zip and verify tasklist.json content equals original "data"
-        TaskListData movedData = readTaskListDirect(movedZip);
+        TaskListPanel.TaskListData movedData = readTaskListDirect(movedZip);
         assertNotNull(movedData, "Moved task list should be readable");
         assertEquals(data.tasks().size(), movedData.tasks().size());
         for (int i = 0; i < data.tasks().size(); i++) {
@@ -128,14 +130,14 @@ class SessionManagerTaskListLifecycleTest {
     }
 
     /** Low-level helper: read tasklist.json directly from a given session zip path. */
-    private static TaskListData readTaskListDirect(Path zipPath) throws IOException {
+    private static TaskListPanel.TaskListData readTaskListDirect(Path zipPath) throws IOException {
         try (var fs = FileSystems.newFileSystem(zipPath, java.util.Map.of())) {
             Path tasklist = fs.getPath("tasklist.json");
             if (!Files.exists(tasklist)) {
-                return new TaskListData(List.of());
+                return new TaskListPanel.TaskListData(List.of());
             }
             String json = Files.readString(tasklist);
-            return AbstractProject.objectMapper.readValue(json, TaskListData.class);
+            return AbstractProject.objectMapper.readValue(json, TaskListPanel.TaskListData.class);
         }
     }
 }

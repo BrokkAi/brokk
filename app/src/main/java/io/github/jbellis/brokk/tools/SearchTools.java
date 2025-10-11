@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.ContextManager;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Predicate;
@@ -826,11 +827,15 @@ public class SearchTools {
         }
 
         var io = contextManager.getIo();
-        // Append tasks to Task List Panel (if running in Chrome UI)
-        try {
-            ((Chrome) io).appendTasksToTaskList(tasks);
-        } catch (ClassCastException ignored) {
-            // Not running in Chrome UI; skip appending
+        // Append tasks to Task List:
+        // - Prefer Chrome UI when present (for immediate UI updates),
+        // - Otherwise fall back to concrete ContextManager for headless mode.
+        if (io instanceof Chrome chrome) {
+            chrome.appendTasksToTaskList(tasks);
+        } else if (contextManager instanceof ContextManager cm) {
+            cm.appendTasksToTaskList(tasks);
+        } else {
+            logger.warn("No supported UI or ContextManager implementation available; skipping appending tasks to Task List.");
         }
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,

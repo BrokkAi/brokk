@@ -20,6 +20,8 @@ import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflow;
+import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
@@ -115,10 +117,10 @@ public final class BrokkCli implements Callable<Integer> {
     private String searchAnswerPrompt;
 
     @CommandLine.Option(
-            names = "--search-tasks",
-            description = "Run Search agent to produce a task list for the given prompt.")
+            names = "--lutz",
+            description = "Research and execute a set of tasks to accomplish the given prompt")
     @Nullable
-    private String searchTasksPrompt;
+    private String lutzPrompt;
 
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
@@ -157,7 +159,7 @@ public final class BrokkCli implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         // --- Action Validation ---
-        long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, searchTasksPrompt)
+        long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
                 .filter(p -> p != null && !p.isBlank())
                 .count();
         if (merge) actionCount++;
@@ -178,7 +180,7 @@ public final class BrokkCli implements Callable<Integer> {
                 System.err.println("For the --code action, specify at most one of --model or --codemodel.");
                 return 1;
             }
-        } else if (askPrompt != null || searchAnswerPrompt != null || searchTasksPrompt != null) {
+        } else if (askPrompt != null || searchAnswerPrompt != null || lutzPrompt != null) {
             if (codeModelName != null) {
                 System.err.println("--codemodel is not valid with --ask or --search actions.");
                 return 1;
@@ -191,7 +193,7 @@ public final class BrokkCli implements Callable<Integer> {
             codePrompt = maybeLoadFromFile(codePrompt);
             askPrompt = maybeLoadFromFile(askPrompt);
             searchAnswerPrompt = maybeLoadFromFile(searchAnswerPrompt);
-            searchTasksPrompt = maybeLoadFromFile(searchTasksPrompt);
+            lutzPrompt = maybeLoadFromFile(lutzPrompt);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
@@ -312,7 +314,7 @@ public final class BrokkCli implements Callable<Integer> {
                     ContextFragment.getSummary(cm.topContext().allFragments()));
 
             String goalForScan = Stream.of(
-                            architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, searchTasksPrompt)
+                            architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
                     .filter(s -> s != null && !s.isBlank())
                     .findFirst()
                     .orElseThrow();
@@ -363,7 +365,7 @@ public final class BrokkCli implements Callable<Integer> {
         } else if (searchAnswerPrompt != null) {
             scopeInput = requireNonNull(searchAnswerPrompt);
         } else { // searchTasksPrompt != null
-            scopeInput = requireNonNull(searchTasksPrompt);
+            scopeInput = requireNonNull(lutzPrompt);
         }
 
         try (var scope = cm.beginTask(scopeInput, false)) {
@@ -416,9 +418,54 @@ public final class BrokkCli implements Callable<Integer> {
                 } else { // searchTasksPrompt != null
                     var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
                     var agent = new SearchAgent(
-                            requireNonNull(searchTasksPrompt), cm, searchModel, EnumSet.of(Terminal.TASK_LIST));
+                            requireNonNull(lutzPrompt), cm, searchModel, EnumSet.of(Terminal.TASK_LIST));
                     result = agent.execute();
                     scope.append(result);
+
+                    // Execute pending tasks sequentially
+                    var tasksData = cm.getTaskList();
+                    var pendingTasks = tasksData.tasks().stream().filter(t -> !t.done()).toList();
+
+                    if (!pendingTasks.isEmpty()) {
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Executing " + pendingTasks.size() + " task"
+                                        + (pendingTasks.size() == 1 ? "" : "s") + " from Task List...");
+
+                        var gw = new GitWorkflow(cm);
+                        for (var task : pendingTasks) {
+                            io.showNotification(
+                                    IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
+
+                            // Execute without internal auto-commit (we handle commit locally); compress history afterwards
+                            var taskResult = cm.executeTask(task, false, true);
+                            scope.append(taskResult);
+                            result = taskResult; // Track last result for final status check
+
+                            if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                                io.toolError(
+                                        taskResult.stopDetails().explanation(),
+                                        "Task failed: " + task.text());
+                                break; // Stop on first failure
+                            }
+
+                            // Local auto-commit: commit files currently in context
+                            var filesToCommit = new java.util.ArrayList<>(cm.getFilesInContext());
+                            if (!filesToCommit.isEmpty()) {
+                                var message = gw.suggestCommitMessage(filesToCommit);
+                                var commit = gw.commit(filesToCommit, message);
+                                io.showNotification(
+                                        IConsoleIO.NotificationRole.INFO,
+                                        "Committed: " + commit.firstLine() + " (" + commit.commitId() + ")");
+                            } else {
+                                io.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "No files to commit for this task.");
+                            }
+                        }
+                    } else {
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
+                    }
                 }
             } catch (Throwable th) {
                 io.toolError(getStackTrace(th), "Internal error: " + th.getMessage());
