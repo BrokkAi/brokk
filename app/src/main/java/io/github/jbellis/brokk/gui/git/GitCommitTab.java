@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.ConflictInspector;
 import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -26,7 +25,6 @@ import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -703,21 +701,13 @@ public class GitCommitTab extends JPanel {
                     getRepo().forceRemoveFiles(newFiles);
                 }
 
-                // 7. Create a task result for the activity history.
+                // 7. Create a new context history entry for the rollback action.
                 String fileList = GitUiUtil.formatFileList(selectedFiles);
                 var rollbackDescription =
                         otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
-                var taskResult = new TaskResult(
-                        rollbackDescription,
-                        new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
-                        new HashSet<>(selectedFiles),
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+                contextManager.pushContext(ctx -> ctx.withParsedOutput(null, rollbackDescription));
 
-                try (var scope = contextManager.beginTask(rollbackDescription, false)) {
-                    scope.append(taskResult);
-                }
-
-                // 9. Now that the context is pushed, add the EntryInfo for the deleted files.
+                // 8. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {
                     var contextHistory = contextManager.getContextHistory();
                     var frozenContext = contextHistory.topContext();
@@ -729,7 +719,7 @@ public class GitCommitTab extends JPanel {
                             .saveHistory(contextHistory, contextManager.getCurrentSessionId());
                 }
 
-                // 10. Drop the "other" files that were not originally in the workspace.
+                // 9. Drop the "other" files that were not originally in the workspace.
                 var otherFilesToDrop = filesNotInWorkspace.stream()
                         .filter(otherFiles::contains)
                         .collect(Collectors.toSet());
@@ -745,7 +735,7 @@ public class GitCommitTab extends JPanel {
                     }
                 }
 
-                // 11. Update UI on EDT.
+                // 10. Update UI on EDT.
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);

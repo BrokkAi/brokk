@@ -5,9 +5,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.FileSystemEventListener;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
@@ -337,15 +335,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     String fileList =
                             filesToDelete.stream().map(Object::toString).collect(Collectors.joining(", "));
                     var description = "Deleted " + fileList;
-                    var taskResult = new TaskResult(
-                            description,
-                            new ContextFragment.TaskFragment(contextManager, List.of(), description),
-                            new HashSet<>(filesToDelete),
-                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-
-                    try (var scope = contextManager.beginTask("", false)) {
-                        scope.append(taskResult);
-                    }
+                    contextManager.pushContext(ctx -> ctx.withParsedOutput(null, description));
 
                     if (!deletedInfos.isEmpty()) {
                         var contextHistory = contextManager.getContextHistory();
