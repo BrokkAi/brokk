@@ -17,7 +17,6 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -800,7 +799,6 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 .collect(Collectors.toSet());
         return files.stream().anyMatch(pf -> exts.contains(pf.extension()));
     }
-
 
     /**
      * Checks if the system clipboard contains files that can be pasted.

@@ -8,24 +8,24 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
+import io.github.jbellis.brokk.util.FileManagerUtil;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.io.IOException;
-import java.nio.file.Files;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
-import io.github.jbellis.brokk.util.FileManagerUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -608,7 +608,6 @@ public class ContextMenuBuilder {
         });
     }
 
-
     private void openInFileManager(FileMenuContext context) {
         var files = context.files();
         if (files.isEmpty()) {
@@ -630,8 +629,8 @@ public class ContextMenuBuilder {
                 FileManagerUtil.revealPath(target);
             } catch (IOException | UnsupportedOperationException ex) {
                 logger.warn("Failed to open file manager for {}: {}", target, ex.getMessage());
-                SwingUtilities.invokeLater(() ->
-                        context.chrome().toolError("Failed to open file manager: " + ex.getMessage(), "Open in File Manager"));
+                SwingUtilities.invokeLater(() -> context.chrome()
+                        .toolError("Failed to open file manager: " + ex.getMessage(), "Open in File Manager"));
             }
         });
     }

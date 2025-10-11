@@ -1,8 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.awt.Desktop;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -10,16 +7,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Utility class for interacting with the operating system's file manager.
  *
- * Cross-platform "reveal path in file manager" behavior:
- * - Windows: explorer /select,<file> for files; explorer <dir> for directories
- * - macOS: open -R <file> for files; open <dir> for directories
- * - Linux: xdg-open <dir>; fall back to Desktop API if needed
+ * <p>Cross-platform "reveal path in file manager" behavior: - Windows: explorer /select,<file> for files; explorer
+ * <dir> for directories - macOS: open -R <file> for files; open <dir> for directories - Linux: xdg-open <dir>; fall
+ * back to Desktop API if needed
  *
- * Callers should invoke this off the EDT and map exceptions to user-facing notifications.
+ * <p>Callers should invoke this off the EDT and map exceptions to user-facing notifications.
  */
 public final class FileManagerUtil {
     private static final Logger logger = LogManager.getLogger(FileManagerUtil.class);
@@ -29,10 +27,8 @@ public final class FileManagerUtil {
     }
 
     /**
-     * Returns an OS-aware label for opening a path in the system file manager.
-     * - Windows: "Open in Explorer"
-     * - macOS: "Reveal in Finder"
-     * - Linux: "Open in File Manager"
+     * Returns an OS-aware label for opening a path in the system file manager. - Windows: "Open in Explorer" - macOS:
+     * "Reveal in Finder" - Linux: "Open in File Manager"
      */
     public static String fileManagerActionLabel() {
         if (Environment.isWindows()) return "Open in Explorer";
@@ -40,19 +36,14 @@ public final class FileManagerUtil {
         return "Open in File Manager";
     }
 
-    /**
-     * Returns an OS-aware tooltip for opening a path in the system file manager.
-     */
+    /** Returns an OS-aware tooltip for opening a path in the system file manager. */
     public static String fileManagerActionTooltip() {
         if (Environment.isWindows()) return "Open in Windows Explorer";
         if (Environment.isMacOs()) return "Reveal in Finder";
         return "Open in your system file manager";
     }
 
-    /**
-     * Build the Windows explorer command for the given path.
-     * Package-private for unit testing.
-     */
+    /** Build the Windows explorer command for the given path. Package-private for unit testing. */
     static List<String> buildWindowsCommand(Path path) throws IOException {
         var absolute = path.toAbsolutePath();
         var pathString = absolute.toString();
@@ -71,10 +62,7 @@ public final class FileManagerUtil {
         return command;
     }
 
-    /**
-     * Build the macOS 'open' command for the given path.
-     * Package-private for unit testing.
-     */
+    /** Build the macOS 'open' command for the given path. Package-private for unit testing. */
     static List<String> buildMacOsCommand(Path path) throws IOException {
         var absolute = path.toAbsolutePath();
         var pathString = absolute.toString();
@@ -95,9 +83,8 @@ public final class FileManagerUtil {
     }
 
     /**
-     * Resolve the target directory to open on Linux.
-     * If a file is given, returns its parent; if a directory is given, returns the directory itself.
-     * Package-private for unit testing.
+     * Resolve the target directory to open on Linux. If a file is given, returns its parent; if a directory is given,
+     * returns the directory itself. Package-private for unit testing.
      */
     static Path resolveLinuxTargetPath(Path path) throws IOException {
         var absolute = path.toAbsolutePath();
@@ -113,10 +100,7 @@ public final class FileManagerUtil {
         }
     }
 
-    /**
-     * Build the Linux xdg-open command for the given path.
-     * Package-private for unit testing.
-     */
+    /** Build the Linux xdg-open command for the given path. Package-private for unit testing. */
     static List<String> buildLinuxXdgOpenCommand(Path path) throws IOException {
         var target = resolveLinuxTargetPath(path);
         var command = List.of("xdg-open", target.toString());
@@ -201,8 +185,10 @@ public final class FileManagerUtil {
                             stdout);
                 }
             } catch (IOException | InterruptedException e) {
-                logger.warn("xdg-open failed or was interrupted for {}. Error: {}. Attempting Desktop API fallback.",
-                        openTarget, e.getMessage());
+                logger.warn(
+                        "xdg-open failed or was interrupted for {}. Error: {}. Attempting Desktop API fallback.",
+                        openTarget,
+                        e.getMessage());
                 // fall through to Desktop API
             }
 
@@ -214,13 +200,15 @@ public final class FileManagerUtil {
                     logger.info("Successfully opened path with Desktop API: {}", openTarget);
                     return;
                 } catch (IOException | UnsupportedOperationException desktopEx) {
-                    var msg = "Failed to open path " + openTarget + " using Desktop API. Error: " + desktopEx.getMessage();
+                    var msg = "Failed to open path " + openTarget + " using Desktop API. Error: "
+                            + desktopEx.getMessage();
                     logger.error(msg, desktopEx);
                     throw new IOException(msg, desktopEx);
                 }
             }
 
-            var msg = "Unsupported operation on Linux: cannot open path " + openTarget + " with xdg-open or Desktop API.";
+            var msg =
+                    "Unsupported operation on Linux: cannot open path " + openTarget + " with xdg-open or Desktop API.";
             logger.error(msg);
             throw new IOException(msg);
         } else {
@@ -232,7 +220,8 @@ public final class FileManagerUtil {
 
     private static String readProcessStream(java.io.InputStream inputStream) {
         var lines = new ArrayList<String>();
-        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+        try (var reader =
+                new java.io.BufferedReader(new java.io.InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 lines.add(line);
