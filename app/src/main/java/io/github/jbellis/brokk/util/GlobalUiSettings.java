@@ -40,6 +40,7 @@ public final class GlobalUiSettings {
     private static final String KEY_DIFF_SHOW_BLANK_LINES = "diff.showBlankLines";
     private static final String KEY_DIFF_SHOW_ALL_LINES = "diff.showAllLines";
     private static final String KEY_DIFF_SHOW_BLAME = "diff.showBlame";
+    private static final String KEY_DIFF_FONT_SIZE = "diff.fontSize";
     private static final String KEYBIND_PREFIX = "keybinding.";
     private static final String KEY_SHOW_COST_NOTIFICATIONS = "notifications.cost.enabled";
     private static final String KEY_SHOW_ERROR_NOTIFICATIONS = "notifications.error.enabled";
@@ -277,6 +278,24 @@ public final class GlobalUiSettings {
 
     public static void saveDiffShowBlame(boolean show) {
         setBoolean(KEY_DIFF_SHOW_BLAME, show);
+    }
+
+    public static float getDiffFontSize() {
+        var props = loadProps();
+        var raw = props.getProperty(KEY_DIFF_FONT_SIZE);
+        if (raw == null || raw.isBlank()) return -1.0f;
+        try {
+            return Float.parseFloat(raw.trim());
+        } catch (Exception e) {
+            return -1.0f;
+        }
+    }
+
+    public static void saveDiffFontSize(float fontSize) {
+        if (fontSize <= 0) return;
+        var props = loadProps();
+        props.setProperty(KEY_DIFF_FONT_SIZE, Float.toString(fontSize));
+        saveProps(props);
     }
 
     // Cost notifications preference (default: true)

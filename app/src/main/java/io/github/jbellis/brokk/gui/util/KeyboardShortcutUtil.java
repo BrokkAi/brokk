@@ -150,4 +150,23 @@ public class KeyboardShortcutUtil {
     public static void registerCloseEscapeShortcut(JComponent component, Runnable closeAction) {
         registerGlobalShortcut(component, createEscape(), "close", closeAction);
     }
+
+    /**
+     * Format a KeyStroke into a human-readable short string such as "Ctrl+M" or "Meta+Enter". Falls back to
+     * KeyStroke.toString() on error.
+     */
+    public static String formatKeyStroke(KeyStroke ks) {
+        try {
+            int modifiers = ks.getModifiers();
+            int keyCode = ks.getKeyCode();
+            String modText = InputEvent.getModifiersExText(modifiers);
+            String keyText = KeyEvent.getKeyText(keyCode);
+            if (modText == null || modText.isBlank()) {
+                return keyText;
+            }
+            return modText + "+" + keyText;
+        } catch (Exception e) {
+            return ks.toString();
+        }
+    }
 }
