@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.util.FileManagerUtil;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -287,6 +288,42 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             });
             contextMenu.add(summarizeItem);
         }
+
+        var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
+        openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
+        Path openTarget;
+        if (!bulk && targetFiles.size() == 1) {
+            openTarget = targetFiles.getFirst().absPath();
+        } else {
+            openTarget = getTargetDirectoryFromSelection();
+        }
+        final Path finalOpenTarget = openTarget;
+        openInItem.setEnabled(finalOpenTarget != null && Files.exists(finalOpenTarget));
+        openInItem.addActionListener(ev -> {
+            if (finalOpenTarget == null || !Files.exists(finalOpenTarget)) {
+                chrome.toolError("Selected path no longer exists: "
+                        + (finalOpenTarget == null ? "<unknown>" : finalOpenTarget.toAbsolutePath()));
+                return;
+            }
+            SwingWorker<Void, Void> worker = new SwingWorker<>() {
+                @Override
+                protected Void doInBackground() throws Exception {
+                    FileManagerUtil.revealPath(finalOpenTarget);
+                    return null;
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        get(); // propagate any exception from doInBackground
+                    } catch (Exception ex) {
+                        chrome.toolError("Failed to open file manager: " + ex.getMessage());
+                    }
+                }
+            };
+            worker.execute();
+        });
+        contextMenu.add(openInItem);
 
         contextMenu.addSeparator();
 
