@@ -356,10 +356,11 @@ public class CreatePullRequestDialog extends JDialog {
                         this.mergeBaseCommit);
 
                 // Check if source branch needs push (for UI indicator)
-                boolean needsPush = gitRepo.branchNeedsPush(sourceBranch);
+                boolean needsPush = gitRepo.remote().branchNeedsPush(sourceBranch);
                 final int unpushedCount;
                 if (needsPush) {
-                    unpushedCount = gitRepo.getUnpushedCommitIds(sourceBranch).size();
+                    unpushedCount =
+                            gitRepo.remote().getUnpushedCommitIds(sourceBranch).size();
                 } else {
                     unpushedCount = 0;
                 }

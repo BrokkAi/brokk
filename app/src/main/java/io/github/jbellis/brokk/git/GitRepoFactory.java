@@ -1,14 +1,6 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.MainProject;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
-import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -17,6 +9,13 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+import org.jetbrains.annotations.Nullable;
 
 public class GitRepoFactory {
     private static final Logger logger = LogManager.getLogger(GitRepoFactory.class);
@@ -95,8 +94,7 @@ public class GitRepoFactory {
         return cloneRepo(() -> MainProject.getGitHubToken(), remoteUrl, directory, depth);
     }
 
-    static GitRepo cloneRepo(
-            Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
+    static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
             throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
@@ -120,7 +118,7 @@ public class GitRepoFactory {
                     cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
                 } else {
                     throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                                                                    + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
                 }
             }
 
@@ -151,16 +149,11 @@ public class GitRepoFactory {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
-        return cloneRepo(
-                MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag);
+        return cloneRepo(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag);
     }
 
     static GitRepo cloneRepo(
-            Supplier<String> tokenSupplier,
-            String remoteUrl,
-            Path directory,
-            int depth,
-            @Nullable String branchOrTag)
+            Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
@@ -184,7 +177,7 @@ public class GitRepoFactory {
                     cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
                 } else {
                     throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                                                                    + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
                 }
             }
 

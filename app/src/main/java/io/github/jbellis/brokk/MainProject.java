@@ -731,7 +731,7 @@ public final class MainProject extends AbstractProject {
     public boolean isGitHubRepo() {
         if (!hasGit()) return false; // hasGit from AbstractProject
         var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
-        String remoteUrl = gitRepo.getRemoteUrl("origin");
+        String remoteUrl = gitRepo.remote().getUrl("origin");
         if (remoteUrl == null || remoteUrl.isBlank()) return false;
         return remoteUrl.contains("github.com");
     }

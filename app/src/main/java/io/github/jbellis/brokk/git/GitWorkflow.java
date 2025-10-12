@@ -99,7 +99,8 @@ public final class GitWorkflow {
             return new PushPullState(false, false, false, Set.of());
         }
         boolean hasUpstream = repo.hasUpstreamBranch(branch);
-        Set<String> unpushedCommitIds = hasUpstream ? repo.getUnpushedCommitIds(branch) : new HashSet<>();
+        Set<String> unpushedCommitIds;
+        unpushedCommitIds = hasUpstream ? repo.remote().getUnpushedCommitIds(branch) : new HashSet<String>();
         boolean canPull = hasUpstream;
         boolean canPush = hasUpstream
                 && !unpushedCommitIds.isEmpty(); // Can only push if there's an upstream and unpushed commits
@@ -120,7 +121,7 @@ public final class GitWorkflow {
         }
 
         if (repo.hasUpstreamBranch(branch)) {
-            repo.push(branch);
+            repo.remote().push(branch);
             return "Pushed " + branch;
         } else {
             // Check if there are any commits to push before setting upstream.
@@ -130,7 +131,7 @@ public final class GitWorkflow {
             if (repo.listCommitsDetailed(branch).isEmpty()) {
                 return "Branch " + branch + " is empty. Nothing to push.";
             }
-            repo.pushAndSetRemoteTracking(branch, "origin");
+            repo.remote().pushAndSetRemoteTracking(branch, "origin");
             return "Pushed " + branch + " and set upstream to origin/" + branch;
         }
     }
@@ -146,7 +147,8 @@ public final class GitWorkflow {
         if (!repo.hasUpstreamBranch(branch)) {
             throw new GitOperationException("Branch '" + branch + "' has no upstream branch configured for pull.");
         }
-        repo.pull(); // Assumes pull on current branch is intended if branchName matches
+        // Assumes pull on current branch is intended if branchName matches
+        repo.remote().pull();
         return "Pulled " + branch;
     }
 
@@ -157,6 +159,7 @@ public final class GitWorkflow {
         return new BranchDiff(commits, files, merge);
     }
 
+    @SuppressWarnings("unused")
     @Tool("Suggest pull request title and description based on the changes")
     public void suggestPrDetails(
             @P("Brief PR title (12 words or fewer)") String title,
@@ -225,7 +228,7 @@ public final class GitWorkflow {
     /** Pushes branch if needed and opens a PR. Returns the PR url. */
     public URI createPullRequest(String source, String target, String title, String body) throws Exception {
         // 1. Ensure branch is pushed
-        if (repo.branchNeedsPush(source)) {
+        if (repo.remote().branchNeedsPush(source)) {
             push(source);
         }
 

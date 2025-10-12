@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepoFactory;
+import io.github.jbellis.brokk.git.GitRepoRemote;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -426,7 +427,7 @@ public class ImportDependencyDialog {
                     final String finalUrl = normalizedUrl;
                     SwingUtilities.invokeLater(() -> requireNonNull(gitUrlField).setText(finalUrl));
 
-                    var info = GitRepo.listRemoteRefs(finalUrl);
+                    var info = GitRepoRemote.listRemoteRefs(finalUrl);
                     this.remoteInfo = info;
 
                     SwingUtilities.invokeLater(() -> {

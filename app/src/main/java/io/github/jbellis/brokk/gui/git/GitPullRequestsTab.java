@@ -1858,7 +1858,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             try {
                 var repo = getRepo();
                 repo.checkout(localBranchName);
-                repo.pull(); // Pull changes from its tracked upstream
+                // Pull changes from its tracked upstream
+                repo.remote().pull();
 
                 SwingUtilities.invokeLater(() -> {
                     gitLogTab.update();
