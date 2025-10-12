@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
 import io.github.jbellis.brokk.util.AtomicWrites;
@@ -45,7 +46,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepo.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();

@@ -7,6 +7,7 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.MenuBar;
@@ -300,7 +301,7 @@ public class Brokk {
                     if (!isValidDirectory(p)) logger.warn("Skipping invalid path: {}", p);
                 })
                 .collect(Collectors.partitioningBy(p -> {
-                    if (GitRepo.hasGitRepo(p)) {
+                    if (GitRepoFactory.hasGitRepo(p)) {
                         try (GitRepo tempR = new GitRepo(p)) {
                             return tempR.isWorktree();
                         } catch (Exception e) {
@@ -331,7 +332,7 @@ public class Brokk {
 
         for (Path worktreePath : worktreePaths) {
             MainProject parentProject = null;
-            if (GitRepo.hasGitRepo(worktreePath)) { // Redundant check, but safe
+            if (GitRepoFactory.hasGitRepo(worktreePath)) { // Redundant check, but safe
                 try (GitRepo wtRepo = new GitRepo(worktreePath)) { // isWorktree already confirmed by partitioning
                     Path gitTopLevel = wtRepo.getGitTopLevel();
                     parentProject = (MainProject) findOpenProjectByPath(gitTopLevel);
@@ -929,7 +930,7 @@ public class Brokk {
                 if (response == JOptionPane.YES_OPTION) {
                     try {
                         logger.info("Initializing Git repository at {}...", project.getRoot());
-                        io.github.jbellis.brokk.git.GitRepo.initRepo(project.getRoot());
+                        GitRepoFactory.initRepo(project.getRoot());
                         project = AbstractProject.createProject(projectPath, parent); // Re-create project
                         logger.info("Git repository initialized successfully at {}.", project.getRoot());
                     } catch (Exception e) {

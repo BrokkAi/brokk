@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -596,7 +597,7 @@ public class ImportDependencyDialog {
                         }
                     }
 
-                    GitRepo.cloneRepo(repoUrl, targetPath, 1, branchOrTag);
+                    GitRepoFactory.cloneRepo(repoUrl, targetPath, 1, branchOrTag);
 
                     CloneOperationTracker.createInProgressMarker(targetPath, repoUrl, branchOrTag);
                     CloneOperationTracker.registerCloneOperation(targetPath);

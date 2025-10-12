@@ -20,6 +20,7 @@ import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import java.io.IOException;
@@ -203,7 +204,7 @@ public final class BrokkCli implements Callable<Integer> {
             System.err.println("Project path is not a directory: " + projectPath);
             return 1;
         }
-        if (!GitRepo.hasGitRepo(projectPath)) {
+        if (!GitRepoFactory.hasGitRepo(projectPath)) {
             System.err.println("Brokk CLI requires to have a Git repo");
             return 1;
         }

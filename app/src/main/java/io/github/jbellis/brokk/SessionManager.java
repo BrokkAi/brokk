@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
@@ -618,7 +619,7 @@ public class SessionManager implements AutoCloseable {
             return Optional.empty();
         }
         Path masterRootPath;
-        if (GitRepo.hasGitRepo(worktreeRoot)) {
+        if (GitRepoFactory.hasGitRepo(worktreeRoot)) {
             try (var tempRepo = new GitRepo(worktreeRoot)) {
                 masterRootPath = tempRepo.getGitTopLevel();
             } catch (Exception e) {

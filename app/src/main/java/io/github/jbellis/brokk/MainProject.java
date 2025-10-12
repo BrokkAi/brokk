@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.Languages;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.mcp.McpConfig;
@@ -1516,7 +1517,7 @@ public final class MainProject extends AbstractProject {
         Path pathForRecentProjectsMap = projectDir;
         boolean isWorktree = false;
 
-        if (GitRepo.hasGitRepo(projectDir)) {
+        if (GitRepoFactory.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
@@ -1589,7 +1590,7 @@ public final class MainProject extends AbstractProject {
         Path mainProjectPathKey = projectDir;
         boolean isWorktree = false;
 
-        if (GitRepo.hasGitRepo(projectDir)) {
+        if (GitRepoFactory.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {

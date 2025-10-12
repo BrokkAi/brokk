@@ -13,6 +13,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -29,7 +31,7 @@ public class NonTextHeuristicResolverTest {
 
     @BeforeEach
     void setUp() throws GitAPIException, IOException {
-        GitRepo.initRepo(tempRepoDir);
+        GitRepoFactory.initRepo(tempRepoDir);
         repo = new GitRepo(tempRepoDir);
     }
 

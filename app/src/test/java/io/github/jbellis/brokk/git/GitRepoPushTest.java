@@ -201,7 +201,7 @@ public class GitRepoPushTest {
 
         // Attempt to clone GitHub HTTPS URL should fail with GitHubAuthenticationException
         assertThrows(GitHubAuthenticationException.class, () -> {
-            GitRepo.cloneRepo(() -> "", "https://github.com/test/repo.git", cloneDir, 0);
+            GitRepoFactory.cloneRepo(() -> "", "https://github.com/test/repo.git", cloneDir, 0);
         });
     }
 

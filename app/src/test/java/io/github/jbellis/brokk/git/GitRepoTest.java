@@ -1103,7 +1103,7 @@ public class GitRepoTest {
         Path cloneDir = tempDir.resolve("clone");
         GitRepo clonedRepo = null;
         try {
-            clonedRepo = GitRepo.cloneRepo(originDir.toUri().toString(), cloneDir, 1);
+            clonedRepo = GitRepoFactory.cloneRepo(originDir.toUri().toString(), cloneDir, 1);
 
             assertNotNull(clonedRepo, "Clone should return a GitRepo instance");
             assertEquals(
@@ -1175,7 +1175,7 @@ public class GitRepoTest {
         Path defaultCloneDir = tempDir.resolve("clone-default");
         GitRepo defaultClone = null;
         try {
-            defaultClone = GitRepo.cloneRepo(originUrl, defaultCloneDir, 0, null);
+            defaultClone = GitRepoFactory.cloneRepo(originUrl, defaultCloneDir, 0, null);
 
             assertEquals("master", defaultClone.getCurrentBranch());
             assertTrue(Files.exists(defaultCloneDir.resolve("README.md")));
@@ -1193,7 +1193,7 @@ public class GitRepoTest {
         Path branchCloneDir = tempDir.resolve("clone-feature");
         GitRepo branchClone = null;
         try {
-            branchClone = GitRepo.cloneRepo(originUrl, branchCloneDir, 0, "feature-branch");
+            branchClone = GitRepoFactory.cloneRepo(originUrl, branchCloneDir, 0, "feature-branch");
 
             assertEquals("feature-branch", branchClone.getCurrentBranch());
             assertTrue(Files.exists(branchCloneDir.resolve("README.md")));
@@ -1212,7 +1212,7 @@ public class GitRepoTest {
         Path tagCloneDir = tempDir.resolve("clone-tag");
         GitRepo tagClone = null;
         try {
-            tagClone = GitRepo.cloneRepo(originUrl, tagCloneDir, 0, "v1.0.0");
+            tagClone = GitRepoFactory.cloneRepo(originUrl, tagCloneDir, 0, "v1.0.0");
 
             // When cloning a tag, we're in detached HEAD state
             // The files should match the tag's commit (which was on feature-branch)
@@ -1234,11 +1234,11 @@ public class GitRepoTest {
         GitRepo threeParamClone = null;
         try {
             // Clone with 4 parameters (null branch)
-            equivalentClone = GitRepo.cloneRepo(originUrl, equivalentCloneDir, 1, null);
+            equivalentClone = GitRepoFactory.cloneRepo(originUrl, equivalentCloneDir, 1, null);
 
             // Clone with 3 parameters for comparison
             Path threeParamDir = tempDir.resolve("clone-three-param");
-            threeParamClone = GitRepo.cloneRepo(originUrl, threeParamDir, 1);
+            threeParamClone = GitRepoFactory.cloneRepo(originUrl, threeParamDir, 1);
 
             // Both should be on the same branch
             assertEquals(threeParamClone.getCurrentBranch(), equivalentClone.getCurrentBranch());

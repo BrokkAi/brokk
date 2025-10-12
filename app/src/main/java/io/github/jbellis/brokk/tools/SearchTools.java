@@ -16,7 +16,8 @@ import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
-import javax.swing.*;
+
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -555,7 +556,7 @@ public class SearchTools {
         }
 
         var projectRoot = contextManager.getProject().getRoot();
-        if (!GitRepo.hasGitRepo(projectRoot)) {
+        if (!GitRepoFactory.hasGitRepo(projectRoot)) {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
 

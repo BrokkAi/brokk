@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepoFactory;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
@@ -613,7 +613,7 @@ public class OpenProjectDialog extends JDialog {
             @Override
             protected Path doInBackground() throws Exception {
                 // Heavy-weight Git operation happens off the EDT
-                GitRepo.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
+                GitRepoFactory.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
                 return directory;
             }
 
