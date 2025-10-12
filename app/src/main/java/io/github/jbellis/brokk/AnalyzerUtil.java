@@ -47,27 +47,6 @@ public class AnalyzerUtil {
         return results;
     }
 
-    public static List<ProjectFile> combinedRankingFor(IProject project, Map<ProjectFile, Double> weightedSeeds) {
-        logger.trace("Computing relevant code unit ranking for {}", weightedSeeds);
-
-        List<IAnalyzer.FileRelevance> results;
-        try {
-            final GitRepo repo = (GitRepo) project.getRepo();
-            final int k = 3 * Context.MAX_AUTO_CONTEXT_FILES;
-            if (weightedSeeds.isEmpty()) {
-                results = GitDistance.getMostImportantFiles(repo, k);
-            } else {
-                results = GitDistance.getPMI(repo, weightedSeeds, k, false);
-            }
-        } catch (GitAPIException e) {
-            logger.error("Unable to calculate GitDistance PMI Ranking");
-            return List.of();
-        }
-
-        logger.trace("Code Unit Ranking results: {}", results);
-        return results.stream().map(IAnalyzer.FileRelevance::file).toList();
-    }
-
     public static Set<CodeUnit> coalesceInnerClasses(Set<CodeUnit> classes) {
         return classes.stream()
                 .filter(cu -> {

@@ -2,11 +2,13 @@ package io.github.jbellis.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
+import dev.langchain4j.agent.tool.P;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.Period;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +17,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /** Provides the logic to perform a Git-centric distance calculations for given type declarations. */
 public final class GitDistance {
@@ -84,13 +87,24 @@ public final class GitDistance {
      * @return a sorted list of files with relevance scores. If no seed weights are given,an empty result.
      */
     public static List<IAnalyzer.FileRelevance> getPMI(
-            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws GitAPIException {
+            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) {
 
         if (seedWeights.isEmpty()) {
             return List.of();
         }
 
-        return computePmiScores(repo, seedWeights, k, reversed);
+        try {
+            return computePmiScores(repo, seedWeights, k, reversed);
+        } catch (GitAPIException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static List<ProjectFile> getMostRelevantFilesTo(GitRepo repo, Collection<ProjectFile> seeds, int k) {
+        return getPMI(repo, seeds.stream().collect(Collectors.toMap(f -> f, f -> 1.0)), k, false)
+                .stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .toList();
     }
 
     /**
@@ -114,7 +128,8 @@ public final class GitDistance {
      * @param k the maximum number of files to return.
      * @return a sorted list of the most important files with their relevance scores.
      */
-    public static List<IAnalyzer.FileRelevance> getMostImportantFiles(GitRepo repo, int k) throws GitAPIException {
+    @VisibleForTesting
+    public static List<IAnalyzer.FileRelevance> getMostImportantFilesScored(GitRepo repo, int k) throws GitAPIException {
         var commits = repo.listCommitsDetailed(repo.getCurrentBranch());
         if (commits.isEmpty()) {
             return List.of();
@@ -129,12 +144,18 @@ public final class GitDistance {
                 .toList();
     }
 
+    public static List<ProjectFile> getMostImportantFiles(GitRepo repo, int k) throws GitAPIException {
+        return getMostImportantFilesScored(repo, k).stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .toList();
+    }
+
     /**
      * Sorts a collection of files by their importance using Git history analysis. The importance is determined by
      * analyzing change frequency and recency across the pooled commit histories of all provided files.
      *
      * <p>This method first collects all commits that modified any of the input files (in parallel), then applies the
-     * same time-weighted scoring algorithm as {@link #getMostImportantFiles} to rank them.
+     * same time-weighted scoring algorithm as {@link #getMostImportantFilesScored} to rank them.
      *
      * @param files the collection of files to sort by importance.
      * @param repo the Git repository wrapper.

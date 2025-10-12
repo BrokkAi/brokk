@@ -12,6 +12,8 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
+import io.github.jbellis.brokk.git.GitDistance;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.util.ContentDiffUtils;
@@ -183,13 +185,9 @@ public class Context {
     }
 
     /**
-     * 1) Gather all classes from each fragment. 2) Compute PageRank with those classes as seeds, requesting up to
-     * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.
+     * Returns the files from the git repo that are most relevant to this context, up to the specified limit.
      */
-    public SkeletonFragment buildAutoContext(int topK) throws InterruptedException {
-        IAnalyzer analyzer = contextManager.getAnalyzer();
-
-        // Collect ineligible sources from fragments not eligible for auto-context
+    public List<ProjectFile> getMostRelevantFiles(int topK) {
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
                 .flatMap(f -> f.files().stream())
@@ -209,21 +207,38 @@ public class Context {
                         Collectors.summingDouble(wf -> wf.weight)));
 
         if (weightedSeeds.isEmpty()) {
+            return List.of();
+        }
+
+        var pagerankResults = GitDistance.getPMI((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
+
+        return pagerankResults.stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .filter(file -> !ineligibleSources.contains(file))
+                .limit(topK)
+                .toList();
+    }
+
+    /**
+     * 1) Gather all classes from each fragment. 2) Compute PageRank with those classes as seeds, requesting up to
+     * 2*MAX_AUTO_CONTEXT_FILES 3) Return a SkeletonFragment constructed with the FQNs of the top results.
+     */
+    public SkeletonFragment buildAutoContext(int topK) throws InterruptedException {
+        IAnalyzer analyzer = contextManager.getAnalyzer();
+
+        var relevantFiles = getMostRelevantFiles(topK);
+        if (relevantFiles.isEmpty()) {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
 
-        var pagerankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
-
         List<String> targetFqns = new ArrayList<>();
-        for (var sourceFile : pagerankResults) {
-            boolean eligible = !ineligibleSources.contains(sourceFile);
-            if (!eligible) continue;
-
-            targetFqns.addAll(analyzer.getDeclarationsInFile(sourceFile).stream()
+        for (var sourceFile : relevantFiles) {
+            targetFqns.addAll(analyzer.topLevelCodeUnitsOf(sourceFile).stream()
                     .map(CodeUnit::fqName)
                     .toList());
             if (targetFqns.size() >= topK) break;
         }
+
         if (targetFqns.isEmpty()) {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         }
@@ -278,8 +293,7 @@ public class Context {
                 .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
 
         Stream<ContextFragment> editableVirtuals = fragments.stream()
-                .filter(f -> f.getType().isVirtual() && f.getType().isEditable())
-                .map(f -> (ContextFragment) f);
+                .filter(f -> f.getType().isVirtual() && f.getType().isEditable());
 
         return Streams.concat(
                 editableVirtuals, otherEditablePathFragments, sortedProjectFiles.map(ContextFragment.class::cast));

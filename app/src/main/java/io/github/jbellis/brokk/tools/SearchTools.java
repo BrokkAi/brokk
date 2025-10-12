@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
+import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
 import java.nio.file.Path;
 import java.util.*;
@@ -323,14 +324,13 @@ public class SearchTools {
         }
 
         // Create map of seeds from discovered units
-        HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
-        for (String fqcn : classNames) {
-            getAnalyzer().getFileFor(fqcn).ifPresent(f -> weightedSeeds.put(f, 1.0));
-        }
+        var sourceFiles = classNames.stream()
+                .map(fqcn -> getAnalyzer().getFileFor(fqcn))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toSet());
 
-        // roll our own ranking instead of using Context methods b/c we want BOTH the summaries AND an expanded class
-        // list
-        var pageRankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
+        var pageRankResults = GitDistance.getMostRelevantFilesTo((GitRepo) contextManager.getRepo(), sourceFiles, 20);
         if (pageRankResults.isEmpty()) {
             return "No related code found via PageRank for seeds: " + String.join(", ", classNames);
         }

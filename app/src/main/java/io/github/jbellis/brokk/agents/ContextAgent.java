@@ -20,7 +20,9 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
@@ -189,8 +191,7 @@ public class ContextAgent {
             candidates = cm.getProject().getAllFiles().stream().sorted().toList();
             logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
         } else {
-            var seeds = existingFiles.stream().collect(Collectors.toMap(f -> f, f -> 1.0, (v1, v2) -> v1));
-            candidates = AnalyzerUtil.combinedRankingFor(cm.getProject(), seeds).stream()
+            candidates = cm.topContext().getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
                     .filter(f -> !existingFiles.contains(f))
                     .sorted()
                     .toList();

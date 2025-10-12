@@ -50,7 +50,7 @@ public class GitDistanceMostImportantTest {
     @Test
     public void testMostImportantFiles() throws Exception {
         assertNotNull(testRepo, "GitRepo should be initialized");
-        var results = GitDistance.getMostImportantFiles(testRepo, 10);
+        var results = GitDistance.getMostImportantFilesScored(testRepo, 10);
         assertFalse(results.isEmpty(), "Results should not be empty");
 
         for (int i = 1; i < results.size(); i++) {
@@ -59,9 +59,9 @@ public class GitDistanceMostImportantTest {
         }
 
         var scores = results.stream()
-                .collect(Collectors.toMap(r -> r.file().getFileName().toString(), r -> r.score()));
+                .collect(Collectors.toMap(r -> r.file().getFileName(), r -> r.score()));
 
-        assertEquals("UserService.java", results.getFirst().file().getFileName().toString());
+        assertEquals("UserService.java", results.getFirst().file().getFileName());
 
         assertTrue(scores.containsKey("User.java"), "User.java should be in the results");
         assertTrue(
