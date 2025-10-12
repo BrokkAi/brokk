@@ -2,14 +2,11 @@ package io.github.jbellis.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
-import com.google.common.base.Splitter;
-import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.*;
@@ -64,8 +61,15 @@ public class GitRepo implements Closeable, IGitRepo {
     // New field holding remote-related helpers
     private final GitRepoRemote remote;
 
+    // New field holding worktree-related helpers
+    private final GitRepoWorktrees worktrees;
+
     public GitRepoRemote remote() {
         return remote;
+    }
+
+    public GitRepoWorktrees worktrees() {
+        return worktrees;
     }
 
     /**
@@ -118,6 +122,11 @@ public class GitRepo implements Closeable, IGitRepo {
         return repository;
     }
 
+    // package-private accessor for projectRoot for the extracted worktrees helper
+    Path getProjectRoot() {
+        return projectRoot;
+    }
+
     public GitRepo(Path projectRoot) {
         this(projectRoot, () -> io.github.jbellis.brokk.MainProject.getGitHubToken());
     }
@@ -135,6 +144,7 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             repository = builder.build();
             git = new Git(repository);
+            worktrees = new GitRepoWorktrees(this);
 
             // Check for GPG signing
             this.gpgPassPhrase = null; // TODO: Fetch from settings, vault, etc.
@@ -1716,7 +1726,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // Remember the original branch
         String originalBranch = getCurrentBranch();
         String tempBranchName = "temp-stash-branch-" + System.currentTimeMillis();
-        RevCommit stashId = null;
+        RevCommit stashId;
 
         try {
             // 2. Prepare index for temporary commit:
@@ -1804,61 +1814,6 @@ public class GitRepo implements Closeable, IGitRepo {
             index++;
         }
         return stashes;
-    }
-
-    /** Gets additional commits from a stash (index, untracked files) */
-    public Map<String, CommitInfo> listAdditionalStashCommits(String stashRef) throws GitAPIException {
-        Map<String, CommitInfo> additionalCommits = new HashMap<>();
-        var rev = resolve(stashRef);
-
-        try (var revWalk = new RevWalk(repository)) {
-            var commit = revWalk.parseCommit(rev);
-
-            // stash@{0} - main stash commit (merge).
-            // stash@{0}^1 - original HEAD
-            // stash@{0}^2 - index changes
-            // stash@{0}^3 - untracked changes (only if stash was created with -u / -a)
-
-            if (commit.getParentCount() < 2) {
-                logger.warn("Stash {} is not a merge commit, which is unexpected", stashRef);
-                return additionalCommits;
-            }
-
-            var headCommit = commit.getParent(0);
-            var indexCommit = commit.getParent(1);
-            revWalk.parseHeaders(headCommit);
-            revWalk.parseHeaders(indexCommit);
-
-            // Compare HEAD tree vs index tree
-            try (var diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
-                diffFormatter.setRepository(repository);
-                var diffs = diffFormatter.scan(headCommit.getTree(), indexCommit.getTree());
-                if (!diffs.isEmpty()) {
-                    // Use factory method
-                    additionalCommits.put("index", this.fromRevCommit(indexCommit));
-                }
-            }
-
-            // Check for untracked commit
-            if (commit.getParentCount() > 2) {
-                var untrackedCommit = commit.getParent(2);
-                revWalk.parseHeaders(untrackedCommit);
-                boolean hasFiles = false;
-                try (var treeWalk = new TreeWalk(repository)) {
-                    treeWalk.addTree(untrackedCommit.getTree());
-                    treeWalk.setRecursive(true);
-                    hasFiles = treeWalk.next();
-                }
-                if (hasFiles) {
-                    // Use factory method
-                    additionalCommits.put("untracked", this.fromRevCommit(untrackedCommit));
-                }
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
-
-        return additionalCommits;
     }
 
     /** Apply a stash to the working directory without removing it from the stash list */
@@ -2198,157 +2153,16 @@ public class GitRepo implements Closeable, IGitRepo {
 
     public record ListWorktreesResult(List<WorktreeInfo> worktrees, List<Path> invalidPaths) {}
 
-    public ListWorktreesResult listWorktreesAndInvalid() throws GitAPIException {
-        try {
-            var command = "git worktree list --porcelain";
-            var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-            var worktrees = new ArrayList<WorktreeInfo>();
-            var invalidPaths = new ArrayList<Path>();
-            var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output); // Split by any newline sequence
-
-            Path currentPath = null;
-            String currentHead = null;
-            String currentBranch = null;
-
-            for (var line : lines) {
-                if (line.startsWith("worktree ")) {
-                    // Finalize previous entry if data is present
-                    if (currentPath != null) {
-                        worktrees.add(new WorktreeInfo(currentPath, currentBranch, requireNonNull(currentHead)));
-                    }
-                    // Reset for next entry
-                    currentHead = null;
-                    currentBranch = null;
-
-                    var pathStr = line.substring("worktree ".length());
-                    try {
-                        currentPath = Path.of(pathStr).toRealPath();
-                    } catch (NoSuchFileException e) {
-                        logger.warn("Worktree path does not exist, scheduling for prune: {}", pathStr);
-                        invalidPaths.add(Path.of(pathStr));
-                        currentPath = null; // Mark as invalid for subsequent processing
-                    } catch (IOException e) {
-                        throw new GitRepoException("Failed to resolve worktree path: " + pathStr, e);
-                    }
-                } else if (line.startsWith("HEAD ")) {
-                    // Only process if current worktree path is valid
-                    if (currentPath != null) {
-                        currentHead = line.substring("HEAD ".length());
-                    }
-                } else if (line.startsWith("branch ")) {
-                    if (currentPath != null) {
-                        var branchRef = line.substring("branch ".length());
-                        if (branchRef.startsWith("refs/heads/")) {
-                            currentBranch = branchRef.substring("refs/heads/".length());
-                        } else {
-                            currentBranch = branchRef; // Should not happen with porcelain but good to be defensive
-                        }
-                    }
-                } else if (line.equals("detached")) {
-                    if (currentPath != null) {
-                        // Detached-HEAD worktree: branch remains null (WorktreeInfo.branch is @Nullable).
-                        currentBranch = null;
-                    }
-                }
-            }
-            // Add the last parsed worktree
-            if (currentPath != null) {
-                worktrees.add(new WorktreeInfo(currentPath, currentBranch, requireNonNull(currentHead)));
-            }
-            return new ListWorktreesResult(worktrees, invalidPaths);
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException("Failed to list worktrees: " + e.getOutput(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException("Listing worktrees was interrupted", e);
-        }
-    }
-
     /** Lists all worktrees in the repository. */
     @Override
     public List<WorktreeInfo> listWorktrees() throws GitAPIException {
-        return listWorktreesAndInvalid().worktrees();
+        return worktrees().listWorktrees();
     }
 
     /** Adds a new worktree at the specified path for the given branch. */
     @Override
     public void addWorktree(String branch, Path path) throws GitAPIException {
-        try {
-            // Ensure path is absolute for the command
-            var absolutePath = path.toAbsolutePath().normalize();
-
-            // Check if branch exists locally
-            List<String> localBranches = listLocalBranches();
-            String command;
-            if (localBranches.contains(branch)) {
-                // Branch exists, checkout the existing branch
-                command = String.format("git worktree add %s %s", absolutePath, branch);
-            } else {
-                // Branch doesn't exist, create a new one
-                command = String.format("git worktree add -b %s %s", branch, absolutePath);
-            }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-
-            // Recursively copy .brokk/dependencies from the project root into the new worktree
-            var sourceDependenciesDir = projectRoot.resolve(".brokk").resolve("dependencies");
-            if (!Files.exists(sourceDependenciesDir)) {
-                return;
-            }
-
-            // Ensure .brokk exists in the new worktree
-            var targetDependenciesDir = absolutePath.resolve(".brokk").resolve("dependencies");
-            Files.createDirectories(targetDependenciesDir.getParent());
-
-            // copy
-            Files.walkFileTree(sourceDependenciesDir, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                    var relative = sourceDependenciesDir.relativize(dir);
-                    var targetDir = targetDependenciesDir.resolve(relative);
-                    Files.createDirectories(targetDir);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    var relative = sourceDependenciesDir.relativize(file);
-                    var targetFile = targetDependenciesDir.resolve(relative);
-                    Files.copy(
-                            file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException(
-                    "Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
-        } catch (IOException e) {
-            throw new GitRepoException("Failed to copy dependencies", e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException("Adding worktree at " + path + " for branch " + branch + " was interrupted", e);
-        }
-    }
-
-    /**
-     * Adds a new detached worktree at the specified path, checked out to a specific commit.
-     *
-     * @param path The path where the new worktree will be created.
-     * @param commitId The commit SHA to check out in the new detached worktree.
-     * @throws GitAPIException if a Git error occurs.
-     */
-    public void addWorktreeDetached(Path path, String commitId) throws GitAPIException {
-        try {
-            var absolutePath = path.toAbsolutePath().normalize();
-            var command = String.format("git worktree add --detach %s %s", absolutePath, commitId);
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException(
-                    "Failed to add detached worktree at " + path + " for commit " + commitId + ": " + e.getOutput(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException(
-                    "Adding detached worktree at " + path + " for commit " + commitId + " was interrupted", e);
-        }
+        worktrees().addWorktree(branch, path);
     }
 
     /**
@@ -2361,72 +2175,19 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     @Override
     public void removeWorktree(Path path, boolean force) throws GitAPIException {
-        try {
-            var absolutePath = path.toAbsolutePath().normalize();
-            String command;
-            if (force) {
-                // Use double force as "git worktree lock" requires "remove -f -f" to override
-                command = String.format("git worktree remove --force --force %s", absolutePath)
-                        .trim();
-            } else {
-                command = String.format("git worktree remove %s", absolutePath).trim();
-            }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-            SessionRegistry.release(path);
-        } catch (Environment.SubprocessException e) {
-            String output = e.getOutput();
-            // If 'force' was false and the command failed because force is needed,
-            // throw WorktreeNeedsForceException
-            if (!force
-                    && (output.contains("use --force")
-                            || output.contains("not empty")
-                            || output.contains("dirty")
-                            || output.contains("locked working tree"))) {
-                throw new WorktreeNeedsForceException(
-                        "Worktree at " + path + " requires force for removal: " + output, e);
-            }
-            // Otherwise, throw a general GitRepoException
-            String failMessage = String.format(
-                    "Failed to remove worktree at %s%s: %s", path, (force ? " (with force)" : ""), output);
-            throw new GitRepoException(failMessage, e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            String interruptMessage =
-                    String.format("Removing worktree at %s%s was interrupted", path, (force ? " (with force)" : ""));
-            throw new GitRepoException(interruptMessage, e);
-        }
-    }
-
-    /**
-     * Prunes worktree metadata for worktrees that no longer exist. This is equivalent to `git worktree prune`.
-     *
-     * @throws GitAPIException if a Git error occurs.
-     */
-    public void pruneWorktrees() throws GitAPIException {
-        try {
-            var command = "git worktree prune";
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
-        } catch (Environment.SubprocessException e) {
-            throw new GitRepoException("Failed to prune worktrees: " + e.getOutput(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new GitRepoException("Pruning worktrees was interrupted", e);
-        }
+        worktrees().removeWorktree(path, force);
     }
 
     /** Returns true if this repository is a Git worktree. */
     @Override
     public boolean isWorktree() {
-        return Files.isRegularFile(repository.getWorkTree().toPath().resolve(".git"));
+        return worktrees().isWorktree();
     }
 
     /** Returns the set of branches that are checked out in worktrees. */
     @Override
     public Set<String> getBranchesInWorktrees() throws GitAPIException {
-        return listWorktrees().stream()
-                .map(WorktreeInfo::branch)
-                .filter((@Nullable var branch) -> branch != null && !branch.isEmpty())
-                .collect(Collectors.toSet());
+        return worktrees().getBranchesInWorktrees();
     }
 
     /**
@@ -2439,37 +2200,12 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     @Override
     public Path getNextWorktreePath(Path worktreeStorageDir) throws IOException {
-        Files.createDirectories(worktreeStorageDir); // Ensure base directory exists
-        int nextWorktreeNum = 1;
-        Path newWorktreePath;
-        while (true) {
-            Path potentialPath = worktreeStorageDir.resolve("wt" + nextWorktreeNum);
-            if (!Files.exists(potentialPath)) {
-                newWorktreePath = potentialPath;
-                break;
-            }
-            nextWorktreeNum++;
-        }
-        return newWorktreePath;
+        return worktrees().getNextWorktreePath(worktreeStorageDir);
     }
 
     @Override
     public boolean supportsWorktrees() {
-        try {
-            // Try to run a simple git command to check if git executable is available and working
-            Environment.instance.runShellCommand("git --version", gitTopLevel, output -> {}, Environment.GIT_TIMEOUT);
-            return true;
-        } catch (Environment.SubprocessException e) {
-            // This typically means git command failed, e.g., not found or permission issue
-            logger.warn(
-                    "Git executable not found or 'git --version' failed, disabling worktree support: {}",
-                    e.getMessage());
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Interrupted while checking for git executable, disabling worktree support", e);
-            return false;
-        }
+        return worktrees().supportsWorktrees();
     }
 
     @Override
