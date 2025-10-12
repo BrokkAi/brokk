@@ -195,16 +195,18 @@ public class Context {
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
 
-        // All file fragments have a weight of 1.0 each; virtuals share a weight of 1.0
-        HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
-        var fileFragments = fragments.stream().filter(f -> f.getType().isPath()).toList();
-        var virtuals = fragments.stream().filter(f -> f.getType().isVirtual()).toList();
+        record WeightedFile(ProjectFile file, double weight) {}
 
-        fileFragments.stream().flatMap(cf -> cf.files().stream()).forEach(f -> weightedSeeds.put(f, 1.0));
-        int virtualCount = Math.max(1, virtuals.size());
-        virtuals.stream()
-                .flatMap(cf -> cf.files().stream())
-                .forEach(f -> weightedSeeds.merge(f, 1.0 / virtualCount, Double::sum));
+        var weightedSeeds = fragments.stream()
+                .filter(f -> !f.files().isEmpty())
+                .flatMap(fragment -> {
+                    double weight = Math.sqrt(1.0 / fragment.files().size());
+                    return fragment.files().stream().map(file -> new WeightedFile(file, weight));
+                })
+                .collect(Collectors.groupingBy(
+                        wf -> wf.file,
+                        HashMap::new,
+                        Collectors.summingDouble(wf -> wf.weight)));
 
         if (weightedSeeds.isEmpty()) {
             return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
