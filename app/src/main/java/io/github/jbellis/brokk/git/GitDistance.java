@@ -120,6 +120,69 @@ public final class GitDistance {
             return List.of();
         }
 
+        var scores = computeImportanceScores(repo, commits);
+
+        return scores.entrySet().stream()
+                .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                .limit(k)
+                .toList();
+    }
+
+    /**
+     * Sorts a collection of files by their importance using Git history analysis. The importance is determined by
+     * analyzing change frequency and recency across the pooled commit histories of all provided files.
+     *
+     * <p>This method first collects all commits that modified any of the input files (in parallel), then applies the
+     * same time-weighted scoring algorithm as {@link #getMostImportantFiles} to rank them.
+     *
+     * @param files the collection of files to sort by importance.
+     * @param repo the Git repository wrapper.
+     * @return the input files sorted by importance (most important first).
+     */
+    public static List<ProjectFile> sortByImportance(java.util.Collection<ProjectFile> files, GitRepo repo)
+            throws GitAPIException {
+        if (files.isEmpty()) {
+            return List.of();
+        }
+
+        var allCommits = ConcurrentHashMap.<CommitInfo>newKeySet();
+        try (var pool = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()))) {
+            pool.submit(() -> files.parallelStream().forEach(file -> {
+                        try {
+                            var history = repo.getFileHistoryWithPaths(file);
+                            history.forEach(entry -> allCommits.add(entry.commit()));
+                        } catch (Exception e) {
+                            throw new RuntimeException("Error getting file history for: " + file, e);
+                        }
+                    }))
+                    .get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Error pooling file histories in parallel", e);
+        }
+
+        if (allCommits.isEmpty()) {
+            return List.of();
+        }
+
+        var commits = allCommits.stream()
+                .sorted((a, b) -> b.date().compareTo(a.date()))
+                .toList();
+
+        var scores = computeImportanceScores(repo, commits);
+
+        return files.stream()
+                .filter(scores::containsKey)
+                .sorted((a, b) -> Double.compare(requireNonNull(scores.get(b)), requireNonNull(scores.get(a))))
+                .toList();
+    }
+
+    private static Map<ProjectFile, Double> computeImportanceScores(GitRepo repo, List<CommitInfo> commits)
+            throws GitAPIException {
+        if (commits.isEmpty()) {
+            return Map.of();
+        }
+
         var t_latest = commits.getFirst().date();
         var halfLife = Duration.ofDays(30);
         double halfLifeMillis = halfLife.toMillis();
@@ -153,11 +216,7 @@ public final class GitDistance {
             throw new RuntimeException("Error computing file importance scores in parallel", e);
         }
 
-        return scores.entrySet().stream()
-                .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
-                .sorted((a, b) -> Double.compare(b.score(), a.score()))
-                .limit(k)
-                .toList();
+        return scores;
     }
 
     private static List<IAnalyzer.FileRelevance> computePmiScores(
