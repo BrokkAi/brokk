@@ -2287,8 +2287,8 @@ public class GitRepo implements Closeable, IGitRepo {
     public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
 
     /**
-     * Like {`getFileHistory`} but also returns, for each commit, the path the file had *in that
-     * commit* (following renames backwards).
+     * Like {`getFileHistory`} but also returns, for each commit, the path the file had *in that commit* (following
+     * renames backwards).
      *
      * @param file the file (at its current path) whose history we want
      */
@@ -2304,7 +2304,7 @@ public class GitRepo implements Closeable, IGitRepo {
         var currGitRel = toRepoRelativePath(currPath);
 
         try (var revWalk = new RevWalk(repository);
-             var diffFmt = new DiffFormatter(new ByteArrayOutputStream())) {
+                var diffFmt = new DiffFormatter(new ByteArrayOutputStream())) {
             diffFmt.setRepository(repository);
             diffFmt.setDetectRenames(true);
 

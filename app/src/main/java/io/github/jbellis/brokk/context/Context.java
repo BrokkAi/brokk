@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.context;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
@@ -184,9 +183,7 @@ public class Context {
         return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action);
     }
 
-    /**
-     * Returns the files from the git repo that are most relevant to this context, up to the specified limit.
-     */
+    /** Returns the files from the git repo that are most relevant to this context, up to the specified limit. */
     public List<ProjectFile> getMostRelevantFiles(int topK) {
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
@@ -201,10 +198,7 @@ public class Context {
                     double weight = Math.sqrt(1.0 / fragment.files().size());
                     return fragment.files().stream().map(file -> new WeightedFile(file, weight));
                 })
-                .collect(Collectors.groupingBy(
-                        wf -> wf.file,
-                        HashMap::new,
-                        Collectors.summingDouble(wf -> wf.weight)));
+                .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
 
         if (weightedSeeds.isEmpty()) {
             return List.of();

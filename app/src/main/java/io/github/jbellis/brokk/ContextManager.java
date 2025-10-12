@@ -1898,7 +1898,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         if (!project.hasGit()) {
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
             return;
         }
 
@@ -1906,9 +1907,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
-                var topClasses = GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), Context.MAX_AUTO_CONTEXT_FILES).stream()
-                        .limit(10)
-                        .toList();
+                var topClasses =
+                        GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), Context.MAX_AUTO_CONTEXT_FILES)
+                                .stream()
+                                .limit(10)
+                                .toList();
 
                 if (topClasses.isEmpty()) {
                     io.showNotification(

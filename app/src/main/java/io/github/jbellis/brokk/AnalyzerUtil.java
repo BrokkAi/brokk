@@ -1,14 +1,10 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.git.GitDistance;
-import io.github.jbellis.brokk.git.GitRepo;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);

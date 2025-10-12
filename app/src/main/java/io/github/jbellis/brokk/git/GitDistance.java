@@ -66,7 +66,8 @@ public final class GitDistance {
      * @return a sorted list of the most important files with their relevance scores.
      */
     @VisibleForTesting
-    public static List<IAnalyzer.FileRelevance> getMostImportantFilesScored(GitRepo repo, int k) throws GitAPIException {
+    public static List<IAnalyzer.FileRelevance> getMostImportantFilesScored(GitRepo repo, int k)
+            throws GitAPIException {
         var commits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
         if (commits.isEmpty()) {
             return List.of();
@@ -122,8 +123,8 @@ public final class GitDistance {
      * Sorts a collection of files by their importance using Git history analysis. The importance is determined by
      * analyzing change frequency and recency across the pooled commit histories of all provided files.
      *
-     * <p>This method first collects all commits that modified any of the input files, then applies the
-     * same time-weighted scoring algorithm as {@link #getMostImportantFilesScored} to rank them.
+     * <p>This method first collects all commits that modified any of the input files, then applies the same
+     * time-weighted scoring algorithm as {@link #getMostImportantFilesScored} to rank them.
      *
      * @param files the collection of files to sort by importance.
      * @param repo the Git repository wrapper.

@@ -58,8 +58,7 @@ public class GitDistanceMostImportantTest {
                     results.get(i - 1).score() >= results.get(i).score(), "Results must be sorted descending by score");
         }
 
-        var scores = results.stream()
-                .collect(Collectors.toMap(r -> r.file().getFileName(), r -> r.score()));
+        var scores = results.stream().collect(Collectors.toMap(r -> r.file().getFileName(), r -> r.score()));
 
         assertEquals("UserService.java", results.getFirst().file().getFileName());
 
@@ -103,7 +102,8 @@ public class GitDistanceMostImportantTest {
     public void testSortByImportanceAllFiles() throws Exception {
         assertNotNull(testRepo, "GitRepo should be initialized");
         var allFiles = testRepo.getTrackedFiles().stream()
-                .sorted((a, b) -> a.getFileName().toString().compareTo(b.getFileName().toString()))
+                .sorted((a, b) ->
+                        a.getFileName().toString().compareTo(b.getFileName().toString()))
                 .toList();
 
         var results = GitDistance.sortByImportance(allFiles, testRepo);
@@ -115,8 +115,7 @@ public class GitDistanceMostImportantTest {
             var prev = results.get(i - 1);
             var curr = results.get(i);
             assertTrue(
-                    allFiles.contains(prev) && allFiles.contains(curr),
-                    "All results should be from the input files");
+                    allFiles.contains(prev) && allFiles.contains(curr), "All results should be from the input files");
         }
 
         assertEquals(
