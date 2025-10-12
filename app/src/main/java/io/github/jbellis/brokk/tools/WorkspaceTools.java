@@ -256,12 +256,8 @@ public class WorkspaceTools {
         var currentContext = contextManager.liveContext();
         var allFragments = currentContext.getAllFragmentsInDisplayOrder();
 
-        var idsToDropSet = new HashSet<>(idToExplanation.keySet());
-        var toDrop =
-                allFragments.stream().filter(f -> idsToDropSet.contains(f.id())).toList();
-        var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
-
-        // Prepare existing DISCARDED_CONTEXT map if present
+        // Prepare existing DISCARDED_CONTEXT map if present (we find this first so we can protect it
+        // from being removed by a caller attempting to drop it).
         var discardedDescription = ContextFragment.DISCARDED_CONTEXT.description();
         var existingDiscarded = currentContext
                 .virtualFragments()
@@ -270,6 +266,29 @@ public class WorkspaceTools {
                 .map(vf -> (ContextFragment.StringFragment) vf)
                 .filter(sf -> discardedDescription.equals(sf.description()))
                 .findFirst();
+
+        var idsToDropSet = new HashSet<>(idToExplanation.keySet());
+
+        // Compute the list of fragments to drop, but explicitly exclude the existing DISCARDED_CONTEXT fragment
+        // so callers cannot remove it via this API.
+        List<ContextFragment> toDrop;
+        if (existingDiscarded.isPresent()) {
+            var protectedId = existingDiscarded.get().id();
+            toDrop = allFragments.stream()
+                    .filter(f -> idsToDropSet.contains(f.id()))
+                    .filter(f -> !protectedId.equals(f.id()))
+                    .toList();
+        } else {
+            toDrop = allFragments.stream()
+                    .filter(f -> idsToDropSet.contains(f.id()))
+                    .toList();
+        }
+
+        var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
+
+        // Record if the caller attempted to drop the protected DISCARDED_CONTEXT (so we can mention it in the result)
+        var attemptedProtected = existingDiscarded.isPresent()
+                && idsToDropSet.contains(existingDiscarded.get().id());
 
         var mapper = Json.getMapper();
         Map<String, String> mergedDiscarded = new LinkedHashMap<>();
@@ -319,14 +338,26 @@ public class WorkspaceTools {
         var unknownIds =
                 idsToDropSet.stream().filter(id -> !droppedIds.contains(id)).collect(Collectors.toList());
         logger.debug(
-                "dropWorkspaceFragments: dropped={}, unknown={}, updatedDiscardedEntries={}",
+                "dropWorkspaceFragments: dropped={}, unknown={}, updatedDiscardedEntries={}, attemptedProtected={}",
                 droppedIds.size(),
                 unknownIds.size(),
-                mergedDiscarded.size());
+                mergedDiscarded.size(),
+                attemptedProtected);
 
         var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
         var baseMsg = "Dropped %d fragment(s): [%s]. Updated DISCARDED_CONTEXT with %d entr%s."
-                .formatted(droppedIds.size(), droppedReprs, droppedIds.size(), droppedIds.size() == 1 ? "y" : "ies");
+                .formatted(
+                        droppedIds.size(),
+                        droppedReprs,
+                        mergedDiscarded.size(),
+                        mergedDiscarded.size() == 1 ? "y" : "ies");
+
+        // If the caller attempted to drop the protected DISCARDED_CONTEXT, mention that it was protected and not
+        // removed.
+        if (attemptedProtected) {
+            baseMsg += " Note: the DISCARDED_CONTEXT fragment is protected and was not dropped.";
+        }
+
         if (!unknownIds.isEmpty()) {
             return baseMsg + " Unknown fragment IDs: " + String.join(", ", unknownIds);
         }
