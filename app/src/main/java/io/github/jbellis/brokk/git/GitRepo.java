@@ -1730,7 +1730,7 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /** List commits with detailed information for a specific branch */
-    public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
+    public List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) throws GitAPIException {
         var commits = new ArrayList<CommitInfo>();
         var logCommand = git.log();
 
@@ -1742,11 +1742,19 @@ public class GitRepo implements Closeable, IGitRepo {
             }
         }
 
+        // Respect maxResults when a finite limit is requested.
+        if (maxResults < Integer.MAX_VALUE) {
+            logCommand.setMaxCount(maxResults);
+        }
+
         for (var commit : logCommand.call()) {
-            // Use factory method
             commits.add(this.fromRevCommit(commit));
         }
         return commits;
+    }
+
+    public List<CommitInfo> listCommitsDetailed(String branchName) throws GitAPIException {
+        return listCommitsDetailed(branchName, Integer.MAX_VALUE);
     }
 
     private List<ProjectFile> extractFilesFromDiffEntries(List<DiffEntry> diffs) {
@@ -2250,19 +2258,23 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Get the commit history for a specific file */
-    private List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
+    /** Get the commit history for specific files */
+    public List<CommitInfo> getFileHistory(ProjectFile file, int maxResults) throws GitAPIException {
         var commits = new LinkedHashSet<CommitInfo>();
-        var path = toRepoRelativePath(file);
         try {
             var headId = resolve("HEAD");
+            var diffconfig = repository.getConfig().get(DiffConfig.KEY);
+
+            var path = toRepoRelativePath(file);
             try (var revWalk = new RevWalk(repository)) {
-                var diffconfig = repository.getConfig().get(DiffConfig.KEY);
                 revWalk.setTreeFilter(FollowFilter.create(path, diffconfig));
                 revWalk.markStart(revWalk.parseCommit(headId));
 
                 for (var commit : revWalk) {
                     commits.add(this.fromRevCommit(commit));
+                    if (commits.size() >= maxResults) {
+                        return new ArrayList<>(commits);
+                    }
                 }
             }
         } catch (IOException e) {
@@ -2275,14 +2287,14 @@ public class GitRepo implements Closeable, IGitRepo {
     public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
 
     /**
-     * Like {@link #getFileHistory(ProjectFile)} but also returns, for each commit, the path the file had *in that
+     * Like {`getFileHistory`} but also returns, for each commit, the path the file had *in that
      * commit* (following renames backwards).
      *
      * @param file the file (at its current path) whose history we want
      */
     public List<FileHistoryEntry> getFileHistoryWithPaths(ProjectFile file) throws GitAPIException {
         // 1. normal commit list, newest → oldest (already follows renames)
-        var commits = getFileHistory(file);
+        var commits = getFileHistory(file, Integer.MAX_VALUE);
         if (commits.isEmpty()) {
             return new ArrayList<>();
         }
@@ -2292,7 +2304,7 @@ public class GitRepo implements Closeable, IGitRepo {
         var currGitRel = toRepoRelativePath(currPath);
 
         try (var revWalk = new RevWalk(repository);
-                var diffFmt = new DiffFormatter(new ByteArrayOutputStream())) {
+             var diffFmt = new DiffFormatter(new ByteArrayOutputStream())) {
             diffFmt.setRepository(repository);
             diffFmt.setDetectRenames(true);
 
