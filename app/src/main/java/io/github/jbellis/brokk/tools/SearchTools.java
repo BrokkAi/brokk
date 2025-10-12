@@ -6,30 +6,38 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
+import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
+import io.github.jbellis.brokk.analyzer.UsagesProvider;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.CommitInfo;
-import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.git.GitRepo;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
-import javax.swing.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 
 /**
  * Contains tool implementations related to code analysis and searching, designed to be registered with the
  * ToolRegistry.
  */
 public class SearchTools {
-    /** Record representing compressed symbols with their common prefix. */
-    public record CompressedSymbols(String prefix, List<String> symbols) {}
-
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
 
     private final IContextManager contextManager; // Needed for file operations
@@ -59,81 +67,6 @@ public class SearchTools {
     // --- Helper Methods
 
     /**
-     * Compresses a list of fully qualified symbol names by finding the longest common package prefix and removing it
-     * from each symbol.
-     *
-     * @param symbols A list of fully qualified symbol names
-     * @return A tuple containing: 1) the common package prefix, 2) the list of compressed symbol names
-     */
-    public static CompressedSymbols compressSymbolsWithPackagePrefix(List<String> symbols) {
-        List<String[]> packageParts = symbols.stream()
-                .map(s -> s.split("\\."))
-                .filter(arr -> arr.length > 0) // Ensure split resulted in something
-                .toList();
-
-        if (packageParts.isEmpty()) {
-            return new CompressedSymbols("", List.of());
-        }
-
-        String[] firstParts = packageParts.getFirst();
-        int maxPrefixLength = 0;
-
-        for (int i = 0; i < firstParts.length - 1; i++) { // Stop before last part (class/method)
-            boolean allMatch = true;
-            for (String[] parts : packageParts) {
-                // Ensure current part exists and matches
-                if (i >= parts.length - 1 || !parts[i].equals(firstParts[i])) {
-                    allMatch = false;
-                    break;
-                }
-            }
-            if (allMatch) {
-                maxPrefixLength = i + 1;
-            } else {
-                break;
-            }
-        }
-
-        if (maxPrefixLength > 0) {
-            String commonPrefix = String.join(".", Arrays.copyOfRange(firstParts, 0, maxPrefixLength)) + ".";
-            List<String> compressedSymbols = symbols.stream()
-                    .map(s -> s.startsWith(commonPrefix) ? s.substring(commonPrefix.length()) : s)
-                    .collect(Collectors.toList());
-            return new CompressedSymbols(commonPrefix, compressedSymbols);
-        }
-
-        return new CompressedSymbols("", symbols); // Return original list if no common prefix
-    }
-
-    /**
-     * Formats a list of symbols with prefix compression if applicable.
-     *
-     * @param label The label to use in the output (e.g., "Relevant symbols", "Related classes")
-     * @param symbols The list of symbols to format
-     * @return A formatted string with compressed symbols if possible
-     */
-    // TODO make this use CodeUnit
-    private String formatCompressedSymbols(String label, List<String> symbols) {
-        if (symbols.isEmpty()) {
-            return label + ": None found";
-        }
-
-        var compressionResult = compressSymbolsWithPackagePrefix(symbols);
-        String commonPrefix = compressionResult.prefix();
-        List<String> compressedSymbols = compressionResult.symbols();
-
-        if (commonPrefix.isEmpty()) {
-            // Sort for consistent output when no compression happens
-            return label + ": " + symbols.stream().sorted().collect(Collectors.joining(", "));
-        }
-
-        // Sort compressed symbols too
-        return "%s: [Common package prefix: '%s'. IMPORTANT: you MUST use full symbol names including this prefix for subsequent tool calls] %s"
-                .formatted(
-                        label, commonPrefix, compressedSymbols.stream().sorted().collect(Collectors.joining(", ")));
-    }
-
-    /**
      * Build predicates for each supplied pattern. • If the pattern is a valid regex, the predicate performs
      * {@code matcher.find()}. • If the pattern is an invalid regex, the predicate falls back to
      * {@code String.contains()}.
@@ -141,7 +74,7 @@ public class SearchTools {
     private static List<Predicate<String>> compilePatternsWithFallback(List<String> patterns) {
         List<Predicate<String>> predicates = new ArrayList<>();
         for (String pat : patterns) {
-            if (pat == null || pat.isBlank()) {
+            if (pat.isBlank()) {
                 continue;
             }
             try {
@@ -303,55 +236,6 @@ public class SearchTools {
         var cwsList = AnalyzerUtil.processUsages(getAnalyzer(), allUses);
         var processedUsages = AnalyzerUtil.CodeWithSource.text(cwsList);
         return "Usages of " + String.join(", ", symbols) + ":\n\n" + processedUsages;
-    }
-
-    @Tool(
-            """
-                            Returns a list of related class names, ordered by relevance (using PageRank).
-                            Use this for exploring and also when you're almost done and want to double-check that you haven't missed anything.
-                            """)
-    public String getRelatedClasses(
-            @P("List of fully qualified class names to use as seeds for finding related classes.")
-                    List<String> classNames) {
-        var skp = getAnalyzer()
-                .as(SkeletonProvider.class)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Cannot find related classes: Code Intelligence is not available."));
-        // Sanitize classNames: remove potential `(params)` suffix from LLM.
-        classNames = stripParams(classNames);
-        if (classNames.isEmpty()) {
-            throw new IllegalArgumentException("Cannot search pagerank: classNames is empty");
-        }
-
-        // Create map of seeds from discovered units
-        var sourceFiles = classNames.stream()
-                .map(fqcn -> getAnalyzer().getFileFor(fqcn))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .collect(Collectors.toSet());
-
-        var pageRankResults = GitDistance.getMostRelevantFilesTo((GitRepo) contextManager.getRepo(), sourceFiles, 20);
-        if (pageRankResults.isEmpty()) {
-            return "No related code found via PageRank for seeds: " + String.join(", ", classNames);
-        }
-
-        // Get skeletons for the top few results -- potentially saves a round trip for a few extra tokens
-        var skResult = pageRankResults.stream()
-                .distinct()
-                .limit(10) // padding in case of not defined
-                .flatMap(file -> skp.getSkeletons(file).values().stream())
-                .limit(5)
-                .collect(Collectors.joining("\n\n"));
-
-        var clsResult = pageRankResults.stream()
-                .flatMap(file -> AnalyzerUtil.coalesceInnerClasses(getAnalyzer().getDeclarationsInFile(file)).stream())
-                .map(CodeUnit::fqName)
-                .toList();
-
-        var formattedSkeletons =
-                skResult.isEmpty() ? "" : "# Summaries of the top related classes: \n\n" + skResult + "\n\n";
-        var formattedClassList = formatCompressedSymbols("# Full list of related classes, up to 50", clsResult);
-        return formattedSkeletons + formattedClassList;
     }
 
     @Tool(

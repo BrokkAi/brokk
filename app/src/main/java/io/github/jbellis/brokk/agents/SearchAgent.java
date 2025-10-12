@@ -47,8 +47,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * SearchAgent: - Uses tools to both answer questions AND curate Workspace context for follow-on coding. - Starts by
  * calling ContextAgent to add recommended fragments to the Workspace. - Adds every learning step to Context history (no
- * hidden state). - Summarizes very large tool outputs before recording them. - Forges getRelatedClasses for duplicate
- * requests (like SearchAgent). - Enters "beast mode" to finalize with existing info if interrupted or context is near
+ * hidden state). - Summarizes very large tool outputs before recording them. - Enters "beast mode" to finalize with existing info if interrupted or context is near
  * full. - Never writes code itself; it prepares the Workspace for a later Code Agent run.
  */
 public class SearchAgent {
@@ -451,7 +450,6 @@ public class SearchAgent {
         }
         if (analyzerWrapper.providesInterproceduralAnalysis()) {
             names.add("getUsages");
-            names.add("getRelatedClasses");
             names.add("getCallGraphTo");
             names.add("getCallGraphFrom");
         }
@@ -534,7 +532,6 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "getRelatedClasses" -> 5;
             case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
@@ -684,7 +681,6 @@ public class SearchAgent {
         return Set.of(
                         "searchSymbols",
                         "getUsages",
-                        "getRelatedClasses",
                         "getClassSources",
                         "searchSubstrings",
                         "searchFilenames",
