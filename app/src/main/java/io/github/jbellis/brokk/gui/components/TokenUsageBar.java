@@ -121,7 +121,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         if (!hasContext) {
             // Friendly, actionable hint when there is no context.
-            String msg = "No context yet - add some by clicking the paperclip icon or drag-and-drop files from the toolbar.";
+            String msg =
+                    "No context yet - add some by clicking the paperclip icon or drag-and-drop files from the toolbar.";
             int maxTextWidth = Math.max(0, width - 2 * padding);
             String shown = elide(msg, fm, maxTextWidth);
 
@@ -171,9 +172,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
-    /**
-     * Elide a string with "..." if it doesn't fit within maxWidth pixels.
-     */
+    /** Elide a string with "..." if it doesn't fit within maxWidth pixels. */
     private static String elide(String text, FontMetrics fm, int maxWidth) {
         if (maxWidth <= 0) return "";
         if (fm.stringWidth(text) <= maxWidth) return text;
@@ -195,9 +194,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return text.substring(0, lo) + ellipsis;
     }
 
-    /**
-     * Pick a readable text color (white or dark) against the given background color.
-     */
+    /** Pick a readable text color (white or dark) against the given background color. */
     private static Color readableTextForBackground(Color background) {
         double r = background.getRed() / 255.0;
         double g = background.getGreen() / 255.0;
