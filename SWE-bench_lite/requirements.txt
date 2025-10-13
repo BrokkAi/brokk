@@ -1,0 +1,17 @@
+# SWE-bench-lite Evaluation Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies for SWE-bench-lite evaluation
+datasets>=2.14.0
+huggingface-hub>=0.16.0
+
+# Optional but recommended for better performance
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Development and debugging
+colorama>=0.4.4  # For colored terminal output
+tqdm>=4.64.0     # For progress bars (if needed)
+
+# Note: Brokk CLI itself requires Java 21+ and is built with Gradle
+# The Python scripts here are just for evaluation orchestration
