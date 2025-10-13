@@ -93,7 +93,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         this(null, runsStore);
     }
 
-    public TestRunnerPanel(Chrome chrome, TestRunsStore runsStore) {
+    public TestRunnerPanel(@Nullable Chrome chrome, TestRunsStore runsStore) {
         super(new BorderLayout(0, 0));
         this.chrome = chrome;
         this.runsStore = runsStore;
@@ -186,9 +186,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         if (chrome != null) {
             try {
                 var details = chrome.getProject().loadBuildDetails();
-                runAllButton.setEnabled(details != null
-                        && !details.equals(BuildAgent.BuildDetails.EMPTY)
-                        && details.testAllCommand() != null
+                runAllButton.setEnabled(!details.equals(BuildAgent.BuildDetails.EMPTY)
                         && !details.testAllCommand().isBlank());
             } catch (Exception ex) {
                 runAllButton.setEnabled(false);
@@ -665,7 +663,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private static String prefixWithJavaHomeIfNeeded(io.github.jbellis.brokk.AbstractProject project, String command) {
-        if (command == null || command.isBlank()) {
+        if (command.isBlank()) {
             return command;
         }
         if (project.getBuildLanguage() != Languages.JAVA) {
