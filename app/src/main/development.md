@@ -359,48 +359,6 @@ The application uses a unified theme system that synchronizes colors between Jav
 
 ## Environment Variables
 
-### BRK_NO_LSP
-
-Controls whether the Java Language Server (JDT LSP) is started. When disabled, the app runs in TSA-only mode (TreeSitter
-analyzers only) which improves startup time and reduces memory usage, but advanced Java analysis (call graph, usages,
-linting via JDT) will not be available.
-
-- Name: BRK_NO_LSP
-- Type: Boolean (case-insensitive)
-- Recognized truthy values: 1, true, t, yes, y, on
-- Recognized falsy values: 0, false, f, no, n, off
-- Empty string: treated as true (disables LSP)
-- Unrecognized values: defaults to true (disables LSP) and logs a warning
-- Unset: treated as false (LSP enabled)
-
-Notes:
-- Parsing is case-insensitive and uses Locale.ROOT.
-- When disabled, a message is logged and the JDT LSP is not started.
-- Methods relying on JDT capabilities degrade gracefully and return empty/no-op results.
-
-Examples:
-```bash
-# Disable LSP (preferred explicit)
-export BRK_NO_LSP=true
-
-# Disable LSP (any of these are equivalent)
-export BRK_NO_LSP=1
-export BRK_NO_LSP=YES
-export BRK_NO_LSP=on
-
-# Enable LSP explicitly
-export BRK_NO_LSP=false
-export BRK_NO_LSP=0
-export BRK_NO_LSP=off
-
-# Unset => LSP enabled (default)
-unset BRK_NO_LSP
-
-# Empty or invalid => LSP disabled (with warning on invalid)
-export BRK_NO_LSP=""
-export BRK_NO_LSP="maybe"  # logs warning, disables LSP
-```
-
 ### BRK_USAGE_BOOL
 
 Controls whether usage relevance classification is requested/handled as a boolean (yes/no) or as the default real-number score.
