@@ -7,6 +7,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.agents.NonTextResolutionMode;
@@ -19,12 +20,15 @@ import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.tasks.TaskList;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.tools.UiTools;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import io.github.jbellis.brokk.util.UserActionManager.ThrowingRunnable;
@@ -157,13 +161,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Current session tracking
     private UUID currentSessionId;
 
+    // Domain model task list for the current session (non-null)
+    private volatile TaskList.TaskListData taskList = new TaskList.TaskListData(List.of());
+
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
-    private final List<Runnable> modelReloadListeners = new CopyOnWriteArrayList<>();
+    private final List<Runnable> serviceReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     // balance-notification state
@@ -173,8 +180,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
 
-    // Model reload state to prevent concurrent reloads
-    private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
+    // Service reload state to prevent concurrent reloads
+    private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -205,13 +212,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Register a Runnable to be invoked when the Service (models / STT) is reinitialized. The Runnable is executed on
      * the EDT to allow UI updates.
      */
-    public void addModelReloadListener(Runnable listener) {
-        modelReloadListeners.add(listener);
+    public void addServiceReloadListener(Runnable listener) {
+        serviceReloadListeners.add(listener);
     }
 
-    /** Remove a previously registered model reload listener. */
-    public void removeModelReloadListener(Runnable listener) {
-        modelReloadListeners.remove(listener);
+    /** Remove a previously registered service reload listener. */
+    public void removeServiceReloadListener(Runnable listener) {
+        serviceReloadListeners.remove(listener);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -298,6 +305,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // make it official
         updateActiveSession(currentSessionId);
 
+        // Load task list for the current session
+        loadTaskListForSession(currentSessionId);
+
         // Notify listeners and UI on EDT
         SwingUtilities.invokeLater(() -> {
             var tc = topContext();
@@ -349,6 +359,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         assert SwingUtilities.isEventDispatchThread();
 
         this.io = new Chrome(this);
+        this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
 
         var analyzerListener = createAnalyzerListener();
@@ -700,16 +711,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var textFragments = textFiles.stream()
                 .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
                 .toList();
-        addPathFragments(textFragments);
+        if (!textFragments.isEmpty()) {
+            addPathFragments(textFragments);
+        }
 
         var binaryFragments = binaryFiles.stream()
                 .map(pf -> new ContextFragment.ImageFileFragment(pf, this))
                 .toList();
-        addPathFragments(binaryFragments);
+        if (!binaryFragments.isEmpty()) {
+            addPathFragments(binaryFragments);
+        }
     }
 
     /** Add the given files to editable. */
     public void addPathFragments(List<? extends PathFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return;
+        }
         pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
         String message = "Edit " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -733,6 +751,37 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Clear conversation history. */
     public void clearHistory() {
         pushContext(Context::clearHistory);
+    }
+
+    /**
+     * Drops fragments with HISTORY-aware semantics: - If selection is empty: drop all and reset selected context to the
+     * latest (top) context. - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments. -
+     * Else: drop the selected fragments as-is.
+     */
+    public void dropWithHistorySemantics(java.util.Collection<? extends ContextFragment> selectedFragments) {
+        if (selectedFragments.isEmpty()) {
+            if (topContext().isEmpty()) {
+                return;
+            }
+            dropAll();
+            setSelectedContext(topContext());
+            return;
+        }
+
+        boolean hasHistory =
+                selectedFragments.stream().anyMatch(f -> f.getType() == ContextFragment.FragmentType.HISTORY);
+
+        if (hasHistory) {
+            clearHistory();
+            var nonHistory = selectedFragments.stream()
+                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                    .toList();
+            if (!nonHistory.isEmpty()) {
+                drop(nonHistory);
+            }
+        } else {
+            drop(selectedFragments);
+        }
     }
 
     /**
@@ -1371,6 +1420,135 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return topContext().fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
     }
 
+    /** Returns the current session's domain-model task list. Always non-null. */
+    public TaskList.TaskListData getTaskList() {
+        return taskList;
+    }
+
+    /**
+     * Appends the given tasks (non-blank lines) to the current session's task list and persists it. Each appended task
+     * is created with done=false.
+     */
+    @Override
+    public void appendTasksToTaskList(List<String> tasks) {
+        var additions = tasks.stream()
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .map(s -> new TaskList.TaskItem(s, false))
+                .toList();
+        if (additions.isEmpty()) {
+            return;
+        }
+
+        var combined = new java.util.ArrayList<TaskList.TaskItem>();
+        combined.addAll(taskList.tasks());
+        combined.addAll(additions);
+
+        var newData = new TaskList.TaskListData(List.copyOf(combined));
+        this.taskList = newData;
+
+        // Persist via existing SessionManager API (UI DTO)
+        project.getSessionManager().writeTaskList(currentSessionId, newData);
+        if (io instanceof Chrome chrome) {
+            chrome.refreshTaskListUI();
+        }
+
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+    }
+
+    /**
+     * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
+     * should call after modifying the task list.
+     */
+    public void setTaskList(TaskList.TaskListData data) {
+        this.taskList = data;
+        project.getSessionManager().writeTaskList(currentSessionId, data).exceptionally(ex -> {
+            logger.warn("Failed to persist updated task list for session {}: {}", currentSessionId, ex.getMessage());
+            return null;
+        });
+    }
+
+    // Load and cache the task list for a specific session ID; on error, set to empty
+    private void loadTaskListForSession(UUID sessionId) {
+        try {
+            this.taskList = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.error("Unable to load task list for session {}", sessionId, e);
+            this.taskList = new TaskList.TaskListData(List.of());
+        }
+    }
+
+    /**
+     * Execute a single task using ArchitectAgent with explicit options.
+     *
+     * @param task Task to execute (non-blank text).
+     * @param autoCommit whether to commit any modified files after a successful run
+     * @param autoCompress whether to compress conversation history after a successful run
+     * @return TaskResult from ArchitectAgent execution.
+     */
+    public TaskResult executeTask(TaskList.TaskItem task, boolean autoCommit, boolean autoCompress)
+            throws InterruptedException {
+        var prompt = task.text().strip();
+        if (prompt.isEmpty()) {
+            throw new IllegalArgumentException("Task text must be non-blank");
+        }
+
+        TaskResult result;
+        try (var scope = beginTask(prompt, false)) {
+            var planningModel = requireNonNull(getService().getModel(Service.GEMINI_2_5_PRO));
+            var codeModel = getCodeModel();
+            var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
+            result = agent.executeWithSearch(scope);
+        } finally {
+            // mirror panel behavior
+            checkBalanceAndNotify();
+        }
+
+        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+            if (autoCommit) {
+                new GitWorkflow(this).performAutoCommit(prompt);
+            }
+            if (autoCompress) {
+                compressHistory(); // synchronous
+            }
+            // Mark the task as done and persist the updated list
+            markTaskDoneAndPersist(task);
+        }
+
+        return result;
+    }
+
+    /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
+    private void markTaskDoneAndPersist(TaskList.TaskItem task) {
+        var existing = new ArrayList<>(taskList.tasks());
+        int idx = existing.indexOf(task);
+        if (idx < 0) {
+            // Fallback: find first matching by text (not done) if equals() does not match
+            for (int i = 0; i < existing.size(); i++) {
+                var it = existing.get(i);
+                if (!it.done() && it.text().equals(task.text())) {
+                    idx = i;
+                    break;
+                }
+            }
+        }
+        if (idx >= 0) {
+            existing.set(idx, new TaskList.TaskItem(task.text(), true));
+            this.taskList = new TaskList.TaskListData(List.copyOf(existing));
+            project.getSessionManager()
+                    .writeTaskList(currentSessionId, this.taskList)
+                    .exceptionally(ex -> {
+                        logger.warn(
+                                "Failed to persist updated task list for session {}: {}",
+                                currentSessionId,
+                                ex.getMessage());
+                        return null;
+                    });
+        }
+    }
+
     private void captureGitState(Context frozenContext) {
         if (!project.hasGit()) {
             return;
@@ -1666,29 +1844,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    public void reloadModelsAsync() {
-        if (isReloadingModels.compareAndSet(false, true)) {
+    public void reloadService() {
+        if (isReloadingService.compareAndSet(false, true)) {
             // Run reinit in the background so callers don't block; notify UI listeners when finished.
-            submitBackgroundTask("Reloading models", () -> {
+            submitBackgroundTask("Reloading service", () -> {
                 try {
                     service.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
                     SwingUtilities.invokeLater(() -> {
-                        for (var l : modelReloadListeners) {
+                        for (var l : serviceReloadListeners) {
                             try {
                                 l.run();
                             } catch (Exception e) {
-                                logger.warn("Model reload listener threw exception", e);
+                                logger.warn("Service reload listener threw exception", e);
                             }
                         }
                     });
                 } finally {
-                    isReloadingModels.set(false);
+                    isReloadingService.set(false);
                 }
                 return null;
             });
         } else {
-            logger.debug("Model reload already in progress, skipping request.");
+            logger.debug("Service reload already in progress, skipping request.");
         }
     }
 
@@ -2095,6 +2273,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 
+            // initialize empty task list and persist
+            this.taskList = new TaskList.TaskListData(List.of());
+            project.getSessionManager().writeTaskList(currentSessionId, this.taskList);
+
             // notifications
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(topContext());
@@ -2138,6 +2320,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // later
         var ch = new ContextHistory(ctx);
         sessionManager.saveHistory(ch, newSessionInfo.id());
+        // Initialize empty task list for the new session and persist
+        this.taskList = new TaskList.TaskListData(List.of());
+        sessionManager.writeTaskList(newSessionInfo.id(), this.taskList);
     }
 
     /**
@@ -2174,6 +2359,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 5. Save the new session's history (which now contains one entry).
                     sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
+
+                    // Initialize empty task list for the new session and persist
+                    this.taskList = new TaskList.TaskListData(List.of());
+                    sessionManager.writeTaskList(this.currentSessionId, this.taskList);
 
                     // 6. Notify UI about the context change.
                     notifyContextListeners(topContext());
@@ -2251,6 +2440,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } else {
             updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
+
+            // Load task list for the switched session
+            loadTaskListForSession(sessionId);
         }
         notifyContextListeners(topContext());
         io.updateContextHistoryTable(topContext());
@@ -2438,7 +2630,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 if (balance < Service.MINIMUM_PAID_BALANCE) {
                     // Free-tier: reload models and warn once
-                    reloadModelsAsync();
+                    reloadService();
                     if (!freeTierNotified) {
                         freeTierNotified = true;
                         lowBalanceNotified = false; // reset low-balance flag

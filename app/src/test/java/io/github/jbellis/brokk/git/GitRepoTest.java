@@ -1103,7 +1103,7 @@ public class GitRepoTest {
         Path cloneDir = tempDir.resolve("clone");
         GitRepo clonedRepo = null;
         try {
-            clonedRepo = GitRepo.cloneRepo(originDir.toUri().toString(), cloneDir, 1);
+            clonedRepo = GitRepoFactory.cloneRepo(originDir.toUri().toString(), cloneDir, 1);
 
             assertNotNull(clonedRepo, "Clone should return a GitRepo instance");
             assertEquals(
@@ -1175,7 +1175,7 @@ public class GitRepoTest {
         Path defaultCloneDir = tempDir.resolve("clone-default");
         GitRepo defaultClone = null;
         try {
-            defaultClone = GitRepo.cloneRepo(originUrl, defaultCloneDir, 0, null);
+            defaultClone = GitRepoFactory.cloneRepo(originUrl, defaultCloneDir, 0, null);
 
             assertEquals("master", defaultClone.getCurrentBranch());
             assertTrue(Files.exists(defaultCloneDir.resolve("README.md")));
@@ -1193,7 +1193,7 @@ public class GitRepoTest {
         Path branchCloneDir = tempDir.resolve("clone-feature");
         GitRepo branchClone = null;
         try {
-            branchClone = GitRepo.cloneRepo(originUrl, branchCloneDir, 0, "feature-branch");
+            branchClone = GitRepoFactory.cloneRepo(originUrl, branchCloneDir, 0, "feature-branch");
 
             assertEquals("feature-branch", branchClone.getCurrentBranch());
             assertTrue(Files.exists(branchCloneDir.resolve("README.md")));
@@ -1212,7 +1212,7 @@ public class GitRepoTest {
         Path tagCloneDir = tempDir.resolve("clone-tag");
         GitRepo tagClone = null;
         try {
-            tagClone = GitRepo.cloneRepo(originUrl, tagCloneDir, 0, "v1.0.0");
+            tagClone = GitRepoFactory.cloneRepo(originUrl, tagCloneDir, 0, "v1.0.0");
 
             // When cloning a tag, we're in detached HEAD state
             // The files should match the tag's commit (which was on feature-branch)
@@ -1234,11 +1234,11 @@ public class GitRepoTest {
         GitRepo threeParamClone = null;
         try {
             // Clone with 4 parameters (null branch)
-            equivalentClone = GitRepo.cloneRepo(originUrl, equivalentCloneDir, 1, null);
+            equivalentClone = GitRepoFactory.cloneRepo(originUrl, equivalentCloneDir, 1, null);
 
             // Clone with 3 parameters for comparison
             Path threeParamDir = tempDir.resolve("clone-three-param");
-            threeParamClone = GitRepo.cloneRepo(originUrl, threeParamDir, 1);
+            threeParamClone = GitRepoFactory.cloneRepo(originUrl, threeParamDir, 1);
 
             // Both should be on the same branch
             assertEquals(threeParamClone.getCurrentBranch(), equivalentClone.getCurrentBranch());
@@ -1345,7 +1345,7 @@ public class GitRepoTest {
     @Test
     void testBranchNeedsPush_NonLocalBranch() throws Exception {
         // Test with a branch that doesn't exist locally
-        assertFalse(repo.branchNeedsPush("nonexistent-branch"), "Non-local branches should not need push");
+        assertFalse(repo.remote().branchNeedsPush("nonexistent-branch"), "Non-local branches should not need push");
     }
 
     @Test
@@ -1356,7 +1356,7 @@ public class GitRepoTest {
         repo.getGit().checkout().setName(branchName).call();
         createCommit("local-file.txt", "local content", "Local commit");
 
-        assertTrue(repo.branchNeedsPush(branchName), "Local branch without remote should need push");
+        assertTrue(repo.remote().branchNeedsPush(branchName), "Local branch without remote should need push");
     }
 
     @Test
@@ -1373,7 +1373,7 @@ public class GitRepoTest {
         // Simulate that remote branch exists and is up-to-date
         simulateRemoteBranch(branchName, commitSha);
 
-        assertFalse(repo.branchNeedsPush(branchName), "Branch up-to-date with remote should not need push");
+        assertFalse(repo.remote().branchNeedsPush(branchName), "Branch up-to-date with remote should not need push");
     }
 
     @Test
@@ -1393,7 +1393,7 @@ public class GitRepoTest {
         // Add another local commit (making local ahead)
         createCommit("new-file.txt", "new content", "Ahead commit");
 
-        assertTrue(repo.branchNeedsPush(branchName), "Local branch ahead of remote should need push");
+        assertTrue(repo.remote().branchNeedsPush(branchName), "Local branch ahead of remote should need push");
     }
 
     @Test
@@ -1416,7 +1416,7 @@ public class GitRepoTest {
 
         // The fix should make this return false (no push needed)
         assertFalse(
-                repo.branchNeedsPush(branchName),
+                repo.remote().branchNeedsPush(branchName),
                 "Branch that exists remotely and is up-to-date should not need push, "
                         + "even without upstream tracking");
     }
@@ -1427,21 +1427,14 @@ public class GitRepoTest {
 
         configureOriginRemote();
 
-        // Use reflection to access private method for testing
-        var method = GitRepo.class.getDeclaredMethod("getTargetRemoteBranchName", String.class);
-        method.setAccessible(true);
-        String targetRemote = (String) method.invoke(repo, branchName);
+        String targetRemote = repo.remote().getTargetRemoteBranchName(branchName);
 
         assertEquals("origin/" + branchName, targetRemote, "Should find origin remote branch name");
     }
 
     @Test
-    void testGetTargetRemoteBranchName_NoRemoteConfigured() throws Exception {
-        // Use reflection to access private method for testing
-        var method = GitRepo.class.getDeclaredMethod("getTargetRemoteBranchName", String.class);
-        method.setAccessible(true);
-        String targetRemote = (String) method.invoke(repo, "test-branch");
-
+    void testGetTargetRemoteBranchName_NoRemoteConfigured() {
+        String targetRemote = repo.remote().getTargetRemoteBranchName("test-branch");
         assertNull(targetRemote, "Should return null when no remote is configured");
     }
 
@@ -1453,7 +1446,7 @@ public class GitRepoTest {
         createCommit("local.txt", "content", "Local commit");
 
         // Test public method - should return empty set when no remote branch exists
-        var unpushedCommits = repo.getUnpushedCommitIds(branchName);
+        var unpushedCommits = repo.remote().getUnpushedCommitIds(branchName);
 
         assertTrue(unpushedCommits.isEmpty(), "Should return empty set when no remote branch exists");
     }
@@ -1476,7 +1469,7 @@ public class GitRepoTest {
         createCommit("ahead2.txt", "ahead2", "Ahead commit 2");
 
         // Test public method
-        var unpushedCommits = repo.getUnpushedCommitIds(branchName);
+        var unpushedCommits = repo.remote().getUnpushedCommitIds(branchName);
 
         assertEquals(2, unpushedCommits.size(), "Should find 2 unpushed commits ahead of remote");
     }
@@ -1495,7 +1488,7 @@ public class GitRepoTest {
         simulateRemoteBranch(branchName, commitSha);
 
         // Test public method
-        var unpushedCommits = repo.getUnpushedCommitIds(branchName);
+        var unpushedCommits = repo.remote().getUnpushedCommitIds(branchName);
 
         assertTrue(unpushedCommits.isEmpty(), "Should return empty set when local and remote are in sync");
     }
@@ -1515,18 +1508,18 @@ public class GitRepoTest {
         simulateRemoteBranch(branchName, commitSha);
 
         // Both should now return false/empty (no push needed)
-        assertFalse(repo.branchNeedsPush(branchName), "branchNeedsPush should return false when up-to-date");
+        assertFalse(repo.remote().branchNeedsPush(branchName), "branchNeedsPush should return false when up-to-date");
         assertTrue(
-                repo.getUnpushedCommitIds(branchName).isEmpty(),
+                repo.remote().getUnpushedCommitIds(branchName).isEmpty(),
                 "getUnpushedCommitIds should return empty when up-to-date");
 
         // Add a local commit to get ahead of remote
         createCommit("new.txt", "new content", "New commit");
 
         // Both should now return true/non-empty (push needed)
-        assertTrue(repo.branchNeedsPush(branchName), "branchNeedsPush should return true when ahead");
+        assertTrue(repo.remote().branchNeedsPush(branchName), "branchNeedsPush should return true when ahead");
         assertFalse(
-                repo.getUnpushedCommitIds(branchName).isEmpty(),
+                repo.remote().getUnpushedCommitIds(branchName).isEmpty(),
                 "getUnpushedCommitIds should return commits when ahead");
     }
 
@@ -1546,9 +1539,9 @@ public class GitRepoTest {
         configureUpstreamTracking(branchName, "origin", branchName);
 
         // Should behave the same as before
-        assertFalse(repo.branchNeedsPush(branchName), "branchNeedsPush should work with upstream tracking");
+        assertFalse(repo.remote().branchNeedsPush(branchName), "branchNeedsPush should work with upstream tracking");
         assertTrue(
-                repo.getUnpushedCommitIds(branchName).isEmpty(),
+                repo.remote().getUnpushedCommitIds(branchName).isEmpty(),
                 "getUnpushedCommitIds should work with upstream tracking");
     }
 
@@ -1630,8 +1623,8 @@ public class GitRepoTest {
         simulateRemoteBranch("fork", branchName, commitSha);
 
         // Should prefer pushDefault over origin
-        assertFalse(repo.branchNeedsPush(branchName), "Should use pushDefault remote over origin");
-        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find pushDefault remote branch");
+        assertFalse(repo.remote().branchNeedsPush(branchName), "Should use pushDefault remote over origin");
+        assertTrue(repo.remote().getUnpushedCommitIds(branchName).isEmpty(), "Should find pushDefault remote branch");
         assertEquals("https://github.com/test/fork.git", repo.getRemoteUrl(), "Should use pushDefault for remote URL");
     }
 
@@ -1650,8 +1643,8 @@ public class GitRepoTest {
         simulateRemoteBranch("upstream", branchName, commitSha);
 
         // Should use the single available remote
-        assertFalse(repo.branchNeedsPush(branchName), "Should use single available remote");
-        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find single remote branch");
+        assertFalse(repo.remote().branchNeedsPush(branchName), "Should use single available remote");
+        assertTrue(repo.remote().getUnpushedCommitIds(branchName).isEmpty(), "Should find single remote branch");
         assertEquals("https://github.com/test/upstream.git", repo.getRemoteUrl(), "Should use single remote for URL");
     }
 
@@ -1674,9 +1667,11 @@ public class GitRepoTest {
         simulateRemoteBranch("upstream", remoteBranchName, commitSha);
 
         // Should use upstream tracking even with different branch name
-        assertFalse(repo.branchNeedsPush(localBranchName), "Should use upstream tracking with different branch name");
+        assertFalse(
+                repo.remote().branchNeedsPush(localBranchName),
+                "Should use upstream tracking with different branch name");
         assertTrue(
-                repo.getUnpushedCommitIds(localBranchName).isEmpty(),
+                repo.remote().getUnpushedCommitIds(localBranchName).isEmpty(),
                 "Should find upstream branch with different name");
         assertEquals("https://github.com/test/upstream.git", repo.getRemoteUrl(), "Should use upstream remote for URL");
     }
@@ -1699,8 +1694,10 @@ public class GitRepoTest {
         simulateRemoteBranch(branchName, commitSha); // This creates origin/branchName
 
         // Should fall back to origin since upstream remote branch doesn't exist
-        assertFalse(repo.branchNeedsPush(branchName), "Should fall back to origin when upstream branch doesn't exist");
-        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find origin branch as fallback");
+        assertFalse(
+                repo.remote().branchNeedsPush(branchName),
+                "Should fall back to origin when upstream branch doesn't exist");
+        assertTrue(repo.remote().getUnpushedCommitIds(branchName).isEmpty(), "Should find origin branch as fallback");
 
         // Note: getRemoteUrl() still uses upstream remote name since remote exists, just not the branch
         assertEquals(
@@ -1727,8 +1724,10 @@ public class GitRepoTest {
         simulateRemoteBranch(branchName, commitSha);
 
         // Should fall back to origin since upstream remote doesn't exist
-        assertFalse(repo.branchNeedsPush(branchName), "Should fall back to origin when upstream remote doesn't exist");
-        assertTrue(repo.getUnpushedCommitIds(branchName).isEmpty(), "Should find origin branch as fallback");
+        assertFalse(
+                repo.remote().branchNeedsPush(branchName),
+                "Should fall back to origin when upstream remote doesn't exist");
+        assertTrue(repo.remote().getUnpushedCommitIds(branchName).isEmpty(), "Should find origin branch as fallback");
         assertEquals("https://github.com/test/origin.git", repo.getRemoteUrl(), "Should fall back to origin for URL");
     }
 

@@ -1628,11 +1628,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             panel.saveSettings();
         }
 
-        // After applying data retention, model list might need refresh
-        chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {
-            chrome.getContextManager().reloadModelsAsync();
-        });
-
         return true;
     }
 
@@ -1965,7 +1960,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                 .parentDialog
                                 .getChrome()
                                 .getContextManager()
-                                .reloadModelsAsync();
+                                .reloadService();
                         // Also need to refresh model selection UI in SettingsGlobalPanel
                         parentProjectPanel.parentDialog.refreshGlobalModelsPanelPostPolicyChange();
                     }

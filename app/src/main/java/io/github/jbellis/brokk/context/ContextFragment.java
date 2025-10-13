@@ -1857,6 +1857,7 @@ public interface ContextFragment {
                 String description,
                 boolean escapeHtml) {
             super(calculateId(description, messages), contextManager); // ID is content hash
+            assert !messages.isEmpty() : "No messages provided in the task fragment";
             this.parser = parser;
             this.messages = List.copyOf(messages);
             this.description = description;
@@ -1881,6 +1882,7 @@ public interface ContextFragment {
                 String description,
                 boolean escapeHtml) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            assert !messages.isEmpty() : "No messages provided in the task fragment";
             this.parser = parser;
             this.messages = List.copyOf(messages);
             this.description = description;

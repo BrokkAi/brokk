@@ -9,11 +9,9 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
-import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -30,7 +28,6 @@ import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -72,15 +69,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
-    public static final String ACTION_RUN_TESTS = "Run Selected Tests";
-    public static final String ACTION_SCAN_PROJECT = "Scan Project";
 
-    private static final String PLACEHOLDER_TEXT =
-            """
-                                                   Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
-
-                                                   More tips are available in the Getting Started section in the Output panel above.
-                                                   """;
+    private static final String PLACEHOLDER_TEXT = "Put your instructions or questions here.";
 
     private final Color defaultActionButtonBg;
     private final Color secondaryActionButtonBg;
@@ -1525,7 +1515,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
-        var llm = cm.getLlm(model, "Answer: " + question);
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
 
         return executeAskCommand(llm, messages, cm, question);
     }
@@ -1536,7 +1526,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
         try {
-            response = llm.sendRequest(messages, true);
+            response = llm.sendRequest(messages);
         } catch (InterruptedException e) {
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
@@ -1659,7 +1649,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .sourceContextForSession(cm.topContext())
                         .open()
                         .thenAccept(success -> {
-                            if (Boolean.TRUE.equals(success)) {
+                            if (success) {
                                 chrome.showNotification(
                                         IConsoleIO.NotificationRole.INFO, "New worktree opened for Architect");
                             } else {
@@ -2044,7 +2034,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 case ACTION_CODE -> runCodeCommand();
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
-                case ACTION_SCAN_PROJECT -> runScanProjectCommand();
                 default -> runArchitectCommand();
             }
         }
@@ -2080,59 +2069,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             clearCommandInput();
         }
         instructionsArea.requestFocusInWindow(); // Give it focus
-    }
-
-    public void runScanProjectCommand() {
-        var goal = getInstructions();
-        if (goal.isBlank()) {
-            chrome.toolError("Please provide instructions before scanning the project");
-            return;
-        }
-
-        final var modelToUse = selectDropdownModelOrShowError("Scan Project", true);
-        if (modelToUse == null) {
-            return;
-        }
-
-        chrome.getProject().addToInstructionsHistory(goal, 20);
-        clearCommandInput();
-
-        submitAction(ACTION_SCAN_PROJECT, goal, () -> {
-            try {
-                var cm = chrome.getContextManager();
-                var contextAgent = new ContextAgent(cm, modelToUse, goal, true);
-                var recommendation = contextAgent.getRecommendations(true);
-                var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
-                int finalBudget = cm.getService().getMaxInputTokens(modelToUse) / 2;
-
-                if (totalTokens > finalBudget) {
-                    var summary = ContextFragment.getSummary(recommendation.fragments());
-                    cm.addVirtualFragment(new ContextFragment.StringFragment(
-                            cm,
-                            summary,
-                            "Summary of Project Scan",
-                            recommendation.fragments().stream()
-                                    .findFirst()
-                                    .map(ContextFragment::syntaxStyle)
-                                    .orElseThrow()));
-                } else {
-                    WorkspaceTools.addToWorkspace(cm, recommendation);
-                }
-                return new TaskResult(
-                        chrome.getContextManager(),
-                        ACTION_SCAN_PROJECT + ": " + goal,
-                        List.copyOf(chrome.getContextManager().getIo().getLlmRawMessages()),
-                        Set.of(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-            } catch (InterruptedException e) {
-                return new TaskResult(
-                        chrome.getContextManager(),
-                        ACTION_SCAN_PROJECT + ": " + goal,
-                        List.copyOf(chrome.getContextManager().getIo().getLlmRawMessages()),
-                        Set.of(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
-            }
-        });
     }
 
     public VoiceInputButton getVoiceInputButton() {

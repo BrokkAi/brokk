@@ -1287,6 +1287,12 @@ public class BlitzForgeDialog extends JDialog {
                         contextFilter);
                 scope.append(parallelResult);
 
+                // If the parallel phase was cancelled/interrupted, skip any post-processing (including build).
+                if (parallelResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                    logger.debug("Parallel processing was interrupted; skipping post-processing.");
+                    return;
+                }
+
                 var mainIo = cm.getIo();
 
                 if (fRunOption == PostProcessingOption.NONE) {

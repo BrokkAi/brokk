@@ -8,10 +8,13 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SourceCodeProvider;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
+import io.github.jbellis.brokk.util.FileManagerUtil;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -216,6 +219,20 @@ public class ContextMenuBuilder {
         summarizeItem.addActionListener(e -> summarizeFiles(fileContext));
         menu.add(summarizeItem);
 
+        var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
+        openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
+        java.nio.file.Path target;
+        if (files.size() == 1) {
+            target = files.getFirst().absPath();
+        } else {
+            var first = files.getFirst().absPath();
+            var parent = first.getParent();
+            target = parent != null ? parent : first;
+        }
+        openInItem.setEnabled(Files.exists(target));
+        openInItem.addActionListener(e -> openInFileManager(fileContext));
+        menu.add(openInItem);
+
         // Run Tests (only show if all files are test files)
         boolean hasTestFiles = files.stream().allMatch(ContextManager::isTestFile);
         if (hasTestFiles) {
@@ -322,6 +339,13 @@ public class ContextMenuBuilder {
         summarizeItem.setEnabled(analyzerReady);
         summarizeItem.addActionListener(e -> summarizeFiles(singleFileContext));
         parent.add(summarizeItem);
+
+        var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
+        openInItem.setToolTipText(FileManagerUtil.fileManagerActionTooltip());
+        var singleTarget = file.absPath();
+        openInItem.setEnabled(Files.exists(singleTarget));
+        openInItem.addActionListener(e -> openInFileManager(singleFileContext));
+        parent.add(openInItem);
 
         // Run Tests (only if this file is a test file)
         if (isTestFile) {
@@ -580,6 +604,33 @@ public class ContextMenuBuilder {
                                     "Capture Class Source",
                                     JOptionPane.WARNING_MESSAGE);
                 });
+            }
+        });
+    }
+
+    private void openInFileManager(FileMenuContext context) {
+        var files = context.files();
+        if (files.isEmpty()) {
+            return;
+        }
+
+        java.nio.file.Path target;
+        if (files.size() == 1) {
+            target = files.getFirst().absPath();
+        } else {
+            var first = files.getFirst().absPath();
+            var parent = first.getParent();
+            target = parent != null ? parent : first;
+        }
+
+        var taskLabel = FileManagerUtil.fileManagerActionLabel();
+        context.contextManager().submitBackgroundTask(taskLabel, () -> {
+            try {
+                FileManagerUtil.revealPath(target);
+            } catch (IOException | UnsupportedOperationException ex) {
+                logger.warn("Failed to open file manager for {}: {}", target, ex.getMessage());
+                SwingUtilities.invokeLater(() -> context.chrome()
+                        .toolError("Failed to open file manager: " + ex.getMessage(), "Open in File Manager"));
             }
         });
     }

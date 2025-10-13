@@ -2459,12 +2459,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return terminalDrawer;
     }
 
-    /** Append tasks to the Task List panel, if present. Tasks are appended to the current session's list. */
-    public void appendTasksToTaskList(List<String> tasks) {
-        SwingUtilities.invokeLater(() -> {
-            var taskPanel = terminalDrawer.openTaskList();
-            taskPanel.appendTasks(tasks);
-        });
+    /**
+     * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
+     */
+    public void refreshTaskListUI() {
+        SwingUtilities.invokeLater(() -> terminalDrawer.openTaskList());
     }
 
     public Action getGlobalUndoAction() {
