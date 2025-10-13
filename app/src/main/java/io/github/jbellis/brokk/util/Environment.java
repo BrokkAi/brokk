@@ -4,6 +4,7 @@ import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
 import java.io.File;
@@ -207,6 +208,15 @@ public class Environment {
 
         logger.trace("command: {}", String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
+
+        if (project != null) {
+            String jdkPath = project.getJdk();
+            if (jdkPath != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(jdkPath)) {
+                pb.environment().put("JAVA_HOME", jdkPath);
+                logger.debug("Set JAVA_HOME={} for subprocess.", jdkPath);
+            }
+        }
+
         Process process;
         try {
             process = pb.start();
