@@ -12,6 +12,7 @@ pandas>=1.3.0
 # Development and debugging
 colorama>=0.4.4  # For colored terminal output
 tqdm>=4.64.0     # For progress bars (if needed)
+psutil>=5.8.0    # For system/process monitoring and diagnostics
 
 # Note: Brokk CLI itself requires Java 21+ and is built with Gradle
 # The Python scripts here are just for evaluation orchestration

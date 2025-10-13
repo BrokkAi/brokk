@@ -1,0 +1,33 @@
+{
+  "evaluation_metadata": {
+    "model_name": "brokk-cli",
+    "start_time": "2025-10-13T15:29:07.375950",
+    "end_time": "2025-10-13T15:29:07.940422",
+    "total_instances": 1
+  },
+  "timing_statistics": {
+    "total_runtime_seconds": 0.56,
+    "total_runtime_human": "0h 0m 0s",
+    "average_runtime_per_instance_seconds": 0.5,
+    "min_runtime_seconds": 0.5,
+    "max_runtime_seconds": 0.5,
+    "instances_evaluated": 1
+  },
+  "retry_statistics": {
+    "instances_with_retries": 0,
+    "total_retry_attempts": 0,
+    "average_retries_per_instance": 0.0
+  },
+  "outcome_statistics": {
+    "instances_with_code_changes": 0,
+    "instances_no_changes": 0,
+    "instances_failed": 1,
+    "instances_empty_patch": 0
+  },
+  "system_info": {
+    "memory_used_mb": 162.57,
+    "cpu_percent": 0.5,
+    "python_version": "3.12.3 (main, Aug 14 2025, 17:47:21) [GCC 13.3.0]",
+    "platform": "linux"
+  }
+}

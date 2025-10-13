@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+import psutil
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Set
 from datasets import load_from_disk, DatasetDict
@@ -83,6 +84,48 @@ def load_repo_mapping(mapping_file: str) -> Dict[str, str]:
     except Exception as e:
         log_error(f"Failed to load repository mapping: {e}")
         sys.exit(1)
+
+def reset_repository(repo_path: Path) -> bool:
+    """
+    Reset repository to clean state for re-evaluation.
+    
+    - Discards all uncommitted changes
+    - Removes untracked files
+    - Removes .brokk/ directory
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        log_info(f"Resetting repository: {repo_path}")
+        
+        # Reset all tracked files to HEAD
+        subprocess.run(
+            ["git", "reset", "--hard", "HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # Remove all untracked files and directories (including .brokk/)
+        subprocess.run(
+            ["git", "clean", "-fd"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        log_success("Repository reset to clean state")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        log_error(f"Failed to reset repository: {e}")
+        return False
+    except Exception as e:
+        log_error(f"Unexpected error resetting repository: {e}")
+        return False
 
 def setup_brokk_config(repo_path: Path, template_path: Path) -> bool:
     """
@@ -190,7 +233,8 @@ def run_brokk_cli_internal(
     problem_statement: str, 
     instance_id: str, 
     additional_files: Optional[List[str]] = None,
-    retry_attempt: int = 0
+    retry_attempt: int = 0,
+    agent: str = "code"
 ) -> Dict[str, Any]:
     """
     Internal function to run Brokk CLI on a repository.
@@ -247,7 +291,7 @@ def run_brokk_cli_internal(
         brokk_cmd = [
             "../../cli",  # Relative path from repo to cli script
             "--project", ".",
-            "--lutz",     # try lutz mode instead of deepscan
+            "--deepscan",
         ]
         
         # Add explicit files if provided
@@ -255,8 +299,16 @@ def run_brokk_cli_internal(
             for file_path in additional_files:
                 brokk_cmd.extend(["--edit", file_path])
         
-        # Add the problem statement
-        brokk_cmd.extend(["--code", problem_statement])
+        # Add the problem statement with the appropriate agent flag
+        if agent == "code":
+            brokk_cmd.extend(["--code", problem_statement])
+        elif agent == "architect":
+            brokk_cmd.extend(["--architect", problem_statement])
+        elif agent == "search-tasks":
+            brokk_cmd.extend(["--search-tasks", problem_statement])
+        else:
+            # Default to code
+            brokk_cmd.extend(["--code", problem_statement])
         
         log_info(f"Command: {' '.join(brokk_cmd)}")
         
@@ -437,7 +489,9 @@ def run_brokk_cli(
     problem_statement: str, 
     instance_id: str, 
     template_path: Path,
-    max_retries: int = 1
+    max_retries: int = 1,
+    agent: str = "code",
+    reset_repo: bool = True
 ) -> Dict[str, Any]:
     """
     Run Brokk CLI on a repository with automatic retry if files are requested.
@@ -448,6 +502,8 @@ def run_brokk_cli(
         instance_id: The instance identifier
         template_path: Path to the project.properties template
         max_retries: Maximum number of retries with additional files (default: 1)
+        agent: Which Brokk agent to use (code, architect, or search-tasks)
+        reset_repo: Whether to reset repository to clean state before running (default: True)
     
     Returns:
         Dictionary with success status, git diff, and any errors
@@ -461,6 +517,11 @@ def run_brokk_cli(
             "patch": ""
         }
     
+    # Reset repository to clean state if requested
+    if reset_repo:
+        if not reset_repository(repo_path_obj):
+            log_warning("Failed to reset repository, continuing anyway...")
+    
     # Setup .brokk/project.properties before running Brokk
     if not setup_brokk_config(repo_path_obj, template_path):
         return {
@@ -470,7 +531,7 @@ def run_brokk_cli(
         }
     
     # First attempt: run without additional files
-    result = run_brokk_cli_internal(repo_path_obj, problem_statement, instance_id)
+    result = run_brokk_cli_internal(repo_path_obj, problem_statement, instance_id, agent=agent)
     
     # Track retry attempts
     retry_count = 0
@@ -505,7 +566,8 @@ def run_brokk_cli(
             problem_statement, 
             instance_id,
             additional_files=sorted(new_files),
-            retry_attempt=retry_count
+            retry_attempt=retry_count,
+            agent=agent
         )
     
     # Add retry metadata to result
@@ -523,7 +585,9 @@ def evaluate_instances(
     template_path: Path,
     max_instances: Optional[int] = None,
     model_name: str = "brokk-cli",
-    max_retries: int = 1
+    max_retries: int = 1,
+    agent: str = "code",
+    reset_repo: bool = True
 ) -> Dict[str, Dict[str, Any]]:
     """
     Evaluate Brokk CLI on multiple instances.
@@ -535,6 +599,8 @@ def evaluate_instances(
         max_instances: Maximum number of instances to evaluate
         model_name: Name of the model for results
         max_retries: Maximum retry attempts when Brokk requests files
+        agent: Which Brokk agent to use (code, architect, or search-tasks)
+        reset_repo: Whether to reset repositories to clean state before running
     
     Returns:
         Dictionary in preds.json format
@@ -544,8 +610,10 @@ def evaluate_instances(
     
     log_info(f"Starting evaluation of {len(instances)} instances")
     log_info(f"Model name: {model_name}")
+    log_info(f"Agent mode: {agent}")
     log_info(f"Using template: {template_path}")
     log_info(f"Max retries with requested files: {max_retries}")
+    log_info(f"Reset repositories before evaluation: {reset_repo}")
     
     results = {}
     successful_evaluations = 0
@@ -579,7 +647,9 @@ def evaluate_instances(
             problem_statement, 
             instance_id, 
             template_path,
-            max_retries=max_retries
+            max_retries=max_retries,
+            agent=agent,
+            reset_repo=reset_repo
         )
         
         # Store result
@@ -634,6 +704,166 @@ def save_predictions(results: Dict[str, Dict[str, Any]], output_file: str):
     
     log_success(f"Predictions saved to {output_file}")
 
+def generate_results_json(results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Generate results.json in SWE-bench format.
+    
+    Note: resolved/unresolved instances require running actual tests,
+    so we mark all completed instances as unresolved until tests are run.
+    """
+    total_instances = len(results)
+    
+    # Categorize instances
+    completed_ids = []
+    incomplete_ids = []
+    empty_patch_ids = []
+    submitted_ids = []
+    error_ids = []
+    
+    for instance_id, result in results.items():
+        # All instances we attempted are submitted
+        submitted_ids.append(instance_id)
+        
+        if result.get("success", False):
+            # Completed successfully
+            completed_ids.append(instance_id)
+            
+            if not result.get("model_patch") or result.get("model_patch").strip() == "":
+                # Completed but no patch
+                empty_patch_ids.append(instance_id)
+        else:
+            # Failed to complete
+            if result.get("error"):
+                error_ids.append(instance_id)
+            incomplete_ids.append(instance_id)
+    
+    # Sort all ID lists for consistency
+    completed_ids.sort()
+    incomplete_ids.sort()
+    empty_patch_ids.sort()
+    submitted_ids.sort()
+    error_ids.sort()
+    
+    # For resolved/unresolved, we need actual test results
+    # For now, mark all completed as unresolved (tests haven't run yet)
+    unresolved_ids = sorted(completed_ids)  # All completed are unresolved until tested
+    resolved_ids = []  # Will be populated after running SWE-bench tests
+    
+    return {
+        "total_instances": total_instances,
+        "submitted_instances": len(submitted_ids),
+        "completed_instances": len(completed_ids),
+        "resolved_instances": len(resolved_ids),
+        "unresolved_instances": len(unresolved_ids),
+        "empty_patch_instances": len(empty_patch_ids),
+        "error_instances": len(error_ids),
+        "completed_ids": completed_ids,
+        "incomplete_ids": incomplete_ids,
+        "empty_patch_ids": empty_patch_ids,
+        "submitted_ids": submitted_ids,
+        "resolved_ids": resolved_ids,
+        "unresolved_ids": unresolved_ids,
+        "error_ids": error_ids,
+        "schema_version": 2
+    }
+
+def save_results_json(results: Dict[str, Dict[str, Any]], output_file: str):
+    """Save results.json in SWE-bench format."""
+    results_data = generate_results_json(results)
+    
+    with open(output_file, 'w') as f:
+        json.dump(results_data, f, indent=2)
+    
+    log_success(f"Results summary saved to {output_file}")
+
+def generate_diagnostics(
+    results: Dict[str, Dict[str, Any]], 
+    start_time: float, 
+    end_time: float,
+    model_name: str
+) -> Dict[str, Any]:
+    """Generate diagnostic information about the evaluation run."""
+    total_runtime = end_time - start_time
+    
+    # Extract execution times
+    execution_times = []
+    retry_counts = []
+    
+    for result in results.values():
+        if "execution_time" in result and result["execution_time"]:
+            execution_times.append(result["execution_time"])
+        if "retry_count" in result:
+            retry_counts.append(result["retry_count"])
+    
+    # Calculate statistics
+    avg_runtime = sum(execution_times) / len(execution_times) if execution_times else 0
+    min_runtime = min(execution_times) if execution_times else 0
+    max_runtime = max(execution_times) if execution_times else 0
+    
+    # Get system info
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    
+    # Count retries
+    instances_with_retries = len([r for r in results.values() if r.get("retry_count", 0) > 0])
+    total_retries = sum(retry_counts)
+    
+    # Count changes
+    instances_with_changes = len([r for r in results.values() if r.get("changes", False)])
+    instances_no_changes = len([r for r in results.values() 
+                                 if r.get("success", False) and not r.get("changes", False)])
+    
+    return {
+        "evaluation_metadata": {
+            "model_name": model_name,
+            "start_time": datetime.fromtimestamp(start_time).isoformat(),
+            "end_time": datetime.fromtimestamp(end_time).isoformat(),
+            "total_instances": len(results)
+        },
+        "timing_statistics": {
+            "total_runtime_seconds": round(total_runtime, 2),
+            "total_runtime_human": f"{int(total_runtime // 3600)}h {int((total_runtime % 3600) // 60)}m {int(total_runtime % 60)}s",
+            "average_runtime_per_instance_seconds": round(avg_runtime, 2),
+            "min_runtime_seconds": round(min_runtime, 2),
+            "max_runtime_seconds": round(max_runtime, 2),
+            "instances_evaluated": len(execution_times)
+        },
+        "retry_statistics": {
+            "instances_with_retries": instances_with_retries,
+            "total_retry_attempts": total_retries,
+            "average_retries_per_instance": round(total_retries / len(results), 2) if results else 0
+        },
+        "outcome_statistics": {
+            "instances_with_code_changes": instances_with_changes,
+            "instances_no_changes": instances_no_changes,
+            "instances_failed": len([r for r in results.values() if not r.get("success", False)]),
+            "instances_empty_patch": len([r for r in results.values() 
+                                         if r.get("success", False) and 
+                                         (not r.get("model_patch") or r.get("model_patch").strip() == "")])
+        },
+        "system_info": {
+            "memory_used_mb": round(memory_info.rss / 1024 / 1024, 2),
+            "cpu_percent": psutil.cpu_percent(interval=1),
+            "python_version": sys.version,
+            "platform": sys.platform
+        }
+    }
+
+def save_diagnostics(
+    results: Dict[str, Dict[str, Any]], 
+    start_time: float, 
+    end_time: float,
+    model_name: str,
+    output_file: str
+):
+    """Save diagnostic information to file."""
+    diagnostics = generate_diagnostics(results, start_time, end_time, model_name)
+    
+    with open(output_file, 'w') as f:
+        json.dump(diagnostics, f, indent=2)
+    
+    log_success(f"Diagnostics saved to {output_file}")
+
 def main():
     parser = argparse.ArgumentParser(
         description="Evaluate Brokk CLI on SWE-bench-lite instances",
@@ -654,6 +884,18 @@ Examples:
   
   # Enable automatic retries when Brokk requests files
   python evaluate_brokk.py --split test --max_instances 5 --max_retries 2
+  
+  # Use search-tasks agent (research + task execution mode)
+  python evaluate_brokk.py --split test --max_instances 3 --agent search-tasks
+  
+  # Use architect agent (planning + coding mode)
+  python evaluate_brokk.py --split test --max_instances 3 --agent architect
+  
+  # Don't reset repositories (preserve previous state)
+  python evaluate_brokk.py --split test --max_instances 3 --no-reset
+  
+  # Custom output directory
+  python evaluate_brokk.py --split test --max_instances 3 --output_dir my_results
         """
     )
     
@@ -694,9 +936,9 @@ Examples:
     )
     
     parser.add_argument(
-        "--output_file",
-        default="preds.json",
-        help="Output file for predictions (default: preds.json)"
+        "--output_dir",
+        default=None,
+        help="Output directory for results (default: swe_bench_tests/{timestamp}_{model_name})"
     )
     
     parser.add_argument(
@@ -710,6 +952,19 @@ Examples:
         type=int,
         default=1,
         help="Maximum retry attempts when Brokk requests additional files (default: 1)"
+    )
+    
+    parser.add_argument(
+        "--agent",
+        choices=["code", "architect", "search-tasks"],
+        default="code",
+        help="Brokk agent to use: code (direct coding), architect (planning + coding), or search-tasks (research + task execution) (default: code)"
+    )
+    
+    parser.add_argument(
+        "--no-reset",
+        action="store_true",
+        help="Don't reset repositories to clean state before evaluation (default: repositories are reset)"
     )
     
     args = parser.parse_args()
@@ -777,20 +1032,51 @@ Examples:
             log_info(f"Available instances: {[i['instance_id'] for i in available_instances]}")
             sys.exit(1)
     
+    # Create output directory
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        # Default: swe_bench_tests/{timestamp}_{model_name}
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_model_name = args.model_name.replace("/", "_").replace(" ", "_")
+        output_dir = Path("swe_bench_tests") / f"{timestamp}_{safe_model_name}"
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_success(f"Created output directory: {output_dir}")
+    
     # Run evaluation
+    eval_start_time = time.time()
     results = evaluate_instances(
         available_instances,
         repo_mapping,
         template_path,
         args.max_instances,
         args.model_name,
-        args.max_retries
+        args.max_retries,
+        args.agent,
+        reset_repo=not args.no_reset  # Invert the flag
     )
+    eval_end_time = time.time()
     
-    # Save results
-    save_predictions(results, args.output_file)
+    # Save all output files
+    preds_file = output_dir / "preds.json"
+    results_file = output_dir / "results.json"
+    diagnostics_file = output_dir / "diagnostics.json"
     
-    log_success("Evaluation completed successfully!")
+    save_predictions(results, str(preds_file))
+    save_results_json(results, str(results_file))
+    save_diagnostics(results, eval_start_time, eval_end_time, args.model_name, str(diagnostics_file))
+    
+    # Print summary
+    log_status(f"\n{'='*60}", Colors.BOLD)
+    log_status("OUTPUT FILES", Colors.BOLD)
+    log_status(f"{'='*60}", Colors.BOLD)
+    log_success(f"Output directory: {output_dir}")
+    log_success(f"  - preds.json: Model predictions for SWE-bench evaluation")
+    log_success(f"  - results.json: Summary statistics (needs test results for resolve/unresolved)")
+    log_success(f"  - diagnostics.json: Performance metrics and system info")
+    
+    log_success("\nEvaluation completed successfully!")
 
 if __name__ == "__main__":
     import os

@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datasets import load_from_disk, DatasetDict
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -132,15 +134,17 @@ def clone_and_setup_repo(instance: Dict[str, Any], repos_dir: Path) -> Optional[
 def setup_repositories_for_instances(
     instances: List[Dict[str, Any]], 
     repos_dir: Path,
-    max_repos: Optional[int] = None
+    max_repos: Optional[int] = None,
+    max_workers: int = 5
 ) -> Dict[str, Path]:
     """
-    Set up repositories for multiple instances.
+    Set up repositories for multiple instances in parallel.
     
     Args:
         instances: List of SWE-bench instances
         repos_dir: Directory to clone repositories into
         max_repos: Maximum number of repositories to set up
+        max_workers: Number of parallel workers (default: 5)
         
     Returns:
         Dictionary mapping instance_id to repository path
@@ -151,6 +155,7 @@ def setup_repositories_for_instances(
         instances = instances[:max_repos]
     
     logger.info(f"🚀 Setting up {len(instances)} repositories in {repos_dir}")
+    logger.info(f"⚡ Using {max_workers} parallel workers for faster cloning")
     
     # Debug: Check instances structure
     logger.debug(f"Instances type: {type(instances)}")
@@ -159,22 +164,51 @@ def setup_repositories_for_instances(
         logger.debug(f"First instance: {instances[0]}")
     
     successful_repos = {}
+    progress_lock = Lock()
+    completed_count = [0]  # Use list for mutability in closure
     
-    for i, instance in enumerate(instances):
-        logger.info(f"📊 Progress: {i+1}/{len(instances)}")
+    def clone_with_progress(instance_data):
+        """Clone a repository and update progress."""
+        index, instance = instance_data
         
         # Debug each instance
-        logger.debug(f"Processing instance {i}: {type(instance)} - {instance}")
+        logger.debug(f"Processing instance {index}: {type(instance)} - {instance}")
         
         repo_path = clone_and_setup_repo(instance, repos_dir)
+        
+        # Update progress (thread-safe)
+        with progress_lock:
+            completed_count[0] += 1
+            logger.info(f"📊 Progress: {completed_count[0]}/{len(instances)}")
+        
+        # Return result
         if repo_path:
-            # Extract instance_id safely
             if isinstance(instance, dict) and "instance_id" in instance:
-                successful_repos[instance["instance_id"]] = repo_path
+                return (instance["instance_id"], repo_path)
             else:
                 logger.warning(f"⚠️  Cannot extract instance_id from: {instance}")
+                return None
         else:
-            logger.warning(f"⚠️  Failed to set up repository for instance {i}")
+            logger.warning(f"⚠️  Failed to set up repository for instance {index}")
+            return None
+    
+    # Use ThreadPoolExecutor for parallel cloning (I/O bound operation)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        futures = {
+            executor.submit(clone_with_progress, (i, instance)): instance 
+            for i, instance in enumerate(instances)
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                if result:
+                    instance_id, repo_path = result
+                    successful_repos[instance_id] = repo_path
+            except Exception as e:
+                logger.error(f"💥 Unexpected error in parallel task: {e}")
     
     logger.info(f"✅ Successfully set up {len(successful_repos)}/{len(instances)} repositories")
     return successful_repos
@@ -189,11 +223,14 @@ Examples:
   # Set up repositories for first 5 test instances
   python repo_setup.py --split test --max_repos 5 --repos_dir swe_bench_repos
   
-  # Set up repositories for all dev instances
-  python repo_setup.py --split dev --repos_dir dev_repos
+  # Set up repositories for all dev instances with 10 parallel workers
+  python repo_setup.py --split dev --repos_dir dev_repos --max_workers 10
   
-  # Set up repositories for first 5 test instances
-  python repo_setup.py --max_repos 5 --repos_dir swe_bench_repos
+  # Fast cloning with 20 parallel workers (requires good network)
+  python repo_setup.py --max_repos 50 --max_workers 20 --repos_dir swe_bench_repos
+  
+  # Conservative cloning with fewer workers (for slower connections)
+  python repo_setup.py --max_repos 10 --max_workers 2 --repos_dir swe_bench_repos
         """
     )
     
@@ -220,6 +257,13 @@ Examples:
         "--max_repos",
         type=int,
         help="Maximum number of repositories to set up"
+    )
+    
+    parser.add_argument(
+        "--max_workers",
+        type=int,
+        default=5,
+        help="Number of parallel workers for cloning (default: 5, increase for faster cloning)"
     )
     
     parser.add_argument(
@@ -261,7 +305,8 @@ Examples:
     successful_repos = setup_repositories_for_instances(
         instances, 
         repos_dir, 
-        args.max_repos
+        args.max_repos,
+        args.max_workers
     )
     
     # Save mapping
