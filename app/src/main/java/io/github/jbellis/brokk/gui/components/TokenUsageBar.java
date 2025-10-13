@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.gui.components;
 
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -23,7 +25,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     // Hover state for highlight
     private boolean hovered = false;
 
-    public TokenUsageBar() {
+    public TokenUsageBar(Chrome chrome) {
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
         setPreferredSize(new Dimension(75, 24));
@@ -49,6 +51,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 repaint();
             }
         });
+        setTransferHandler(FileDropHandlerFactory.createFileDropHandler(chrome));
     }
 
     public void setTokens(int current, int max) {
