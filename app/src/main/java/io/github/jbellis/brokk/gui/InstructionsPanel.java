@@ -29,6 +29,7 @@ import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.wand.WandAction;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
@@ -810,8 +811,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 Dimension pref = getPreferredSize();
                 return new Dimension(Integer.MAX_VALUE, pref.height);
             }
+
+            @Override
+            public boolean contains(int x, int y) {
+                // Treat the entire rectangular bounds of the component as the hit area for mouse events,
+                // which is important for drag-and-drop on a non-opaque component.
+                return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
+            }
         };
         titledContainer.setOpaque(false);
+        titledContainer.setTransferHandler(FileDropHandlerFactory.createFileDropHandler(this.chrome));
         titledContainer.setBorder(
                 BorderFactory.createCompoundBorder(contextTitledBorder, BorderFactory.createEmptyBorder(0, 0, 0, 0)));
         titledContainer.add(container, BorderLayout.CENTER);

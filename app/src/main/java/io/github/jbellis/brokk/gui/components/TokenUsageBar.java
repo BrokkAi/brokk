@@ -51,7 +51,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 repaint();
             }
         });
-        setTransferHandler(FileDropHandlerFactory.createFileDropHandler(chrome));
     }
 
     public void setTokens(int current, int max) {
