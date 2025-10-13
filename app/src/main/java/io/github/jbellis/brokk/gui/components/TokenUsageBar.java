@@ -122,7 +122,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         if (!hasContext) {
             // Friendly, actionable hint when there is no context.
             String msg =
-                    "No context yet - add some by clicking the paperclip icon or drag-and-drop files from the toolbar.";
+                    "No context yet - add some by clicking the paperclip icon or drag-and-drop files from the Project Files panel.";
             int maxTextWidth = Math.max(0, width - 2 * padding);
             String shown = elide(msg, fm, maxTextWidth);
 
