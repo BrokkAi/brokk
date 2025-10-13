@@ -234,6 +234,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
+    private final io.github.jbellis.brokk.gui.terminal.TaskListPanel taskListPanel;
 
     // Right-hand drawer (tools) - split and content
     private DrawerSplitPanel instructionsDrawerSplit;
@@ -450,6 +451,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
         rightTabbedPanel.addTab("Instructions", null, instructionsPanel);
         rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
+        
+        // Create and add TaskListPanel as second tab
+        taskListPanel = new io.github.jbellis.brokk.gui.terminal.TaskListPanel(this);
+        rightTabbedPanel.addTab("Tasks", null, taskListPanel);
+        rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
+        
+        // Create and add TerminalPanel as third tab
+        var terminalPanel = new io.github.jbellis.brokk.gui.terminal.TerminalPanel(this, () -> {}, false, getProject().getRoot());
+        rightTabbedPanel.addTab("Terminal", null, terminalPanel);
+        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
         
         // Create terminal drawer panel
         instructionsDrawerSplit = new DrawerSplitPanel();
