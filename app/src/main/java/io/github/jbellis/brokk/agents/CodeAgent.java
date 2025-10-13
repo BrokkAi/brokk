@@ -120,7 +120,7 @@ public class CodeAgent {
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                contextManager,
+                contextManager.liveContext(),
                 userInput.trim(),
                 CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
@@ -328,7 +328,7 @@ public class CodeAgent {
         EditBlockParser parser = EditBlockParser.instance;
 
         UserMessage initialRequest = CodePrompts.instance.codeRequest(
-                contextManager, instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
+                contextManager.liveContext(), instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
         var editState = new EditState(

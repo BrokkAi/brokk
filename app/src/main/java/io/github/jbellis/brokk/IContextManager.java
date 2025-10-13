@@ -6,11 +6,9 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.io.File;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -18,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
-import java.util.stream.Collectors;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -224,50 +222,5 @@ public interface IContextManager {
     default Llm getLlm(Llm.Options options) {
         return Llm.create(
                 options, this, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
-    }
-
-    default Set<CodePrompts.InstructionsFlags> instructionsFlags() {
-        return instructionsFlags(
-                getProject(),
-                topContext()
-                        .getEditableFragments()
-                        .flatMap(f -> f.files().stream())
-                        .collect(Collectors.toSet()));
-    }
-
-    static Set<CodePrompts.InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
-        var flags = new HashSet<CodePrompts.InstructionsFlags>();
-        var languages = project.getAnalyzerLanguages();
-
-        // we'll inefficiently read the files every time this method is called but at least we won't do it twice
-        var fileContents = editableFiles.stream()
-                .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
-
-        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
-        var unsupported = fileContents.keySet().stream()
-                .filter(f -> {
-                    var ext = f.extension();
-                    return ext.isEmpty()
-                            || languages.stream()
-                                    .noneMatch(lang -> lang.getExtensions().contains(ext));
-                })
-                .collect(Collectors.toSet());
-        // temporarily disabled, see https://github.com/BrokkAi/brokk/issues/1250
-        if (false) {
-            flags.add(CodePrompts.InstructionsFlags.SYNTAX_AWARE);
-        } else {
-            logger.debug("Syntax-unsupported files are {}", unsupported);
-        }
-
-        // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
-        var hasMergeMarkers = fileContents.values().stream()
-                .filter(s -> s.contains("BRK_CONFLICT_BEGIN_") && s.contains("BRK_CONFLICT_END_"))
-                .collect(Collectors.toSet());
-        if (!hasMergeMarkers.isEmpty()) {
-            flags.add(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS);
-            logger.debug("Files with merge markers: {}", hasMergeMarkers);
-        }
-
-        return flags;
     }
 }
