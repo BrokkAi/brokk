@@ -112,6 +112,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
+    @Override
+    public boolean contains(int x, int y) {
+        // Treat the entire rectangular bounds of the component as the hit area for mouse events,
+        // which is important for drag-and-drop on a non-opaque component.
+        return x >= 0 && x < getWidth() && y >= 0 && y < getHeight();
+    }
+
     private void drawText(Graphics2D g2d, int width, int height, int fillWidth) {
         String currentText = formatTokens(currentTokens);
 
