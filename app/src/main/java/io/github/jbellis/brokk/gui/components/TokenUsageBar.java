@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui.components;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.gui.util.FileDropHandlerFactory;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
