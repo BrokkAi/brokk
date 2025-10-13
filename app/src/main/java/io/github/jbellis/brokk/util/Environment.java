@@ -205,8 +205,9 @@ public class Environment {
                     logger.warn("invalid custom executor '{}', using system default", config);
                 }
                 // Fall back to system default
-                shellCommand =
-                        isWindows() ? new String[] {"cmd.exe", "/c", command} : new String[] {"/bin/sh", "-c", command};
+                shellCommand = isWindows()
+                        ? new String[] {"powershell.exe", "-Command", command}
+                        : new String[] {"/bin/sh", "-c", command};
             }
         }
 

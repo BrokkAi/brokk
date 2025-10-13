@@ -99,10 +99,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JComboBox<String> commonExecutorsComboBox = new JComboBox<>();
 
     // System-default executor
-    private static final boolean IS_WINDOWS =
-            System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
-    private static final String DEFAULT_EXECUTOR_PATH = IS_WINDOWS ? "cmd.exe" : "/bin/sh";
-    private static final String DEFAULT_EXECUTOR_ARGS = IS_WINDOWS ? "/c" : "-c";
+    private static final boolean IS_WINDOWS = Environment.isWindows();
+    private static final String DEFAULT_EXECUTOR_PATH = IS_WINDOWS ? "powershell.exe" : "/bin/sh";
+    private static final String DEFAULT_EXECUTOR_ARGS = IS_WINDOWS ? "-Command" : "-c";
 
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
