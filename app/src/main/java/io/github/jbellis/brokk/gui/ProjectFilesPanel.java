@@ -24,7 +24,7 @@ public class ProjectFilesPanel extends JPanel {
         splitPane.setBorder(BorderFactory.createEmptyBorder());
         splitPane.setOneTouchExpandable(false);
         splitPane.setMinimumSize(new java.awt.Dimension(100, 200));
-        
+
         this.testRunnerPanel.setMinimumSize(new java.awt.Dimension(100, 200));
 
         add(splitPane, BorderLayout.CENTER);

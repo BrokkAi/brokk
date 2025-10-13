@@ -165,7 +165,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         splitPane.setDividerLocation(150);
         splitPane.setBorder(BorderFactory.createEmptyBorder());
         splitPane.setMinimumSize(new java.awt.Dimension(100, 200));
-        
+
         setMinimumSize(new java.awt.Dimension(100, 200));
 
         add(splitPane, BorderLayout.CENTER);
